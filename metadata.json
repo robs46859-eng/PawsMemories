@@ -1,0 +1,6 @@
+{
+  "name": "Paws & Memories",
+  "description": "Turn your pet photos into magical claymation, sketch, or artistic digital heirlooms with the help of Randy, your AI guide.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

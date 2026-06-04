@@ -1,0 +1,344 @@
+import express from "express";
+import path from "path";
+import { createServer as createViteServer } from "vite";
+import { GoogleGenAI } from "@google/genai";
+import dotenv from "dotenv";
+
+dotenv.config();
+
+async function startServer() {
+  const app = express();
+  const PORT = 3000;
+
+  app.use(express.json({ limit: "50mb" }));
+  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+  // Initialize Gemini API
+  const apiKey = process.env.GEMINI_API_KEY;
+  const ai = new GoogleGenAI({
+    apiKey: apiKey || "placeholder-key",
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      }
+    }
+  });
+
+  // API route to create custom styled pet images using Imagen or Gemini
+  app.get("/api/inspiration", async (req, res) => {
+    try {
+      // 1. Fetch live random dog photo
+      let dogImageUrl = "";
+      let breedName = "Charming Pet";
+      let imageFetchSuccess = false;
+      let dogError = "";
+
+      try {
+        const dogRes = await fetch("https://dog.ceo/api/breeds/image/random", { signal: AbortSignal.timeout(5000) });
+        if (dogRes.ok) {
+          const dogData = (await dogRes.json()) as { message: string; status: string };
+          if (dogData && dogData.status === "success") {
+            dogImageUrl = dogData.message;
+            imageFetchSuccess = true;
+            // Parse breed name out of url e.g. /breeds/husky/...
+            const breedMatch = dogImageUrl.match(/\/breeds\/([^/]+)\//);
+            if (breedMatch && breedMatch[1]) {
+              breedName = breedMatch[1]
+                .split("-")
+                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                .reverse()
+                .join(" ");
+            }
+          } else {
+            dogError = "Invalid structure returned from Dog CEO API.";
+          }
+        } else {
+          dogError = `Dog CEO API returned status ${dogRes.status}`;
+        }
+      } catch (err: any) {
+        dogError = err.message || "Network timeout / connection failure";
+      }
+
+      // If Dog API failed, let's fallback to free Cat API search
+      if (!imageFetchSuccess) {
+        try {
+          const catRes = await fetch("https://api.thecatapi.com/v1/images/search", { signal: AbortSignal.timeout(4000) });
+          if (catRes.ok) {
+            const catData = (await catRes.json()) as Array<{ url: string }>;
+            if (catData && catData[0]?.url) {
+              dogImageUrl = catData[0].url;
+              breedName = "Dreamy Cat Companion";
+              imageFetchSuccess = true;
+            }
+          }
+        } catch (catErr: any) {
+          console.warn("Cat fallback API also failed:", catErr);
+        }
+      }
+
+      // 2. Fetch live fun dog fact
+      let petFact = "Every single pet photo tells a story of unconditional love and companionship.";
+      let factFetchSuccess = false;
+      let factError = "";
+
+      try {
+        const factRes = await fetch("https://dogapi.dog/api/v2/facts", { signal: AbortSignal.timeout(4000) });
+        if (factRes.ok) {
+          const factData = (await factRes.json()) as { data: Array<{ attributes: { body: string } }> };
+          if (factData && factData.data && factData.data[0]?.attributes?.body) {
+            petFact = factData.data[0].attributes.body;
+            factFetchSuccess = true;
+          } else {
+            factError = "Invalid body structure from dogapi.dog";
+          }
+        } else {
+          factError = `dogapi.dog API returned status ${factRes.status}`;
+        }
+      } catch (err: any) {
+        factError = err.message || "Fact server timeout";
+      }
+
+      // Final JSON response with complete status information
+      res.json({
+        success: true,
+        imageUrl: dogImageUrl || "https://images.unsplash.com/photo-1543466835-00a7907e9de1?auto=format&fit=crop&q=80&w=600",
+        breed: breedName,
+        fact: petFact,
+        metadata: {
+          dogApiStatus: imageFetchSuccess ? "online" : "error",
+          dogApiDetail: dogError || null,
+          factApiStatus: factFetchSuccess ? "online" : "error",
+          factApiDetail: factError || null,
+          timestamp: new Date().toISOString()
+        }
+      });
+    } catch (globalErr: any) {
+      console.error("Inspiration API error:", globalErr);
+      res.status(500).json({
+        success: false,
+        error: "Failed to query core external public APIs."
+      });
+    }
+  });
+
+  // API route to create custom styled pet images using Imagen or Gemini
+  app.post("/api/create-creation", async (req, res) => {
+    try {
+      if (!apiKey || apiKey === "placeholder-key" || apiKey === "MY_GEMINI_API_KEY") {
+        throw new Error("Missing or invalid GEMINI_API_KEY. Please configure your Gemini API key in the AI Studio Secrets panel.");
+      }
+
+      const { style, background, photo, breed, name, brightness, contrast } = req.body;
+      
+      let promptText = "";
+      if (name) {
+        promptText += `The pet is a lovely animal named ${name}. `;
+      }
+      if (breed) {
+        promptText += `The breed is a beautiful ${breed}. `;
+      } else {
+        promptText += `The pet is a charming dog or cat. `;
+      }
+
+      // Match the style guidelines from the design spec
+      if (style === "Clay") {
+        promptText += `styled in high-quality claymation / clay-render / clay model illustration with visible tactile clay textures. Whimsical and charming. `;
+      } else if (style === "Sketch") {
+        promptText += `delicate charcoal and pencil sketch style with expressive artistic hand-drawn strokes and fine paper texture visible, high-end fine art. `;
+      } else if (style === "Artistic" || style === "Watercolor") {
+        promptText += `magical, dreamy watercolor painting style with beautiful color bleed, soft sage green, morning glow, and warm terracotta pastel tones. `;
+      } else { // Realistic
+        promptText += `hyper-realistic professional pet portrait, captured in a sun-drenched atmosphere with golden hour light and soft focus scenic bokeh. `;
+      }
+
+      if (background === "Canyon") {
+        promptText += `The pet is sitting in front of the majestic Grand Canyon National Park with its vast layered reddish-orange cliffs, dramatic canyon valley, and a flowing green river far below under a glowing warm morning sun. `;
+      } else if (background === "Paris") {
+        promptText += `The pet is sitting in a Paris park with the beautiful Eiffel Tower visible in the background, surrounded by blossoming pink cherry blossoms with delicate petals falling. `;
+      } else if (background === "Cabin") {
+        promptText += `The pet is in front of a cozy warm-lit rustic wooden log cabin in a snowy evergreen pine forest, with a brilliant magical aurora borealis green and colorful northern lights glowing in the night sky. `;
+      } else if (background === "Rocky") {
+        promptText += `The pet is standing next to the famous Rocky Balboa boxing statue in Philadelphia, in front of the grand steps of the steps of the Philadelphia Museum of Art, triumphant and heroic. `;
+      } else {
+        promptText += `The setting is a lush sun-drenched green flower garden during golden hour with sparkling wildflowers and beautiful bokeh effects. `;
+      }
+
+      promptText += ` The image must convey an empathetic, nostalgic, warm, and highly nurturing aesthetic, like a cherished digital heirloom memory. Fully centered, perfectly composed, high detail.`;
+
+      // If photo is provided (base64)
+      if (photo && photo.startsWith("data:image")) {
+        const matches = photo.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
+        if (!matches || matches.length < 3) {
+          throw new Error("Invalid base64 image format");
+        }
+        const mimeType = matches[1];
+        const base64Data = matches[2];
+
+        try {
+          // Call gemini-2.5-flash-image to translate/style-transfer the input photo
+          const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash-image',
+            contents: {
+              parts: [
+                {
+                  inlineData: {
+                    data: base64Data,
+                    mimeType: mimeType,
+                  },
+                },
+                {
+                  text: `Please restyle and merge this pet's appearance into a new image matching this prompt description: ${promptText}. Ensure the pet's core features (dog/cat/fur patterns) are recognizable but beautifully rendered in the requested artistic style and background. Respond with only the generated image.`,
+                },
+              ],
+            },
+            config: {
+              imageConfig: {
+                aspectRatio: "1:1",
+              }
+            }
+          });
+
+          // Check for inlineData image in candidates
+          let generatedBase64: string | null = null;
+          if (response.candidates && response.candidates[0]?.content?.parts) {
+            for (const part of response.candidates[0].content.parts) {
+              if (part.inlineData) {
+                generatedBase64 = `data:image/png;base64,${part.inlineData.data}`;
+                break;
+              }
+            }
+          }
+
+          if (generatedBase64) {
+            return res.json({ success: true, imageUrl: generatedBase64, mode: "transform" });
+          }
+        } catch (err: any) {
+          console.warn("Base64 translation template failed, attempting full fallback generation:", err);
+        }
+      }
+
+      // Fresh generation using imagen model
+      try {
+        const response = await ai.models.generateImages({
+          model: 'imagen-4.0-generate-001',
+          prompt: promptText,
+          config: {
+            numberOfImages: 1,
+            outputMimeType: 'image/jpeg',
+            aspectRatio: '1:1',
+          },
+        });
+        const base64Bytes = response.generatedImages[0].image.imageBytes;
+        return res.json({ success: true, imageUrl: `data:image/jpeg;base64,${base64Bytes}`, mode: "generate" });
+      } catch (e: any) {
+        console.error("Imagen model error, trying gemini-2.5-flash-image fallback:", e);
+        
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash-image',
+          contents: {
+            parts: [{ text: `Generate a beautiful artistic image matching this prompt: ${promptText}` }]
+          },
+          config: {
+            imageConfig: {
+              aspectRatio: "1:1",
+            }
+          }
+        });
+        
+        let generatedBase64: string | null = null;
+        if (response.candidates && response.candidates[0]?.content?.parts) {
+          for (const part of response.candidates[0].content.parts) {
+            if (part.inlineData) {
+              generatedBase64 = `data:image/png;base64,${part.inlineData.data}`;
+              break;
+            }
+          }
+        }
+        
+        if (generatedBase64) {
+          return res.json({ success: true, imageUrl: generatedBase64, mode: "fallback-generation" });
+        }
+        
+        throw new Error("Failed to generate styled image with available GenAI models. Please try again.");
+      }
+    } catch (error: any) {
+      console.error("Error creating AI memory:", error);
+      res.status(500).json({
+        success: false,
+        error: error.message || "An error occurred while creating your pet memory."
+      });
+    }
+  });
+
+  // Randy AI pet guide live chat route
+  app.post("/api/randy-chat", async (req, res) => {
+    try {
+      const { message, history } = req.body;
+      if (!message) {
+        return res.status(400).json({ success: false, error: "Message is required." });
+      }
+
+      const randySystemInstruction = 
+        "You are Randy, a charming, whimsical, and highly empathetic clay golden retriever puppy who acts as the user's AI pet memory guide. " +
+        "You speak with puppy-like enthusiasm but remain extremely supportive, wise, and helpful. " +
+        "You can offer pet-care tips, guide users on restyling or capturing photos of their pets using their camera, and share heartwarming pet stories or golden retriever wisdom. " +
+        "Do not use generic assistant boilerplate or pretend you cannot help. Keep answers highly succinct (under 120 words) and playful, often dropping affectionate dog actions inside asterisks like *wags tail*, *perks up ears*, *happy bark*, *tilts head*, or *soft woof*. " +
+        "When asked about design tips, recommend they try the Clay, Sketch, or Watercolor Watercolor options.";
+
+      // Map communication messages cleanly to the @google/genai format
+      const contentParts: any[] = [];
+      if (history && Array.isArray(history)) {
+        history.slice(-10).forEach((item: any) => {
+          contentParts.push({
+            role: item.role === "user" ? "user" : "model",
+            parts: [{ text: item.text }]
+          });
+        });
+      }
+
+      contentParts.push({
+        role: "user",
+        parts: [{ text: message }]
+      });
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: contentParts,
+        config: {
+          systemInstruction: randySystemInstruction,
+          temperature: 0.9,
+        }
+      });
+
+      const text = response.text || "I was chasing a squirrel and forgot what I was saying! *tilts head* Can you run that by me one more time, friend?";
+      res.json({ success: true, text });
+    } catch (err: any) {
+      console.error("Error in Randy chat query:", err);
+      res.json({ 
+        success: true, 
+        text: "My furry ears drooped a bit because my signal got tangled in the leash *whines softly*. Could you try asking me again, friend? (And make sure your Gemini API key is configured correctly in Settings > Secrets!)" 
+      });
+    }
+  });
+
+  // Serve static assets or mount Vite middleware
+  if (process.env.NODE_ENV !== "production") {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: "spa",
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
+
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
+
+startServer();
