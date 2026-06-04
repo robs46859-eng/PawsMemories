@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Screen, UserProfile, Creation, Album } from "./types";
+import { Screen, UserProfile, Creation, Album, PublicUser } from "./types";
 import { DEFAULT_ALBUMS, DEFAULT_CREATIONS } from "./data";
 import SignUp from "./components/SignUp";
 import Welcome from "./components/Welcome";
@@ -8,17 +8,18 @@ import Dashboard from "./components/Dashboard";
 import EditMemory from "./components/EditMemory";
 import ShareMemory from "./components/ShareMemory";
 import RandyChat from "./components/RandyChat";
-import { Sparkles, HelpCircle, Navigation, Award, User, Layers, History, FolderOpen, Sun, Moon } from "lucide-react";
+import { fetchMe, clearToken } from "./api";
+import { Sparkles, User, History, FolderOpen, Sun, Moon, LogOut, RefreshCw } from "lucide-react";
+
+const EMPTY_PROFILE: UserProfile = { fullName: "", phoneNumber: "", email: "", credits: 0 };
 
 export default function App() {
-  const [currentScreen, setCurrentScreen] = useState<Screen>(() => {
-    const saved = localStorage.getItem("paws_current_screen");
-    return saved ? (saved as Screen) : Screen.SIGN_UP;
-  });
-  const [userProfile, setUserProfile] = useState<UserProfile>(() => {
-    const saved = localStorage.getItem("paws_user_profile");
-    return saved ? JSON.parse(saved) : { fullName: "", phoneNumber: "", credits: 0 };
-  });
+  // Auth gating state
+  const [isAuthed, setIsAuthed] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
+
+  const [currentScreen, setCurrentScreen] = useState<Screen>(Screen.SIGN_UP);
+  const [userProfile, setUserProfile] = useState<UserProfile>(EMPTY_PROFILE);
 
   const [showOrderSuccessModal, setShowOrderSuccessModal] = useState(false);
   const [successOrderSessionId, setSuccessOrderSessionId] = useState("");
@@ -52,14 +53,28 @@ export default function App() {
     ];
   });
 
+  // Restore an existing session on load (validates the token against the server).
   React.useEffect(() => {
-    localStorage.setItem("paws_current_screen", currentScreen);
-  }, [currentScreen]);
+    let cancelled = false;
+    (async () => {
+      const user = await fetchMe();
+      if (cancelled) return;
+      if (user && user.profileComplete) {
+        applyUser(user);
+        setIsAuthed(true);
+        setCurrentScreen(Screen.DASHBOARD);
+      } else {
+        clearToken();
+        setIsAuthed(false);
+      }
+      setAuthChecked(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  React.useEffect(() => {
-    localStorage.setItem("paws_user_profile", JSON.stringify(userProfile));
-  }, [userProfile]);
-
+  // Handle Stripe order success/cancel redirects.
   React.useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const orderSuccess = params.get("order_success");
@@ -69,8 +84,6 @@ export default function App() {
     if (orderSuccess === "true" && sessionId) {
       setSuccessOrderSessionId(sessionId);
       setShowOrderSuccessModal(true);
-
-      // Clean up URL search params
       const newUrl = window.location.pathname;
       window.history.replaceState({}, document.title, newUrl);
     } else if (orderCancelled === "true") {
@@ -79,6 +92,15 @@ export default function App() {
       window.history.replaceState({}, document.title, newUrl);
     }
   }, []);
+
+  const applyUser = (user: PublicUser) => {
+    setUserProfile({
+      fullName: user.fullName,
+      phoneNumber: user.phone,
+      email: user.email,
+      credits: user.credits,
+    });
+  };
 
   const toggleDarkMode = () => {
     const newVal = !isDarkMode;
@@ -100,10 +122,7 @@ export default function App() {
   };
 
   const handleClaimReward = (id: string, amount: number) => {
-    setUserProfile((prev) => ({
-      ...prev,
-      credits: prev.credits + amount,
-    }));
+    setUserProfile((prev) => ({ ...prev, credits: prev.credits + amount }));
     setAchievements((prev) => {
       const idx = prev.findIndex((a) => a.id === id);
       if (idx !== -1) {
@@ -124,50 +143,40 @@ export default function App() {
         localStorage.setItem("paws_streak", String(newVal));
         return newVal;
       });
-      setUserProfile((prev) => ({
-        ...prev,
-        credits: prev.credits + 10,
-      }));
+      setUserProfile((prev) => ({ ...prev, credits: prev.credits + 10 }));
       localStorage.setItem("paws_streak_claimed_today", "true");
     }
   };
 
-  // Success sign up handler
-  const handleSignUpSuccess = (profile: UserProfile) => {
-    setUserProfile(profile);
-    handleUnlockAchievement("pioneer");
-    setCurrentScreen(Screen.WELCOME);
+  // Called by SignUp once the user is verified AND has a complete profile.
+  const handleAuthenticated = (user: PublicUser, isNew: boolean) => {
+    applyUser(user);
+    setIsAuthed(true);
+    if (isNew) {
+      handleUnlockAchievement("pioneer");
+      setCurrentScreen(Screen.WELCOME);
+    } else {
+      setCurrentScreen(Screen.DASHBOARD);
+    }
   };
 
-  // Welcome next option
-  const handleWelcomeNext = () => {
-    setCurrentScreen(Screen.TUTORIAL);
+  const handleLogout = () => {
+    clearToken();
+    setIsAuthed(false);
+    setUserProfile(EMPTY_PROFILE);
+    setCurrentScreen(Screen.SIGN_UP);
   };
 
-  // Onboard complete
-  const handleTutorialComplete = () => {
-    // Award the 50 free credits
-    setUserProfile((prev) => ({
-      ...prev,
-      credits: prev.credits === 0 ? 50 : prev.credits, // Fallback safe
-    }));
-    setCurrentScreen(Screen.DASHBOARD);
-  };
+  const handleWelcomeNext = () => setCurrentScreen(Screen.TUTORIAL);
 
-  // Claim daily bonus +5cr
+  const handleTutorialComplete = () => setCurrentScreen(Screen.DASHBOARD);
+
   const handleClaimDailyBonus = () => {
-    setUserProfile((prev) => ({
-      ...prev,
-      credits: prev.credits + 5,
-    }));
+    setUserProfile((prev) => ({ ...prev, credits: prev.credits + 5 }));
   };
 
-  // Claim share bonus +10cr
   const handleShareCompleted = (platform: string, rewardValue: number) => {
-    setUserProfile((prev) => ({
-      ...prev,
-      credits: prev.credits + rewardValue,
-    }));
+    setUserProfile((prev) => ({ ...prev, credits: prev.credits + rewardValue }));
     alert(`Success! Thanks for sharing to ${platform}! You've been rewarded +${rewardValue} free credits!`);
   };
 
@@ -184,22 +193,31 @@ export default function App() {
   };
 
   const handleDeductCredits = (amount: number) => {
-    setUserProfile((prev) => ({
-      ...prev,
-      credits: prev.credits - amount,
-    }));
+    setUserProfile((prev) => ({ ...prev, credits: prev.credits - amount }));
   };
+
+  // While we check for an existing session, show a lightweight loader.
+  if (!authChecked) {
+    return (
+      <div className={`min-h-screen bg-surface flex items-center justify-center ${isDarkMode ? "dark" : ""}`}>
+        <div className="flex flex-col items-center gap-3 text-on-surface-variant">
+          <span className="text-3xl">🐾</span>
+          <RefreshCw className="animate-spin" size={20} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`min-h-screen bg-surface flex flex-col selection:bg-primary-container selection:text-on-primary-container ${isDarkMode ? "dark" : ""}`}>
-      
+
       {/* Dynamic Upper Header Bar */}
       <header className="sticky top-0 bg-surface/85 backdrop-blur-md border-b border-outline-variant/30 z-40 px-4 py-3.5 flex justify-between items-center max-w-7xl w-full mx-auto">
         <div className="flex items-center gap-2">
           <span className="text-xl">🐾</span>
           <div>
             <h1 className="text-sm font-extrabold text-on-surface tracking-tight font-sans">
-              Paws & Memories
+              Paws &amp; Memories
             </h1>
             <p className="text-[9px] text-on-surface-variant uppercase font-bold tracking-widest leading-none">
               AI Legacy Studio
@@ -217,170 +235,111 @@ export default function App() {
             {isDarkMode ? <Sun size={14} className="text-amber-400" /> : <Moon size={14} className="text-slate-600" />}
           </button>
 
-          {/* User Profile and Credits display */}
-          {userProfile.fullName && (
-            <div className="flex items-center gap-2.5 bg-surface-container-high py-1.5 px-3 rounded-full border border-outline-variant/40 shadow-sm">
-              <div className="w-5 h-5 rounded-full bg-primary/20 text-primary flex items-center justify-center">
-                <User size={12} />
-              </div>
-              <span className="text-xs font-bold text-on-surface leading-none font-sans max-w-[80px] truncate md:max-w-none">
-                {userProfile.fullName.split(" ")[0]}
-              </span>
-              <div className="h-3 w-px bg-outline-variant"></div>
-              <div className="flex items-center gap-1">
-                <span className="text-xs">🪙</span>
-                <span className="text-xs font-bold text-secondary font-mono leading-none">
-                  {userProfile.credits}cr
+          {/* User Profile and Credits display (only when signed in) */}
+          {isAuthed && userProfile.fullName && (
+            <>
+              <div className="flex items-center gap-2.5 bg-surface-container-high py-1.5 px-3 rounded-full border border-outline-variant/40 shadow-sm">
+                <div className="w-5 h-5 rounded-full bg-primary/20 text-primary flex items-center justify-center">
+                  <User size={12} />
+                </div>
+                <span className="text-xs font-bold text-on-surface leading-none font-sans max-w-[80px] truncate md:max-w-none">
+                  {userProfile.fullName.split(" ")[0]}
                 </span>
+                <div className="h-3 w-px bg-outline-variant"></div>
+                <div className="flex items-center gap-1">
+                  <span className="text-xs">🪙</span>
+                  <span className="text-xs font-bold text-secondary font-mono leading-none">
+                    {userProfile.credits}cr
+                  </span>
+                </div>
               </div>
-            </div>
+              <button
+                onClick={handleLogout}
+                className="w-8 h-8 rounded-full bg-surface-container hover:bg-error/10 hover:text-error text-on-surface-variant flex items-center justify-center border border-outline-variant/20 transition-all cursor-pointer shadow-sm"
+                title="Log out"
+              >
+                <LogOut size={14} />
+              </button>
+            </>
           )}
-
-          {/* Quick Screen Preview Switcher Drawer */}
-          <div className="relative group">
-            <button className="bg-primary/10 hover:bg-primary/20 hover:text-primary text-on-surface-variant font-bold text-[10px] uppercase tracking-wider py-1.5 px-2.5 rounded-lg border border-primary/20 transition-all cursor-pointer">
-              Jump Screens
-            </button>
-            <div className="absolute right-0 top-full mt-1 bg-white rounded-xl shadow-lg border border-outline-variant/30 py-2 w-48 hidden group-hover:block hover:block z-50 animate-fade-in text-left">
-              <p className="text-[9px] text-outline px-3.5 py-1 font-bold uppercase tracking-widest border-b border-outline-variant/20 mb-1">
-                Select Mockup View
-              </p>
-              <button
-                onClick={() => setCurrentScreen(Screen.SIGN_UP)}
-                className={`w-full text-left px-3.5 py-1.5 text-xs font-semibold hover:bg-surface-container transition-colors flex items-center gap-2 ${
-                  currentScreen === Screen.SIGN_UP ? "text-primary bg-primary/5" : "text-on-surface-variant"
-                }`}
-              >
-                <User size={12} />
-                1. Sign Up Screen
-              </button>
-              <button
-                onClick={() => setCurrentScreen(Screen.WELCOME)}
-                className={`w-full text-left px-3.5 py-1.5 text-xs font-semibold hover:bg-surface-container transition-colors flex items-center gap-2 ${
-                  currentScreen === Screen.WELCOME ? "text-primary bg-primary/5" : "text-on-surface-variant"
-                }`}
-              >
-                <HelpCircle size={12} />
-                2. Welcome Randy
-              </button>
-              <button
-                onClick={() => setCurrentScreen(Screen.TUTORIAL)}
-                className={`w-full text-left px-3.5 py-1.5 text-xs font-semibold hover:bg-surface-container transition-colors flex items-center gap-2 ${
-                  currentScreen === Screen.TUTORIAL ? "text-primary bg-primary/5" : "text-on-surface-variant"
-                }`}
-              >
-                <Award size={12} />
-                3. Tutorial Complete
-              </button>
-              <button
-                onClick={() => {
-                  if (!userProfile.fullName) {
-                    setUserProfile({ fullName: "Sarah Connor", phoneNumber: "+1 (555) 789-1000", credits: 50 });
-                  }
-                  setCurrentScreen(Screen.DASHBOARD);
-                }}
-                className={`w-full text-left px-3.5 py-1.5 text-xs font-semibold hover:bg-surface-container transition-colors flex items-center gap-2 ${
-                  currentScreen === Screen.DASHBOARD ? "text-primary bg-primary/5" : "text-on-surface-variant"
-                }`}
-              >
-                <Layers size={12} />
-                4. Dashboard Feed
-              </button>
-              <button
-                onClick={() => {
-                  if (!userProfile.fullName) {
-                    setUserProfile({ fullName: "Sarah Connor", phoneNumber: "+1 (555) 789-1000", credits: 50 });
-                  }
-                  setCurrentScreen(Screen.EDIT_MEMORY);
-                }}
-                className={`w-full text-left px-3.5 py-1.5 text-xs font-semibold hover:bg-surface-container transition-colors flex items-center gap-2 ${
-                  currentScreen === Screen.EDIT_MEMORY ? "text-primary bg-primary/5" : "text-on-surface-variant"
-                }`}
-              >
-                <Sparkles size={12} />
-                5. Design Editor
-              </button>
-              <button
-                onClick={() => {
-                  if (!userProfile.fullName) {
-                    setUserProfile({ fullName: "Sarah Connor", phoneNumber: "+1 (555) 789-1000", credits: 50 });
-                  }
-                  setCurrentScreen(Screen.SHARE_MEMORY);
-                }}
-                className={`w-full text-left px-3.5 py-1.5 text-xs font-semibold hover:bg-surface-container transition-colors flex items-center gap-2 ${
-                  currentScreen === Screen.SHARE_MEMORY ? "text-primary bg-primary/5" : "text-on-surface-variant"
-                }`}
-              >
-                <Navigation size={12} />
-                6. Share Masterpiece
-              </button>
-            </div>
-          </div>
         </div>
       </header>
 
-      {/* Main Content Router viewport with smooth transitions */}
+      {/* Main Content Router viewport */}
       <main className="flex-grow flex flex-col justify-center items-center">
-        {currentScreen === Screen.SIGN_UP && (
-          <SignUp
-            onSignUpSuccess={handleSignUpSuccess}
-            onNavigateToLogin={() => {
-              setUserProfile({ fullName: "Sarah Connor", phoneNumber: "+1 (555) 789-1000", credits: 50 });
-              setCurrentScreen(Screen.DASHBOARD);
-            }}
-          />
-        )}
+        {/* When not authenticated, the only reachable screen is sign-up. */}
+        {!isAuthed ? (
+          <SignUp onAuthenticated={handleAuthenticated} />
+        ) : (
+          <>
+            {currentScreen === Screen.WELCOME && (
+              <Welcome
+                userName={userProfile.fullName}
+                onNext={handleWelcomeNext}
+                onBackToSignUp={handleLogout}
+              />
+            )}
 
-        {currentScreen === Screen.WELCOME && (
-          <Welcome
-            userName={userProfile.fullName}
-            onNext={handleWelcomeNext}
-            onBackToSignUp={() => setCurrentScreen(Screen.SIGN_UP)}
-          />
-        )}
+            {currentScreen === Screen.TUTORIAL && <Tutorial onComplete={handleTutorialComplete} />}
 
-        {currentScreen === Screen.TUTORIAL && (
-          <Tutorial onComplete={handleTutorialComplete} />
-        )}
+            {currentScreen === Screen.DASHBOARD && (
+              <Dashboard
+                userProfile={userProfile}
+                albums={albums}
+                creations={creations}
+                onAddMemory={() => setCurrentScreen(Screen.EDIT_MEMORY)}
+                onClaimDailyBonus={handleClaimDailyBonus}
+                onShareCompleted={handleShareCompleted}
+                onSelectCreation={handleSelectCreation}
+                streak={dailyStreak}
+                achievements={achievements}
+                onClaimReward={handleClaimReward}
+                onClaimDailyStreak={handleClaimDailyStreak}
+                dailyStreakClaimed={dailyStreakClaimed}
+              />
+            )}
 
-        {currentScreen === Screen.DASHBOARD && (
-          <Dashboard
-            userProfile={userProfile}
-            albums={albums}
-            creations={creations}
-            onAddMemory={() => setCurrentScreen(Screen.EDIT_MEMORY)}
-            onClaimDailyBonus={handleClaimDailyBonus}
-            onShareCompleted={handleShareCompleted}
-            onSelectCreation={handleSelectCreation}
-            streak={dailyStreak}
-            achievements={achievements}
-            onClaimReward={handleClaimReward}
-            onClaimDailyStreak={handleClaimDailyStreak}
-            dailyStreakClaimed={dailyStreakClaimed}
-          />
-        )}
+            {currentScreen === Screen.EDIT_MEMORY && (
+              <EditMemory
+                credits={userProfile.credits}
+                onCreationSaved={handleCreationSaved}
+                onDeductCredits={handleDeductCredits}
+                onNavigateBack={() => setCurrentScreen(Screen.DASHBOARD)}
+                onUnlockAchievement={handleUnlockAchievement}
+              />
+            )}
 
-        {currentScreen === Screen.EDIT_MEMORY && (
-          <EditMemory
-            credits={userProfile.credits}
-            onCreationSaved={handleCreationSaved}
-            onDeductCredits={handleDeductCredits}
-            onNavigateBack={() => setCurrentScreen(Screen.DASHBOARD)}
-            onUnlockAchievement={handleUnlockAchievement}
-          />
-        )}
+            {currentScreen === Screen.SHARE_MEMORY && (
+              <ShareMemory
+                creation={selectedCreationForShare || creations[0]}
+                userCredits={userProfile.credits}
+                onBack={() => setCurrentScreen(Screen.DASHBOARD)}
+              />
+            )}
 
-        {currentScreen === Screen.SHARE_MEMORY && (
-          <ShareMemory
-            creation={selectedCreationForShare || creations[0]}
-            userCredits={userProfile.credits}
-            onBack={() => setCurrentScreen(Screen.DASHBOARD)}
-          />
+            {/* Safety net: if somehow on SIGN_UP while authed, send to dashboard */}
+            {currentScreen === Screen.SIGN_UP && (
+              <Dashboard
+                userProfile={userProfile}
+                albums={albums}
+                creations={creations}
+                onAddMemory={() => setCurrentScreen(Screen.EDIT_MEMORY)}
+                onClaimDailyBonus={handleClaimDailyBonus}
+                onShareCompleted={handleShareCompleted}
+                onSelectCreation={handleSelectCreation}
+                streak={dailyStreak}
+                achievements={achievements}
+                onClaimReward={handleClaimReward}
+                onClaimDailyStreak={handleClaimDailyStreak}
+                dailyStreakClaimed={dailyStreakClaimed}
+              />
+            )}
+          </>
         )}
       </main>
 
-      {/* Floating Bottom Navigator for Dashboard feed and main sections */}
-      {userProfile.fullName && (
+      {/* Floating Bottom Navigator (only when signed in and past onboarding) */}
+      {isAuthed && (currentScreen === Screen.DASHBOARD || currentScreen === Screen.EDIT_MEMORY || currentScreen === Screen.SHARE_MEMORY) && (
         <div className="fixed bottom-0 left-0 right-0 bg-surface-container-lowest/90 backdrop-blur-md border-t border-outline-variant/30 py-2 px-6 flex justify-around items-center max-w-md mx-auto z-40 rounded-t-3xl soft-glow-shadow">
           <button
             onClick={() => setCurrentScreen(Screen.DASHBOARD)}
@@ -412,8 +371,8 @@ export default function App() {
         </div>
       )}
 
-      {/* Randy AI-chat bubble companion */}
-      <RandyChat onUnlockAchievement={handleUnlockAchievement} isDarkMode={isDarkMode} />
+      {/* Randy AI-chat bubble companion (only for signed-in users) */}
+      {isAuthed && <RandyChat onUnlockAchievement={handleUnlockAchievement} isDarkMode={isDarkMode} />}
 
       {/* Order Success Modal */}
       {showOrderSuccessModal && (
@@ -422,7 +381,7 @@ export default function App() {
             <span className="text-5xl animate-bounce mb-4 inline-block">🎉</span>
             <h3 className="text-lg font-extrabold text-primary mb-2">Order Confirmed!</h3>
             <p className="text-xs text-on-surface-variant leading-relaxed mb-4">
-              Your payment of **$12.00 USD** succeeded, and **800 credits** have been deducted. 
+              Your payment of **$12.00 USD** succeeded, and **800 credits** have been deducted.
               Randy is sending your custom physical pet album to print!
             </p>
             <div className="bg-surface-container rounded-xl p-3 text-[10px] text-on-surface-variant font-mono mb-6 text-left break-all">
@@ -431,13 +390,7 @@ export default function App() {
             <button
               onClick={() => {
                 setShowOrderSuccessModal(false);
-                // Deduct credits on UI success confirmation
-                setUserProfile((prev) => {
-                  const updatedCredits = Math.max(0, prev.credits - 800);
-                  const updated = { ...prev, credits: updatedCredits };
-                  localStorage.setItem("paws_user_profile", JSON.stringify(updated));
-                  return updated;
-                });
+                setUserProfile((prev) => ({ ...prev, credits: Math.max(0, prev.credits - 800) }));
               }}
               className="w-full py-3 bg-primary text-white rounded-xl text-xs font-black uppercase shadow-md hover:bg-primary/95 active:scale-95 duration-100 transition-all cursor-pointer"
             >

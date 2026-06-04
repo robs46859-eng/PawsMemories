@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { X, ShoppingBag, CreditCard, Truck, AlertCircle, Sparkles, RefreshCw } from "lucide-react";
 import { Creation } from "../types";
+import { authedFetch } from "../api";
 
 interface OrderAlbumModalProps {
   creation: Creation;
@@ -36,7 +37,7 @@ export default function OrderAlbumModal({ creation, userCredits, onClose }: Orde
     setErrorMessage("");
 
     try {
-      const response = await fetch("/api/create-checkout-session", {
+      const response = await authedFetch("/api/create-checkout-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

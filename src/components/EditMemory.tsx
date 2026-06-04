@@ -2,6 +2,7 @@ import React, { useState, useRef } from "react";
 import { Sparkles, Sun, Crop, Compass, Upload, Save, HelpCircle, AlertCircle, RefreshCw, Dog, Camera, Mic, MicOff, Video } from "lucide-react";
 import { StyleType, BackgroundType, Creation } from "../types";
 import { STYLE_OPTIONS, BACKGROUND_OPTIONS } from "../data";
+import { authedFetch } from "../api";
 
 interface EditMemoryProps {
   credits: number;
@@ -201,7 +202,7 @@ export default function EditMemory({
     const loadingInterval = startLoadingRotation();
 
     try {
-      const response = await fetch("/api/create-creation", {
+      const response = await authedFetch("/api/create-creation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

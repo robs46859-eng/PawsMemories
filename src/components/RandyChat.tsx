@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { MessageSquare, X, Send, Mic, MicOff, RefreshCw, Sparkles, Volume2, Award } from "lucide-react";
+import { authedFetch } from "../api";
 
 interface Message {
   id: string;
@@ -117,7 +118,7 @@ export default function RandyChat({ onUnlockAchievement, isDarkMode }: RandyChat
         text: m.text,
       }));
 
-      const res = await fetch("/api/randy-chat", {
+      const res = await authedFetch("/api/randy-chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: userText, history: chatHistory }),

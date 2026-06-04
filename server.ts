@@ -5,12 +5,25 @@ import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import Stripe from "stripe";
 import fs from "fs";
+import { initDb, findOrCreateUser, findUserByPhone, completeUserProfile, toPublicUser } from "./db";
+import {
+  authConfigured,
+  normalizePhone,
+  sendVerificationCode,
+  checkVerificationCode,
+  signToken,
+  requireAuth,
+  type AuthedRequest,
+} from "./auth";
 
 dotenv.config();
 
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
+
+  // Initialize the user database (creates the users table if needed)
+  await initDb();
 
   // Initialize Stripe client safely
   const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
@@ -92,6 +105,83 @@ async function startServer() {
 
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+  // ---------------------------------------------------------------------------
+  // Authentication: phone verification (Twilio Verify) + session tokens (JWT)
+  // ---------------------------------------------------------------------------
+
+  // Step 1: send an SMS verification code to the supplied phone number.
+  app.post("/api/auth/send-code", async (req, res) => {
+    try {
+      if (!authConfigured()) {
+        return res.status(503).json({ error: "Phone verification is not configured on the server yet." });
+      }
+      const phone = normalizePhone(req.body?.phone || "");
+      if (!phone) {
+        return res.status(400).json({ error: "Please enter a valid phone number including your country code (e.g. +1...)." });
+      }
+      await sendVerificationCode(phone);
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("send-code error:", err?.message || err);
+      res.status(500).json({ error: "Could not send the verification code. Please check the number and try again." });
+    }
+  });
+
+  // Step 2: verify the code. Creates the user if new, returns a session token.
+  app.post("/api/auth/verify-code", async (req, res) => {
+    try {
+      if (!authConfigured()) {
+        return res.status(503).json({ error: "Phone verification is not configured on the server yet." });
+      }
+      const phone = normalizePhone(req.body?.phone || "");
+      const code = String(req.body?.code || "").trim();
+      if (!phone || !code) {
+        return res.status(400).json({ error: "Phone number and verification code are required." });
+      }
+      const approved = await checkVerificationCode(phone, code);
+      if (!approved) {
+        return res.status(401).json({ error: "That code is incorrect or has expired. Please try again." });
+      }
+      const user = await findOrCreateUser(phone);
+      const token = signToken({ phone: user.phone, uid: user.id });
+      res.json({ success: true, token, user: toPublicUser(user) });
+    } catch (err: any) {
+      console.error("verify-code error:", err?.message || err);
+      res.status(500).json({ error: "Verification failed. Please try again." });
+    }
+  });
+
+  // Step 3: required profile setup (name + email). Grants the 50 free credits.
+  app.post("/api/auth/complete-profile", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const fullName = String(req.body?.fullName || "").trim();
+      const email = String(req.body?.email || "").trim();
+      if (!fullName || !email) {
+        return res.status(400).json({ error: "Full name and email are both required." });
+      }
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+        return res.status(400).json({ error: "Please enter a valid email address." });
+      }
+      const user = await completeUserProfile(req.user!.phone, fullName, email);
+      res.json({ success: true, user: toPublicUser(user) });
+    } catch (err: any) {
+      console.error("complete-profile error:", err?.message || err);
+      res.status(500).json({ error: "Could not save your profile. Please try again." });
+    }
+  });
+
+  // Session restore: returns the current user for a valid token.
+  app.get("/api/me", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const user = await findUserByPhone(req.user!.phone);
+      if (!user) return res.status(404).json({ error: "User not found." });
+      res.json({ user: toPublicUser(user) });
+    } catch (err: any) {
+      console.error("me error:", err?.message || err);
+      res.status(500).json({ error: "Could not load your account." });
+    }
+  });
 
   // Initialize Gemini API
   const apiKey = process.env.GEMINI_API_KEY;
@@ -202,7 +292,7 @@ async function startServer() {
   });
 
   // API route to create custom styled pet images using Imagen or Gemini
-  app.post("/api/create-creation", async (req, res) => {
+  app.post("/api/create-creation", requireAuth, async (req, res) => {
     try {
       if (!apiKey || apiKey === "placeholder-key" || apiKey === "MY_GEMINI_API_KEY") {
         throw new Error("Missing or invalid GEMINI_API_KEY. Please configure your Gemini API key in the AI Studio Secrets panel.");
@@ -351,7 +441,7 @@ async function startServer() {
   });
 
   // Stripe Checkout Session Creation Route
-  app.post("/api/create-checkout-session", async (req, res) => {
+  app.post("/api/create-checkout-session", requireAuth, async (req, res) => {
     try {
       const {
         creationId,
@@ -445,7 +535,7 @@ async function startServer() {
   });
 
   // Randy AI pet guide live chat route
-  app.post("/api/randy-chat", async (req, res) => {
+  app.post("/api/randy-chat", requireAuth, async (req, res) => {
     try {
       const { message, history } = req.body;
       if (!message) {

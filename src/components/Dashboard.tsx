@@ -122,7 +122,7 @@ export default function Dashboard({
         <div className="md:col-span-2 relative overflow-hidden rounded-3xl bg-primary-container p-6 md:p-8 flex flex-col justify-between min-h-[180px] shadow-sm">
           <div className="relative z-10">
             <h2 className="text-2xl md:text-3xl font-extrabold text-on-primary-container mb-2">
-              Hello, {userProfile.fullName ? userProfile.fullName.split(" ")[0] : "Sarah"}!
+              Hello, {userProfile.fullName ? userProfile.fullName.split(" ")[0] : "friend"}!
             </h2>
             <p className="text-on-primary-container/90 text-sm md:text-base max-w-md leading-relaxed">
               Your pet's legacy is growing. You have {creations.length - 3 > 0 ? creations.length - 3 : 3} pending memories ready to be crafted.

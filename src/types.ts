@@ -32,7 +32,17 @@ export interface Album {
 export interface UserProfile {
   fullName: string;
   phoneNumber: string;
+  email?: string;
   credits: number;
+}
+
+/** User shape returned by the auth API. */
+export interface PublicUser {
+  phone: string;
+  fullName: string;
+  email: string;
+  credits: number;
+  profileComplete: boolean;
 }
 
 export interface PhysicalOrder {
