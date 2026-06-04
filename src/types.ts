@@ -34,3 +34,22 @@ export interface UserProfile {
   phoneNumber: string;
   credits: number;
 }
+
+export interface PhysicalOrder {
+  orderId: string;
+  creationId: string;
+  creationName: string;
+  imageUrl: string;
+  style: string;
+  creditsDeducted: number;
+  cashPaid: number;
+  shippingName: string;
+  shippingAddress: string;
+  shippingCity: string;
+  shippingState: string;
+  shippingZip: string;
+  shippingCountry: string;
+  createdAt: string;
+  status: "pending" | "processing" | "shipped" | "cancelled";
+}
+

@@ -1,14 +1,17 @@
 import React, { useState } from "react";
-import { ArrowLeft, Copy, Check, Download, Share2, Compass, ShieldAlert, Heart, Calendar, MessageSquare, ExternalLink, Sparkles } from "lucide-react";
+import { ArrowLeft, Copy, Check, Download, Share2, Compass, ShieldAlert, Heart, Calendar, MessageSquare, ExternalLink, Sparkles, ShoppingBag } from "lucide-react";
 import { Creation } from "../types";
+import OrderAlbumModal from "./OrderAlbumModal";
 
 interface ShareMemoryProps {
   creation: Creation;
+  userCredits: number;
   onBack: () => void;
 }
 
-export default function ShareMemory({ creation, onBack }: ShareMemoryProps) {
+export default function ShareMemory({ creation, userCredits, onBack }: ShareMemoryProps) {
   const [copied, setCopied] = useState(false);
+  const [showOrderModal, setShowOrderModal] = useState(false);
   const [roverOwnerName, setRoverOwnerName] = useState("Alex");
   const [roverCustomText, setRoverCustomText] = useState("Today was such a joyful day! I crafted this magical portrait as a keepsake memory.");
   const [roverTemplate, setRoverTemplate] = useState("stay_update");
@@ -259,8 +262,16 @@ export default function ShareMemory({ creation, onBack }: ShareMemoryProps) {
       {/* Download direct heirloom high-res photo button */}
       <div className="pt-2 flex flex-col gap-3">
         <button
+          onClick={() => setShowOrderModal(true)}
+          className="w-full py-4 bg-gradient-to-tr from-amber-500 to-orange-600 text-white rounded-2xl font-black text-sm shadow-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-[0.98] transition-all cursor-pointer border border-white/10 glow-orange-shadow"
+        >
+          <ShoppingBag size={16} />
+          <span>Order Physical Photo Album</span>
+        </button>
+
+        <button
           onClick={handleDownload}
-          className="w-full py-4 bg-primary text-white rounded-2xl font-bold text-sm shadow-md flex items-center justify-center gap-2 hover:bg-primary/95 transition-colors cursor-pointer border border-outline-variant/20"
+          className="w-full py-3.5 bg-primary text-white rounded-2xl font-bold text-sm shadow-md flex items-center justify-center gap-2 hover:bg-primary/95 transition-colors cursor-pointer border border-outline-variant/20"
         >
           <Download size={16} />
           <span>Download High-Resolution Image</span>
@@ -273,6 +284,14 @@ export default function ShareMemory({ creation, onBack }: ShareMemoryProps) {
           Browse gallery instead
         </button>
       </div>
+
+      {showOrderModal && (
+        <OrderAlbumModal
+          creation={creation}
+          userCredits={userCredits}
+          onClose={() => setShowOrderModal(false)}
+        />
+      )}
     </div>
   );
 }

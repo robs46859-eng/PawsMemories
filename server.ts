@@ -3,12 +3,92 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
+import Stripe from "stripe";
+import fs from "fs";
 
 dotenv.config();
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
+
+  // Initialize Stripe client safely
+  const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+  const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  let stripe: Stripe | null = null;
+  if (stripeSecretKey && stripeSecretKey !== "MY_STRIPE_SECRET_KEY" && stripeSecretKey !== "") {
+    stripe = new Stripe(stripeSecretKey);
+  } else {
+    console.warn("⚠️ STRIPE_SECRET_KEY is missing or invalid. Server will run in Sandbox Simulation mode.");
+  }
+
+  // Local persistent order saving
+  const ORDERS_FILE = path.join(process.cwd(), "orders.json");
+  const saveOrder = (order: any) => {
+    try {
+      let orders: any[] = [];
+      if (fs.existsSync(ORDERS_FILE)) {
+        const data = fs.readFileSync(ORDERS_FILE, "utf-8");
+        orders = JSON.parse(data);
+      }
+      orders.push(order);
+      fs.writeFileSync(ORDERS_FILE, JSON.stringify(orders, null, 2), "utf-8");
+      console.log(`Order ${order.orderId} saved successfully to orders.json`);
+    } catch (err) {
+      console.error("Failed to save order to local orders.json file:", err);
+    }
+  };
+
+  // Stripe Webhook Route (must be registered BEFORE global express.json body parser)
+  app.post("/api/stripe-webhook", express.raw({ type: "application/json" }), async (req, res) => {
+    const sig = req.headers["stripe-signature"];
+    
+    if (!stripe || !stripeWebhookSecret) {
+      console.warn("Stripe or Stripe Webhook Secret not configured. Webhook ignored.");
+      return res.status(400).send("Webhook secret not configured");
+    }
+
+    let event: Stripe.Event;
+
+    try {
+      event = stripe.webhooks.constructEvent(req.body, sig as string, stripeWebhookSecret);
+    } catch (err: any) {
+      console.error(`Webhook signature verification failed: ${err.message}`);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    if (event.type === "checkout.session.completed") {
+      const session = event.data.object as Stripe.Checkout.Session;
+      console.log(`Payment successful for checkout session: ${session.id}`);
+
+      const metadata = session.metadata;
+      if (metadata) {
+        const order = {
+          orderId: `ord_${Date.now()}`,
+          creationId: metadata.creationId,
+          creationName: metadata.creationName,
+          imageUrl: metadata.imageUrl,
+          style: metadata.style,
+          creditsDeducted: parseInt(metadata.creditsDeducted || "800", 10),
+          cashPaid: parseFloat(metadata.cashPaid || "12.00"),
+          shippingName: metadata.shippingName,
+          shippingAddress: metadata.shippingAddress,
+          shippingCity: metadata.shippingCity,
+          shippingState: metadata.shippingState,
+          shippingZip: metadata.shippingZip,
+          shippingCountry: metadata.shippingCountry,
+          createdAt: new Date().toISOString(),
+          status: "pending",
+          stripeSessionId: session.id,
+          mode: "live_stripe"
+        };
+        
+        saveOrder(order);
+      }
+    }
+
+    res.json({ received: true });
+  });
 
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
@@ -267,6 +347,100 @@ async function startServer() {
         success: false,
         error: error.message || "An error occurred while creating your pet memory."
       });
+    }
+  });
+
+  // Stripe Checkout Session Creation Route
+  app.post("/api/create-checkout-session", async (req, res) => {
+    try {
+      const {
+        creationId,
+        creationName,
+        imageUrl,
+        style,
+        creditsDeducted,
+        cashPaid,
+        shippingName,
+        shippingAddress,
+        shippingCity,
+        shippingState,
+        shippingZip,
+        shippingCountry,
+      } = req.body;
+
+      const appUrl = process.env.APP_URL || "http://localhost:3000";
+
+      // If Stripe client is not initialized, run in Sandbox Mode
+      if (!stripe) {
+        console.log("Stripe is not configured. Creating simulated checkout redirect url.");
+        const mockSessionId = `mock_sess_${Date.now()}`;
+        
+        // Save the mock order directly (simulating the webhook receiver completing it)
+        const mockOrder = {
+          orderId: `ord_${Date.now()}`,
+          creationId,
+          creationName,
+          imageUrl,
+          style,
+          creditsDeducted,
+          cashPaid,
+          shippingName,
+          shippingAddress,
+          shippingCity,
+          shippingState,
+          shippingZip,
+          shippingCountry,
+          createdAt: new Date().toISOString(),
+          status: "pending",
+          stripeSessionId: mockSessionId,
+          mode: "sandbox_simulation"
+        };
+        saveOrder(mockOrder);
+
+        const simulatedRedirectUrl = `${appUrl}/?order_success=true&session_id=${mockSessionId}`;
+        return res.json({ success: true, url: simulatedRedirectUrl, mode: "sandbox" });
+      }
+
+      // Real Stripe Checkout Session creation
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ["card"],
+        line_items: [
+          {
+            price_data: {
+              currency: "usd",
+              product_data: {
+                name: `Physical Photo Album - ${creationName}`,
+                description: `Premium 20-page hardcover printed pet keepsake. Style: ${style}`,
+                images: imageUrl ? [imageUrl] : undefined,
+              },
+              unit_amount: Math.round(cashPaid * 100), // $12.00 in cents = 1200
+            },
+            quantity: 1,
+          },
+        ],
+        mode: "payment",
+        metadata: {
+          creationId,
+          creationName,
+          imageUrl,
+          style,
+          creditsDeducted: String(creditsDeducted),
+          cashPaid: String(cashPaid),
+          shippingName,
+          shippingAddress,
+          shippingCity,
+          shippingState,
+          shippingZip,
+          shippingCountry,
+        },
+        success_url: `${appUrl}/?order_success=true&session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${appUrl}/?order_cancelled=true`,
+      });
+
+      return res.json({ success: true, url: session.url, mode: "live_stripe" });
+    } catch (err: any) {
+      console.error("Error creating stripe checkout session:", err);
+      res.status(500).json({ success: false, error: err.message || "Failed to initiate Stripe checkout." });
     }
   });
 

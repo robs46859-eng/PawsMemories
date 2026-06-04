@@ -11,12 +11,17 @@ import RandyChat from "./components/RandyChat";
 import { Sparkles, HelpCircle, Navigation, Award, User, Layers, History, FolderOpen, Sun, Moon } from "lucide-react";
 
 export default function App() {
-  const [currentScreen, setCurrentScreen] = useState<Screen>(Screen.SIGN_UP);
-  const [userProfile, setUserProfile] = useState<UserProfile>({
-    fullName: "",
-    phoneNumber: "",
-    credits: 0,
+  const [currentScreen, setCurrentScreen] = useState<Screen>(() => {
+    const saved = localStorage.getItem("paws_current_screen");
+    return saved ? (saved as Screen) : Screen.SIGN_UP;
   });
+  const [userProfile, setUserProfile] = useState<UserProfile>(() => {
+    const saved = localStorage.getItem("paws_user_profile");
+    return saved ? JSON.parse(saved) : { fullName: "", phoneNumber: "", credits: 0 };
+  });
+
+  const [showOrderSuccessModal, setShowOrderSuccessModal] = useState(false);
+  const [successOrderSessionId, setSuccessOrderSessionId] = useState("");
 
   const [albums, setAlbums] = useState<Album[]>(DEFAULT_ALBUMS);
   const [creations, setCreations] = useState<Creation[]>(DEFAULT_CREATIONS);
@@ -46,6 +51,34 @@ export default function App() {
       { id: "creation", title: "Art Keepsake", desc: "Created your first styled AI animal masterpiece memory", reward: 20, icon: "🎨", isUnlocked: false, isClaimed: false },
     ];
   });
+
+  React.useEffect(() => {
+    localStorage.setItem("paws_current_screen", currentScreen);
+  }, [currentScreen]);
+
+  React.useEffect(() => {
+    localStorage.setItem("paws_user_profile", JSON.stringify(userProfile));
+  }, [userProfile]);
+
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const orderSuccess = params.get("order_success");
+    const sessionId = params.get("session_id");
+    const orderCancelled = params.get("order_cancelled");
+
+    if (orderSuccess === "true" && sessionId) {
+      setSuccessOrderSessionId(sessionId);
+      setShowOrderSuccessModal(true);
+
+      // Clean up URL search params
+      const newUrl = window.location.pathname;
+      window.history.replaceState({}, document.title, newUrl);
+    } else if (orderCancelled === "true") {
+      alert("Order cancelled. Your payment was not processed and no credits were deducted.");
+      const newUrl = window.location.pathname;
+      window.history.replaceState({}, document.title, newUrl);
+    }
+  }, []);
 
   const toggleDarkMode = () => {
     const newVal = !isDarkMode;
@@ -340,6 +373,7 @@ export default function App() {
         {currentScreen === Screen.SHARE_MEMORY && (
           <ShareMemory
             creation={selectedCreationForShare || creations[0]}
+            userCredits={userProfile.credits}
             onBack={() => setCurrentScreen(Screen.DASHBOARD)}
           />
         )}
@@ -380,6 +414,38 @@ export default function App() {
 
       {/* Randy AI-chat bubble companion */}
       <RandyChat onUnlockAchievement={handleUnlockAchievement} isDarkMode={isDarkMode} />
+
+      {/* Order Success Modal */}
+      {showOrderSuccessModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 max-w-sm w-full text-center shadow-2xl border border-outline-variant/30 text-on-surface">
+            <span className="text-5xl animate-bounce mb-4 inline-block">🎉</span>
+            <h3 className="text-lg font-extrabold text-primary mb-2">Order Confirmed!</h3>
+            <p className="text-xs text-on-surface-variant leading-relaxed mb-4">
+              Your payment of **$12.00 USD** succeeded, and **800 credits** have been deducted. 
+              Randy is sending your custom physical pet album to print!
+            </p>
+            <div className="bg-surface-container rounded-xl p-3 text-[10px] text-on-surface-variant font-mono mb-6 text-left break-all">
+              <strong>Session ID:</strong> {successOrderSessionId}
+            </div>
+            <button
+              onClick={() => {
+                setShowOrderSuccessModal(false);
+                // Deduct credits on UI success confirmation
+                setUserProfile((prev) => {
+                  const updatedCredits = Math.max(0, prev.credits - 800);
+                  const updated = { ...prev, credits: updatedCredits };
+                  localStorage.setItem("paws_user_profile", JSON.stringify(updated));
+                  return updated;
+                });
+              }}
+              className="w-full py-3 bg-primary text-white rounded-xl text-xs font-black uppercase shadow-md hover:bg-primary/95 active:scale-95 duration-100 transition-all cursor-pointer"
+            >
+              Back to Studio
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
