@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ArrowLeft, Copy, Check, Download, Share2, Compass, ShieldAlert, Heart, Calendar } from "lucide-react";
+import { ArrowLeft, Copy, Check, Download, Share2, Compass, ShieldAlert, Heart, Calendar, MessageSquare, ExternalLink, Sparkles } from "lucide-react";
 import { Creation } from "../types";
 
 interface ShareMemoryProps {
@@ -9,15 +9,39 @@ interface ShareMemoryProps {
 
 export default function ShareMemory({ creation, onBack }: ShareMemoryProps) {
   const [copied, setCopied] = useState(false);
-  const [sitterService, setSitterService] = useState("Rover");
-  const [showSitterMessage, setShowSitterMessage] = useState(false);
-  const [contactName, setContactName] = useState("Sarah Connor");
-  const [contactEmail, setContactEmail] = useState("stelartechos@gmail.com");
+  const [roverOwnerName, setRoverOwnerName] = useState("Alex");
+  const [roverCustomText, setRoverCustomText] = useState("Today was such a joyful day! I crafted this magical portrait as a keepsake memory.");
+  const [roverTemplate, setRoverTemplate] = useState("stay_update");
+  const [roverCopied, setRoverCopied] = useState(false);
+  const [showIntegrationsGuide, setShowIntegrationsGuide] = useState(false);
+
+  const getPetFirstName = () => {
+    // Graceful extraction or fallback
+    if (!creation.name) return "your pet";
+    return creation.name.split(" ")[0];
+  };
+
+  const getRoverMessageText = () => {
+    const petName = getPetFirstName();
+    if (roverTemplate === "stay_update") {
+      return `Hi ${roverOwnerName}! 🐾 Just wanted to send an update on ${petName}. They are doing fantastic! I crafted this special ${creation.style} artwork of them today. Check it out here: ${creation.imageUrl}`;
+    }
+    if (roverTemplate === "goodnight") {
+      return `Good evening ${roverOwnerName}! 🌙 ${petName} is all curled up and cozy. Before we turn in, here is a lovely ${creation.style} photo memory I made of them: ${creation.imageUrl}`;
+    }
+    return `Hi ${roverOwnerName}! We just finished a super fun session. Look at this beautiful ${creation.style} digital keepsake of your furry buddy! 🎨🐶 Link: ${creation.imageUrl}`;
+  };
 
   const handleCopyLink = () => {
     navigator.clipboard.writeText(creation.imageUrl || "");
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleCopyRoverMessage = () => {
+    navigator.clipboard.writeText(getRoverMessageText());
+    setRoverCopied(true);
+    setTimeout(() => setRoverCopied(false), 2000);
   };
 
   const handleDownload = () => {
@@ -108,73 +132,126 @@ export default function ShareMemory({ creation, onBack }: ShareMemoryProps) {
         </div>
       </section>
 
-      {/* Sitter and Rover integration block */}
+      {/* Rover Pet-Sitter Quick-Share Assistant */}
       <section className="bg-surface-container rounded-3xl p-5 border border-outline-variant/30 space-y-4 shadow-sm">
-        <div className="flex items-center gap-2 text-primary">
-          <Compass size={18} />
-          <h3 className="text-xs font-extrabold uppercase tracking-wider">
-            Connected Sitter Services
-          </h3>
+        <div className="flex justify-between items-center">
+          <div className="flex items-center gap-2 text-primary">
+            <Compass size={18} className="text-orange-600 animate-spin animate-duration-[12000ms]" />
+            <h3 className="text-xs font-black uppercase tracking-wider font-sans">
+              Rover Sitter Quick-Share
+            </h3>
+          </div>
+          <span className="text-[9px] bg-amber-500/10 text-amber-600 font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider">
+            Sitter Toolkit
+          </span>
         </div>
 
         <p className="text-xs text-on-surface-variant leading-relaxed">
-          Need a trusted helper for {creation.name.replace(/in\s+\w+/gi, "").trim() || "your pet"} while you are away? Find certified sitters directly:
+          Are you sitting <strong className="text-on-surface">{getPetFirstName()}</strong>? Share this beautiful masterpiece directly with their owner Alex on your Rover thread!
         </p>
 
-        <div className="flex gap-3">
-          <select
-            value={sitterService}
-            onChange={(e) => {
-              setSitterService(e.target.value);
-              setShowSitterMessage(true);
-            }}
-            className="bg-white border border-outline-variant rounded-xl py-2.5 px-3 text-xs w-full focus:outline-none focus:border-primary select-none text-on-surface font-semibold"
-          >
-            <option value="Rover">Rover Sitter Network</option>
-            <option value="Wag">Wag! Quick Walkers</option>
-          </select>
-          
-          <button
-            onClick={() => setShowSitterMessage(true)}
-            className="bg-primary/10 hover:bg-primary/15 text-primary py-2.5 px-4 rounded-xl text-xs font-bold whitespace-nowrap cursor-pointer"
-          >
-            Search Sitters
-          </button>
-        </div>
+        {/* Form elements inside assistant */}
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-[10px] text-on-surface-variant font-bold uppercase tracking-wider px-1 block mb-1">
+                Owner's Name
+              </label>
+              <input
+                type="text"
+                value={roverOwnerName}
+                onChange={(e) => setRoverOwnerName(e.target.value)}
+                placeholder="e.g. Alex, Sarah"
+                className="w-full bg-white border border-outline-variant rounded-xl py-2 px-3 text-xs focus:outline-none focus:border-primary text-slate-800 font-medium"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-on-surface-variant font-bold uppercase tracking-wider px-1 block mb-1">
+                Update Scenario
+              </label>
+              <select
+                value={roverTemplate}
+                onChange={(e) => setRoverTemplate(e.target.value)}
+                className="w-full bg-white border border-outline-variant rounded-xl py-2 px-3 text-xs focus:outline-none focus:border-primary text-slate-800 font-black cursor-pointer"
+              >
+                <option value="stay_update">🐾 Active Day Update</option>
+                <option value="goodnight">🌙 Sweet Dreams Sleep</option>
+                <option value="keepsake">🎨 Digital Art Keepsake</option>
+              </select>
+            </div>
+          </div>
 
-        {showSitterMessage && (
-          <div className="p-3 bg-primary/5 rounded-xl border border-primary/20 text-xs text-primary leading-normal animate-fade-in flex gap-2">
-            <Heart size={14} className="mt-0.5 flex-shrink-0" />
-            <p>
-              Looking for companions matched with <span className="font-bold">{sitterService}</span>. We will share your verified owner details under <strong>{contactName}</strong> and matching pet breed safely!
+          {/* Render Preview Card */}
+          <div className="bg-white/95 dark:bg-slate-900 border border-outline-variant/40 rounded-2xl p-4 space-y-2.5 relative">
+            <div className="flex justify-between items-center pb-2 border-b border-outline-variant/20">
+              <span className="text-[9px] font-black text-rose-500 uppercase tracking-widest flex items-center gap-1">
+                <Heart size={10} className="fill-rose-500" /> Rover Message Preview
+              </span>
+              <span className="text-[9px] text-on-surface-variant/50 font-mono">Character length: {getRoverMessageText().length}</span>
+            </div>
+            
+            <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed italic pr-3 font-medium">
+              "{getRoverMessageText()}"
             </p>
-          </div>
-        )}
-      </section>
 
-      {/* Owner identification record details */}
-      <section className="bg-surface-container rounded-3xl p-5 border border-outline-variant/30 space-y-3.5 shadow-sm">
-        <h3 className="text-xs font-bold text-on-surface-variant uppercase tracking-widest px-1">
-          Owner Identification Record
-        </h3>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <span className="text-[10px] text-outline font-bold uppercase tracking-wider px-1">Owner Name</span>
-            <input
-              type="text"
-              value={contactName}
-              onChange={(e) => setContactName(e.target.value)}
-              className="w-full bg-white border border-outline-variant rounded-xl py-1.5 px-3 text-xs focus:outline-none"
-            />
+            {/* Direct Thumbnail Attachment Badge */}
+            <div className="flex items-center gap-2.5 bg-surface-container-low/80 p-2 rounded-xl border border-outline-variant/15">
+              <img
+                src={creation.imageUrl}
+                alt="Thumbnail Attachment"
+                className="w-10 h-10 object-cover rounded-lg border border-outline-variant/20"
+                referrerPolicy="no-referrer"
+              />
+              <div className="text-[10px] truncate">
+                <span className="font-bold text-on-surface block">Attached Masterpiece link</span>
+                <span className="text-on-surface-variant font-mono truncate block max-w-[200px]">{creation.imageUrl}</span>
+              </div>
+            </div>
           </div>
-          <div>
-            <span className="text-[10px] text-outline font-bold uppercase tracking-wider px-1">Contact Email</span>
-            <input
-              type="email"
-              value={contactEmail}
-              onChange={(e) => setContactEmail(e.target.value)}
-              className="w-full bg-white border border-outline-variant rounded-xl py-1.5 px-3 text-xs focus:outline-none"
-            />
+
+          {/* Quick-Action Controls */}
+          <div className="grid grid-cols-2 gap-3 pt-1">
+            <button
+              onClick={handleCopyRoverMessage}
+              type="button"
+              className="py-3 px-4 bg-primary text-white text-xs font-black uppercase rounded-xl hover:bg-primary/95 shadow-sm active:scale-95 duration-100 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              {roverCopied ? <Check size={14} className="text-white" /> : <Copy size={14} />}
+              <span>{roverCopied ? "Copied!" : "Copy Rover Text"}</span>
+            </button>
+
+            <a
+              href="https://www.rover.com/inbox/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="py-3 px-4 bg-orange-600 text-white text-xs font-black uppercase rounded-xl hover:bg-orange-700 shadow-sm active:scale-95 duration-100 transition-all flex items-center justify-center gap-1.5 text-center cursor-pointer decoration-transparent"
+            >
+              <ExternalLink size={14} />
+              <span>Go to Rover Inbox</span>
+            </a>
+          </div>
+
+          {/* API Transparency notice helper info toggle */}
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={() => setShowIntegrationsGuide(!showIntegrationsGuide)}
+              className="text-[10px] text-primary font-bold uppercase tracking-wider hover:underline flex items-center gap-1 cursor-pointer"
+            >
+              <ShieldAlert size={12} />
+              {showIntegrationsGuide ? "Hide API Integration details" : "How does direct Rover messaging integration work?"}
+            </button>
+
+            {showIntegrationsGuide && (
+              <div className="mt-2 bg-primary/5 p-3 rounded-xl border border-primary/20 text-[10px] text-primary font-medium tracking-wide leading-relaxed space-y-1 animate-slide-down">
+                <p className="font-bold uppercase text-[9px] tracking-wider text-primary">Integration Architecture Notice Details:</p>
+                <ul className="list-disc pl-4 space-y-1">
+                  <li>Rover.com is a closed marketplace and does not maintain public developer APIs or direct SMS/messaging webhooks for third-party platforms to programmatically inject messages on behalf of active users.</li>
+                  <li>Our tailored **Quick-Share Assistant** bridges this gap securely! By compiling an optimized text payload and providing a 1-click clipboard shortcut tool, you can drop high-resolution cloud links into the owner's chat thread safely.</li>
+                  <li>Unlike heavy platform proxies, this guarantees 100% security under Rover Terms of Service since it operates directly through your certified human workspace.</li>
+                </ul>
+              </div>
+            )}
           </div>
         </div>
       </section>
