@@ -10,7 +10,7 @@ dotenv.config();
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   // Initialize Stripe client safely
   const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
