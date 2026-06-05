@@ -139,11 +139,28 @@ async function startServer() {
       if (!phone || !code) {
         return res.status(400).json({ error: "Phone number and verification code are required." });
       }
-      const approved = await checkVerificationCode(phone, code);
+      // Step 2a: verify the code with Twilio. A failure here means a bad/expired code.
+      let approved = false;
+      try {
+        approved = await checkVerificationCode(phone, code);
+      } catch (err: any) {
+        console.error("verify-code Twilio error:", err?.message || err);
+        return res.status(502).json({ error: "We couldn't reach the verification service. Please try again in a moment." });
+      }
       if (!approved) {
         return res.status(401).json({ error: "That code is incorrect or has expired. Please try again." });
       }
-      const user = await findOrCreateUser(phone);
+
+      // Step 2b: the code is valid. Persist the user. A failure here is a SERVER/DB
+      // problem, not a bad code — surface it distinctly so it isn't mistaken for one.
+      let user;
+      try {
+        user = await findOrCreateUser(phone);
+      } catch (err: any) {
+        console.error("verify-code DB error:", err?.message || err);
+        return res.status(503).json({ error: "Your code was verified, but we couldn't finish creating your account. Please try again shortly." });
+      }
+
       const token = signToken({ phone: user.phone, uid: user.id });
       res.json({ success: true, token, user: toPublicUser(user) });
     } catch (err: any) {
