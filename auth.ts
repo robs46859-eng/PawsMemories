@@ -34,7 +34,13 @@ function serviceSid(): string {
  */
 export function normalizePhone(input: string): string | null {
   if (!input) return null;
-  const digits = input.replace(/[^0-9]/g, "");
+  let digits = input.replace(/[^0-9]/g, "");
+  // Convenience for US users: a bare 10-digit number (no country code) is
+  // assumed to be US and gets a "1" prefix, so "5551234567" -> "+15551234567".
+  // Numbers entered with a country code (e.g. "+44...", "+1 555...") are untouched.
+  if (digits.length === 10) {
+    digits = "1" + digits;
+  }
   if (digits.length < 8 || digits.length > 15) return null;
   return "+" + digits;
 }
