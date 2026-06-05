@@ -9,7 +9,8 @@ import EditMemory from "./components/EditMemory";
 import ShareMemory from "./components/ShareMemory";
 import RandyChat from "./components/RandyChat";
 import { fetchMe, clearToken } from "./api";
-import { Sparkles, User, History, FolderOpen, Sun, Moon, LogOut, RefreshCw } from "lucide-react";
+import { Sparkles, User, History, FolderOpen, Sun, Moon, LogOut, RefreshCw, Zap } from "lucide-react";
+import CreditStore from "./components/CreditStore";
 
 const EMPTY_PROFILE: UserProfile = { fullName: "", phoneNumber: "", email: "", credits: 0 };
 
@@ -23,6 +24,8 @@ export default function App() {
 
   const [showOrderSuccessModal, setShowOrderSuccessModal] = useState(false);
   const [successOrderSessionId, setSuccessOrderSessionId] = useState("");
+  const [showCreditStore, setShowCreditStore] = useState(false);
+  const [creditSuccessMsg, setCreditSuccessMsg] = useState("");
 
   const [albums, setAlbums] = useState<Album[]>(DEFAULT_ALBUMS);
   const [creations, setCreations] = useState<Creation[]>(DEFAULT_CREATIONS);
@@ -90,6 +93,15 @@ export default function App() {
       alert("Order cancelled. Your payment was not processed and no credits were deducted.");
       const newUrl = window.location.pathname;
       window.history.replaceState({}, document.title, newUrl);
+    } else if (params.get("credits_success") === "true") {
+      const added = params.get("added") || "?";
+      setCreditSuccessMsg(`🎉 ${added} credits added to your account!`);
+      // Re-fetch the user from the server so the displayed balance is accurate
+      fetchMe().then((user) => { if (user) applyUser(user); });
+      window.history.replaceState({}, document.title, window.location.pathname);
+      setTimeout(() => setCreditSuccessMsg(""), 5000);
+    } else if (params.get("credits_cancelled") === "true") {
+      window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, []);
 
@@ -253,6 +265,15 @@ export default function App() {
                   </span>
                 </div>
               </div>
+              {/* Buy Credits button */}
+              <button
+                onClick={() => setShowCreditStore(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm"
+                title="Buy more credits"
+              >
+                <Zap size={11} className="fill-primary" />
+                <span className="hidden sm:inline">Buy</span> Credits
+              </button>
               <button
                 onClick={handleLogout}
                 className="w-8 h-8 rounded-full bg-surface-container hover:bg-error/10 hover:text-error text-on-surface-variant flex items-center justify-center border border-outline-variant/20 transition-all cursor-pointer shadow-sm"
@@ -373,6 +394,22 @@ export default function App() {
 
       {/* Randy AI-chat bubble companion (only for signed-in users) */}
       {isAuthed && <RandyChat onUnlockAchievement={handleUnlockAchievement} isDarkMode={isDarkMode} />}
+
+      {/* Credit success toast */}
+      {creditSuccessMsg && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-primary text-white px-5 py-3 rounded-2xl shadow-xl text-sm font-bold animate-fade-in flex items-center gap-2">
+          <Zap size={16} className="fill-white" />
+          {creditSuccessMsg}
+        </div>
+      )}
+
+      {/* Credit Store Modal */}
+      {showCreditStore && (
+        <CreditStore
+          currentCredits={userProfile.credits}
+          onClose={() => setShowCreditStore(false)}
+        />
+      )}
 
       {/* Order Success Modal */}
       {showOrderSuccessModal && (

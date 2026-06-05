@@ -118,3 +118,32 @@ export async function completeUserProfile(phone: string, fullName: string, email
   if (!updated) throw new Error("User not found after profile update");
   return updated;
 }
+
+/** Read the current credit balance for a phone number from the DB. */
+export async function getCreditBalance(phone: string): Promise<number> {
+  const user = await findUserByPhone(phone);
+  return user ? user.credits : 0;
+}
+
+/**
+ * Atomically deduct credits only if the user has enough.
+ * Returns true if the deduction succeeded, false if insufficient balance.
+ */
+export async function deductCredits(phone: string, amount: number): Promise<boolean> {
+  const [result] = await getPool().query(
+    `UPDATE users SET credits = credits - ? WHERE phone = ? AND credits >= ?`,
+    [amount, phone, amount]
+  ) as any;
+  return result.affectedRows === 1;
+}
+
+/**
+ * Add credits to a user's account (purchases, rewards, webhooks).
+ * Safe to call from Stripe webhooks.
+ */
+export async function addCredits(phone: string, amount: number): Promise<void> {
+  await getPool().query(
+    `UPDATE users SET credits = credits + ? WHERE phone = ?`,
+    [amount, phone]
+  );
+}

@@ -5,7 +5,7 @@ import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import Stripe from "stripe";
 import fs from "fs";
-import { initDb, findOrCreateUser, findUserByPhone, completeUserProfile, toPublicUser } from "./db";
+import { initDb, findOrCreateUser, findUserByPhone, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance } from "./db";
 import {
   authConfigured,
   normalizePhone,
@@ -21,6 +21,12 @@ dotenv.config();
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
+
+  // Fix 3: JWT_SECRET startup guard — refuse to start with an insecure empty secret.
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET === "MY_JWT_SECRET" || process.env.JWT_SECRET.length < 16) {
+    console.error("❌ FATAL: JWT_SECRET is missing or too short. Set a long random string in your .env file.");
+    process.exit(1);
+  }
 
   // Initialize the user database (creates the users table if needed)
   await initDb();
@@ -76,27 +82,39 @@ async function startServer() {
 
       const metadata = session.metadata;
       if (metadata) {
-        const order = {
-          orderId: `ord_${Date.now()}`,
-          creationId: metadata.creationId,
-          creationName: metadata.creationName,
-          imageUrl: metadata.imageUrl,
-          style: metadata.style,
-          creditsDeducted: parseInt(metadata.creditsDeducted || "800", 10),
-          cashPaid: parseFloat(metadata.cashPaid || "12.00"),
-          shippingName: metadata.shippingName,
-          shippingAddress: metadata.shippingAddress,
-          shippingCity: metadata.shippingCity,
-          shippingState: metadata.shippingState,
-          shippingZip: metadata.shippingZip,
-          shippingCountry: metadata.shippingCountry,
-          createdAt: new Date().toISOString(),
-          status: "pending",
-          stripeSessionId: session.id,
-          mode: "live_stripe"
-        };
-        
-        saveOrder(order);
+        // Fix 5: Handle credit pack purchases from the credit store
+        if (metadata.type === "credit_purchase" && metadata.userPhone && metadata.creditsToAdd) {
+          const creditsToAdd = parseInt(metadata.creditsToAdd, 10);
+          await addCredits(metadata.userPhone, creditsToAdd);
+          console.log(`✅ Added ${creditsToAdd} credits to ${metadata.userPhone} via Stripe purchase.`);
+        } else {
+          // Standard physical album order
+          const order = {
+            orderId: `ord_${Date.now()}`,
+            creationId: metadata.creationId,
+            creationName: metadata.creationName,
+            style: metadata.style,
+            creditsDeducted: parseInt(metadata.creditsDeducted || "800", 10),
+            cashPaid: parseFloat(metadata.cashPaid || "12.00"),
+            shippingName: metadata.shippingName,
+            shippingAddress: metadata.shippingAddress,
+            shippingCity: metadata.shippingCity,
+            shippingState: metadata.shippingState,
+            shippingZip: metadata.shippingZip,
+            shippingCountry: metadata.shippingCountry,
+            createdAt: new Date().toISOString(),
+            status: "pending",
+            stripeSessionId: session.id,
+            mode: "live_stripe"
+          };
+          saveOrder(order);
+
+          // Fix 2: Deduct album credits in DB upon confirmed payment
+          if (metadata.userPhone) {
+            await deductCredits(metadata.userPhone, parseInt(metadata.creditsDeducted || "800", 10));
+            console.log(`✅ Deducted ${metadata.creditsDeducted} credits from ${metadata.userPhone} for album order.`);
+          }
+        }
       }
     }
 
@@ -309,10 +327,77 @@ async function startServer() {
   });
 
   // API route to create custom styled pet images using Imagen or Gemini
+  // Fix 5: Credit store — let users purchase credit packs via Stripe
+  const CREDIT_PACKS = [
+    { id: "pack_100",  credits: 100,  price: 1.99,  label: "Starter Pack" },
+    { id: "pack_300",  credits: 300,  price: 4.99,  label: "Popular Pack" },
+    { id: "pack_700",  credits: 700,  price: 9.99,  label: "Pro Pack" },
+    { id: "pack_1500", credits: 1500, price: 17.99, label: "Studio Pack" },
+  ] as const;
+
+  app.post("/api/create-credits-session", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { packId } = req.body;
+      const pack = CREDIT_PACKS.find((p) => p.id === packId);
+      if (!pack) return res.status(400).json({ success: false, error: "Invalid credit pack selected." });
+
+      const appUrl = process.env.APP_URL || "http://localhost:3000";
+
+      // Sandbox mode — simulate instantly
+      if (!stripe) {
+        await addCredits(req.user!.phone, pack.credits);
+        const simulatedUrl = `${appUrl}/?credits_success=true&pack=${pack.id}&added=${pack.credits}`;
+        return res.json({ success: true, url: simulatedUrl, mode: "sandbox" });
+      }
+
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ["card"],
+        line_items: [{
+          price_data: {
+            currency: "usd",
+            product_data: {
+              name: `Paws & Memories — ${pack.label}`,
+              description: `${pack.credits} AI creation credits`,
+            },
+            unit_amount: Math.round(pack.price * 100),
+          },
+          quantity: 1,
+        }],
+        mode: "payment",
+        metadata: {
+          type: "credit_purchase",
+          userPhone: req.user!.phone,
+          packId: pack.id,
+          creditsToAdd: String(pack.credits),
+        },
+        success_url: `${appUrl}/?credits_success=true&pack=${pack.id}&added=${pack.credits}`,
+        cancel_url: `${appUrl}/?credits_cancelled=true`,
+      });
+
+      return res.json({ success: true, url: session.url, mode: "live_stripe" });
+    } catch (err: any) {
+      console.error("Error creating credits checkout session:", err);
+      res.status(500).json({ success: false, error: err.message || "Failed to initiate credit purchase." });
+    }
+  });
+
   app.post("/api/create-creation", requireAuth, async (req, res) => {
     try {
       if (!apiKey || apiKey === "placeholder-key" || apiKey === "MY_GEMINI_API_KEY") {
         throw new Error("Missing or invalid GEMINI_API_KEY. Please configure your Gemini API key in the AI Studio Secrets panel.");
+      }
+
+      const authedReq = req as AuthedRequest;
+      const userPhone = authedReq.user!.phone;
+      const GENERATION_COST = 40;
+
+      // Fix 2: Server-side credit check + atomic deduction before calling AI
+      const currentBalance = await getCreditBalance(userPhone);
+      if (currentBalance < GENERATION_COST) {
+        return res.status(402).json({
+          success: false,
+          error: `Insufficient credits. You need ${GENERATION_COST} credits but only have ${currentBalance}. Purchase more credits to continue.`
+        });
       }
 
       const { style, background, photo, breed, name, brightness, contrast } = req.body;
@@ -397,6 +482,8 @@ async function startServer() {
           }
 
           if (generatedBase64) {
+            // Fix 2: Deduct credits after successful style-transfer generation
+            await deductCredits(userPhone, GENERATION_COST);
             return res.json({ success: true, imageUrl: generatedBase64, mode: "transform" });
           }
         } catch (err: any) {
@@ -416,6 +503,8 @@ async function startServer() {
           },
         });
         const base64Bytes = response.generatedImages[0].image.imageBytes;
+        // Fix 2: Deduct credits after successful Imagen generation
+        await deductCredits(userPhone, GENERATION_COST);
         return res.json({ success: true, imageUrl: `data:image/jpeg;base64,${base64Bytes}`, mode: "generate" });
       } catch (e: any) {
         console.error("Imagen model error, trying gemini-2.5-flash-image fallback:", e);
@@ -443,6 +532,8 @@ async function startServer() {
         }
         
         if (generatedBase64) {
+          // Fix 2: Deduct credits in DB after confirmed successful generation
+          await deductCredits(userPhone, GENERATION_COST);
           return res.json({ success: true, imageUrl: generatedBase64, mode: "fallback-generation" });
         }
         
@@ -527,12 +618,16 @@ async function startServer() {
         ],
         mode: "payment",
         metadata: {
+          type: "album_order",
           creationId,
           creationName,
-          imageUrl,
+          // Fix 4: Never put base64 data in Stripe metadata (500-char limit).
+          // Store only a short label; the image is already held in the client.
+          imageRef: imageUrl && imageUrl.startsWith("data:") ? "[base64-omitted]" : (imageUrl || ""),
           style,
           creditsDeducted: String(creditsDeducted),
           cashPaid: String(cashPaid),
+          userPhone: (req as AuthedRequest).user!.phone,
           shippingName,
           shippingAddress,
           shippingCity,
@@ -583,7 +678,7 @@ async function startServer() {
       });
 
       const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+        model: "gemini-2.5-flash",
         contents: contentParts,
         config: {
           systemInstruction: randySystemInstruction,
