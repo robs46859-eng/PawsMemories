@@ -1,4 +1,4 @@
-import { PublicUser } from "./types";
+import { PublicUser, Creation, LocationParams } from "./types";
 
 /**
  * Lightweight API client that manages the session token and auth flow.
@@ -88,4 +88,45 @@ export async function fetchMe(): Promise<PublicUser | null> {
   } catch {
     return null;
   }
+}
+
+// --- Phase 1: Street View & Creations Flow ---------------------------------
+
+export async function checkStreetViewCoverage(lat: number, lng: number): Promise<{ status: string }> {
+  const res = await authedFetch(`/api/streetview/coverage?lat=${lat}&lng=${lng}`);
+  if (!res.ok) throw new Error(await parseError(res, "Failed to check street view coverage."));
+  const data = await res.json();
+  return data.data;
+}
+
+export async function fetchCreations(): Promise<Creation[]> {
+  const res = await authedFetch("/api/creations");
+  if (!res.ok) throw new Error(await parseError(res, "Failed to fetch creations."));
+  const data = await res.json();
+  return data.creations || [];
+}
+
+export async function updateCreationOrder(id: number, sortOrder: number): Promise<void> {
+  const res = await authedFetch(`/api/creations/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sort_order: sortOrder }),
+  });
+  if (!res.ok) throw new Error(await parseError(res, "Failed to update creation order."));
+}
+
+export async function createVideo(creationId: number, motionPrompt?: string, generateAudio: boolean = true): Promise<{ jobId: number }> {
+  const res = await authedFetch("/api/create-video", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ creationId, motionPrompt, generateAudio }),
+  });
+  if (!res.ok) throw new Error(await parseError(res, "Failed to start video generation."));
+  return await res.json();
+}
+
+export async function pollJob(jobId: number): Promise<{ status: string; video_url?: string | null; error?: string | null }> {
+  const res = await authedFetch(`/api/jobs/${jobId}`);
+  if (!res.ok) throw new Error(await parseError(res, "Failed to poll job status."));
+  return await res.json();
 }

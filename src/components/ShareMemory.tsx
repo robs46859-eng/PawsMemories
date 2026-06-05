@@ -27,16 +27,16 @@ export default function ShareMemory({ creation, userCredits, onBack }: ShareMemo
   const getRoverMessageText = () => {
     const petName = getPetFirstName();
     if (roverTemplate === "stay_update") {
-      return `Hi ${roverOwnerName}! 🐾 Just wanted to send an update on ${petName}. They are doing fantastic! I crafted this special ${creation.style} artwork of them today. Check it out here: ${creation.imageUrl}`;
+      return `Hi ${roverOwnerName}! 🐾 Just wanted to send an update on ${petName}. They are doing fantastic! I crafted this special ${creation.style} artwork of them today. Check it out here: ${creation.image_url}`;
     }
     if (roverTemplate === "goodnight") {
-      return `Good evening ${roverOwnerName}! 🌙 ${petName} is all curled up and cozy. Before we turn in, here is a lovely ${creation.style} photo memory I made of them: ${creation.imageUrl}`;
+      return `Good evening ${roverOwnerName}! 🌙 ${petName} is all curled up and cozy. Before we turn in, here is a lovely ${creation.style} photo memory I made of them: ${creation.image_url}`;
     }
-    return `Hi ${roverOwnerName}! We just finished a super fun session. Look at this beautiful ${creation.style} digital keepsake of your furry buddy! 🎨🐶 Link: ${creation.imageUrl}`;
+    return `Hi ${roverOwnerName}! We just finished a super fun session. Look at this beautiful ${creation.style} digital keepsake of your furry buddy! 🎨🐶 Link: ${creation.image_url}`;
   };
 
   const handleCopyLink = () => {
-    navigator.clipboard.writeText(creation.imageUrl || "");
+    navigator.clipboard.writeText(creation.image_url || "");
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -48,10 +48,15 @@ export default function ShareMemory({ creation, userCredits, onBack }: ShareMemo
   };
 
   const handleDownload = () => {
-    // Standard trigger
+    // Phase 4: Support downloading videos or images
+    const urlToDownload = creation.media_type === "video" && creation.video_url 
+      ? creation.video_url 
+      : (creation.image_url || "");
+      
+    const ext = creation.media_type === "video" ? "mp4" : "jpeg";
     const link = document.createElement("a");
-    link.href = creation.imageUrl;
-    link.download = `${creation.name.replace(/\s+/g, "_")}.jpeg`;
+    link.href = urlToDownload;
+    link.download = `${creation.name?.replace(/\s+/g, "_") || "memory"}.${ext}`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -75,13 +80,24 @@ export default function ShareMemory({ creation, userCredits, onBack }: ShareMemo
       </div>
 
       {/* Hero preview card of selected creation */}
-      <div className="relative w-full aspect-[4/3] rounded-3xl overflow-hidden soft-glow-shadow border-4 border-white bg-surface-container">
-        <img
-          alt={creation.name}
-          className="w-full h-full object-cover"
-          src={creation.imageUrl}
-          referrerPolicy="no-referrer"
-        />
+      <div className="relative w-full aspect-[4/3] rounded-3xl overflow-hidden soft-glow-shadow border-4 border-white bg-surface-container bg-black">
+        {creation.media_type === "video" && creation.video_url ? (
+          <video
+            src={creation.video_url}
+            autoPlay
+            loop
+            muted
+            playsInline
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <img
+            alt={creation.name || "Creation"}
+            className="w-full h-full object-cover"
+            src={creation.image_url || creation.image_url || ""}
+            referrerPolicy="no-referrer"
+          />
+        )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
 
         <div className="absolute bottom-4 left-4 right-4 flex justify-between items-end text-white">
@@ -89,10 +105,19 @@ export default function ShareMemory({ creation, userCredits, onBack }: ShareMemo
             <span className="text-[10px] font-bold text-primary-container-lowest uppercase tracking-wider bg-primary/40 backdrop-blur-sm px-2.5 py-0.5 rounded-full mb-1 inline-block">
               {creation.style} Restyle
             </span>
-            <h2 className="text-lg font-bold leading-tight">{creation.name}</h2>
+            <h2 className="text-lg font-bold leading-tight">{creation.name || "Untitled Memory"}</h2>
           </div>
-          <p className="text-[10px] opacity-80 font-medium whitespace-nowrap">{creation.createdAt}</p>
+          <p className="text-[10px] opacity-80 font-medium whitespace-nowrap">
+            {creation.created_at ? new Date(creation.created_at).toLocaleDateString() : "Recent"}
+          </p>
         </div>
+        
+        {creation.media_type === "video" && (
+          <div className="absolute top-3 right-3 bg-black/60 backdrop-blur-sm text-white px-3 py-1 rounded-full flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider">
+            <span className="w-1.5 h-1.5 bg-yellow-400 rounded-full animate-pulse" />
+            Video
+          </div>
+        )}
       </div>
 
       {/* Share Actions buttons */}
@@ -123,7 +148,7 @@ export default function ShareMemory({ creation, userCredits, onBack }: ShareMemo
         <div className="bg-white/60 p-3 rounded-xl border border-outline-variant/50 flex justify-between items-center gap-3">
           <div className="truncate text-left flex-grow">
             <span className="text-[9px] font-bold text-outline uppercase tracking-wider block">Direct Image Link</span>
-            <p className="text-xs text-on-surface-variant truncate font-sans">{creation.imageUrl}</p>
+            <p className="text-xs text-on-surface-variant truncate font-sans">{creation.image_url}</p>
           </div>
           <button
             onClick={handleCopyLink}
@@ -200,14 +225,14 @@ export default function ShareMemory({ creation, userCredits, onBack }: ShareMemo
             {/* Direct Thumbnail Attachment Badge */}
             <div className="flex items-center gap-2.5 bg-surface-container-low/80 p-2 rounded-xl border border-outline-variant/15">
               <img
-                src={creation.imageUrl}
+                src={creation.image_url}
                 alt="Thumbnail Attachment"
                 className="w-10 h-10 object-cover rounded-lg border border-outline-variant/20"
                 referrerPolicy="no-referrer"
               />
               <div className="text-[10px] truncate">
                 <span className="font-bold text-on-surface block">Attached Masterpiece link</span>
-                <span className="text-on-surface-variant font-mono truncate block max-w-[200px]">{creation.imageUrl}</span>
+                <span className="text-on-surface-variant font-mono truncate block max-w-[200px]">{creation.image_url}</span>
               </div>
             </div>
           </div>

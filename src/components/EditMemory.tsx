@@ -1,8 +1,9 @@
 import React, { useState, useRef } from "react";
-import { Sparkles, Sun, Crop, Compass, Upload, Save, HelpCircle, AlertCircle, RefreshCw, Dog, Camera, Mic, MicOff, Video } from "lucide-react";
-import { StyleType, BackgroundType, Creation } from "../types";
+import { Sparkles, Sun, Crop, Compass, Upload, Save, HelpCircle, AlertCircle, RefreshCw, Dog, Camera, Mic, MicOff, Video, MapPin } from "lucide-react";
+import { StyleType, BackgroundType, Creation, LocationParams } from "../types";
 import { STYLE_OPTIONS, BACKGROUND_OPTIONS } from "../data";
 import { authedFetch } from "../api";
+import LocationPicker from "./LocationPicker";
 
 interface EditMemoryProps {
   credits: number;
@@ -21,6 +22,8 @@ export default function EditMemory({
 }: EditMemoryProps) {
   const [selectedStyle, setSelectedStyle] = useState<StyleType>("Clay");
   const [selectedBackground, setSelectedBackground] = useState<BackgroundType>("Canyon");
+  const [customLocation, setCustomLocation] = useState<LocationParams | null>(null);
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
   const [brightness, setBrightness] = useState(80);
   const [contrast, setContrast] = useState(45);
   const [petName, setPetName] = useState("");
@@ -213,6 +216,7 @@ export default function EditMemory({
           name: petName,
           brightness,
           contrast,
+          location: customLocation || undefined,
         }),
       });
 
@@ -227,13 +231,26 @@ export default function EditMemory({
 
       // Create new Creation
       const userCreation: Creation = {
-        id: `creation-${Date.now()}`,
-        name: petName ? `${petName} in ${selectedBackground}` : `My Pet in ${selectedBackground}`,
-        breed: petBreed,
+        id: Date.now(),
+        user_phone: "", // Populated by backend on fetch
+        album_id: null,
+        media_type: "still",
         style: selectedStyle,
+        backdrop_kind: customLocation ? "streetview" : "preset",
+        preset_name: customLocation ? null : selectedBackground,
+        sv_lat: customLocation?.lat || null,
+        sv_lng: customLocation?.lng || null,
+        sv_heading: customLocation?.heading || null,
+        sv_pitch: customLocation?.pitch || null,
+        sv_fov: customLocation?.fov || null,
+        place_label: customLocation?.placeLabel || null,
+        image_url: data.imageUrl,
+        video_url: null,
+        sort_order: 0,
+        created_at: new Date().toISOString(),
+        name: petName ? `${petName} in ${customLocation ? customLocation.placeLabel : selectedBackground}` : `My Pet in ${customLocation ? customLocation.placeLabel : selectedBackground}`,
+        breed: petBreed,
         background: selectedBackground,
-        imageUrl: data.imageUrl,
-        createdAt: "Just now",
         isCustomUploaded: !!uploadedBase64,
       };
 
@@ -481,26 +498,28 @@ export default function EditMemory({
         <div className="space-y-2">
           <div className="flex justify-between items-center px-1">
             <h3 className="text-xs font-bold text-on-surface-variant uppercase tracking-widest">
-              Dream Destins
+              Dream Destinations
             </h3>
-            <span className="text-[10px] text-outline uppercase font-bold tracking-widest">5 locations</span>
           </div>
           
-          <div className="flex gap-2.5 overflow-x-auto hide-scrollbar">
+          <div className="flex gap-2.5 overflow-x-auto hide-scrollbar pb-2">
             {BACKGROUND_OPTIONS.slice(0, 4).map((bgOpt) => (
               <div
                 key={bgOpt.value}
-                onClick={() => setSelectedBackground(bgOpt.value)}
+                onClick={() => {
+                  setSelectedBackground(bgOpt.value);
+                  setCustomLocation(null);
+                }}
                 className="flex-shrink-0 w-28 h-18 rounded-xl overflow-hidden relative cursor-pointer active:scale-95 transition-all shadow-sm border border-outline-variant/10"
               >
                 <img
                   alt={bgOpt.label}
-                  className={`w-full h-full object-cover ${selectedBackground === bgOpt.value ? "brightness-90" : "brightness-75"}`}
+                  className={`w-full h-full object-cover ${(!customLocation && selectedBackground === bgOpt.value) ? "brightness-90" : "brightness-75"}`}
                   src={bgOpt.imageUrl}
                   referrerPolicy="no-referrer"
                 />
                 {/* Active check border */}
-                {selectedBackground === bgOpt.value && (
+                {!customLocation && selectedBackground === bgOpt.value && (
                   <div className="absolute inset-0 border-3 border-primary rounded-xl"></div>
                 )}
                 <div className="absolute bottom-1.5 left-2 bg-black/30 backdrop-blur-[1px] px-1.5 py-0.5 rounded">
@@ -508,7 +527,34 @@ export default function EditMemory({
                 </div>
               </div>
             ))}
+            
+            {/* Custom Location Button */}
+            <button
+              type="button"
+              onClick={() => setShowLocationPicker(true)}
+              className={`flex-shrink-0 w-28 h-18 rounded-xl overflow-hidden relative cursor-pointer active:scale-95 transition-all shadow-sm border-2 flex flex-col items-center justify-center gap-1 ${
+                customLocation ? "border-primary bg-primary/5" : "border-dashed border-outline-variant bg-surface-container-hover"
+              }`}
+            >
+              <MapPin className={`h-6 w-6 ${customLocation ? "text-primary" : "text-on-surface-variant"}`} />
+              <span className={`text-[9px] font-bold uppercase tracking-tight ${customLocation ? "text-primary" : "text-on-surface-variant"}`}>
+                {customLocation ? "Custom Set" : "Any Location"}
+              </span>
+            </button>
           </div>
+          
+          {customLocation && (
+            <div className="flex items-center gap-2 bg-primary/5 border border-primary/20 rounded-xl p-3">
+              <MapPin className="h-4 w-4 text-primary flex-shrink-0" />
+              <span className="text-xs font-medium text-primary truncate">{customLocation.placeLabel}</span>
+              <button 
+                onClick={() => setCustomLocation(null)} 
+                className="ml-auto text-[10px] text-outline hover:text-on-surface font-bold uppercase"
+              >
+                Clear
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Adjustments Brightness / Contrast Sliders */}
@@ -565,6 +611,19 @@ export default function EditMemory({
         <span>Save & Restyle Memory</span>
         <Save size={16} />
       </button>
+
+      {/* Location Picker Modal */}
+      {showLocationPicker && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fade-in">
+          <LocationPicker
+            onConfirm={(loc) => {
+              setCustomLocation(loc);
+              setShowLocationPicker(false);
+            }}
+            onCancel={() => setShowLocationPicker(false)}
+          />
+        </div>
+      )}
     </div>
   );
 }

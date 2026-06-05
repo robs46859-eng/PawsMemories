@@ -8,7 +8,7 @@ import Dashboard from "./components/Dashboard";
 import EditMemory from "./components/EditMemory";
 import ShareMemory from "./components/ShareMemory";
 import RandyChat from "./components/RandyChat";
-import { fetchMe, clearToken } from "./api";
+import { fetchMe, clearToken, fetchCreations } from "./api";
 import { Sparkles, User, History, FolderOpen, Sun, Moon, LogOut, RefreshCw, Zap } from "lucide-react";
 import CreditStore from "./components/CreditStore";
 
@@ -66,6 +66,11 @@ export default function App() {
         applyUser(user);
         setIsAuthed(true);
         setCurrentScreen(Screen.DASHBOARD);
+        // Phase 1.7: Fetch persistent creations from backend
+        const fetchedCreations = await fetchCreations();
+        if (fetchedCreations.length > 0) {
+          setCreations(fetchedCreations as any); // Cast to handle legacy local fields temporarily
+        }
       } else {
         clearToken();
         setIsAuthed(false);

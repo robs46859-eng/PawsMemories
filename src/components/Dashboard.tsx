@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from "react";
-import { Plus, FolderPlus, ArrowRight, Share2, Video, Camera, Info, Folder, Sparkles, AlertCircle, Award, RefreshCw, Wifi, WifiOff, Activity, ShieldAlert } from "lucide-react";
-import { Album, Creation, UserProfile } from "../types";
+import React, { useState, useEffect, useRef } from "react";
+import { Plus, FolderPlus, ArrowRight, Share2, Video, Camera, Info, Folder, Sparkles, AlertCircle, Award, RefreshCw, Wifi, WifiOff, Activity, ShieldAlert, Play } from "lucide-react";
+import { Album, Creation, UserProfile, GenerationJob } from "../types";
 import { DEFAULT_ALBUMS, DEFAULT_CREATIONS } from "../data";
 import AchievementsPanel, { Achievement } from "./AchievementsPanel";
+import { createVideo, pollJob } from "../api";
 
 interface DashboardProps {
   userProfile: UserProfile;
@@ -36,6 +37,81 @@ export default function Dashboard({
   const [dailyClaimed, setDailyClaimed] = useState(false);
   const [createAlbumName, setCreateAlbumName] = useState("");
   const [showCreateAlbumModal, setShowCreateAlbumModal] = useState(false);
+
+  // Phase 3/4: Video animation job tracking
+  const [animatingJobs, setAnimatingJobs] = useState<Record<number, { jobId: number; status: string }>>({});
+  const pollIntervals = useRef<Record<number, NodeJS.Timeout>>({});
+  
+  // Phase 4: Animation preset modal state
+  const [showAnimateModal, setShowAnimateModal] = useState(false);
+  const [selectedCreationForAnimate, setSelectedCreationForAnimate] = useState<Creation | null>(null);
+  const [selectedMotion, setSelectedMotion] = useState("Gentle breeze, subtle tail wag, cinematic lighting");
+  const [enableAudio, setEnableAudio] = useState(true);
+
+  const MOTION_PRESETS = [
+    "Gentle breeze, subtle tail wag, cinematic lighting",
+    "Slow cinematic push-in, dreamy atmosphere",
+    "Snow falling softly, cozy winter vibe",
+    "Playful head tilt, happy and energetic",
+  ];
+
+  const startPolling = (creationId: number, jobId: number) => {
+    setAnimatingJobs((prev) => ({ ...prev, [creationId]: { jobId, status: "queued" } }));
+    
+    const interval = setInterval(async () => {
+      try {
+        const res = await pollJob(jobId);
+        if (res.status === "done") {
+          clearInterval(interval);
+          setAnimatingJobs((prev) => {
+            const next = { ...prev };
+            delete next[creationId];
+            return next;
+          });
+          // Trigger a page reload or re-fetch to get the updated creation with video_url
+          window.location.reload();
+        } else if (res.status === "failed") {
+          clearInterval(interval);
+          setAnimatingJobs((prev) => {
+            const next = { ...prev };
+            delete next[creationId];
+            return next;
+          });
+          alert(`Animation failed: ${res.error || "Unknown error"}`);
+        } else {
+          setAnimatingJobs((prev) => ({
+            ...prev,
+            [creationId]: { jobId, status: res.status },
+          }));
+        }
+      } catch (err) {
+        console.error("Polling error:", err);
+      }
+    }, 5000); // Poll every 5 seconds
+
+    pollIntervals.current[creationId] = interval;
+  };
+
+  const handleAnimateClick = (creation: Creation) => {
+    if (userProfile.credits < 250) {
+      alert("You need 250 credits to animate a memory. Purchase more credits in the store!");
+      return;
+    }
+    setSelectedCreationForAnimate(creation);
+    setShowAnimateModal(true);
+  };
+
+  const handleConfirmAnimate = async () => {
+    if (!selectedCreationForAnimate) return;
+    setShowAnimateModal(false);
+    
+    try {
+      const res = await createVideo(selectedCreationForAnimate.id, selectedMotion, enableAudio);
+      startPolling(selectedCreationForAnimate.id, res.jobId);
+    } catch (err: any) {
+      alert(err.message || "Failed to start animation.");
+    }
+  };
 
   // Live Inspiration Board state variables - completely real API data
   const [inspiration, setInspiration] = useState<{
@@ -520,38 +596,83 @@ export default function Dashboard({
           </div>
 
           <div className="space-y-4">
-            {creations.slice(0, 4).map((creation) => (
-              <div
-                key={creation.id}
-                onClick={() => onSelectCreation(creation)}
-                className="flex gap-4 bg-white/70 p-3 rounded-2xl border border-outline-variant/30 hover:shadow-md transition-all cursor-pointer group"
-              >
-                <div className="w-20 h-20 rounded-xl overflow-hidden flex-shrink-0 shadow-sm border border-outline-variant/20">
-                  <img
-                    alt={creation.name}
-                    className="w-full h-full object-cover group-hover:scale-103 transition-transform duration-500"
-                    src={creation.imageUrl}
-                    referrerPolicy="no-referrer"
-                  />
-                </div>
-                <div className="flex flex-col justify-center">
-                  <span className="text-[9px] font-bold text-secondary uppercase tracking-widest mb-1">
-                    {creation.createdAt}
-                  </span>
-                  <h4 className="text-sm font-bold text-on-surface mb-1">
-                    {creation.name}
-                  </h4>
-                  <div className="flex items-center gap-2">
-                    <span className="px-2.5 py-0.5 bg-primary/10 text-primary rounded-full text-[10px] font-bold font-sans">
-                      {creation.style} Style
-                    </span>
-                    <span className="px-2.5 py-0.5 bg-secondary-container/10 text-on-secondary-container rounded-full text-[10px] font-bold font-sans">
-                      📍 {creation.background}
-                    </span>
+            {creations.slice(0, 4).map((creation) => {
+              const animating = animatingJobs[creation.id];
+              return (
+                <div
+                  key={creation.id}
+                  onClick={(e) => {
+                    // Don't trigger select if clicking the animate button
+                    if ((e.target as HTMLElement).closest("button")) return;
+                    onSelectCreation(creation);
+                  }}
+                  className="flex gap-4 bg-white/70 p-3 rounded-2xl border border-outline-variant/30 hover:shadow-md transition-all group relative"
+                >
+                  <div className="w-20 h-20 rounded-xl overflow-hidden flex-shrink-0 shadow-sm border border-outline-variant/20 relative bg-black">
+                    {creation.media_type === "video" && creation.video_url ? (
+                      <video
+                        src={creation.video_url}
+                        autoPlay
+                        loop
+                        muted
+                        playsInline
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <img
+                        alt={creation.name || "Creation"}
+                        className="w-full h-full object-cover group-hover:scale-103 transition-transform duration-500"
+                        src={creation.image_url || ""}
+                        referrerPolicy="no-referrer"
+                      />
+                    )}
+                    {creation.media_type === "video" && (
+                      <div className="absolute bottom-1 right-1 bg-black/60 text-white rounded-full p-1">
+                        <Play size={10} fill="white" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-col justify-between flex-1">
+                    <div>
+                      <span className="text-[9px] font-bold text-secondary uppercase tracking-widest mb-1">
+                        {creation.created_at ? new Date(creation.created_at).toLocaleDateString() : "Recent"}
+                      </span>
+                      <h4 className="text-sm font-bold text-on-surface mb-1">
+                        {creation.name || "Untitled Memory"}
+                      </h4>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="px-2.5 py-0.5 bg-primary/10 text-primary rounded-full text-[10px] font-bold font-sans">
+                          {creation.style} Style
+                        </span>
+                        <span className="px-2.5 py-0.5 bg-secondary-container/10 text-on-secondary-container rounded-full text-[10px] font-bold font-sans">
+                          📍 {creation.preset_name || creation.place_label || "Custom"}
+                        </span>
+                      </div>
+                    </div>
+                    
+                    {creation.media_type === "still" && !animating && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleAnimateClick(creation);
+                        }}
+                        className="mt-2 w-full py-1.5 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                      >
+                        <Video size={10} />
+                        Animate (250cr)
+                      </button>
+                    )}
+                    
+                    {animating && (
+                      <div className="mt-2 w-full py-1.5 bg-secondary/10 text-secondary rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 animate-pulse">
+                        <RefreshCw size={10} className="animate-spin" />
+                        {animating.status === "queued" ? "Queued..." : "Rendering..."}
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Quick creations instructions banner */}
@@ -591,6 +712,78 @@ export default function Dashboard({
                 className="px-4 py-2 text-xs font-bold text-white bg-primary rounded-lg hover:bg-primary/95"
               >
                 Create Album
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Phase 4: Animate Memory Modal */}
+      {showAnimateModal && selectedCreationForAnimate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 max-w-md w-full shadow-2xl border border-outline-variant/30">
+            <h3 className="text-lg font-bold text-on-surface mb-2 flex items-center gap-2">
+              <Video className="text-primary" size={20} />
+              Animate Memory
+            </h3>
+            <p className="text-xs text-on-surface-variant mb-4">
+              Bring "{selectedCreationForAnimate.name || 'your pet'}" to life for 250 credits. Choose a motion style:
+            </p>
+            
+            <div className="space-y-2 mb-4">
+              {MOTION_PRESETS.map((preset) => (
+                <label
+                  key={preset}
+                  className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                    selectedMotion === preset
+                      ? "border-primary bg-primary/5"
+                      : "border-outline-variant hover:bg-surface-container"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="motion"
+                    value={preset}
+                    checked={selectedMotion === preset}
+                    onChange={(e) => setSelectedMotion(e.target.value)}
+                    className="mt-1 accent-primary"
+                  />
+                  <span className="text-sm text-on-surface">{preset}</span>
+                </label>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-between p-3 bg-surface-container rounded-xl mb-6">
+              <div>
+                <span className="text-sm font-bold text-on-surface">Include Audio</span>
+                <p className="text-[10px] text-on-surface-variant">Add ambient sound effects to the video</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEnableAudio(!enableAudio)}
+                className={`w-12 h-7 rounded-full transition-colors relative ${enableAudio ? "bg-primary" : "bg-outline-variant"}`}
+              >
+                <span
+                  className={`absolute top-1 w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${
+                    enableAudio ? "left-6" : "left-1"
+                  }`}
+                />
+              </button>
+            </div>
+
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowAnimateModal(false)}
+                className="px-4 py-2.5 text-xs font-semibold text-on-surface-variant hover:bg-surface-container rounded-xl"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmAnimate}
+                className="px-6 py-2.5 text-xs font-bold text-white bg-primary rounded-xl hover:bg-primary/95 flex items-center gap-2"
+              >
+                <span>Animate (250cr)</span>
+                <Video size={14} />
               </button>
             </div>
           </div>

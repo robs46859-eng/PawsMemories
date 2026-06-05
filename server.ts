@@ -5,7 +5,9 @@ import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import Stripe from "stripe";
 import fs from "fs";
-import { initDb, findOrCreateUser, findUserByPhone, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance } from "./db";
+import twilio from "twilio";
+import { initDb, findOrCreateUser, findUserByPhone, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, saveCreation, getCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, getDailyVideoCount, isUserAdmin } from "./db";
+import { uploadBase64Image } from "./storage";
 import {
   authConfigured,
   normalizePhone,
@@ -381,6 +383,28 @@ async function startServer() {
     }
   });
 
+  // Street View Coverage Check Endpoint (Phase 1.2)
+  app.get("/api/streetview/coverage", requireAuth, async (req, res) => {
+    try {
+      const { lat, lng } = req.query;
+      if (!lat || !lng) {
+        return res.status(400).json({ success: false, error: "lat and lng are required" });
+      }
+      if (!process.env.GOOGLE_MAPS_API_KEY_SERVER) {
+        return res.status(500).json({ success: false, error: "Google Maps Server API key not configured" });
+      }
+      
+      const url = `https://maps.googleapis.com/maps/api/streetview/metadata?location=${lat},${lng}&key=${process.env.GOOGLE_MAPS_API_KEY_SERVER}`;
+      const response = await fetch(url);
+      const data = await response.json();
+      
+      res.json({ success: true, data });
+    } catch (err: any) {
+      console.error("Street view coverage check error:", err);
+      res.status(500).json({ success: false, error: "Failed to check street view coverage" });
+    }
+  });
+
   app.post("/api/create-creation", requireAuth, async (req, res) => {
     try {
       if (!apiKey || apiKey === "placeholder-key" || apiKey === "MY_GEMINI_API_KEY") {
@@ -392,15 +416,19 @@ async function startServer() {
       const GENERATION_COST = 40;
 
       // Fix 2: Server-side credit check + atomic deduction before calling AI
-      const currentBalance = await getCreditBalance(userPhone);
-      if (currentBalance < GENERATION_COST) {
-        return res.status(402).json({
-          success: false,
-          error: `Insufficient credits. You need ${GENERATION_COST} credits but only have ${currentBalance}. Purchase more credits to continue.`
-        });
+      // Admin bypass: skip credit checks for developer phone number
+      const isAdmin = await isUserAdmin(userPhone);
+      if (!isAdmin) {
+        const currentBalance = await getCreditBalance(userPhone);
+        if (currentBalance < GENERATION_COST) {
+          return res.status(402).json({
+            success: false,
+            error: `Insufficient credits. You need ${GENERATION_COST} credits but only have ${currentBalance}. Purchase more credits to continue.`
+          });
+        }
       }
 
-      const { style, background, photo, breed, name, brightness, contrast } = req.body;
+      const { style, background, photo, breed, name, brightness, contrast, location } = req.body;
       
       let promptText = "";
       if (name) {
@@ -437,6 +465,28 @@ async function startServer() {
 
       promptText += ` The image must convey an empathetic, nostalgic, warm, and highly nurturing aesthetic, like a cherished digital heirloom memory. Fully centered, perfectly composed, high detail.`;
 
+      // Phase 1.3: Custom Street View Backdrop Handling
+      let backdropPart = null;
+      if (location?.lat && location?.lng && process.env.GOOGLE_MAPS_API_KEY_SERVER) {
+        try {
+          const svUrl = `https://maps.googleapis.com/maps/api/streetview?size=1024x1024&location=${location.lat},${location.lng}&heading=${location.heading || 0}&pitch=${location.pitch || 0}&fov=${location.fov || 90}&key=${process.env.GOOGLE_MAPS_API_KEY_SERVER}`;
+          const svRes = await fetch(svUrl);
+          if (svRes.ok) {
+            const buffer = await svRes.arrayBuffer();
+            const bgBase64 = Buffer.from(buffer).toString("base64");
+            backdropPart = {
+              inlineData: {
+                data: bgBase64,
+                mimeType: "image/jpeg",
+              },
+            };
+            promptText += ` Composite the pet naturally into this real location backdrop (${location.placeLabel || 'the specified location'}), matching its lighting and perspective, rendered in the ${style} style.`;
+          }
+        } catch (err) {
+          console.warn("Street View fetch failed, falling back to text-only background:", err);
+        }
+      }
+
       // If photo is provided (base64)
       if (photo && photo.startsWith("data:image")) {
         const matches = photo.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
@@ -458,6 +508,7 @@ async function startServer() {
                     mimeType: mimeType,
                   },
                 },
+                ...(backdropPart ? [backdropPart] : []),
                 {
                   text: `Please restyle and merge this pet's appearance into a new image matching this prompt description: ${promptText}. Ensure the pet's core features (dog/cat/fur patterns) are recognizable but beautifully rendered in the requested artistic style and background. Respond with only the generated image.`,
                 },
@@ -482,9 +533,36 @@ async function startServer() {
           }
 
           if (generatedBase64) {
-            // Fix 2: Deduct credits after successful style-transfer generation
-            await deductCredits(userPhone, GENERATION_COST);
-            return res.json({ success: true, imageUrl: generatedBase64, mode: "transform" });
+            // Fix 2: Deduct credits after successful style-transfer generation (Admin bypass)
+            if (!isAdmin) {
+              await deductCredits(userPhone, GENERATION_COST);
+            }
+            
+            // Phase 2: Upload to object storage
+            let finalImageUrl = generatedBase64;
+            try {
+              finalImageUrl = await uploadBase64Image(generatedBase64);
+            } catch (uploadErr) {
+              console.error("Failed to upload to object storage, falling back to base64:", uploadErr);
+            }
+
+            // Phase 1.3: Save to database for persistent album
+            await saveCreation({
+              user_phone: userPhone,
+              media_type: 'still',
+              style,
+              backdrop_kind: location ? 'streetview' : 'preset',
+              preset_name: location ? null : background,
+              sv_lat: location?.lat || null,
+              sv_lng: location?.lng || null,
+              sv_heading: location?.heading || null,
+              sv_pitch: location?.pitch || null,
+              sv_fov: location?.fov || null,
+              place_label: location?.placeLabel || null,
+              image_url: finalImageUrl,
+            });
+
+            return res.json({ success: true, imageUrl: finalImageUrl, mode: "transform" });
           }
         } catch (err: any) {
           console.warn("Base64 translation template failed, attempting full fallback generation:", err);
@@ -502,10 +580,40 @@ async function startServer() {
             aspectRatio: '1:1',
           },
         });
-        const base64Bytes = response.generatedImages[0].image.imageBytes;
-        // Fix 2: Deduct credits after successful Imagen generation
-        await deductCredits(userPhone, GENERATION_COST);
-        return res.json({ success: true, imageUrl: `data:image/jpeg;base64,${base64Bytes}`, mode: "generate" });
+        const base64Bytes = response.generatedImages?.[0]?.image?.imageBytes;
+        if (!base64Bytes) throw new Error("No image generated by Imagen");
+        
+        const generatedBase64 = `data:image/jpeg;base64,${base64Bytes}`;
+        // Fix 2: Deduct credits after successful Imagen generation (Admin bypass)
+        if (!isAdmin) {
+          await deductCredits(userPhone, GENERATION_COST);
+        }
+        
+        // Phase 2: Upload to object storage
+        let finalImageUrl = generatedBase64;
+        try {
+          finalImageUrl = await uploadBase64Image(generatedBase64);
+        } catch (uploadErr) {
+          console.error("Failed to upload to object storage, falling back to base64:", uploadErr);
+        }
+        
+        // Phase 1.3: Save to database for persistent album
+        await saveCreation({
+          user_phone: userPhone,
+          media_type: 'still',
+          style,
+          backdrop_kind: location ? 'streetview' : 'preset',
+          preset_name: location ? null : background,
+          sv_lat: location?.lat || null,
+          sv_lng: location?.lng || null,
+          sv_heading: location?.heading || null,
+          sv_pitch: location?.pitch || null,
+          sv_fov: location?.fov || null,
+          place_label: location?.placeLabel || null,
+          image_url: finalImageUrl,
+        });
+        
+        return res.json({ success: true, imageUrl: finalImageUrl, mode: "generate" });
       } catch (e: any) {
         console.error("Imagen model error, trying gemini-2.5-flash-image fallback:", e);
         
@@ -532,9 +640,36 @@ async function startServer() {
         }
         
         if (generatedBase64) {
-          // Fix 2: Deduct credits in DB after confirmed successful generation
-          await deductCredits(userPhone, GENERATION_COST);
-          return res.json({ success: true, imageUrl: generatedBase64, mode: "fallback-generation" });
+          // Fix 2: Deduct credits in DB after confirmed successful generation (Admin bypass)
+          if (!isAdmin) {
+            await deductCredits(userPhone, GENERATION_COST);
+          }
+          
+          // Phase 2: Upload to object storage
+          let finalImageUrl = generatedBase64;
+          try {
+            finalImageUrl = await uploadBase64Image(generatedBase64);
+          } catch (uploadErr) {
+            console.error("Failed to upload to object storage, falling back to base64:", uploadErr);
+          }
+          
+          // Phase 1.3: Save to database for persistent album (fallback path)
+          await saveCreation({
+            user_phone: userPhone,
+            media_type: 'still',
+            style,
+            backdrop_kind: location ? 'streetview' : 'preset',
+            preset_name: location ? null : background,
+            sv_lat: location?.lat || null,
+            sv_lng: location?.lng || null,
+            sv_heading: location?.heading || null,
+            sv_pitch: location?.pitch || null,
+            sv_fov: location?.fov || null,
+            place_label: location?.placeLabel || null,
+            image_url: finalImageUrl,
+          });
+          
+          return res.json({ success: true, imageUrl: finalImageUrl, mode: "fallback-generation" });
         }
         
         throw new Error("Failed to generate styled image with available GenAI models. Please try again.");
@@ -645,6 +780,239 @@ async function startServer() {
       res.status(500).json({ success: false, error: err.message || "Failed to initiate Stripe checkout." });
     }
   });
+
+  // Phase 1.3: Persistent Album Endpoints
+  app.get("/api/creations", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const creations = await getCreations(req.user!.phone);
+      res.json({ success: true, creations });
+    } catch (err: any) {
+      console.error("Error fetching creations:", err);
+      res.status(500).json({ success: false, error: "Failed to fetch creations." });
+    }
+  });
+
+  app.put("/api/creations/:id", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const { sort_order, style, backdrop_kind, preset_name, sv_lat, sv_lng, sv_heading, sv_pitch, sv_fov, place_label } = req.body;
+      
+      const updates: any = {};
+      if (sort_order !== undefined) updates.sort_order = sort_order;
+      if (style !== undefined) updates.style = style;
+      if (backdrop_kind !== undefined) updates.backdrop_kind = backdrop_kind;
+      if (preset_name !== undefined) updates.preset_name = preset_name;
+      if (sv_lat !== undefined) updates.sv_lat = sv_lat;
+      if (sv_lng !== undefined) updates.sv_lng = sv_lng;
+      if (sv_heading !== undefined) updates.sv_heading = sv_heading;
+      if (sv_pitch !== undefined) updates.sv_pitch = sv_pitch;
+      if (sv_fov !== undefined) updates.sv_fov = sv_fov;
+      if (place_label !== undefined) updates.place_label = place_label;
+
+      const success = await updateCreation(id, req.user!.phone, updates);
+      if (!success) {
+        return res.status(404).json({ success: false, error: "Creation not found or unauthorized." });
+      }
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("Error updating creation:", err);
+      res.status(500).json({ success: false, error: "Failed to update creation." });
+    }
+  });
+
+  // Phase 3/4: Async Video Generation Endpoints
+  const VIDEO_COST = 250;
+  const MAX_DAILY_VIDEOS = 5;
+
+  app.post("/api/create-video", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { creationId, motionPrompt, generateAudio } = req.body;
+      if (!creationId) return res.status(400).json({ success: false, error: "creationId is required" });
+
+      const userPhone = req.user!.phone;
+      const isAdmin = await isUserAdmin(userPhone);
+      
+      // Phase 4: Rate limit check (Admin bypass)
+      if (!isAdmin) {
+        const dailyCount = await getDailyVideoCount(userPhone);
+        if (dailyCount >= MAX_DAILY_VIDEOS) {
+          return res.status(429).json({ success: false, error: `Daily video limit reached (${MAX_DAILY_VIDEOS}/day). Please try again tomorrow.` });
+        }
+        
+        // 1. Check balance
+        const balance = await getCreditBalance(userPhone);
+        if (balance < VIDEO_COST) {
+          return res.status(402).json({ success: false, error: `Insufficient credits. You need ${VIDEO_COST} credits.` });
+        }
+      }
+
+      // 2. Fetch creation to get the image
+      const creations = await getCreations(userPhone);
+      const creation = creations.find((c: any) => c.id === creationId);
+      if (!creation || !creation.image_url) {
+        return res.status(404).json({ success: false, error: "Creation not found or has no image." });
+      }
+
+      // 3. Deduct credits upfront (Admin bypass: skip deduction)
+      if (!isAdmin) {
+        await deductCredits(userPhone, VIDEO_COST);
+      }
+
+      // 4. Prepare image bytes (fetch from URL if needed, or parse base64)
+      let imageBytes = "";
+      let mimeType = "image/jpeg";
+      if (creation.image_url.startsWith("data:image")) {
+        const matches = creation.image_url.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
+        if (matches) {
+          mimeType = matches[1];
+          imageBytes = matches[2];
+        }
+      } else {
+        // Fetch from object storage URL
+        const imgRes = await fetch(creation.image_url);
+        const buffer = await imgRes.arrayBuffer();
+        imageBytes = Buffer.from(buffer).toString("base64");
+      }
+
+      // 5. Start Veo operation
+      const op = await ai.models.generateVideos({
+        model: "veo-3.1-fast-generate-preview",
+        prompt: motionPrompt || "Gentle breeze, subtle motion, cinematic lighting",
+        image: { imageBytes, mimeType },
+        config: { aspectRatio: "1:1", generateAudio: generateAudio !== false }, // default true
+      });
+
+      const operationName = (op as any).name || (op as any).operation?.name;
+      if (!operationName) throw new Error("Failed to get operation name from Veo");
+
+      // 6. Create job in DB
+      const jobId = await createJob({
+        user_phone: userPhone,
+        creation_id: creationId,
+        kind: "video",
+        credits_reserved: VIDEO_COST,
+        operation_name: operationName,
+      });
+
+      res.status(202).json({ success: true, jobId, status: "queued" });
+    } catch (err: any) {
+      console.error("Error creating video:", err);
+      res.status(500).json({ success: false, error: err.message || "Failed to start video generation." });
+    }
+  });
+
+  app.get("/api/jobs/:id", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const jobId = parseInt(req.params.id, 10);
+      const job = await getJob(jobId, req.user!.phone);
+      if (!job) return res.status(404).json({ success: false, error: "Job not found" });
+
+      // If running, poll the operation
+      if (job.status === "running" || job.status === "queued") {
+        if (job.operation_name) {
+          try {
+            const op: any = await ai.operations.getVideosOperation({ operation: { name: job.operation_name } as any });
+            if (op.done) {
+              if (op.response?.generatedVideos?.[0]?.video) {
+                const videoData: any = op.response.generatedVideos[0].video;
+                // videoData usually has imageBytes for Veo
+                const base64Video = videoData.imageBytes || videoData;
+                
+                // Upload to object storage
+                const videoUrl = await uploadBase64Image(`data:video/mp4;base64,${base64Video}`);
+                
+                // Update DB
+                await updateJobStatus(jobId, "done");
+                await setCreationVideoUrl(job.creation_id!, req.user!.phone, videoUrl);
+                
+                // Phase 4: Send Twilio SMS notification on success
+                if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
+                  try {
+                    const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+                    await twilioClient.messages.create({
+                      body: `🐾 Paws & Memories: Your pet video animation is ready! View it at ${process.env.APP_URL || "your app"}.`,
+                      to: req.user!.phone,
+                      from: process.env.TWILIO_VERIFY_SERVICE_SID // Fallback if no dedicated messaging SID, or use a specific one
+                    });
+                  } catch (smsErr) {
+                    console.warn("Failed to send SMS notification:", smsErr);
+                  }
+                }
+                
+                return res.json({ success: true, status: "done", video_url: videoUrl });
+              } else {
+                // Failed or empty response
+                await updateJobStatus(jobId, "failed", "No video generated");
+                await refundCredits(req.user!.phone, job.credits_reserved);
+                return res.json({ success: true, status: "failed", error: "Generation returned no video" });
+              }
+            } else {
+              // Still running
+              await updateJobStatus(jobId, "running");
+            }
+          } catch (pollErr: any) {
+            console.error("Video poll error:", pollErr);
+            await updateJobStatus(jobId, "failed", pollErr.message);
+            await refundCredits(req.user!.phone, job.credits_reserved);
+            return res.json({ success: true, status: "failed", error: pollErr.message });
+          }
+        }
+      }
+
+      res.json({ success: true, status: job.status, video_url: null, error: job.error });
+    } catch (err: any) {
+      console.error("Error polling job:", err);
+      res.status(500).json({ success: false, error: "Failed to poll job status." });
+    }
+  });
+
+  // Background poller for orphaned/running jobs (runs every 15s)
+  setInterval(async () => {
+    try {
+      const jobs = await getRunningJobs();
+      for (const job of jobs) {
+        if (!job.operation_name) continue;
+        try {
+          const op: any = await ai.operations.getVideosOperation({ operation: { name: job.operation_name } as any });
+          if (op.done) {
+            if (op.response?.generatedVideos?.[0]?.video) {
+              const videoData: any = op.response.generatedVideos[0].video;
+              const base64Video = videoData.imageBytes || videoData;
+              const videoUrl = await uploadBase64Image(`data:video/mp4;base64,${base64Video}`);
+              
+              await updateJobStatus(job.id, "done");
+              if (job.creation_id) {
+                await setCreationVideoUrl(job.creation_id, job.user_phone, videoUrl);
+              }
+              
+              // Phase 4: Send Twilio SMS notification on success (background poller)
+              if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
+                try {
+                  const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+                  await twilioClient.messages.create({
+                    body: `🐾 Paws & Memories: Your pet video animation is ready! View it at ${process.env.APP_URL || "your app"}.`,
+                    to: job.user_phone,
+                    from: process.env.TWILIO_VERIFY_SERVICE_SID
+                  });
+                } catch (smsErr) {
+                  console.warn("Failed to send SMS notification (poller):", smsErr);
+                }
+              }
+            } else {
+              await updateJobStatus(job.id, "failed", "No video generated");
+              await refundCredits(job.user_phone, job.credits_reserved);
+            }
+          }
+        } catch (err) {
+          console.error(`Background poller error for job ${job.id}:`, err);
+          await updateJobStatus(job.id, "failed", "Poller error");
+          await refundCredits(job.user_phone, job.credits_reserved);
+        }
+      }
+    } catch (e) {
+      // Silent fail for background poller to avoid crashing the server
+    }
+  }, 15000);
 
   // Randy AI pet guide live chat route
   app.post("/api/randy-chat", requireAuth, async (req, res) => {

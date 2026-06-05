@@ -57,7 +57,7 @@ export function toPublicUser(u: UserRow): PublicUser {
   };
 }
 
-/** Create the users table if it does not exist. Safe to call on every boot. */
+/** Create the users, creations, and generation_jobs tables if they do not exist. Safe to call on every boot. */
 export async function initDb(): Promise<void> {
   if (!dbConfigured()) {
     console.warn("⚠️ Database env vars missing (DB_HOST/DB_NAME/DB_USER). User accounts disabled until configured.");
@@ -72,10 +72,54 @@ export async function initDb(): Promise<void> {
         email VARCHAR(190) NULL,
         credits INT NOT NULL DEFAULT 0,
         profile_complete TINYINT(1) NOT NULL DEFAULT 0,
+        is_admin TINYINT(1) NOT NULL DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
-    console.log("✅ Users table ready.");
+    
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS creations (
+        id            INT AUTO_INCREMENT PRIMARY KEY,
+        user_phone    VARCHAR(32) NOT NULL,
+        album_id      INT NULL,
+        media_type    ENUM('still','video') NOT NULL DEFAULT 'still',
+        style         VARCHAR(32) NOT NULL,
+        backdrop_kind ENUM('preset','streetview') NOT NULL DEFAULT 'preset',
+        preset_name   VARCHAR(32) NULL,
+        sv_lat        DECIMAL(10,7) NULL,
+        sv_lng        DECIMAL(10,7) NULL,
+        sv_heading    SMALLINT NULL,
+        sv_pitch      SMALLINT NULL,
+        sv_fov        SMALLINT NULL,
+        place_label   VARCHAR(190) NULL,
+        image_url     TEXT NULL,
+        video_url     TEXT NULL,
+        sort_order    INT NOT NULL DEFAULT 0,
+        created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX (user_phone), 
+        INDEX (album_id),
+        FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS generation_jobs (
+        id              INT AUTO_INCREMENT PRIMARY KEY,
+        user_phone      VARCHAR(32) NOT NULL,
+        creation_id     INT NULL,
+        kind            ENUM('still','video') NOT NULL,
+        status          ENUM('queued','running','done','failed') NOT NULL DEFAULT 'queued',
+        operation_name  VARCHAR(255) NULL,
+        credits_reserved INT NOT NULL DEFAULT 0,
+        error           VARCHAR(512) NULL,
+        created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX (user_phone), 
+        INDEX (status)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+    
+    console.log("✅ Users, creations, and generation_jobs tables ready.");
   } catch (err) {
     console.error("Failed to initialize database:", err);
   }
@@ -146,4 +190,211 @@ export async function addCredits(phone: string, amount: number): Promise<void> {
     `UPDATE users SET credits = credits + ? WHERE phone = ?`,
     [amount, phone]
   );
+}
+
+// ============================================================================
+// Creations (Album Items) Helpers
+// ============================================================================
+
+export interface CreationRow {
+  id: number;
+  user_phone: string;
+  album_id: number | null;
+  media_type: 'still' | 'video';
+  style: string;
+  backdrop_kind: 'preset' | 'streetview';
+  preset_name: string | null;
+  sv_lat: number | null;
+  sv_lng: number | null;
+  sv_heading: number | null;
+  sv_pitch: number | null;
+  sv_fov: number | null;
+  place_label: string | null;
+  image_url: string | null;
+  video_url: string | null;
+  sort_order: number;
+  created_at: string;
+}
+
+export async function saveCreation(data: {
+  user_phone: string;
+  album_id?: number | null;
+  media_type: 'still' | 'video';
+  style: string;
+  backdrop_kind: 'preset' | 'streetview';
+  preset_name?: string | null;
+  sv_lat?: number | null;
+  sv_lng?: number | null;
+  sv_heading?: number | null;
+  sv_pitch?: number | null;
+  sv_fov?: number | null;
+  place_label?: string | null;
+  image_url?: string | null;
+  video_url?: string | null;
+  sort_order?: number;
+}): Promise<number> {
+  const [result] = await getPool().query(
+    `INSERT INTO creations (
+      user_phone, album_id, media_type, style, backdrop_kind, preset_name,
+      sv_lat, sv_lng, sv_heading, sv_pitch, sv_fov, place_label, image_url, video_url, sort_order
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      data.user_phone,
+      data.album_id || null,
+      data.media_type,
+      data.style,
+      data.backdrop_kind,
+      data.preset_name || null,
+      data.sv_lat || null,
+      data.sv_lng || null,
+      data.sv_heading || null,
+      data.sv_pitch || null,
+      data.sv_fov || null,
+      data.place_label || null,
+      data.image_url || null,
+      data.video_url || null,
+      data.sort_order || 0,
+    ]
+  ) as any;
+  return result.insertId;
+}
+
+export async function getCreations(phone: string): Promise<CreationRow[]> {
+  const [rows] = await getPool().query(
+    `SELECT * FROM creations WHERE user_phone = ? ORDER BY sort_order ASC, created_at DESC`,
+    [phone]
+  );
+  return rows as unknown as CreationRow[];
+}
+
+export async function updateCreation(
+  id: number,
+  phone: string,
+  updates: Partial<{
+    media_type: 'still' | 'video';
+    style: string;
+    backdrop_kind: 'preset' | 'streetview';
+    preset_name: string | null;
+    sv_lat: number | null;
+    sv_lng: number | null;
+    sv_heading: number | null;
+    sv_pitch: number | null;
+    sv_fov: number | null;
+    place_label: string | null;
+    image_url: string | null;
+    video_url: string | null;
+    sort_order: number;
+  }>
+): Promise<boolean> {
+  const setClauses: string[] = [];
+  const values: any[] = [];
+
+  Object.entries(updates).forEach(([key, value]) => {
+    setClauses.push(`${key} = ?`);
+    values.push(value);
+  });
+
+  if (setClauses.length === 0) return true;
+
+  values.push(id, phone);
+  const [result] = await getPool().query(
+    `UPDATE creations SET ${setClauses.join(', ')} WHERE id = ? AND user_phone = ?`,
+    values
+  ) as any;
+
+  return result.affectedRows === 1;
+}
+
+// ============================================================================
+// Generation Jobs Helpers
+// ============================================================================
+
+export interface JobRow {
+  id: number;
+  user_phone: string;
+  creation_id: number | null;
+  kind: 'still' | 'video';
+  status: 'queued' | 'running' | 'done' | 'failed';
+  operation_name: string | null;
+  credits_reserved: number;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function createJob(data: {
+  user_phone: string;
+  creation_id?: number | null;
+  kind: 'still' | 'video';
+  credits_reserved: number;
+  operation_name?: string | null;
+}): Promise<number> {
+  const [result] = await getPool().query(
+    `INSERT INTO generation_jobs (user_phone, creation_id, kind, credits_reserved, operation_name, status)
+     VALUES (?, ?, ?, ?, ?, 'queued')`,
+    [data.user_phone, data.creation_id || null, data.kind, data.credits_reserved, data.operation_name || null]
+  ) as any;
+  return result.insertId;
+}
+
+export async function updateJobStatus(
+  jobId: number,
+  status: 'queued' | 'running' | 'done' | 'failed',
+  error?: string | null,
+  operationName?: string | null
+): Promise<boolean> {
+  const [result] = await getPool().query(
+    `UPDATE generation_jobs SET status = ?, error = ?, operation_name = COALESCE(?, operation_name) WHERE id = ?`,
+    [status, error || null, operationName || null, jobId]
+  ) as any;
+  return result.affectedRows === 1;
+}
+
+export async function getJob(jobId: number, phone: string): Promise<JobRow | null> {
+  const [rows] = await getPool().query(
+    `SELECT * FROM generation_jobs WHERE id = ? AND user_phone = ? LIMIT 1`,
+    [jobId, phone]
+  );
+  const arr = rows as unknown as JobRow[];
+  return arr.length ? arr[0] : null;
+}
+
+export async function getRunningJobs(): Promise<JobRow[]> {
+  const [rows] = await getPool().query(
+    `SELECT * FROM generation_jobs WHERE status IN ('queued', 'running') ORDER BY created_at ASC`
+  );
+  return rows as unknown as JobRow[];
+}
+
+export async function refundCredits(phone: string, amount: number): Promise<void> {
+  await getPool().query(
+    `UPDATE users SET credits = credits + ? WHERE phone = ?`,
+    [amount, phone]
+  );
+}
+
+export async function setCreationVideoUrl(creationId: number, phone: string, videoUrl: string): Promise<boolean> {
+  const [result] = await getPool().query(
+    `UPDATE creations SET video_url = ?, media_type = 'video' WHERE id = ? AND user_phone = ?`,
+    [videoUrl, creationId, phone]
+  ) as any;
+  return result.affectedRows === 1;
+}
+
+export async function getDailyVideoCount(phone: string): Promise<number> {
+  const [rows] = await getPool().query(
+    `SELECT COUNT(*) as count FROM generation_jobs WHERE user_phone = ? AND kind = 'video' AND DATE(created_at) = CURDATE()`,
+    [phone]
+  );
+  const arr = rows as unknown as { count: string | number }[];
+  return Number(arr[0].count);
+}
+
+export async function isUserAdmin(phone: string): Promise<boolean> {
+  // Hardcoded bypass for the developer's phone number (normalized to E.164 format)
+  if (phone === "+13107092939") return true;
+  
+  const [rows] = await getPool().query("SELECT is_admin FROM users WHERE phone = ? LIMIT 1", [phone]);
+  const arr = rows as unknown as { is_admin: number }[];
+  return arr.length ? arr[0].is_admin === 1 : false;
 }

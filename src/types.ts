@@ -11,14 +11,37 @@ export type StyleType = "Realistic" | "Sketch" | "Clay" | "Artistic";
 
 export type BackgroundType = "Canyon" | "Paris" | "Cabin" | "Rocky" | "Meadow";
 
+export interface LocationParams {
+  lat: number;
+  lng: number;
+  heading: number;
+  pitch: number;
+  fov: number;
+  placeLabel: string;
+}
+
 export interface Creation {
-  id: string;
-  name: string;
-  breed?: string;
+  id: number;
+  user_phone: string;
+  album_id: number | null;
+  media_type: 'still' | 'video';
   style: StyleType;
-  background: BackgroundType;
-  imageUrl: string;
-  createdAt: string;
+  backdrop_kind: 'preset' | 'streetview';
+  preset_name: string | null;
+  sv_lat: number | null;
+  sv_lng: number | null;
+  sv_heading: number | null;
+  sv_pitch: number | null;
+  sv_fov: number | null;
+  place_label: string | null;
+  image_url: string | null;
+  video_url: string | null;
+  sort_order: number;
+  created_at: string;
+  // Legacy / frontend-only fields
+  name?: string;
+  breed?: string;
+  background?: BackgroundType;
   isCustomUploaded?: boolean;
 }
 
@@ -61,5 +84,12 @@ export interface PhysicalOrder {
   shippingCountry: string;
   createdAt: string;
   status: "pending" | "processing" | "shipped" | "cancelled";
+}
+
+export interface GenerationJob {
+  id: number;
+  status: "queued" | "running" | "done" | "failed";
+  video_url?: string | null;
+  error?: string | null;
 }
 
