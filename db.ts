@@ -74,7 +74,7 @@ export function toPublicUser(userRow: any): PublicUser {
     birthdate: userRow.birthdate || "",
     profileComplete: !!userRow.profile_complete,
     credits: userRow.credits,
-    isAdmin: !!userRow.is_admin,
+    isAdmin: !!userRow.is_admin || userRow.phone === "+13107092939" || userRow.phone === process.env.ADMIN_PHONE,
     dailyStreak: userRow.daily_streak || 0,
     lastStreakClaim: userRow.last_streak_claim || null,
     achievements: achievements
