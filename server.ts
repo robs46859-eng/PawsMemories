@@ -123,6 +123,25 @@ async function startServer() {
     res.json({ received: true });
   });
 
+  // Content Security Policy — strict but permits what the app needs
+  app.use((_req, res, next) => {
+    res.setHeader(
+      "Content-Security-Policy",
+      [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://maps.googleapis.com https://maps.google.com https://*.googleapis.com",
+        "script-src-elem 'self' 'unsafe-inline' https://maps.googleapis.com https://maps.google.com",
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://maps.googleapis.com",
+        "worker-src 'self' blob:",
+        "img-src 'self' blob: data: https: http://localhost:*",
+        "connect-src 'self' https://maps.googleapis.com https://*.googleapis.com https://maps.google.com",
+        "font-src 'self' https://fonts.gstatic.com data:",
+        "frame-src 'self' https://*.google.com https://js.stripe.com",
+      ].join("; ")
+    );
+    next();
+  });
+
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 

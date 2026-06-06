@@ -1,5 +1,5 @@
-import React, { useState, useRef, useCallback } from "react";
-import { useJsApiLoader, Autocomplete, StreetViewPanorama } from "@react-google-maps/api";
+import React, { useState, useRef, useCallback, useEffect } from "react";
+import { useJsApiLoader, StreetViewPanorama } from "@react-google-maps/api";
 import { X, Check, MapPin } from "lucide-react";
 import { LocationParams } from "../types";
 
@@ -17,8 +17,8 @@ export default function LocationPicker({ onConfirm, onCancel }: LocationPickerPr
   const [heading, setHeading] = useState<number>(0);
   const [pitch, setPitch] = useState<number>(0);
   const [fov, setFov] = useState<number>(90);
-  
-  const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
+
+  const autocompleteContainerRef = useRef<HTMLDivElement | null>(null);
   const panoramaRef = useRef<google.maps.StreetViewPanorama | null>(null);
 
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY_BROWSER;
@@ -28,32 +28,60 @@ export default function LocationPicker({ onConfirm, onCancel }: LocationPickerPr
     libraries: LIBRARIES,
   });
 
-  const onLoadAutocomplete = useCallback((autocomplete: google.maps.places.Autocomplete) => {
-    autocompleteRef.current = autocomplete;
-  }, []);
+  // Mount google.maps.places.PlaceAutocompleteElement (replaces deprecated Autocomplete)
+  useEffect(() => {
+    if (!isLoaded || !autocompleteContainerRef.current) return;
 
-  const onPlaceChanged = useCallback(() => {
-    if (autocompleteRef.current) {
-      const place = autocompleteRef.current.getPlace();
-      if (place.geometry && place.geometry.location) {
-        const newLat = place.geometry.location.lat();
-        const newLng = place.geometry.location.lng();
-        setLat(newLat);
-        setLng(newLng);
-        setPlaceLabel(place.name || "Selected Location");
-        
-        // Reset POV when location changes
+    const PlacesNS = (window as any).google.maps.places;
+    const ElementCtor = PlacesNS.PlaceAutocompleteElement as any;
+    if (!ElementCtor) {
+      console.error("PlaceAutocompleteElement not available — the Places API may not be fully loaded.");
+      return;
+    }
+
+    const el = new ElementCtor({
+      placeholder: "Search for a location (e.g., Grand Canyon, Eiffel Tower)...",
+    }) as HTMLElement;
+
+    el.style.width = "100%";
+
+    el.addEventListener("gmp-placeselect", async (e: Event) => {
+      const place = (e as any).place;
+      if (!place) return;
+
+      try {
+        await place.fetchFields({
+          fields: ["displayName", "location", "formattedAddress"],
+        });
+      } catch (err) {
+        console.error("place.fetchFields failed:", err);
+        return;
+      }
+
+      const loc = place.location;
+      if (loc) {
+        setLat(loc.lat());
+        setLng(loc.lng());
+        setPlaceLabel(place.displayName?.text || place.formattedAddress || "Selected Location");
         setHeading(0);
         setPitch(0);
       }
-    }
-  }, []);
+    });
 
+    const container = autocompleteContainerRef.current;
+    container.innerHTML = "";
+    container.appendChild(el);
+
+    return () => {
+      if (container) container.innerHTML = "";
+    };
+  }, [isLoaded]);
+
+  // Street View panorama listeners
   const onPanoramaInit = useCallback((pano: google.maps.StreetViewPanorama | null) => {
-    if (pano) {
+    if (pano !== null) {
       panoramaRef.current = pano;
-      
-      // Listen to POV changes (heading, pitch)
+
       pano.addListener("pov_changed", () => {
         const pov = pano.getPov();
         if (pov) {
@@ -62,12 +90,9 @@ export default function LocationPicker({ onConfirm, onCancel }: LocationPickerPr
         }
       });
 
-      // Listen to zoom changes (fov)
       pano.addListener("zoom_changed", () => {
         const zoom = pano.getZoom();
         if (zoom !== undefined) {
-          // Google Maps Street View zoom roughly maps to FOV: 
-          // zoom 1 ~ FOV 110, zoom 2 ~ FOV 90, zoom 3 ~ FOV 70, zoom 4 ~ FOV 50, zoom 5 ~ FOV 30
           const calculatedFov = Math.max(20, 110 - (zoom - 1) * 20);
           setFov(calculatedFov);
         }
@@ -76,14 +101,7 @@ export default function LocationPicker({ onConfirm, onCancel }: LocationPickerPr
   }, []);
 
   const handleConfirm = () => {
-    onConfirm({
-      lat,
-      lng,
-      heading,
-      pitch,
-      fov,
-      placeLabel,
-    });
+    onConfirm({ lat, lng, heading, pitch, fov, placeLabel });
   };
 
   if (loadError) {
@@ -125,22 +143,8 @@ export default function LocationPicker({ onConfirm, onCancel }: LocationPickerPr
         Search for a place, then drag the panorama to frame your perfect shot.
       </p>
 
-      <div className="w-full">
-        <Autocomplete
-          onLoad={onLoadAutocomplete}
-          onPlaceChanged={onPlaceChanged}
-          options={{
-            types: ["geocode", "establishment"],
-          }}
-        >
-          <input
-            type="text"
-            placeholder="Search for a location (e.g., Grand Canyon, Eiffel Tower)..."
-            className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-            defaultValue={placeLabel}
-          />
-        </Autocomplete>
-      </div>
+      {/* google.maps.places.PlaceAutocompleteElement — mounted programmatically */}
+      <div className="w-full" ref={autocompleteContainerRef} />
 
       <div className="relative h-64 w-full overflow-hidden rounded-lg border border-gray-300 bg-gray-50 md:h-80">
         <StreetViewPanorama
@@ -173,7 +177,7 @@ export default function LocationPicker({ onConfirm, onCancel }: LocationPickerPr
         </button>
       </div>
 
-      {/* Phase 4: Google Maps ToS Attribution */}
+      {/* Google Maps ToS Attribution */}
       <div className="pt-2 text-center">
         <p className="text-[10px] text-gray-400">
           Powered by <a href="https://maps.google.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-gray-600">Google Maps</a>
