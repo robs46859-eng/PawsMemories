@@ -361,11 +361,11 @@ export default function ShareMemory({ creation, userCredits, onBack, isAdmin }: 
       {/* Download direct heirloom high-res photo button */}
       <div className="pt-2 flex flex-col gap-3">
         <button
-          onClick={() => setShowOrderModal(true)}
-          className="w-full py-4 bg-gradient-to-tr from-amber-500 to-orange-600 text-white rounded-2xl font-black text-sm shadow-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-[0.98] transition-all cursor-pointer border border-white/10 glow-orange-shadow"
+          onClick={() => alert("Physical photo album printing is coming soon! Check back later.")}
+          className="w-full py-4 bg-gradient-to-tr from-amber-500 to-orange-600 text-white rounded-2xl font-black text-sm shadow-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-[0.98] transition-all cursor-pointer border border-white/10 glow-orange-shadow opacity-70"
         >
           <ShoppingBag size={16} />
-          <span>Order Physical Photo Album</span>
+          <span>Order Physical Photo Album (Coming Soon)</span>
         </button>
 
         <button
