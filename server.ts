@@ -1046,7 +1046,29 @@ async function startServer() {
     }
   });
 
-  // Phase 3/4: Async Video Generation Endpoints
+  // Download proxy endpoint to avoid CORS issues and force file download behavior
+  app.get("/api/download", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const url = req.query.url as string;
+      if (!url) return res.status(400).send("Missing url parameter");
+
+      // We use node's global fetch
+      const fetchReq = await fetch(url);
+      if (!fetchReq.ok) throw new Error(`Failed to fetch file: ${fetchReq.statusText}`);
+
+      const contentType = fetchReq.headers.get("content-type") || "application/octet-stream";
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Content-Disposition", `attachment`);
+
+      const buffer = await fetchReq.arrayBuffer();
+      res.send(Buffer.from(buffer));
+    } catch (err: any) {
+      console.error("Download proxy error:", err);
+      res.status(500).send("Download failed");
+    }
+  });
+
+  // Phase 3 & 4: Veo Video Generation Endpoints
   const VIDEO_COST = 250;
   const MAX_DAILY_VIDEOS = 5;
 

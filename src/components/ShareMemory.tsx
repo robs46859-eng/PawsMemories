@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { ArrowLeft, Copy, Check, Download, Share2, Compass, ShieldAlert, Heart, Calendar, MessageSquare, ExternalLink, Sparkles, ShoppingBag, Video, Music } from "lucide-react";
 import { Creation } from "../types";
+import { authedFetch } from "../api";
 import OrderAlbumModal from "./OrderAlbumModal";
 import { createVideo, pollJob } from "../api";
 
@@ -101,19 +102,35 @@ export default function ShareMemory({ creation, userCredits, onBack, isAdmin }: 
     setTimeout(() => setRoverCopied(false), 2000);
   };
 
-  const handleDownload = () => {
-    // Phase 4: Support downloading videos or images
-    const urlToDownload = localCreation.media_type === "video" && localCreation.video_url 
-      ? localCreation.video_url 
-      : (localCreation.image_url || "");
+  const handleDownload = async () => {
+    try {
+      setBusy(true);
+      const urlToDownload = localCreation.media_type === "video" && localCreation.video_url 
+        ? localCreation.video_url 
+        : (localCreation.image_url || "");
+        
+      const ext = localCreation.media_type === "video" ? "mp4" : "jpeg";
+      const filename = `${localCreation.name?.replace(/\s+/g, "_") || "memory"}.${ext}`;
       
-    const ext = localCreation.media_type === "video" ? "mp4" : "jpeg";
-    const link = document.createElement("a");
-    link.href = urlToDownload;
-    link.download = `${localCreation.name?.replace(/\s+/g, "_") || "memory"}.${ext}`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+      const res = await authedFetch(`/api/download?url=${encodeURIComponent(urlToDownload)}`);
+      if (!res.ok) throw new Error("Download failed");
+      
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      console.error(err);
+      alert("Download failed. Please try again.");
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
