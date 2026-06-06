@@ -341,6 +341,7 @@ export default function App() {
               <ShareMemory
                 creation={selectedCreationForShare || creations[0]}
                 userCredits={userProfile.credits}
+                isAdmin={userProfile.isAdmin}
                 onBack={() => setCurrentScreen(Screen.DASHBOARD)}
               />
             )}
