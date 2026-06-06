@@ -855,71 +855,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/create-video", requireAuth, async (req, res) => {
-    try {
-      if (!apiKey || apiKey === "placeholder-key" || apiKey === "MY_GEMINI_API_KEY") {
-        throw new Error("Missing GEMINI_API_KEY.");
-      }
-      const authedReq = req as AuthedRequest;
-      const userPhone = authedReq.user!.phone;
-      const { creationId, imageUrl, motionPrompt, generateAudio } = req.body;
 
-      const isAdmin = await isUserAdmin(userPhone);
-      if (!isAdmin) {
-        const currentBalance = await getCreditBalance(userPhone);
-        if (currentBalance < 250) {
-          return res.status(402).json({ success: false, error: "Insufficient credits for video generation (250 required)." });
-        }
-        await deductCredits(userPhone, 250);
-      }
-
-      const jobId = await createJob({
-         user_phone: userPhone,
-         creation_id: creationId,
-         kind: 'video',
-         credits_reserved: 250,
-         operation_name: motionPrompt
-      });
-
-      // Run Veo simulation in background
-      setTimeout(async () => {
-         try {
-            await updateJobStatus(jobId, 'running');
-            await new Promise(resolve => setTimeout(resolve, 5000));
-            let videoUrl = "https://storage.googleapis.com/aida-public/sample-video.mp4";
-            if (creationId) {
-               await setCreationVideoUrl(creationId, userPhone, videoUrl);
-            }
-            await updateJobStatus(jobId, 'done');
-         } catch (e: any) {
-            await updateJobStatus(jobId, 'failed', e.message);
-         }
-      }, 0);
-
-      res.json({ success: true, jobId });
-    } catch (err: any) {
-      console.error("create-video error:", err);
-      res.status(500).json({ success: false, error: err.message || "Video generation failed." });
-    }
-  });
-
-  app.get("/api/jobs/:id", requireAuth, async (req: AuthedRequest, res) => {
-    try {
-       const job = await getJob(Number(req.params.id), req.user!.phone);
-       if (!job) return res.status(404).json({ error: "Job not found" });
-       
-       let video_url = null;
-       if (job.status === "done" && job.creation_id) {
-          const creations = await getCreations(req.user!.phone);
-          const creation = creations.find((c: any) => c.id === job.creation_id);
-          video_url = creation ? creation.video_url : null;
-       }
-       
-       res.json({ status: job.status, video_url, error: job.error });
-    } catch (err: any) {
-       res.status(500).json({ error: "Failed to poll job" });
-    }
-  });
   // Stripe Checkout Session Creation Route
   app.post("/api/create-checkout-session", requireAuth, async (req, res) => {
     try {
