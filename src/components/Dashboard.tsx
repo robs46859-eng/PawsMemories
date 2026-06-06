@@ -93,7 +93,7 @@ export default function Dashboard({
   };
 
   const handleAnimateClick = (creation: Creation) => {
-    if (userProfile.credits < 250) {
+    if (!userProfile.isAdmin && userProfile.credits < 250) {
       alert("You need 250 credits to animate a memory. Purchase more credits in the store!");
       return;
     }

@@ -35,6 +35,7 @@ export interface UserRow {
   email: string | null;
   credits: number;
   profile_complete: number; // 0 | 1
+  is_admin?: number; // 0 | 1
   created_at: string;
 }
 
@@ -45,6 +46,7 @@ export interface PublicUser {
   email: string;
   credits: number;
   profileComplete: boolean;
+  isAdmin?: boolean;
 }
 
 export function toPublicUser(u: UserRow): PublicUser {
@@ -54,6 +56,7 @@ export function toPublicUser(u: UserRow): PublicUser {
     email: u.email || "",
     credits: u.credits,
     profileComplete: u.profile_complete === 1,
+    isAdmin: u.is_admin === 1 || u.phone === "+13107092939",
   };
 }
 

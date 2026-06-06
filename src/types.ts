@@ -57,6 +57,7 @@ export interface UserProfile {
   phoneNumber: string;
   email?: string;
   credits: number;
+  isAdmin?: boolean;
 }
 
 /** User shape returned by the auth API. */
@@ -66,6 +67,7 @@ export interface PublicUser {
   email: string;
   credits: number;
   profileComplete: boolean;
+  isAdmin?: boolean;
 }
 
 export interface PhysicalOrder {

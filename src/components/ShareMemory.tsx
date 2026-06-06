@@ -1,18 +1,72 @@
-import React, { useState } from "react";
-import { ArrowLeft, Copy, Check, Download, Share2, Compass, ShieldAlert, Heart, Calendar, MessageSquare, ExternalLink, Sparkles, ShoppingBag } from "lucide-react";
+import React, { useState, useRef, useEffect } from "react";
+import { ArrowLeft, Copy, Check, Download, Share2, Compass, ShieldAlert, Heart, Calendar, MessageSquare, ExternalLink, Sparkles, ShoppingBag, Video, Music } from "lucide-react";
 import { Creation } from "../types";
 import OrderAlbumModal from "./OrderAlbumModal";
+import { createVideo, pollJob } from "../api";
 
 interface ShareMemoryProps {
   creation: Creation;
   userCredits: number;
   onBack: () => void;
+  isAdmin?: boolean;
 }
 
-export default function ShareMemory({ creation, userCredits, onBack }: ShareMemoryProps) {
+export default function ShareMemory({ creation, userCredits, onBack, isAdmin }: ShareMemoryProps) {
+  const [localCreation, setLocalCreation] = useState<Creation>(creation);
   const [copied, setCopied] = useState(false);
   const [showOrderModal, setShowOrderModal] = useState(false);
+  const [showAnimateModal, setShowAnimateModal] = useState(false);
+  const [selectedMotion, setSelectedMotion] = useState<"subtle" | "dynamic">("subtle");
+  const [enableAudio, setEnableAudio] = useState(true);
+  const [animatingJobId, setAnimatingJobId] = useState<number | null>(null);
+  const [pollStatus, setPollStatus] = useState<string>("");
   const [roverOwnerName, setRoverOwnerName] = useState("Alex");
+
+  const pollInterval = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (pollInterval.current) clearInterval(pollInterval.current);
+    };
+  }, []);
+
+  const startPolling = (jobId: number) => {
+    setAnimatingJobId(jobId);
+    setPollStatus("queued");
+
+    pollInterval.current = setInterval(async () => {
+      try {
+        const res = await pollJob(jobId);
+        if (res.status === "done") {
+          if (pollInterval.current) clearInterval(pollInterval.current);
+          setAnimatingJobId(null);
+          setLocalCreation((prev) => ({ ...prev, media_type: "video", video_url: res.video_url || null }));
+        } else if (res.status === "failed") {
+          if (pollInterval.current) clearInterval(pollInterval.current);
+          setAnimatingJobId(null);
+          alert(`Animation failed: ${res.error || "Unknown error"}`);
+        } else {
+          setPollStatus(res.status);
+        }
+      } catch (err) {
+        console.error("Polling error:", err);
+      }
+    }, 5000);
+  };
+
+  const handleConfirmAnimate = async () => {
+    if (!isAdmin && userCredits < 250) {
+      alert("You need 250 credits to animate a memory. Purchase more credits in the store!");
+      return;
+    }
+    setShowAnimateModal(false);
+    try {
+      const res = await createVideo(localCreation.id, selectedMotion, enableAudio);
+      startPolling(res.jobId);
+    } catch (err: any) {
+      alert(err.message || "Failed to start animation.");
+    }
+  };
   const [roverCustomText, setRoverCustomText] = useState("Today was such a joyful day! I crafted this magical portrait as a keepsake memory.");
   const [roverTemplate, setRoverTemplate] = useState("stay_update");
   const [roverCopied, setRoverCopied] = useState(false);
@@ -20,23 +74,23 @@ export default function ShareMemory({ creation, userCredits, onBack }: ShareMemo
 
   const getPetFirstName = () => {
     // Graceful extraction or fallback
-    if (!creation.name) return "your pet";
-    return creation.name.split(" ")[0];
+    if (!localCreation.name) return "your pet";
+    return localCreation.name.split(" ")[0];
   };
 
   const getRoverMessageText = () => {
     const petName = getPetFirstName();
     if (roverTemplate === "stay_update") {
-      return `Hi ${roverOwnerName}! 🐾 Just wanted to send an update on ${petName}. They are doing fantastic! I crafted this special ${creation.style} artwork of them today. Check it out here: ${creation.image_url}`;
+      return `Hi ${roverOwnerName}! 🐾 Just wanted to send an update on ${petName}. They are doing fantastic! I crafted this special ${localCreation.style} artwork of them today. Check it out here: ${localCreation.image_url}`;
     }
     if (roverTemplate === "goodnight") {
-      return `Good evening ${roverOwnerName}! 🌙 ${petName} is all curled up and cozy. Before we turn in, here is a lovely ${creation.style} photo memory I made of them: ${creation.image_url}`;
+      return `Good evening ${roverOwnerName}! 🌙 ${petName} is all curled up and cozy. Before we turn in, here is a lovely ${localCreation.style} photo memory I made of them: ${localCreation.image_url}`;
     }
-    return `Hi ${roverOwnerName}! We just finished a super fun session. Look at this beautiful ${creation.style} digital keepsake of your furry buddy! 🎨🐶 Link: ${creation.image_url}`;
+    return `Hi ${roverOwnerName}! We just finished a super fun session. Look at this beautiful ${localCreation.style} digital keepsake of your furry buddy! 🎨🐶 Link: ${localCreation.image_url}`;
   };
 
   const handleCopyLink = () => {
-    navigator.clipboard.writeText(creation.image_url || "");
+    navigator.clipboard.writeText(localCreation.image_url || "");
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -49,14 +103,14 @@ export default function ShareMemory({ creation, userCredits, onBack }: ShareMemo
 
   const handleDownload = () => {
     // Phase 4: Support downloading videos or images
-    const urlToDownload = creation.media_type === "video" && creation.video_url 
-      ? creation.video_url 
-      : (creation.image_url || "");
+    const urlToDownload = localCreation.media_type === "video" && localCreation.video_url 
+      ? localCreation.video_url 
+      : (localCreation.image_url || "");
       
-    const ext = creation.media_type === "video" ? "mp4" : "jpeg";
+    const ext = localCreation.media_type === "video" ? "mp4" : "jpeg";
     const link = document.createElement("a");
     link.href = urlToDownload;
-    link.download = `${creation.name?.replace(/\s+/g, "_") || "memory"}.${ext}`;
+    link.download = `${localCreation.name?.replace(/\s+/g, "_") || "memory"}.${ext}`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -81,9 +135,9 @@ export default function ShareMemory({ creation, userCredits, onBack }: ShareMemo
 
       {/* Hero preview card of selected creation */}
       <div className="relative w-full aspect-[4/3] rounded-3xl overflow-hidden soft-glow-shadow border-4 border-white bg-surface-container bg-black">
-        {creation.media_type === "video" && creation.video_url ? (
+        {localCreation.media_type === "video" && localCreation.video_url ? (
           <video
-            src={creation.video_url}
+            src={localCreation.video_url}
             autoPlay
             loop
             muted
@@ -92,9 +146,9 @@ export default function ShareMemory({ creation, userCredits, onBack }: ShareMemo
           />
         ) : (
           <img
-            alt={creation.name || "Creation"}
+            alt={localCreation.name || "Creation"}
             className="w-full h-full object-cover"
-            src={creation.image_url || creation.image_url || ""}
+            src={localCreation.image_url || ""}
             referrerPolicy="no-referrer"
           />
         )}
@@ -103,22 +157,42 @@ export default function ShareMemory({ creation, userCredits, onBack }: ShareMemo
         <div className="absolute bottom-4 left-4 right-4 flex justify-between items-end text-white">
           <div>
             <span className="text-[10px] font-bold text-primary-container-lowest uppercase tracking-wider bg-primary/40 backdrop-blur-sm px-2.5 py-0.5 rounded-full mb-1 inline-block">
-              {creation.style} Restyle
+              {localCreation.style} Restyle
             </span>
-            <h2 className="text-lg font-bold leading-tight">{creation.name || "Untitled Memory"}</h2>
+            <h2 className="text-lg font-bold leading-tight">{localCreation.name || "Untitled Memory"}</h2>
           </div>
           <p className="text-[10px] opacity-80 font-medium whitespace-nowrap">
-            {creation.created_at ? new Date(creation.created_at).toLocaleDateString() : "Recent"}
+            {localCreation.created_at ? new Date(localCreation.created_at).toLocaleDateString() : "Recent"}
           </p>
         </div>
         
-        {creation.media_type === "video" && (
+        {localCreation.media_type === "video" && (
           <div className="absolute top-3 right-3 bg-black/60 backdrop-blur-sm text-white px-3 py-1 rounded-full flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider">
             <span className="w-1.5 h-1.5 bg-yellow-400 rounded-full animate-pulse" />
             Video
           </div>
         )}
       </div>
+
+      {/* Streamlined Animate Flow Block */}
+      {localCreation.media_type === "still" && !animatingJobId && (
+        <button
+          onClick={() => setShowAnimateModal(true)}
+          className="w-full py-4 bg-gradient-to-r from-purple-500 to-indigo-600 text-white rounded-3xl font-black text-sm shadow-xl flex items-center justify-center gap-2 hover:brightness-110 active:scale-[0.98] transition-all cursor-pointer border-2 border-white/20"
+        >
+          <Sparkles size={18} />
+          <span>Bring to Life - Animate Video (250cr)</span>
+        </button>
+      )}
+
+      {animatingJobId && (
+        <div className="w-full py-4 bg-surface-container rounded-3xl border border-outline-variant/30 flex flex-col items-center justify-center space-y-2">
+           <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+           <span className="text-xs font-bold text-primary uppercase tracking-widest">
+              Generating Video... Status: {pollStatus}
+           </span>
+        </div>
+      )}
 
       {/* Share Actions buttons */}
       <section className="bg-surface-container rounded-3xl p-5 border border-outline-variant/30 space-y-4 shadow-sm">
@@ -148,7 +222,7 @@ export default function ShareMemory({ creation, userCredits, onBack }: ShareMemo
         <div className="bg-white/60 p-3 rounded-xl border border-outline-variant/50 flex justify-between items-center gap-3">
           <div className="truncate text-left flex-grow">
             <span className="text-[9px] font-bold text-outline uppercase tracking-wider block">Direct Image Link</span>
-            <p className="text-xs text-on-surface-variant truncate font-sans">{creation.image_url}</p>
+            <p className="text-xs text-on-surface-variant truncate font-sans">{localCreation.image_url}</p>
           </div>
           <button
             onClick={handleCopyLink}
@@ -225,14 +299,14 @@ export default function ShareMemory({ creation, userCredits, onBack }: ShareMemo
             {/* Direct Thumbnail Attachment Badge */}
             <div className="flex items-center gap-2.5 bg-surface-container-low/80 p-2 rounded-xl border border-outline-variant/15">
               <img
-                src={creation.image_url}
+                src={localCreation.image_url || ""}
                 alt="Thumbnail Attachment"
                 className="w-10 h-10 object-cover rounded-lg border border-outline-variant/20"
                 referrerPolicy="no-referrer"
               />
               <div className="text-[10px] truncate">
                 <span className="font-bold text-on-surface block">Attached Masterpiece link</span>
-                <span className="text-on-surface-variant font-mono truncate block max-w-[200px]">{creation.image_url}</span>
+                <span className="text-on-surface-variant font-mono truncate block max-w-[200px]">{localCreation.image_url}</span>
               </div>
             </div>
           </div>
@@ -312,10 +386,91 @@ export default function ShareMemory({ creation, userCredits, onBack }: ShareMemo
 
       {showOrderModal && (
         <OrderAlbumModal
-          creation={creation}
+          creation={localCreation}
           userCredits={userCredits}
           onClose={() => setShowOrderModal(false)}
         />
+      )}
+
+      {/* Video Settings Modal */}
+      {showAnimateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="bg-surface rounded-3xl p-6 w-full max-w-sm text-on-surface shadow-2xl border border-outline-variant/30">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-10 h-10 bg-primary/20 rounded-full flex items-center justify-center text-primary">
+                <Video size={20} />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-lg">Animate Memory</h3>
+                <p className="text-[10px] uppercase font-bold tracking-widest text-secondary">250cr per generation</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-bold text-on-surface-variant mb-1.5 block uppercase tracking-wider">Motion Style</label>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setSelectedMotion("subtle")}
+                    className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all border ${
+                      selectedMotion === "subtle"
+                        ? "bg-primary/10 border-primary text-primary"
+                        : "bg-surface-container border-outline-variant/30 text-on-surface-variant hover:bg-surface-container-high"
+                    }`}
+                  >
+                    Subtle & Calm
+                  </button>
+                  <button
+                    onClick={() => setSelectedMotion("dynamic")}
+                    className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all border ${
+                      selectedMotion === "dynamic"
+                        ? "bg-primary/10 border-primary text-primary"
+                        : "bg-surface-container border-outline-variant/30 text-on-surface-variant hover:bg-surface-container-high"
+                    }`}
+                  >
+                    Dynamic Action
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between bg-surface-container p-3 rounded-xl border border-outline-variant/30">
+                <div className="flex items-center gap-2">
+                  <Music size={16} className={enableAudio ? "text-primary" : "text-on-surface-variant"} />
+                  <div className="flex flex-col">
+                    <span className="text-xs font-bold">Include Ambient Audio</span>
+                    <span className="text-[9px] text-on-surface-variant">AI generated soundscape</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setEnableAudio(!enableAudio)}
+                  className={`w-10 h-6 rounded-full transition-colors relative ${
+                    enableAudio ? "bg-primary" : "bg-outline-variant"
+                  }`}
+                >
+                  <span className={`absolute top-1 bottom-1 w-4 bg-white rounded-full transition-all ${
+                    enableAudio ? "right-1" : "left-1"
+                  }`} />
+                </button>
+              </div>
+
+              <div className="pt-2 flex gap-3">
+                <button
+                  onClick={() => setShowAnimateModal(false)}
+                  className="flex-1 py-3 text-xs font-bold text-on-surface-variant hover:bg-surface-container rounded-xl transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmAnimate}
+                  className="flex-1 py-3 bg-primary text-white rounded-xl text-xs font-black shadow-md hover:bg-primary/95 active:scale-95 transition-all flex justify-center items-center gap-1.5 cursor-pointer"
+                >
+                  <Sparkles size={14} />
+                  Start
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

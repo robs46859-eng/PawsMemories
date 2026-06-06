@@ -148,9 +148,9 @@ export default function LocationPicker({ onConfirm, onCancel }: LocationPickerPr
 
       <div className="relative h-64 w-full overflow-hidden rounded-lg border border-gray-300 bg-gray-50 md:h-80">
         <StreetViewPanorama
-          position={position}
           onLoad={onPanoramaInit}
           options={{
+            position,
             zoomControl: true,
             motionTracking: false,
             motionTrackingControl: false,

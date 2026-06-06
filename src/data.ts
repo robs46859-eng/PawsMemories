@@ -17,7 +17,7 @@ export const DEFAULT_ALBUMS: Album[] = [
 
 export const DEFAULT_CREATIONS: Creation[] = [
   {
-    id: "creation-paris",
+    id: 101 as any,
     name: "Randy in Paris",
     style: "Clay",
     background: "Paris",
@@ -25,7 +25,7 @@ export const DEFAULT_CREATIONS: Creation[] = [
     createdAt: "Just now"
   },
   {
-    id: "creation-rocky",
+    id: 102 as any,
     name: "City of Brotherly Love",
     style: "Clay",
     background: "Rocky",
@@ -33,7 +33,7 @@ export const DEFAULT_CREATIONS: Creation[] = [
     createdAt: "2 hours ago"
   },
   {
-    id: "creation-cabin",
+    id: 103 as any,
     name: "Cabin in the Woods",
     style: "Realistic",
     background: "Cabin",
@@ -41,7 +41,7 @@ export const DEFAULT_CREATIONS: Creation[] = [
     createdAt: "Yesterday"
   },
   {
-    id: "creation-canyon",
+    id: 104 as any,
     name: "Randy at the Canyon",
     style: "Clay",
     background: "Canyon",
@@ -49,7 +49,7 @@ export const DEFAULT_CREATIONS: Creation[] = [
     createdAt: "2 days ago"
   },
   {
-    id: "creation-cooper",
+    id: 105 as any,
     name: "Regal Portrait: Cooper",
     style: "Realistic",
     background: "Meadow",
@@ -57,7 +57,7 @@ export const DEFAULT_CREATIONS: Creation[] = [
     createdAt: "Yesterday"
   },
   {
-    id: "creation-luna",
+    id: 106 as any,
     name: "Dreamscape: Luna",
     style: "Artistic",
     background: "Meadow",

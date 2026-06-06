@@ -43,7 +43,7 @@ export default function OrderAlbumModal({ creation, userCredits, onClose }: Orde
         body: JSON.stringify({
           creationId: creation.id,
           creationName: creation.name,
-          imageUrl: creation.imageUrl,
+          imageUrl: creation.image_url || "",
           style: creation.style,
           creditsDeducted: creditRequirement,
           cashPaid: cashRequirement,
@@ -94,7 +94,7 @@ export default function OrderAlbumModal({ creation, userCredits, onClose }: Orde
         <div className="bg-primary/5 dark:bg-slate-800/50 rounded-2xl p-4 border border-primary/10 flex gap-4 mb-5">
           <div className="w-20 h-20 rounded-xl overflow-hidden shadow border border-outline-variant/20 shrink-0">
             <img
-              src={creation.imageUrl}
+              src={creation.image_url || ""}
               alt={creation.name}
               className="w-full h-full object-cover"
               referrerPolicy="no-referrer"

@@ -11,6 +11,7 @@ interface EditMemoryProps {
   onDeductCredits: (amount: number) => void;
   onNavigateBack: () => void;
   onUnlockAchievement?: (id: string) => void;
+  isAdmin?: boolean;
 }
 
 export default function EditMemory({
@@ -19,6 +20,7 @@ export default function EditMemory({
   onDeductCredits,
   onNavigateBack,
   onUnlockAchievement,
+  isAdmin,
 }: EditMemoryProps) {
   const [selectedStyle, setSelectedStyle] = useState<StyleType>("Clay");
   const [selectedBackground, setSelectedBackground] = useState<BackgroundType>("Canyon");
@@ -195,7 +197,7 @@ export default function EditMemory({
   };
 
   const handleSaveToAlbum = async () => {
-    if (credits < 40) {
+    if (!isAdmin && credits < 40) {
       setErrorMessage("Insufficient credits (40 cr required). Use the daily bonus or share memories to get more credits!");
       return;
     }

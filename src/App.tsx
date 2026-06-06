@@ -12,7 +12,7 @@ import { fetchMe, clearToken, fetchCreations } from "./api";
 import { Sparkles, User, History, FolderOpen, Sun, Moon, LogOut, RefreshCw, Zap } from "lucide-react";
 import CreditStore from "./components/CreditStore";
 
-const EMPTY_PROFILE: UserProfile = { fullName: "", phoneNumber: "", email: "", credits: 0 };
+const EMPTY_PROFILE: UserProfile = { fullName: "", phoneNumber: "", email: "", credits: 0, isAdmin: false };
 
 export default function App() {
   // Auth gating state
@@ -116,6 +116,7 @@ export default function App() {
       phoneNumber: user.phone,
       email: user.email,
       credits: user.credits,
+      isAdmin: user.isAdmin,
     });
   };
 
@@ -328,6 +329,7 @@ export default function App() {
             {currentScreen === Screen.EDIT_MEMORY && (
               <EditMemory
                 credits={userProfile.credits}
+                isAdmin={userProfile.isAdmin}
                 onCreationSaved={handleCreationSaved}
                 onDeductCredits={handleDeductCredits}
                 onNavigateBack={() => setCurrentScreen(Screen.DASHBOARD)}
