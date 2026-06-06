@@ -6,7 +6,7 @@ import dotenv from "dotenv";
 import Stripe from "stripe";
 import fs from "fs";
 import twilio from "twilio";
-import { initDb, findOrCreateUser, findUserByPhone, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, saveCreation, getCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, getDailyVideoCount, isUserAdmin } from "./db";
+import { initDb, findOrCreateUser, findUserByPhone, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet } from "./db";
 import { uploadBase64Image } from "./storage";
 import {
   authConfigured,
@@ -15,6 +15,8 @@ import {
   checkVerificationCode,
   signToken,
   requireAuth,
+  hashPassword,
+  verifyPassword,
   type AuthedRequest,
 } from "./auth";
 
@@ -78,46 +80,53 @@ async function startServer() {
       return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
-    if (event.type === "checkout.session.completed") {
-      const session = event.data.object as Stripe.Checkout.Session;
-      console.log(`Payment successful for checkout session: ${session.id}`);
-
+    const handleSuccessfulPayment = async (session: Stripe.Checkout.Session) => {
       const metadata = session.metadata;
-      if (metadata) {
-        // Fix 5: Handle credit pack purchases from the credit store
-        if (metadata.type === "credit_purchase" && metadata.userPhone && metadata.creditsToAdd) {
-          const creditsToAdd = parseInt(metadata.creditsToAdd, 10);
-          await addCredits(metadata.userPhone, creditsToAdd);
-          console.log(`✅ Added ${creditsToAdd} credits to ${metadata.userPhone} via Stripe purchase.`);
-        } else {
-          // Standard physical album order
-          const order = {
-            orderId: `ord_${Date.now()}`,
-            creationId: metadata.creationId,
-            creationName: metadata.creationName,
-            style: metadata.style,
-            creditsDeducted: parseInt(metadata.creditsDeducted || "800", 10),
-            cashPaid: parseFloat(metadata.cashPaid || "12.00"),
-            shippingName: metadata.shippingName,
-            shippingAddress: metadata.shippingAddress,
-            shippingCity: metadata.shippingCity,
-            shippingState: metadata.shippingState,
-            shippingZip: metadata.shippingZip,
-            shippingCountry: metadata.shippingCountry,
-            createdAt: new Date().toISOString(),
-            status: "pending",
-            stripeSessionId: session.id,
-            mode: "live_stripe"
-          };
-          saveOrder(order);
+      if (!metadata) return;
 
-          // Fix 2: Deduct album credits in DB upon confirmed payment
-          if (metadata.userPhone) {
-            await deductCredits(metadata.userPhone, parseInt(metadata.creditsDeducted || "800", 10));
-            console.log(`✅ Deducted ${metadata.creditsDeducted} credits from ${metadata.userPhone} for album order.`);
-          }
+      if (metadata.type === "credit_purchase" && metadata.userPhone && metadata.creditsToAdd) {
+        const creditsToAdd = parseInt(metadata.creditsToAdd, 10);
+        await addCredits(metadata.userPhone, creditsToAdd);
+        console.log(`✅ Added ${creditsToAdd} credits to ${metadata.userPhone} via Stripe purchase.`);
+      } else {
+        // Standard physical album order
+        const order = {
+          orderId: `ord_${Date.now()}`,
+          creationId: metadata.creationId,
+          creationName: metadata.creationName,
+          style: metadata.style,
+          creditsDeducted: parseInt(metadata.creditsDeducted || "800", 10),
+          cashPaid: parseFloat(metadata.cashPaid || "12.00"),
+          shippingName: metadata.shippingName,
+          shippingAddress: metadata.shippingAddress,
+          shippingCity: metadata.shippingCity,
+          shippingState: metadata.shippingState,
+          shippingZip: metadata.shippingZip,
+          shippingCountry: metadata.shippingCountry,
+          createdAt: new Date().toISOString(),
+          status: "pending",
+          stripeSessionId: session.id,
+          mode: "live_stripe"
+        };
+        saveOrder(order);
+
+        if (metadata.userPhone) {
+          await deductCredits(metadata.userPhone, parseInt(metadata.creditsDeducted || "800", 10));
+          console.log(`✅ Deducted ${metadata.creditsDeducted} credits from ${metadata.userPhone} for album order.`);
         }
       }
+    };
+
+    if (event.type === "checkout.session.completed") {
+      const session = event.data.object as Stripe.Checkout.Session;
+      console.log(`Checkout session completed: ${session.id}, status: ${session.payment_status}`);
+      if (session.payment_status === "paid") {
+        await handleSuccessfulPayment(session);
+      }
+    } else if (event.type === "checkout.session.async_payment_succeeded") {
+      const session = event.data.object as Stripe.Checkout.Session;
+      console.log(`Async payment succeeded: ${session.id}`);
+      await handleSuccessfulPayment(session);
     }
 
     res.json({ received: true });
@@ -208,18 +217,49 @@ async function startServer() {
     }
   });
 
-  // Step 3: required profile setup (name + email). Grants the 50 free credits.
+  // Step 3: required profile setup. Grants the 50 free credits.
   app.post("/api/auth/complete-profile", requireAuth, async (req: AuthedRequest, res) => {
     try {
       const fullName = String(req.body?.fullName || "").trim();
       const email = String(req.body?.email || "").trim();
-      if (!fullName || !email) {
-        return res.status(400).json({ error: "Full name and email are both required." });
+      const password = String(req.body?.password || "");
+      const confirmPassword = String(req.body?.confirmPassword || "");
+      const birthdate = String(req.body?.birthdate || "");
+      const city = String(req.body?.city || "").trim();
+
+      if (!fullName || !email || !password || !confirmPassword || !birthdate || !city) {
+        return res.status(400).json({ error: "All profile fields are required." });
       }
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
         return res.status(400).json({ error: "Please enter a valid email address." });
       }
-      const user = await completeUserProfile(req.user!.phone, fullName, email);
+      if (password !== confirmPassword) {
+        return res.status(400).json({ error: "Passwords do not match." });
+      }
+      if (password.length < 6) {
+        return res.status(400).json({ error: "Password must be at least 6 characters." });
+      }
+
+      const dob = new Date(birthdate);
+      const ageDifMs = Date.now() - dob.getTime();
+      const ageDate = new Date(ageDifMs);
+      const age = Math.abs(ageDate.getUTCFullYear() - 1970);
+      if (age < 13) {
+         return res.status(400).json({ error: "You must be at least 13 years old to use Paws & Memories." });
+      }
+
+      const passwordHash = hashPassword(password);
+      const user = await completeUserProfile(req.user!.phone, fullName, email, passwordHash, birthdate, city);
+      
+      const pets = req.body?.pets;
+      if (Array.isArray(pets)) {
+        for (const pet of pets) {
+          if (pet.name && pet.kind) {
+            await addPet(req.user!.phone, pet.name, pet.kind);
+          }
+        }
+      }
+
       res.json({ success: true, user: toPublicUser(user) });
     } catch (err: any) {
       console.error("complete-profile error:", err?.message || err);
@@ -227,7 +267,30 @@ async function startServer() {
     }
   });
 
-  // Session restore: returns the current user for a valid token.
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const email = String(req.body?.email || "").trim();
+      const password = String(req.body?.password || "");
+      if (!email || !password) return res.status(400).json({ error: "Email and password are required." });
+      
+      const { getPool } = require("./db");
+      const [rows] = await getPool().query("SELECT * FROM users WHERE email = ? LIMIT 1", [email]) as any;
+      if (!rows || rows.length === 0) {
+        return res.status(401).json({ error: "Invalid email or password." });
+      }
+      const user = rows[0];
+      if (!user.password_hash || !verifyPassword(password, user.password_hash)) {
+        return res.status(401).json({ error: "Invalid email or password." });
+      }
+
+      const token = signToken({ phone: user.phone, uid: user.id });
+      res.json({ success: true, token, user: toPublicUser(user) });
+    } catch (err: any) {
+      console.error("login error:", err);
+      res.status(500).json({ error: "Login failed. Please try again." });
+    }
+  });
+
   app.get("/api/me", requireAuth, async (req: AuthedRequest, res) => {
     try {
       const user = await findUserByPhone(req.user!.phone);
@@ -236,6 +299,71 @@ async function startServer() {
     } catch (err: any) {
       console.error("me error:", err?.message || err);
       res.status(500).json({ error: "Could not load your account." });
+    }
+  });
+
+  app.post("/api/streak/claim", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { claimDailyStreak } = require("./db");
+      const result = await claimDailyStreak(req.user!.phone);
+      if (!result.success) return res.status(400).json({ success: false, error: "Streak already claimed today" });
+      const user = await findUserByPhone(req.user!.phone);
+      res.json({ success: true, user: toPublicUser(user) });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to claim streak" });
+    }
+  });
+
+  app.post("/api/achievements/claim", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { id } = req.body;
+      const { claimAchievement } = require("./db");
+      const result = await claimAchievement(req.user!.phone, id);
+      if (!result.success) return res.status(400).json({ success: false, error: "Already claimed" });
+      const user = await findUserByPhone(req.user!.phone);
+      res.json({ success: true, user: toPublicUser(user) });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Failed to claim achievement" });
+    }
+  });
+
+  // --- Pets Endpoints ---
+  app.get("/api/pets", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const pets = await getPets(req.user!.phone);
+      res.json({ pets });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to fetch pets." });
+    }
+  });
+
+  app.post("/api/pets", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { name, kind } = req.body;
+      if (!name || !kind) return res.status(400).json({ error: "Name and kind required." });
+      const id = await addPet(req.user!.phone, name, kind);
+      res.json({ success: true, id });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to add pet." });
+    }
+  });
+
+  app.put("/api/pets/:id", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { name, kind } = req.body;
+      const success = await updatePet(Number(req.params.id), req.user!.phone, name, kind);
+      res.json({ success });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to update pet." });
+    }
+  });
+
+  app.delete("/api/pets/:id", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const success = await deletePet(Number(req.params.id), req.user!.phone);
+      res.json({ success });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to delete pet." });
     }
   });
 
@@ -424,6 +552,28 @@ async function startServer() {
     }
   });
 
+  app.get("/api/landmarks", requireAuth, async (req, res) => {
+    try {
+      const city = String(req.query.city || "");
+      if (!city) return res.json({ landmarks: [] });
+      if (!process.env.GOOGLE_MAPS_API_KEY_SERVER) return res.json({ landmarks: [] });
+      
+      const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=top+famous+landmarks+in+${encodeURIComponent(city)}&key=${process.env.GOOGLE_MAPS_API_KEY_SERVER}`;
+      const response = await fetch(url);
+      const data = await response.json();
+      
+      const landmarks = (data.results || []).slice(0, 5).map((r: any) => ({
+        name: r.name,
+        lat: r.geometry?.location?.lat,
+        lng: r.geometry?.location?.lng,
+        photoReference: r.photos?.[0]?.photo_reference
+      }));
+      res.json({ landmarks });
+    } catch (err: any) {
+      res.json({ landmarks: [] });
+    }
+  });
+
   app.post("/api/create-creation", requireAuth, async (req, res) => {
     try {
       if (!apiKey || apiKey === "placeholder-key" || apiKey === "MY_GEMINI_API_KEY") {
@@ -466,6 +616,12 @@ async function startServer() {
         promptText += `delicate charcoal and pencil sketch style with expressive artistic hand-drawn strokes and fine paper texture visible, high-end fine art. `;
       } else if (style === "Artistic" || style === "Watercolor") {
         promptText += `magical, dreamy watercolor painting style with beautiful color bleed, soft sage green, morning glow, and warm terracotta pastel tones. `;
+      } else if (style === "Anime") {
+        promptText += `styled in beautiful vibrant Japanese anime art style, resembling Studio Ghibli, with lush colorful backgrounds and highly expressive bright eyes. `;
+      } else if (style === "3D") {
+        promptText += `styled as a cute Pixar-like 3D computer graphics render, high fidelity, soft rim lighting, highly detailed and expressive. `;
+      } else if (style === "Retro") {
+        promptText += `styled in 1980s retro synthwave aesthetic, neon colors, lo-fi VHS tape grain, nostalgic vintage look. `;
       } else { // Realistic
         promptText += `hyper-realistic professional pet portrait, captured in a sun-drenched atmosphere with golden hour light and soft focus scenic bokeh. `;
       }
@@ -566,7 +722,7 @@ async function startServer() {
             }
 
             // Phase 1.3: Save to database for persistent album
-            await saveCreation({
+            const creationId = await saveCreation({
               user_phone: userPhone,
               media_type: 'still',
               style,
@@ -581,7 +737,7 @@ async function startServer() {
               image_url: finalImageUrl,
             });
 
-            return res.json({ success: true, imageUrl: finalImageUrl, mode: "transform" });
+            return res.json({ success: true, imageUrl: finalImageUrl, creationId, mode: "transform" });
           }
         } catch (err: any) {
           console.warn("Base64 translation template failed, attempting full fallback generation:", err);
@@ -617,7 +773,7 @@ async function startServer() {
         }
         
         // Phase 1.3: Save to database for persistent album
-        await saveCreation({
+        const creationId = await saveCreation({
           user_phone: userPhone,
           media_type: 'still',
           style,
@@ -632,7 +788,7 @@ async function startServer() {
           image_url: finalImageUrl,
         });
         
-        return res.json({ success: true, imageUrl: finalImageUrl, mode: "generate" });
+        return res.json({ success: true, imageUrl: finalImageUrl, creationId, mode: "generate" });
       } catch (e: any) {
         console.error("Imagen model error, trying gemini-2.5-flash-image fallback:", e);
         
@@ -673,7 +829,7 @@ async function startServer() {
           }
           
           // Phase 1.3: Save to database for persistent album (fallback path)
-          await saveCreation({
+          const creationId = await saveCreation({
             user_phone: userPhone,
             media_type: 'still',
             style,
@@ -687,21 +843,83 @@ async function startServer() {
             place_label: location?.placeLabel || null,
             image_url: finalImageUrl,
           });
-          
-          return res.json({ success: true, imageUrl: finalImageUrl, mode: "fallback-generation" });
+
+          return res.json({ success: true, imageUrl: finalImageUrl, creationId, mode: "fallback" });
         }
         
-        throw new Error("Failed to generate styled image with available GenAI models. Please try again.");
+        throw new Error("All image generation methods failed.");
       }
-    } catch (error: any) {
-      console.error("Error creating AI memory:", error);
-      res.status(500).json({
-        success: false,
-        error: error.message || "An error occurred while creating your pet memory."
-      });
+    } catch (err: any) {
+      console.error("create-creation error:", err);
+      res.status(500).json({ success: false, error: err.message || "Failed to generate memory." });
     }
   });
 
+  app.post("/api/create-video", requireAuth, async (req, res) => {
+    try {
+      if (!apiKey || apiKey === "placeholder-key" || apiKey === "MY_GEMINI_API_KEY") {
+        throw new Error("Missing GEMINI_API_KEY.");
+      }
+      const authedReq = req as AuthedRequest;
+      const userPhone = authedReq.user!.phone;
+      const { creationId, imageUrl, motionPrompt, generateAudio } = req.body;
+
+      const isAdmin = await isUserAdmin(userPhone);
+      if (!isAdmin) {
+        const currentBalance = await getCreditBalance(userPhone);
+        if (currentBalance < 250) {
+          return res.status(402).json({ success: false, error: "Insufficient credits for video generation (250 required)." });
+        }
+        await deductCredits(userPhone, 250);
+      }
+
+      const jobId = await createJob({
+         user_phone: userPhone,
+         creation_id: creationId,
+         kind: 'video',
+         credits_reserved: 250,
+         operation_name: motionPrompt
+      });
+
+      // Run Veo simulation in background
+      setTimeout(async () => {
+         try {
+            await updateJobStatus(jobId, 'running');
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            let videoUrl = "https://storage.googleapis.com/aida-public/sample-video.mp4";
+            if (creationId) {
+               await setCreationVideoUrl(creationId, userPhone, videoUrl);
+            }
+            await updateJobStatus(jobId, 'done');
+         } catch (e: any) {
+            await updateJobStatus(jobId, 'failed', e.message);
+         }
+      }, 0);
+
+      res.json({ success: true, jobId });
+    } catch (err: any) {
+      console.error("create-video error:", err);
+      res.status(500).json({ success: false, error: err.message || "Video generation failed." });
+    }
+  });
+
+  app.get("/api/jobs/:id", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+       const job = await getJob(Number(req.params.id), req.user!.phone);
+       if (!job) return res.status(404).json({ error: "Job not found" });
+       
+       let video_url = null;
+       if (job.status === "done" && job.creation_id) {
+          const creations = await getCreations(req.user!.phone);
+          const creation = creations.find((c: any) => c.id === job.creation_id);
+          video_url = creation ? creation.video_url : null;
+       }
+       
+       res.json({ status: job.status, video_url, error: job.error });
+    } catch (err: any) {
+       res.status(500).json({ error: "Failed to poll job" });
+    }
+  });
   // Stripe Checkout Session Creation Route
   app.post("/api/create-checkout-session", requireAuth, async (req, res) => {
     try {
@@ -807,6 +1025,20 @@ async function startServer() {
       res.json({ success: true, creations });
     } catch (err: any) {
       console.error("Error fetching creations:", err);
+      res.status(500).json({ success: false, error: "Failed to fetch creations." });
+    }
+  });
+
+  app.get("/api/admin/creations", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const isAdmin = await isUserAdmin(req.user!.phone);
+      if (!isAdmin) {
+         return res.status(403).json({ success: false, error: "Unauthorized. Admin only." });
+      }
+      const creations = await getAllCreations();
+      res.json({ success: true, creations });
+    } catch (err: any) {
+      console.error("Error fetching admin creations:", err);
       res.status(500).json({ success: false, error: "Failed to fetch creations." });
     }
   });

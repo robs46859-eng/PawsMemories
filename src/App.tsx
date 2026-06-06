@@ -8,11 +8,11 @@ import Dashboard from "./components/Dashboard";
 import EditMemory from "./components/EditMemory";
 import ShareMemory from "./components/ShareMemory";
 import RandyChat from "./components/RandyChat";
-import { fetchMe, clearToken, fetchCreations } from "./api";
+import { fetchMe, fetchCreations, clearToken, claimAchievement, claimDailyStreak } from "./api";
 import { Sparkles, User, History, FolderOpen, Sun, Moon, LogOut, RefreshCw, Zap } from "lucide-react";
 import CreditStore from "./components/CreditStore";
 
-const EMPTY_PROFILE: UserProfile = { fullName: "", phoneNumber: "", email: "", credits: 0, isAdmin: false };
+const EMPTY_PROFILE: UserProfile = { fullName: "", phoneNumber: "", email: "", credits: 0, isAdmin: false, city: "", ageVerified: false };
 
 export default function App() {
   // Auth gating state
@@ -28,7 +28,7 @@ export default function App() {
   const [creditSuccessMsg, setCreditSuccessMsg] = useState("");
 
   const [albums, setAlbums] = useState<Album[]>(DEFAULT_ALBUMS);
-  const [creations, setCreations] = useState<Creation[]>(DEFAULT_CREATIONS);
+  const [creations, setCreations] = useState<Creation[]>(DEFAULT_CREATIONS as Creation[]);
   const [selectedCreationForShare, setSelectedCreationForShare] = useState<Creation | null>(null);
 
   // Dynamic Theme state
@@ -36,25 +36,16 @@ export default function App() {
     return localStorage.getItem("paws_dark_mode") === "true";
   });
 
-  // Daily Streak and achievement tracker persistence states
-  const [dailyStreak, setDailyStreak] = useState<number>(() => {
-    const saved = localStorage.getItem("paws_streak");
-    return saved ? parseInt(saved, 10) : 4; // defaults to elegant 4-day streak
-  });
-  const [dailyStreakClaimed, setDailyStreakClaimed] = useState<boolean>(() => {
-    return localStorage.getItem("paws_streak_claimed_today") === "true";
-  });
-  const [achievements, setAchievements] = useState<any[]>(() => {
-    const saved = localStorage.getItem("paws_achievements_state");
-    if (saved) return JSON.parse(saved);
-    return [
+  // Daily Streak and achievement tracker persistence states (from server)
+  const [dailyStreak, setDailyStreak] = useState<number>(0);
+  const [dailyStreakClaimed, setDailyStreakClaimed] = useState<boolean>(false);
+  const [achievements, setAchievements] = useState<any[]>([
       { id: "pioneer", title: "Pioneer Parent", desc: "Successfully completed user profile registration", reward: 25, icon: "🎉", isUnlocked: false, isClaimed: false },
       { id: "camera_use", title: "Shutter Pup", desc: "Snapped a direct real-time photo with your camera viewfinder", reward: 15, icon: "📸", isUnlocked: false, isClaimed: false },
       { id: "voice_use", title: "Voice Whisperer", desc: "Dictated a details description using your microphone hardware", reward: 15, icon: "🎙️", isUnlocked: false, isClaimed: false },
       { id: "randy_chat", title: "Golden Buddy", desc: "Chatted with Randy the retriever AI pet companion", reward: 10, icon: "🦮", isUnlocked: false, isClaimed: false },
       { id: "creation", title: "Art Keepsake", desc: "Created your first styled AI animal masterpiece memory", reward: 20, icon: "🎨", isUnlocked: false, isClaimed: false },
-    ];
-  });
+  ]);
 
   // Restore an existing session on load (validates the token against the server).
   React.useEffect(() => {
@@ -117,7 +108,14 @@ export default function App() {
       email: user.email,
       credits: user.credits,
       isAdmin: user.isAdmin,
+      city: user.city,
     });
+    setDailyStreak(user.dailyStreak || 0);
+    const today = new Date().toISOString().split('T')[0];
+    setDailyStreakClaimed(user.lastStreakClaim?.startsWith(today) || false);
+    if (user.achievements && user.achievements.length > 0) {
+      setAchievements(user.achievements);
+    }
   };
 
   const toggleDarkMode = () => {
@@ -132,37 +130,28 @@ export default function App() {
       if (idx !== -1 && !prev[idx].isUnlocked) {
         const updated = [...prev];
         updated[idx] = { ...updated[idx], isUnlocked: true };
-        localStorage.setItem("paws_achievements_state", JSON.stringify(updated));
+        // We still keep a tiny bit of local state for instant UI unlock before claim
         return updated;
       }
       return prev;
     });
   };
 
-  const handleClaimReward = (id: string, amount: number) => {
-    setUserProfile((prev) => ({ ...prev, credits: prev.credits + amount }));
-    setAchievements((prev) => {
-      const idx = prev.findIndex((a) => a.id === id);
-      if (idx !== -1) {
-        const updated = [...prev];
-        updated[idx] = { ...updated[idx], isClaimed: true };
-        localStorage.setItem("paws_achievements_state", JSON.stringify(updated));
-        return updated;
-      }
-      return prev;
-    });
+  const handleClaimReward = async (id: string, amount: number) => {
+    try {
+      const updatedUser = await claimAchievement(id);
+      applyUser(updatedUser);
+    } catch(err: any) {
+      alert(err.message || "Could not claim achievement.");
+    }
   };
 
-  const handleClaimDailyStreak = () => {
-    if (!dailyStreakClaimed) {
-      setDailyStreakClaimed(true);
-      setDailyStreak((prev) => {
-        const newVal = prev + 1;
-        localStorage.setItem("paws_streak", String(newVal));
-        return newVal;
-      });
-      setUserProfile((prev) => ({ ...prev, credits: prev.credits + 10 }));
-      localStorage.setItem("paws_streak_claimed_today", "true");
+  const handleClaimDailyStreak = async () => {
+    try {
+      const updatedUser = await claimDailyStreak();
+      applyUser(updatedUser);
+    } catch(err: any) {
+      alert(err.message || "Could not claim daily streak.");
     }
   };
 
@@ -238,7 +227,7 @@ export default function App() {
               Paws &amp; Memories
             </h1>
             <p className="text-[9px] text-on-surface-variant uppercase font-bold tracking-widest leading-none">
-              AI Legacy Studio
+              Simply Fullstack
             </p>
           </div>
         </div>
@@ -334,6 +323,7 @@ export default function App() {
                 onDeductCredits={handleDeductCredits}
                 onNavigateBack={() => setCurrentScreen(Screen.DASHBOARD)}
                 onUnlockAchievement={handleUnlockAchievement}
+                userCity={userProfile.city}
               />
             )}
 

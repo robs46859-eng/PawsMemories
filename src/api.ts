@@ -63,14 +63,26 @@ export async function verifyCode(phone: string, code: string): Promise<PublicUse
   return data.user as PublicUser;
 }
 
-export async function completeProfile(fullName: string, email: string): Promise<PublicUser> {
+export async function completeProfile(fullName: string, email: string, password?: string, confirmPassword?: string, birthdate?: string, city?: string, pets?: {name: string, kind: string}[]): Promise<PublicUser> {
   const res = await authedFetch("/api/auth/complete-profile", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ fullName, email }),
+    body: JSON.stringify({ fullName, email, password, confirmPassword, birthdate, city, pets }),
   });
   if (!res.ok) throw new Error(await parseError(res, "Could not save your profile."));
   const data = await res.json();
+  return data.user as PublicUser;
+}
+
+export async function login(email: string, password: string): Promise<PublicUser> {
+  const res = await fetch("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) throw new Error(await parseError(res, "Login failed."));
+  const data = await res.json();
+  setToken(data.token);
   return data.user as PublicUser;
 }
 
@@ -85,9 +97,27 @@ export async function fetchMe(): Promise<PublicUser | null> {
     }
     const data = await res.json();
     return data.user as PublicUser;
-  } catch {
+} catch {
     return null;
   }
+}
+
+export async function claimDailyStreak(): Promise<PublicUser> {
+  const res = await authedFetch("/api/streak/claim", { method: "POST" });
+  if (!res.ok) throw new Error(await parseError(res, "Failed to claim streak."));
+  const data = await res.json();
+  return data.user as PublicUser;
+}
+
+export async function claimAchievement(id: string): Promise<PublicUser> {
+  const res = await authedFetch("/api/achievements/claim", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id }),
+  });
+  if (!res.ok) throw new Error(await parseError(res, "Failed to claim achievement."));
+  const data = await res.json();
+  return data.user as PublicUser;
 }
 
 // --- Phase 1: Street View & Creations Flow ---------------------------------

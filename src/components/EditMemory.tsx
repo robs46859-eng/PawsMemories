@@ -1,8 +1,8 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { Sparkles, Sun, Crop, Compass, Upload, Save, HelpCircle, AlertCircle, RefreshCw, Dog, Camera, Mic, MicOff, Video, MapPin } from "lucide-react";
 import { StyleType, BackgroundType, Creation, LocationParams } from "../types";
 import { STYLE_OPTIONS, BACKGROUND_OPTIONS } from "../data";
-import { authedFetch } from "../api";
+import { authedFetch, createVideo, pollJob } from "../api";
 import LocationPicker from "./LocationPicker";
 
 interface EditMemoryProps {
@@ -12,6 +12,7 @@ interface EditMemoryProps {
   onNavigateBack: () => void;
   onUnlockAchievement?: (id: string) => void;
   isAdmin?: boolean;
+  userCity?: string;
 }
 
 export default function EditMemory({
@@ -21,6 +22,7 @@ export default function EditMemory({
   onNavigateBack,
   onUnlockAchievement,
   isAdmin,
+  userCity,
 }: EditMemoryProps) {
   const [selectedStyle, setSelectedStyle] = useState<StyleType>("Clay");
   const [selectedBackground, setSelectedBackground] = useState<BackgroundType>("Canyon");
@@ -30,6 +32,32 @@ export default function EditMemory({
   const [contrast, setContrast] = useState(45);
   const [petName, setPetName] = useState("");
   const [petBreed, setPetBreed] = useState("");
+  const [pets, setPets] = useState<any[]>([]);
+  const [landmarks, setLandmarks] = useState<any[]>([]);
+
+  useEffect(() => {
+    authedFetch("/api/pets")
+      .then(res => res.json())
+      .then(data => {
+        if (data.pets && data.pets.length > 0) {
+          setPets(data.pets);
+          setPetName(data.pets[0].name);
+          setPetBreed(data.pets[0].kind);
+        }
+      })
+      .catch(e => console.error(e));
+      
+    if (userCity) {
+      authedFetch(`/api/landmarks?city=${encodeURIComponent(userCity)}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.landmarks) {
+            setLandmarks(data.landmarks);
+          }
+        })
+        .catch(e => console.error(e));
+    }
+  }, [userCity]);
 
   const [uploadedBase64, setUploadedBase64] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string>(
@@ -39,6 +67,8 @@ export default function EditMemory({
   const [loading, setLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState(0);
   const [errorMessage, setErrorMessage] = useState("");
+  const [generatedResult, setGeneratedResult] = useState<Creation | null>(null);
+  const [animatingVideo, setAnimatingVideo] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -231,9 +261,9 @@ export default function EditMemory({
 
       onDeductCredits(40);
 
-      // Create new Creation
+      // Create new Creation locally
       const userCreation: Creation = {
-        id: Date.now(),
+        id: data.creationId || Date.now(),
         user_phone: "", // Populated by backend on fetch
         album_id: null,
         media_type: "still",
@@ -256,7 +286,7 @@ export default function EditMemory({
         isCustomUploaded: !!uploadedBase64,
       };
 
-      onCreationSaved(userCreation);
+      setGeneratedResult(userCreation);
     } catch (err: any) {
       clearInterval(loadingInterval);
       setErrorMessage(
@@ -266,6 +296,87 @@ export default function EditMemory({
       setLoading(false);
     }
   };
+
+  if (generatedResult) {
+    return (
+      <div className="w-full max-w-md mx-auto px-4 py-6 space-y-6 flex flex-col items-center animate-fade-in">
+        <h2 className="text-2xl font-extrabold tracking-tight text-on-surface">Memory Generated!</h2>
+        
+        <div className="w-full aspect-square rounded-2xl overflow-hidden shadow-xl border border-surface-variant/30 relative">
+          {generatedResult.video_url ? (
+            <video src={generatedResult.video_url} autoPlay loop muted playsInline className="w-full h-full object-cover" />
+          ) : (
+            <img src={generatedResult.image_url} alt="Generated memory" className="w-full h-full object-cover" />
+          )}
+          <div className="absolute bottom-3 left-3 bg-black/50 backdrop-blur-md px-3 py-1.5 rounded-lg border border-white/10">
+             <span className="text-white text-xs font-bold flex items-center gap-1">
+                <MapPin size={12}/> {generatedResult.place_label || generatedResult.background}
+             </span>
+          </div>
+        </div>
+        
+        <p className="text-sm font-semibold text-on-surface-variant text-center px-4">
+          {generatedResult.name}
+        </p>
+
+        <div className="w-full space-y-3 mt-4">
+          {!generatedResult.video_url && (
+            <button 
+              onClick={async () => {
+                 setAnimatingVideo(true);
+                 setErrorMessage("");
+                 try {
+                   const { jobId } = await createVideo(generatedResult.id, "Gentle breeze", true);
+                   
+                   const interval = setInterval(async () => {
+                     try {
+                        const jobRes = await pollJob(jobId);
+                        if (jobRes.status === "done") {
+                           clearInterval(interval);
+                           setGeneratedResult({...generatedResult, video_url: jobRes.video_url || null, media_type: 'video'});
+                           onDeductCredits(250);
+                           setAnimatingVideo(false);
+                        } else if (jobRes.status === "failed") {
+                           clearInterval(interval);
+                           setErrorMessage(jobRes.error || "Failed to animate video.");
+                           setAnimatingVideo(false);
+                        }
+                     } catch(err) {
+                        // ignore polling errors
+                     }
+                   }, 3000);
+                   
+                 } catch(e:any) {
+                   setErrorMessage(e.message || "Failed to start animation.");
+                   setAnimatingVideo(false);
+                 }
+              }}
+              disabled={animatingVideo}
+              className="w-full py-4 bg-secondary text-white rounded-xl font-bold text-sm shadow-md hover:bg-secondary/95 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-70"
+            >
+              {animatingVideo ? <RefreshCw className="animate-spin" size={16}/> : <Video size={16}/>}
+              <span>{animatingVideo ? "Animating with Veo..." : "Animate with Veo (250 credits)"}</span>
+            </button>
+          )}
+
+          <button 
+            onClick={() => onCreationSaved(generatedResult)}
+            className="w-full py-4 bg-primary text-white rounded-xl font-bold text-sm shadow-md hover:bg-primary/95 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <Save size={16} />
+            <span>Save to Album</span>
+          </button>
+        </div>
+
+        {errorMessage && (
+          <div className="p-4 w-full bg-error-container text-on-error-container border border-error/50 rounded-2xl flex gap-3 text-xs">
+            <AlertCircle className="text-error flex-shrink-0 mt-0.5" size={16} />
+            <p className="leading-relaxed">{errorMessage}</p>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="w-full max-w-md mx-auto px-4 py-6 space-y-6">
@@ -431,26 +542,34 @@ export default function EditMemory({
           </div>
           <div className="space-y-1">
             <div className="flex justify-between items-center px-1">
-              <label className="text-[11px] font-semibold text-on-surface-variant block">Pet Breed</label>
-              <button
-                type="button"
-                onClick={() => startVoiceDictation("breed")}
-                className={`p-1 rounded transition-all cursor-pointer ${
-                  isDictatingBreed ? "bg-red-500 text-white animate-pulse" : "text-primary hover:bg-primary/10"
-                }`}
-                title="Voice dictate breed name"
-              >
-                <Mic size={11} />
-              </button>
+              <label className="text-[11px] font-semibold text-on-surface-variant block">Select Pet</label>
             </div>
-            <input
-              type="text"
-              placeholder={isDictatingBreed ? "Listening..." : "e.g. Pug, Beagle"}
-              value={petBreed}
-              onChange={(e) => setPetBreed(e.target.value)}
-              className="w-full bg-white border border-outline-variant rounded-xl py-2 px-3 text-xs focus:outline-none focus:border-primary disabled:opacity-60 text-slate-800 font-medium"
-              disabled={isDictatingBreed}
-            />
+            {pets.length > 0 ? (
+              <select
+                value={pets.find(p => p.name === petName)?.id || ""}
+                onChange={(e) => {
+                  const p = pets.find(x => x.id === Number(e.target.value));
+                  if (p) {
+                    setPetName(p.name);
+                    setPetBreed(p.kind);
+                  }
+                }}
+                className="w-full bg-white border border-outline-variant rounded-xl py-2 px-3 text-xs focus:outline-none focus:border-primary text-slate-800 font-medium"
+              >
+                {pets.map(p => (
+                  <option key={p.id} value={p.id}>{p.name} ({p.kind})</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                placeholder={isDictatingBreed ? "Listening..." : "e.g. Pug, Beagle"}
+                value={petBreed}
+                onChange={(e) => setPetBreed(e.target.value)}
+                className="w-full bg-white border border-outline-variant rounded-xl py-2 px-3 text-xs focus:outline-none focus:border-primary disabled:opacity-60 text-slate-800 font-medium"
+                disabled={isDictatingBreed}
+              />
+            )}
           </div>
         </div>
       </section>
@@ -505,7 +624,7 @@ export default function EditMemory({
           </div>
           
           <div className="flex gap-2.5 overflow-x-auto hide-scrollbar pb-2">
-            {BACKGROUND_OPTIONS.slice(0, 4).map((bgOpt) => (
+            {BACKGROUND_OPTIONS.map((bgOpt) => (
               <div
                 key={bgOpt.value}
                 onClick={() => {
@@ -527,6 +646,29 @@ export default function EditMemory({
                 <div className="absolute bottom-1.5 left-2 bg-black/30 backdrop-blur-[1px] px-1.5 py-0.5 rounded">
                   <span className="text-[9px] text-white font-bold uppercase tracking-tight">{bgOpt.label}</span>
                 </div>
+              </div>
+            ))}
+            
+            {landmarks.map((lm, idx) => (
+              <div
+                key={`lm-${idx}`}
+                onClick={() => {
+                  setCustomLocation({
+                    lat: lm.lat,
+                    lng: lm.lng,
+                    heading: 0,
+                    pitch: 0,
+                    fov: 90,
+                    placeLabel: lm.name
+                  });
+                }}
+                className="flex-shrink-0 w-28 h-18 rounded-xl overflow-hidden relative cursor-pointer active:scale-95 transition-all shadow-sm border border-outline-variant/10 bg-surface-container-hover flex flex-col items-center justify-center text-center p-1"
+              >
+                <MapPin className="h-4 w-4 text-primary mb-1" />
+                <span className="text-[8px] font-bold text-on-surface uppercase leading-tight line-clamp-2">{lm.name}</span>
+                {customLocation?.placeLabel === lm.name && (
+                  <div className="absolute inset-0 border-3 border-primary rounded-xl"></div>
+                )}
               </div>
             ))}
             

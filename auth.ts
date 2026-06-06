@@ -1,5 +1,6 @@
 import twilio from "twilio";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 import type { Request, Response, NextFunction } from "express";
 
 /**
@@ -58,6 +59,19 @@ export async function checkVerificationCode(phone: string, code: string): Promis
     code,
   });
   return result.status === "approved";
+}
+
+export function hashPassword(password: string): string {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const derivedKey = crypto.scryptSync(password, salt, 64).toString("hex");
+  return `${salt}:${derivedKey}`;
+}
+
+export function verifyPassword(password: string, hash: string): boolean {
+  const [salt, key] = hash.split(":");
+  if (!salt || !key) return false;
+  const derivedKey = crypto.scryptSync(password, salt, 64).toString("hex");
+  return key === derivedKey;
 }
 
 export interface TokenPayload {

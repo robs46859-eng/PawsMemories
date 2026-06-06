@@ -15,54 +15,54 @@ export const DEFAULT_ALBUMS: Album[] = [
   }
 ];
 
-export const DEFAULT_CREATIONS: Creation[] = [
+export const DEFAULT_CREATIONS: Partial<Creation>[] = [
   {
-    id: 101 as any,
+    id: 101,
     name: "Randy in Paris",
     style: "Clay",
     background: "Paris",
     image_url: "https://lh3.googleusercontent.com/aida-public/AB6AXuBU0nUa1m6O8-EVOuohKwONaRwJZZ1gEa5tLTsM6Pk1OPKho05x71b_umVngODZv7RWo73hOOvU9Pu2yXKJeirbxWxwhUK0Oc8ZFW0V8ZtACgsRSPZMsMbEYEEAO1esiiTpH2zeweZ3QKaShDtccGyScYK3DPYrRmCO8dvSv0zEfSO0vQfPknP_CW52xEaWsC4OY5-40p1XpbQMAuCeo0OUJO_pV-DEwfFkOxaCgZedlpRMbhqAEHqAtwegofQrEhqucTjtQ2OleIE",
-    createdAt: "Just now"
+    created_at: "Just now"
   },
   {
-    id: 102 as any,
+    id: 102,
     name: "City of Brotherly Love",
     style: "Clay",
     background: "Rocky",
     image_url: "https://lh3.googleusercontent.com/aida/AP1WRLspAs6gAFb2pnpaVX6wcMLvr9o9n3oSE2QFQ2dTFyGxt_HBWbEYLDPj03M_9ZQ1fUm4TnfRYh0PeApgJZ2AGqbRdh1sv9_zZc6O1Z_2K6TS0Y3pXN3M9wGqtt7Dh5FnYaQNj0-HQ20O1ncRPGOjTHWhWj8817xOX71J2boQaFoxsJqqc4SZ3XDZ-gMCCQju26NPYT2d1qfjSYtikKrW1x4abnGrSDW_BDAYmhGFlm2aO349_5tBSXO7_CA",
-    createdAt: "2 hours ago"
+    created_at: "2 hours ago"
   },
   {
-    id: 103 as any,
+    id: 103,
     name: "Cabin in the Woods",
     style: "Realistic",
     background: "Cabin",
     image_url: "https://lh3.googleusercontent.com/aida/AP1WRLtFDVEbGliaP7_evzZN_0TExPZntgmOewmauFKbkzvCbsDtKQs6KG-2t6XJ2X111LgZJF1OEymMFPWvAmWawCw-BCq6LT56LCOMv1teoRQytKnceBBh9acShCALXBygU3f_ABu8p4jiWEJVExClrbt0bTGdcCQ6GxFLGP4wYdtYKWhbchG9EG7JxIw39ErS7Lal4ujgb8uz8bxQOr-4H1dKF26Fv2zKJ4DWGHaAF7N7C4clV0ba9n8zADQ",
-    createdAt: "Yesterday"
+    created_at: "Yesterday"
   },
   {
-    id: 104 as any,
+    id: 104,
     name: "Randy at the Canyon",
     style: "Clay",
     background: "Canyon",
     image_url: "https://lh3.googleusercontent.com/aida/AP1WRLuMUevcjZpP-AN97I_CA6dOQYEMS0BevxX3U39ALuZBdr-amMVOAtfxg8xCDxKyqZaseVEV-unjiFTjJh3qvOeeJK_FEcahmc-CSgTOIEsW_C9-BNmA7cgFVAjjQTQW0l1qQNz2RYiP8fzGVMjSgv3FD75s1qC_ghJQ5_sKyBUcPn7Gt74S_qwQy21Mq7ObaMtDVUR3Joq0QE0DwBDmKXXRXS21S-v6gRkS_EAKEwhLJiVOuOIm8xWZVQ",
-    createdAt: "2 days ago"
+    created_at: "2 days ago"
   },
   {
-    id: 105 as any,
+    id: 105,
     name: "Regal Portrait: Cooper",
     style: "Realistic",
     background: "Meadow",
     image_url: "https://lh3.googleusercontent.com/aida-public/AB6AXuB8ObbseD9WagQBXRMd7E8BZ9RKHCgeVXiTKIOxDJMzlQsW7PyFS-UBTPelIFo5QDRzArLs-4-4Oy6SJRj96hu8uVRnQnCBEX1QpUj4KkwViPiT2O6z7A8hCU1m1tGqzsbjfqwTtmb-rdCuYzWTIV3knQxTGdj1wOIy_BZnirVnKurbIwHKukbwAZoLNP71iCjzmKKELvLlJFKabzz3CT54bzle2VywswLksCtnmOWoThBAC3PtfJYhh--0wQssrh3QDfwRSZgeL7o",
-    createdAt: "Yesterday"
+    created_at: "Yesterday"
   },
   {
-    id: 106 as any,
+    id: 106,
     name: "Dreamscape: Luna",
     style: "Artistic",
     background: "Meadow",
     image_url: "https://lh3.googleusercontent.com/aida-public/AB6AXuAUfElb0IF7JgzlF7aHc2dqNSnjeOUhnqdgDjhTgER3G5W5w1ml3icbleoASYB8MZW8k7ec-B8ZUjk4kfEXbfCtW4w-eawAtQJJeErlTre7qVN5f4pC-8qbGY_B9bum0hkKXobObAeCL9wFOUS3qNJoSPT0exCRF_DRUDTelWLUlMJdJeBTJPuztFwUMQVAL7g-5xIYj29Nsn-VLBAPw8q1iMoJ-Mgmnvklqdwj0H54ri8nTzZqqEu6b0cMgXrPN3RcCHKdACk6q7s",
-    createdAt: "3 days ago"
+    created_at: "3 days ago"
   }
 ];
 
@@ -92,6 +92,21 @@ export const STYLE_OPTIONS: StyleOption[] = [
     value: "Artistic",
     label: "Artistic",
     imageUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuAA04qZtEi14sni9xneFOMLIpFnEXeH0MVpDNDwDfdPKiZZkmf0KYxdHtHYa2InXwmGM3cYeothsDGDnk-K2T-A1JraFAgprom7I3mfIFdHW1E1naC2YTrAXIhS_GMXNf7OgOxHH4Nd12I3-3DKQlI4y0PM05rfg-i1CuZdiYumdC9vVMv_25m0QSwYBH7BuGrabVClFAY5eWYsP_IuNqOq3H_ID-Zl2Rp-aYBIjuHdrEAne6TnwcZQG8fKwlJOhowc99RBzDSnZNk"
+  },
+  {
+    value: "Anime",
+    label: "Anime",
+    imageUrl: "https://images.unsplash.com/photo-1578336895698-f4b2a11b3d88?auto=format&fit=crop&q=80&w=200"
+  },
+  {
+    value: "3D",
+    label: "3D Render",
+    imageUrl: "https://images.unsplash.com/photo-1561037404-61cd46aa615b?auto=format&fit=crop&q=80&w=200"
+  },
+  {
+    value: "Retro",
+    label: "Retro",
+    imageUrl: "https://images.unsplash.com/photo-1552053831-71594a27632d?auto=format&fit=crop&q=80&w=200"
   }
 ];
 

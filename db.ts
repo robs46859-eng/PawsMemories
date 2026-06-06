@@ -33,6 +33,10 @@ export interface UserRow {
   phone: string;
   full_name: string | null;
   email: string | null;
+  password_hash: string | null;
+  birthdate: string | null;
+  city: string | null;
+  phone_verified: number; // 0 | 1
   credits: number;
   profile_complete: number; // 0 | 1
   is_admin?: number; // 0 | 1
@@ -41,22 +45,39 @@ export interface UserRow {
 
 /** Public-safe shape returned to the client. */
 export interface PublicUser {
+  id: number;
   phone: string;
   fullName: string;
   email: string;
   credits: number;
+  city: string;
+  birthdate: string;
   profileComplete: boolean;
-  isAdmin?: boolean;
+  isAdmin: boolean;
+  dailyStreak: number;
+  lastStreakClaim: string | null;
+  achievements: any[];
 }
 
-export function toPublicUser(u: UserRow): PublicUser {
+export function toPublicUser(userRow: any): PublicUser {
+  let achievements = [];
+  if (userRow.achievements_json) {
+    try { achievements = JSON.parse(userRow.achievements_json); } catch(e) {}
+  }
+  
   return {
-    phone: u.phone,
-    fullName: u.full_name || "",
-    email: u.email || "",
-    credits: u.credits,
-    profileComplete: u.profile_complete === 1,
-    isAdmin: u.is_admin === 1 || u.phone === "+13107092939",
+    id: userRow.id,
+    phone: userRow.phone,
+    fullName: userRow.full_name || "",
+    email: userRow.email || "",
+    city: userRow.city || "",
+    birthdate: userRow.birthdate || "",
+    profileComplete: !!userRow.profile_complete,
+    credits: userRow.credits,
+    isAdmin: !!userRow.is_admin,
+    dailyStreak: userRow.daily_streak || 0,
+    lastStreakClaim: userRow.last_streak_claim || null,
+    achievements: achievements
   };
 }
 
@@ -73,12 +94,40 @@ export async function initDb(): Promise<void> {
         phone VARCHAR(32) NOT NULL UNIQUE,
         full_name VARCHAR(120) NULL,
         email VARCHAR(190) NULL,
+        password_hash VARCHAR(255) NULL,
+        birthdate DATE NULL,
+        city VARCHAR(120) NULL,
+        phone_verified TINYINT(1) NOT NULL DEFAULT 0,
         credits INT NOT NULL DEFAULT 0,
         profile_complete TINYINT(1) NOT NULL DEFAULT 0,
         is_admin TINYINT(1) NOT NULL DEFAULT 0,
+        daily_streak INT NOT NULL DEFAULT 0,
+        last_streak_claim DATE NULL,
+        achievements_json TEXT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
+
+    // Migration for existing tables
+    const dbName = process.env.DB_NAME;
+    const [cols] = await getPool().query(
+      `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users'`,
+      [dbName]
+    ) as any;
+    const columnNames = cols.map((c: any) => c.COLUMN_NAME);
+
+    if (!columnNames.includes("password_hash")) {
+      await getPool().query(`ALTER TABLE users ADD COLUMN password_hash VARCHAR(255) NULL`);
+      await getPool().query(`ALTER TABLE users ADD COLUMN birthdate DATE NULL`);
+      await getPool().query(`ALTER TABLE users ADD COLUMN city VARCHAR(120) NULL`);
+      await getPool().query(`ALTER TABLE users ADD COLUMN phone_verified TINYINT(1) NOT NULL DEFAULT 0`);
+    }
+
+    if (!columnNames.includes("daily_streak")) {
+      await getPool().query(`ALTER TABLE users ADD COLUMN daily_streak INT NOT NULL DEFAULT 0`);
+      await getPool().query(`ALTER TABLE users ADD COLUMN last_streak_claim DATE NULL`);
+      await getPool().query(`ALTER TABLE users ADD COLUMN achievements_json TEXT NULL`);
+    }
     
     await getPool().query(`
       CREATE TABLE IF NOT EXISTS creations (
@@ -122,7 +171,19 @@ export async function initDb(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
     
-    console.log("✅ Users, creations, and generation_jobs tables ready.");
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS pets (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_phone VARCHAR(32) NOT NULL,
+        name VARCHAR(120) NOT NULL,
+        kind ENUM('dog','cat','other') NOT NULL DEFAULT 'dog',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX (user_phone),
+        FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    console.log("✅ Users, creations, generation_jobs, and pets tables ready.");
   } catch (err) {
     console.error("Failed to initialize database:", err);
   }
@@ -151,15 +212,25 @@ export async function findOrCreateUser(phone: string): Promise<UserRow> {
  * Save name + email and mark the profile complete.
  * Grants the 50 free credits only the first time the profile is completed.
  */
-export async function completeUserProfile(phone: string, fullName: string, email: string): Promise<UserRow> {
+export async function completeUserProfile(
+  phone: string,
+  fullName: string,
+  email: string,
+  passwordHash: string,
+  birthdate: string,
+  city: string
+): Promise<UserRow> {
   await getPool().query(
     `UPDATE users
        SET full_name = ?,
            email = ?,
+           password_hash = ?,
+           birthdate = ?,
+           city = ?,
            credits = CASE WHEN profile_complete = 0 THEN credits + 50 ELSE credits END,
            profile_complete = 1
      WHERE phone = ?`,
-    [fullName, email, phone]
+    [fullName, email, passwordHash, birthdate, city, phone]
   );
   const updated = await findUserByPhone(phone);
   if (!updated) throw new Error("User not found after profile update");
@@ -266,6 +337,13 @@ export async function getCreations(phone: string): Promise<CreationRow[]> {
   const [rows] = await getPool().query(
     `SELECT * FROM creations WHERE user_phone = ? ORDER BY sort_order ASC, created_at DESC`,
     [phone]
+  );
+  return rows as unknown as CreationRow[];
+}
+
+export async function getAllCreations(): Promise<CreationRow[]> {
+  const [rows] = await getPool().query(
+    `SELECT * FROM creations ORDER BY created_at DESC`
   );
   return rows as unknown as CreationRow[];
 }
@@ -394,10 +472,45 @@ export async function getDailyVideoCount(phone: string): Promise<number> {
 }
 
 export async function isUserAdmin(phone: string): Promise<boolean> {
-  // Hardcoded bypass for the developer's phone number (normalized to E.164 format)
-  if (phone === "+13107092939") return true;
-  
   const [rows] = await getPool().query("SELECT is_admin FROM users WHERE phone = ? LIMIT 1", [phone]);
   const arr = rows as unknown as { is_admin: number }[];
   return arr.length ? arr[0].is_admin === 1 : false;
+}
+
+// ============================================================================
+// Pets Helpers
+// ============================================================================
+
+export interface PetRow {
+  id: number;
+  user_phone: string;
+  name: string;
+  kind: 'dog' | 'cat' | 'other';
+  created_at: string;
+}
+
+export async function addPet(phone: string, name: string, kind: 'dog' | 'cat' | 'other'): Promise<number> {
+  const [result] = await getPool().query(
+    `INSERT INTO pets (user_phone, name, kind) VALUES (?, ?, ?)`,
+    [phone, name, kind]
+  ) as any;
+  return result.insertId;
+}
+
+export async function getPets(phone: string): Promise<PetRow[]> {
+  const [rows] = await getPool().query(`SELECT * FROM pets WHERE user_phone = ? ORDER BY created_at ASC`, [phone]);
+  return rows as unknown as PetRow[];
+}
+
+export async function updatePet(id: number, phone: string, name: string, kind: 'dog' | 'cat' | 'other'): Promise<boolean> {
+  const [result] = await getPool().query(
+    `UPDATE pets SET name = ?, kind = ? WHERE id = ? AND user_phone = ?`,
+    [name, kind, id, phone]
+  ) as any;
+  return result.affectedRows === 1;
+}
+
+export async function deletePet(id: number, phone: string): Promise<boolean> {
+  const [result] = await getPool().query(`DELETE FROM pets WHERE id = ? AND user_phone = ?`, [id, phone]) as any;
+  return result.affectedRows === 1;
 }

@@ -1,12 +1,12 @@
 # Paws & Memories Codebase Review
 
-This document provides a comprehensive review of the current status of the **Paws & Memories** (AI Legacy Studio) project, detailing the architecture, compilation status, API integrations, and key configuration requirements.
+This document provides a comprehensive review of the current status of the **Paws & Memories** (Simply Fullstack) project, detailing the architecture, compilation status, API integrations, and key configuration requirements.
 
 ---
 
 ## 1. Project Overview & Current Status
 
-**Paws & Memories** is a web-based "AI Legacy Studio" that allows pet owners to transform photos of their pets into high-quality artistic styles (like claymation, sketching, and watercolor) set in scenic locations (like the Grand Canyon or Paris). The application also features **Randy**, a whimsical, conversational AI pet guide modeled after a clay golden retriever.
+**Paws & Memories** is a web-based "Simply Fullstack" application that allows pet owners to transform photos of their pets into high-quality artistic styles (like claymation, sketching, and watercolor) set in scenic locations (like the Grand Canyon or Paris). The application also features **Randy**, a whimsical, conversational AI pet guide modeled after a clay golden retriever.
 
 ### Current Status
 - **Typecheck Status**: Successfully compiled and type-checked (`tsc --noEmit` completed with `0` errors).

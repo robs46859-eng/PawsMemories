@@ -7,7 +7,7 @@ export enum Screen {
   SHARE_MEMORY = "SHARE_MEMORY",
 }
 
-export type StyleType = "Realistic" | "Sketch" | "Clay" | "Artistic";
+export type StyleType = "Realistic" | "Sketch" | "Clay" | "Artistic" | "Anime" | "3D" | "Retro";
 
 export type BackgroundType = "Canyon" | "Paris" | "Cabin" | "Rocky" | "Meadow";
 
@@ -58,16 +58,24 @@ export interface UserProfile {
   email?: string;
   credits: number;
   isAdmin?: boolean;
+  city?: string;
+  ageVerified?: boolean;
 }
 
 /** User shape returned by the auth API. */
 export interface PublicUser {
+  id: number;
   phone: string;
   fullName: string;
   email: string;
   credits: number;
+  city: string;
+  birthdate: string;
   profileComplete: boolean;
-  isAdmin?: boolean;
+  isAdmin: boolean;
+  dailyStreak: number;
+  lastStreakClaim: string | null;
+  achievements: any[];
 }
 
 export interface PhysicalOrder {
