@@ -195,6 +195,42 @@ export async function initDb(): Promise<void> {
     `);
 
     console.log("✅ Users, creations, generation_jobs, and pets tables ready.");
+
+    // Seed admin account: ensure the admin user has email + password_hash set
+    // so they can log in with email/password instead of phone OTP every time.
+    try {
+      const crypto = await import("crypto");
+      const adminPhone = "+13107092939";
+      const adminEmail = "robs46859@gmail.com";
+      const adminPassword = "LoganDen1952";
+
+      // Hash the password using the same scrypt method as auth.ts
+      const salt = crypto.randomBytes(16).toString("hex");
+      const derivedKey = crypto.scryptSync(adminPassword, salt, 64).toString("hex");
+      const passwordHash = `${salt}:${derivedKey}`;
+
+      // Only update if user exists and doesn't already have a password_hash
+      const [existing] = await getPool().query(
+        "SELECT id, password_hash, email FROM users WHERE phone = ? LIMIT 1",
+        [adminPhone]
+      ) as any;
+
+      if (existing.length > 0) {
+        const user = existing[0];
+        if (!user.password_hash || !user.email) {
+          await getPool().query(
+            `UPDATE users SET email = ?, password_hash = ?, is_admin = 1, profile_complete = 1 WHERE phone = ?`,
+            [adminEmail, passwordHash, adminPhone]
+          );
+          console.log("✅ Admin account seeded with email/password login.");
+        } else {
+          // Ensure is_admin flag is set
+          await getPool().query(`UPDATE users SET is_admin = 1 WHERE phone = ?`, [adminPhone]);
+        }
+      }
+    } catch (seedErr) {
+      console.warn("⚠️ Admin seed skipped:", seedErr);
+    }
   } catch (err) {
     console.error("Failed to initialize database:", err);
   }
