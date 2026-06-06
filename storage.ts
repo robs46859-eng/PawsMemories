@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 
 /**
  * Object Storage Utility for Backblaze B2 / S3-compatible storage.
- * Handles uploading base64 images and returning their public URLs.
+ * Handles uploading base64 images/videos and returning their public URLs.
  */
 
 const bucketName = process.env.MEDIA_BUCKET_NAME;
@@ -26,8 +26,32 @@ const s3Client = new S3Client({
 });
 
 /**
- * Uploads a base64 image string to the configured S3-compatible bucket.
- * @param base64String The full data URL string (e.g., "data:image/jpeg;base64,...")
+ * Maps a MIME type to an appropriate file extension.
+ */
+function getExtensionFromMime(mimeType: string): string {
+  const map: Record<string, string> = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/webp": "webp",
+    "video/mp4": "mp4",
+    "video/webm": "webm",
+  };
+  return map[mimeType] || "bin";
+}
+
+/**
+ * Determines the subfolder based on whether the upload is an image or video.
+ */
+function getFolderFromMime(mimeType: string): string {
+  if (mimeType.startsWith("video/")) return "videos";
+  return "creations";
+}
+
+/**
+ * Uploads a base64 data URL string to the configured S3-compatible bucket.
+ * Supports both images and videos.
+ * @param base64String The full data URL string (e.g., "data:image/jpeg;base64,..." or "data:video/mp4;base64,...")
  * @returns The public URL of the uploaded object.
  */
 export async function uploadBase64Image(base64String: string): Promise<string> {
@@ -38,16 +62,17 @@ export async function uploadBase64Image(base64String: string): Promise<string> {
   // Parse the base64 string
   const matches = base64String.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
   if (!matches || matches.length !== 3) {
-    throw new Error("Invalid base64 image string provided to uploadBase64Image");
+    throw new Error("Invalid base64 data string provided to uploadBase64Image");
   }
 
   const mimeType = matches[1];
   const base64Data = matches[2];
   const buffer = Buffer.from(base64Data, "base64");
 
-  // Determine file extension
-  const extension = mimeType === "image/png" ? "png" : "jpg";
-  const fileName = `creations/${Date.now()}-${uuidv4()}.${extension}`;
+  // Determine file extension and folder from MIME type
+  const extension = getExtensionFromMime(mimeType);
+  const folder = getFolderFromMime(mimeType);
+  const fileName = `${folder}/${Date.now()}-${uuidv4()}.${extension}`;
 
   try {
     await s3Client.send(
@@ -62,17 +87,13 @@ export async function uploadBase64Image(base64String: string): Promise<string> {
     );
 
     // Construct the public URL
-    // For Backblaze B2 virtual-hosted style: https://<bucket-name>.s3.<region>.backblazeb2.com/<key>
-    // Since we use forcePathStyle, the endpoint is like https://s3.region.backblazeb2.com
-    // The public URL is typically: https://<bucket-name>.s3.<region>.backblazeb2.com/<key>
-    // Let's build it dynamically based on the endpoint.
     const url = new URL(bucketEndpoint);
     const publicUrl = `${url.protocol}//${bucketName}.${url.host}/${fileName}`;
 
-    console.log(`✅ Successfully uploaded ${fileName} to object storage.`);
+    console.log(`✅ Successfully uploaded ${fileName} (${mimeType}) to object storage.`);
     return publicUrl;
   } catch (error: any) {
-    console.error("❌ Failed to upload image to object storage:", error);
+    console.error("❌ Failed to upload media to object storage:", error);
     throw new Error(`Object storage upload failed: ${error.message}`);
   }
 }
