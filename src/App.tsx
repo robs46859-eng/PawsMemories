@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import { Screen, UserProfile, Creation, Album, PublicUser } from "./types";
-import { DEFAULT_ALBUMS, DEFAULT_CREATIONS } from "./data";
 import SignUp from "./components/SignUp";
 import Welcome from "./components/Welcome";
 import Tutorial from "./components/Tutorial";

@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Plus, FolderPlus, ArrowRight, Share2, Video, Camera, Info, Folder, Sparkles, AlertCircle, Award, RefreshCw, Wifi, WifiOff, Activity, ShieldAlert, Play } from "lucide-react";
 import { Album, Creation, UserProfile, GenerationJob } from "../types";
-import { DEFAULT_ALBUMS, DEFAULT_CREATIONS } from "../data";
 import AchievementsPanel, { Achievement } from "./AchievementsPanel";
 import { createVideo, pollJob } from "../api";
 
@@ -595,7 +594,10 @@ export default function Dashboard({
         <section>
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-bold text-on-surface">AI Creations</h2>
-            <button className="text-primary font-bold text-xs flex items-center gap-1 hover:underline cursor-pointer">
+            <button 
+              onClick={() => onSelectCreation(creations[0])}
+              className="text-primary font-bold text-xs flex items-center gap-1 hover:underline cursor-pointer"
+            >
               Full Gallery <ArrowRight size={14} />
             </button>
           </div>
