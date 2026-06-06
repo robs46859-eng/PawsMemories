@@ -6,7 +6,7 @@ import dotenv from "dotenv";
 import Stripe from "stripe";
 import fs from "fs";
 import twilio from "twilio";
-import { initDb, findOrCreateUser, findUserByPhone, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet } from "./db";
+import { initDb, findOrCreateUser, findUserByPhone, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums } from "./db";
 import { uploadBase64Image } from "./storage";
 import {
   authConfigured,
@@ -1018,6 +1018,44 @@ async function startServer() {
     }
   });
 
+  // --- Albums Endpoints ---
+  app.get("/api/albums", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const albums = await getAlbums(req.user!.phone);
+      // Map to frontend expected shape
+      const formattedAlbums = albums.map((a: any) => ({
+        id: a.id.toString(),
+        name: a.name,
+        imageUrl: "https://images.unsplash.com/photo-1548199973-03cce0bbc87b?q=80&w=600&auto=format&fit=crop", // placeholder cover
+        itemCount: a.itemCount || 0
+      }));
+      res.json({ success: true, albums: formattedAlbums });
+    } catch (err: any) {
+      console.error("Error fetching albums:", err);
+      res.status(500).json({ success: false, error: "Failed to fetch albums." });
+    }
+  });
+
+  app.post("/api/albums", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { name } = req.body;
+      if (!name) return res.status(400).json({ success: false, error: "Album name required" });
+      const album = await createAlbum(req.user!.phone, name);
+      res.json({ 
+        success: true, 
+        album: {
+          id: album.id.toString(),
+          name: album.name,
+          imageUrl: "https://images.unsplash.com/photo-1548199973-03cce0bbc87b?q=80&w=600&auto=format&fit=crop",
+          itemCount: 0
+        }
+      });
+    } catch (err: any) {
+      console.error("Error creating album:", err);
+      res.status(500).json({ success: false, error: "Failed to create album." });
+    }
+  });
+
   // Phase 1.3: Persistent Album Endpoints
   app.get("/api/creations", requireAuth, async (req: AuthedRequest, res) => {
     try {
@@ -1046,7 +1084,7 @@ async function startServer() {
   app.put("/api/creations/:id", requireAuth, async (req: AuthedRequest, res) => {
     try {
       const id = parseInt(req.params.id, 10);
-      const { sort_order, style, backdrop_kind, preset_name, sv_lat, sv_lng, sv_heading, sv_pitch, sv_fov, place_label } = req.body;
+      const { sort_order, style, backdrop_kind, preset_name, sv_lat, sv_lng, sv_heading, sv_pitch, sv_fov, place_label, album_id } = req.body;
       
       const updates: any = {};
       if (sort_order !== undefined) updates.sort_order = sort_order;
@@ -1059,6 +1097,7 @@ async function startServer() {
       if (sv_pitch !== undefined) updates.sv_pitch = sv_pitch;
       if (sv_fov !== undefined) updates.sv_fov = sv_fov;
       if (place_label !== undefined) updates.place_label = place_label;
+      if (album_id !== undefined) updates.album_id = album_id;
 
       const success = await updateCreation(id, req.user!.phone, updates);
       if (!success) {

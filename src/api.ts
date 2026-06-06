@@ -1,4 +1,4 @@
-import { PublicUser, Creation, LocationParams } from "./types";
+import { PublicUser, Creation, Album, LocationParams } from "./types";
 
 /**
  * Lightweight API client that manages the session token and auth flow.
@@ -130,10 +130,41 @@ export async function checkStreetViewCoverage(lat: number, lng: number): Promise
 }
 
 export async function fetchCreations(): Promise<Creation[]> {
-  const res = await authedFetch("/api/creations");
-  if (!res.ok) throw new Error(await parseError(res, "Failed to fetch creations."));
+  try {
+    const res = await authedFetch("/api/creations");
+    if (!res.ok) throw new Error("Failed to fetch creations");
+    const data = await res.json();
+    return data.creations || [];
+  } catch (err) {
+    console.error(err);
+    return [];
+  }
+}
+
+export async function fetchAlbums(): Promise<Album[]> {
+  try {
+    const res = await authedFetch("/api/albums");
+    if (!res.ok) throw new Error("Failed to fetch albums");
+    const data = await res.json();
+    return data.albums || [];
+  } catch (err) {
+    console.error(err);
+    return [];
+  }
+}
+
+export async function createAlbum(name: string): Promise<Album | null> {
+  const res = await authedFetch("/api/albums", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) {
+    console.error(await parseError(res, "Failed to create album."));
+    return null;
+  }
   const data = await res.json();
-  return data.creations || [];
+  return data.album as Album;
 }
 
 export async function updateCreationOrder(id: number, sortOrder: number): Promise<void> {

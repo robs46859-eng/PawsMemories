@@ -8,7 +8,8 @@ import Dashboard from "./components/Dashboard";
 import EditMemory from "./components/EditMemory";
 import ShareMemory from "./components/ShareMemory";
 import RandyChat from "./components/RandyChat";
-import { fetchMe, fetchCreations, clearToken, claimAchievement, claimDailyStreak } from "./api";
+import AlbumView from "./components/AlbumView";
+import { fetchMe, fetchCreations, fetchAlbums, createAlbum, clearToken, claimAchievement, claimDailyStreak } from "./api";
 import { Sparkles, User, History, FolderOpen, Sun, Moon, LogOut, RefreshCw, Zap } from "lucide-react";
 import CreditStore from "./components/CreditStore";
 
@@ -27,8 +28,9 @@ export default function App() {
   const [showCreditStore, setShowCreditStore] = useState(false);
   const [creditSuccessMsg, setCreditSuccessMsg] = useState("");
 
-  const [albums, setAlbums] = useState<Album[]>(DEFAULT_ALBUMS);
-  const [creations, setCreations] = useState<Creation[]>(DEFAULT_CREATIONS as Creation[]);
+  const [albums, setAlbums] = useState<Album[]>([]);
+  const [creations, setCreations] = useState<Creation[]>([]);
+  const [activeAlbum, setActiveAlbum] = useState<Album | null>(null);
   const [selectedCreationForShare, setSelectedCreationForShare] = useState<Creation | null>(null);
 
   // Dynamic Theme state
@@ -58,10 +60,10 @@ export default function App() {
         setIsAuthed(true);
         setCurrentScreen(Screen.DASHBOARD);
         // Phase 1.7: Fetch persistent creations from backend
-        const fetchedCreations = await fetchCreations();
-        if (fetchedCreations.length > 0) {
-          setCreations(fetchedCreations as any); // Cast to handle legacy local fields temporarily
-        }
+        const serverCreations = await fetchCreations();
+        setCreations(serverCreations);
+        const serverAlbums = await fetchAlbums();
+        setAlbums(serverAlbums);
       } else {
         clearToken();
         setIsAuthed(false);
@@ -155,6 +157,13 @@ export default function App() {
     }
   };
 
+  const handleCreateAlbum = async (name: string) => {
+    const newAlbum = await createAlbum(name);
+    if (newAlbum) {
+      setAlbums((prev) => [newAlbum, ...prev]);
+    }
+  };
+
   // Called by SignUp once the user is verified AND has a complete profile.
   const handleAuthenticated = (user: PublicUser, isNew: boolean) => {
     applyUser(user);
@@ -164,6 +173,8 @@ export default function App() {
       setCurrentScreen(Screen.WELCOME);
     } else {
       setCurrentScreen(Screen.DASHBOARD);
+      fetchCreations().then(setCreations);
+      fetchAlbums().then(setAlbums);
     }
   };
 
@@ -312,6 +323,11 @@ export default function App() {
                 onClaimReward={handleClaimReward}
                 onClaimDailyStreak={handleClaimDailyStreak}
                 dailyStreakClaimed={dailyStreakClaimed}
+                onSelectAlbum={(album) => {
+                  setActiveAlbum(album);
+                  setCurrentScreen(Screen.ALBUM_VIEW);
+                }}
+                onCreateAlbum={handleCreateAlbum}
               />
             )}
 
@@ -327,7 +343,18 @@ export default function App() {
               />
             )}
 
-            {currentScreen === Screen.SHARE_MEMORY && (
+            {currentScreen === Screen.ALBUM_VIEW && activeAlbum && (
+              <AlbumView
+                album={activeAlbum}
+                creations={creations}
+                onBack={() => setCurrentScreen(Screen.DASHBOARD)}
+                onSelectCreation={(c) => setSelectedCreationForShare(c)}
+                onPlayVideo={() => {}}
+                animatingJobs={{}}
+              />
+            )}
+
+            {currentScreen === Screen.SHARE_MEMORY && selectedCreationForShare && (
               <ShareMemory
                 creation={selectedCreationForShare || creations[0]}
                 userCredits={userProfile.credits}
@@ -351,6 +378,11 @@ export default function App() {
                 onClaimReward={handleClaimReward}
                 onClaimDailyStreak={handleClaimDailyStreak}
                 dailyStreakClaimed={dailyStreakClaimed}
+                onSelectAlbum={(album) => {
+                  setActiveAlbum(album);
+                  setCurrentScreen(Screen.ALBUM_VIEW);
+                }}
+                onCreateAlbum={handleCreateAlbum}
               />
             )}
           </>
@@ -358,7 +390,7 @@ export default function App() {
       </main>
 
       {/* Floating Bottom Navigator (only when signed in and past onboarding) */}
-      {isAuthed && (currentScreen === Screen.DASHBOARD || currentScreen === Screen.EDIT_MEMORY || currentScreen === Screen.SHARE_MEMORY) && (
+      {isAuthed && [Screen.DASHBOARD, Screen.EDIT_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW].includes(currentScreen) && (
         <div className="fixed bottom-0 left-0 right-0 bg-surface-container-lowest/90 backdrop-blur-md border-t border-outline-variant/30 py-2 px-6 flex justify-around items-center max-w-md mx-auto z-40 rounded-t-3xl soft-glow-shadow">
           <button
             onClick={() => setCurrentScreen(Screen.DASHBOARD)}
@@ -381,8 +413,13 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => alert("Browse your albums directly inside the home 'My Albums' section.")}
-            className="flex flex-col items-center gap-1 py-1.5 px-3 rounded-xl text-on-surface-variant opacity-75 cursor-pointer"
+            onClick={() => {
+              // Usually toggles a sheet or scrolls down, for now go to Dashboard
+              setCurrentScreen(Screen.DASHBOARD);
+            }}
+            className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-xl transition-all cursor-pointer ${
+              currentScreen === Screen.ALBUM_VIEW ? "text-primary scale-103 font-bold" : "text-on-surface-variant opacity-75"
+            }`}
           >
             <FolderOpen size={20} />
             <span className="text-[9px] uppercase tracking-wider font-extrabold">Albums</span>

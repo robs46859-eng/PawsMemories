@@ -130,6 +130,17 @@ export async function initDb(): Promise<void> {
     }
     
     await getPool().query(`
+      CREATE TABLE IF NOT EXISTS albums (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_phone VARCHAR(32) NOT NULL,
+        name VARCHAR(120) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX (user_phone),
+        FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await getPool().query(`
       CREATE TABLE IF NOT EXISTS creations (
         id            INT AUTO_INCREMENT PRIMARY KEY,
         user_phone    VARCHAR(32) NOT NULL,
@@ -264,6 +275,44 @@ export async function addCredits(phone: string, amount: number): Promise<void> {
     `UPDATE users SET credits = credits + ? WHERE phone = ?`,
     [amount, phone]
   );
+}
+
+// ============================================================================
+// Albums Helpers
+// ============================================================================
+
+export interface AlbumRow {
+  id: number;
+  user_phone: string;
+  name: string;
+  created_at: string;
+  itemCount?: number; // Aggregated count of creations inside the album
+}
+
+export async function createAlbum(phone: string, name: string): Promise<AlbumRow> {
+  const [result] = await getPool().query(
+    "INSERT INTO albums (user_phone, name) VALUES (?, ?)",
+    [phone, name]
+  ) as any;
+  return {
+    id: result.insertId,
+    user_phone: phone,
+    name,
+    created_at: new Date().toISOString(),
+    itemCount: 0
+  };
+}
+
+export async function getAlbums(phone: string): Promise<AlbumRow[]> {
+  const [rows] = await getPool().query(`
+    SELECT a.*, COUNT(c.id) as itemCount 
+    FROM albums a 
+    LEFT JOIN creations c ON a.id = c.album_id 
+    WHERE a.user_phone = ? 
+    GROUP BY a.id 
+    ORDER BY a.created_at DESC
+  `, [phone]) as any;
+  return rows;
 }
 
 // ============================================================================

@@ -18,6 +18,8 @@ interface DashboardProps {
   onClaimReward: (id: string, amount: number) => void;
   onClaimDailyStreak: () => void;
   dailyStreakClaimed: boolean;
+  onSelectAlbum: (album: Album) => void;
+  onCreateAlbum: (name: string) => Promise<void>;
 }
 
 export default function Dashboard({
@@ -33,6 +35,8 @@ export default function Dashboard({
   onClaimReward,
   onClaimDailyStreak,
   dailyStreakClaimed,
+  onSelectAlbum,
+  onCreateAlbum,
 }: DashboardProps) {
   const [dailyClaimed, setDailyClaimed] = useState(false);
   const [createAlbumName, setCreateAlbumName] = useState("");
@@ -551,14 +555,15 @@ export default function Dashboard({
         <section>
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-bold text-on-surface">My Albums</h2>
-            <button className="text-primary font-bold text-xs flex items-center gap-1 hover:underline cursor-pointer">
-              View All <ArrowRight size={14} />
-            </button>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             {albums.map((album) => (
-              <div key={album.id} className="space-y-2 cursor-pointer group">
+              <div 
+                key={album.id} 
+                className="space-y-2 cursor-pointer group"
+                onClick={() => onSelectAlbum(album)}
+              >
                 <div className="aspect-square rounded-2xl overflow-hidden bg-surface-container relative shadow-sm border border-outline-variant/20">
                   <img
                     alt={album.name}
@@ -705,9 +710,11 @@ export default function Dashboard({
                 Cancel
               </button>
               <button
-                onClick={() => {
+                onClick={async () => {
+                  if (!createAlbumName.trim()) return;
+                  await onCreateAlbum(createAlbumName);
                   setShowCreateAlbumModal(false);
-                  alert(`Album "${createAlbumName || "New Album"}" created successfully! Add some created memories inside.`);
+                  setCreateAlbumName("");
                 }}
                 className="px-4 py-2 text-xs font-bold text-white bg-primary rounded-lg hover:bg-primary/95"
               >

@@ -202,16 +202,16 @@ export default function ShareMemory({ creation, userCredits, onBack, isAdmin }: 
 
         <div className="grid grid-cols-2 gap-3">
           <button
-            onClick={() => alert("Successfully simulated direct sharing to TikTok. +10 Credits rewarded!")}
-            className="flex items-center justify-center gap-2 py-3 bg-on-surface text-white hover:brightness-110 active:scale-95 transition-all text-xs font-bold rounded-xl cursor-pointer"
+            onClick={() => alert("TikTok integration is coming soon! Direct sharing will be available in a future update.")}
+            className="flex items-center justify-center gap-2 py-3 bg-on-surface text-white hover:brightness-110 active:scale-95 transition-all text-xs font-bold rounded-xl cursor-pointer opacity-70"
           >
             <Share2 size={14} className="text-secondary-container" />
             TikTok Feed
           </button>
           
           <button
-            onClick={() => alert("Successfully simulated direct sharing to Instagram. +10 Credits rewarded!")}
-            className="flex items-center justify-center gap-2 py-3 bg-gradient-to-tr from-orange-500 to-rose-600 text-white hover:brightness-110 active:scale-95 transition-all text-xs font-bold rounded-xl cursor-pointer"
+            onClick={() => alert("Instagram integration is coming soon! Direct sharing will be available in a future update.")}
+            className="flex items-center justify-center gap-2 py-3 bg-gradient-to-tr from-orange-500 to-rose-600 text-white hover:brightness-110 active:scale-95 transition-all text-xs font-bold rounded-xl cursor-pointer opacity-70"
           >
             <Share2 size={14} className="text-orange-200" />
             Insta Stories
