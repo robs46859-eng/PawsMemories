@@ -74,7 +74,7 @@ export function toPublicUser(userRow: any): PublicUser {
     birthdate: userRow.birthdate || "",
     profileComplete: !!userRow.profile_complete,
     credits: userRow.credits,
-    isAdmin: !!userRow.is_admin || userRow.phone === "+13107092939" || userRow.phone === process.env.ADMIN_PHONE,
+    isAdmin: !!userRow.is_admin || (!!process.env.ADMIN_PHONE && userRow.phone === process.env.ADMIN_PHONE),
     dailyStreak: userRow.daily_streak || 0,
     lastStreakClaim: userRow.last_streak_claim || null,
     achievements: achievements
@@ -196,37 +196,26 @@ export async function initDb(): Promise<void> {
 
     console.log("✅ Users, creations, generation_jobs, and pets tables ready.");
 
-    // Seed admin account: ensure the admin user has email + password_hash set
-    // so they can log in with email/password instead of phone OTP every time.
+    // Seed admin account from environment variables — no hardcoded credentials
     try {
-      const crypto = await import("crypto");
-      const adminPhone = "+13107092939";
-      const adminEmail = "robs46859@gmail.com";
-      const adminPassword = "LoganDen1952";
+      const adminPhone = process.env.ADMIN_PHONE;
+      const adminEmail = process.env.ADMIN_EMAIL;
+      const adminPassword = process.env.ADMIN_PASSWORD;
 
-      // Hash the password using the same scrypt method as auth.ts
-      const salt = crypto.randomBytes(16).toString("hex");
-      const derivedKey = crypto.scryptSync(adminPassword, salt, 64).toString("hex");
-      const passwordHash = `${salt}:${derivedKey}`;
-
-      // Only update if user exists and doesn't already have a password_hash
-      const [existing] = await getPool().query(
-        "SELECT id, password_hash, email FROM users WHERE phone = ? LIMIT 1",
-        [adminPhone]
-      ) as any;
-
-      if (existing.length > 0) {
-        const user = existing[0];
-        if (!user.password_hash || !user.email) {
-          await getPool().query(
-            `UPDATE users SET email = ?, password_hash = ?, is_admin = 1, profile_complete = 1 WHERE phone = ?`,
-            [adminEmail, passwordHash, adminPhone]
-          );
-          console.log("✅ Admin account seeded with email/password login.");
-        } else {
-          // Ensure is_admin flag is set
-          await getPool().query(`UPDATE users SET is_admin = 1 WHERE phone = ?`, [adminPhone]);
-        }
+      if (adminPhone && adminEmail && adminPassword) {
+        const { hashPassword } = await import("./auth");
+        const passwordHash = hashPassword(adminPassword);
+        await getPool().query(
+          `INSERT INTO users (phone, email, password_hash, is_admin, profile_complete, credits, full_name)
+           VALUES (?, ?, ?, 1, 1, 9999, 'Admin')
+           ON DUPLICATE KEY UPDATE
+             email = VALUES(email),
+             password_hash = VALUES(password_hash),
+             is_admin = 1,
+             profile_complete = 1`,
+          [adminPhone, adminEmail, passwordHash]
+        );
+        console.log("✅ Admin account upserted from env vars.");
       }
     } catch (seedErr) {
       console.warn("⚠️ Admin seed skipped:", seedErr);
@@ -341,11 +330,14 @@ export async function createAlbum(phone: string, name: string): Promise<AlbumRow
 
 export async function getAlbums(phone: string): Promise<AlbumRow[]> {
   const [rows] = await getPool().query(`
-    SELECT a.*, COUNT(c.id) as itemCount 
-    FROM albums a 
-    LEFT JOIN creations c ON a.id = c.album_id 
-    WHERE a.user_phone = ? 
-    GROUP BY a.id 
+    SELECT a.*, COUNT(c.id) as itemCount,
+      (SELECT image_url FROM creations
+       WHERE album_id = a.id
+       ORDER BY sort_order ASC, created_at ASC LIMIT 1) as cover_url
+    FROM albums a
+    LEFT JOIN creations c ON a.id = c.album_id
+    WHERE a.user_phone = ?
+    GROUP BY a.id
     ORDER BY a.created_at DESC
   `, [phone]) as any;
   return rows;
@@ -549,7 +541,7 @@ export async function setCreationVideoUrl(creationId: number, phone: string, vid
 
 export async function getDailyVideoCount(phone: string): Promise<number> {
   const [rows] = await getPool().query(
-    `SELECT COUNT(*) as count FROM generation_jobs WHERE user_phone = ? AND kind = 'video' AND DATE(created_at) = CURDATE()`,
+    `SELECT COUNT(*) as count FROM generation_jobs WHERE user_phone = ? AND kind = 'video' AND status NOT IN ('failed') AND DATE(created_at) = CURDATE()`,
     [phone]
   );
   const arr = rows as unknown as { count: string | number }[];
@@ -558,7 +550,7 @@ export async function getDailyVideoCount(phone: string): Promise<number> {
 
 export async function isUserAdmin(phone: string): Promise<boolean> {
   // Hardcoded bypass for the developer's phone number
-  if (phone === "+13107092939" || phone === process.env.ADMIN_PHONE) return true;
+  if (process.env.ADMIN_PHONE && phone === process.env.ADMIN_PHONE) return true;
   
   const [rows] = await getPool().query("SELECT is_admin FROM users WHERE phone = ? LIMIT 1", [phone]);
   const arr = rows as unknown as { is_admin: number }[];

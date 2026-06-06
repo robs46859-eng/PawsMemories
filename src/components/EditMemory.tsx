@@ -71,6 +71,13 @@ export default function EditMemory({
   const [animatingVideo, setAnimatingVideo] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (videoPollingRef.current) clearInterval(videoPollingRef.current);
+    };
+  }, []);
 
   // HTML5 MediaDevices camera state
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -327,22 +334,24 @@ export default function EditMemory({
                  setErrorMessage("");
                  try {
                    const { jobId } = await createVideo(generatedResult.id, "Gentle breeze", true);
-                   
-                   const interval = setInterval(async () => {
+
+                   videoPollingRef.current = setInterval(async () => {
                      try {
                         const jobRes = await pollJob(jobId);
                         if (jobRes.status === "done") {
-                           clearInterval(interval);
+                           clearInterval(videoPollingRef.current!);
+                           videoPollingRef.current = null;
                            setGeneratedResult({...generatedResult, video_url: jobRes.video_url || null, media_type: 'video'});
                            onDeductCredits(250);
                            setAnimatingVideo(false);
                         } else if (jobRes.status === "failed") {
-                           clearInterval(interval);
+                           clearInterval(videoPollingRef.current!);
+                           videoPollingRef.current = null;
                            setErrorMessage(jobRes.error || "Failed to animate video.");
                            setAnimatingVideo(false);
                         }
-                     } catch(err) {
-                        // ignore polling errors
+                     } catch {
+                        // ignore transient polling errors
                      }
                    }, 3000);
                    

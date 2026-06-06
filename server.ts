@@ -6,7 +6,7 @@ import dotenv from "dotenv";
 import Stripe from "stripe";
 import fs from "fs";
 import twilio from "twilio";
-import { initDb, findOrCreateUser, findUserByPhone, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums } from "./db";
+import { initDb, findOrCreateUser, findUserByPhone, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, getPool } from "./db";
 import { uploadBase64Image } from "./storage";
 import {
   authConfigured,
@@ -273,7 +273,6 @@ async function startServer() {
       const password = String(req.body?.password || "");
       if (!email || !password) return res.status(400).json({ error: "Email and password are required." });
       
-      const { getPool } = require("./db");
       const [rows] = await getPool().query("SELECT * FROM users WHERE email = ? LIMIT 1", [email]) as any;
       if (!rows || rows.length === 0) {
         return res.status(401).json({ error: "Invalid email or password." });
@@ -638,6 +637,17 @@ async function startServer() {
         promptText += `The setting is a lush sun-drenched green flower garden during golden hour with sparkling wildflowers and beautiful bokeh effects. `;
       }
 
+      if (brightness > 70) {
+        promptText += ` Use very bright, high-key lighting.`;
+      } else if (brightness < 30) {
+        promptText += ` Use moody, low-key dramatic lighting.`;
+      }
+      if (contrast > 70) {
+        promptText += ` High contrast, punchy vibrant colors.`;
+      } else if (contrast < 30) {
+        promptText += ` Soft, low-contrast, gentle pastel tones.`;
+      }
+
       promptText += ` The image must convey an empathetic, nostalgic, warm, and highly nurturing aesthetic, like a cherished digital heirloom memory. Fully centered, perfectly composed, high detail.`;
 
       // Phase 1.3: Custom Street View Backdrop Handling
@@ -672,9 +682,9 @@ async function startServer() {
         const base64Data = matches[2];
 
         try {
-          // Call gemini-2.5-flash-image to translate/style-transfer the input photo
+          // Style-transfer the input photo using the image generation model
           const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash-image',
+            model: 'gemini-2.0-flash-exp-image-generation',
             contents: {
               parts: [
                 {
@@ -793,7 +803,7 @@ async function startServer() {
         console.error("Imagen model error, trying gemini-2.5-flash-image fallback:", e);
         
         const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash-image',
+          model: 'gemini-2.0-flash-exp-image-generation',
           contents: {
             parts: [{ text: `Generate a beautiful artistic image matching this prompt: ${promptText}` }]
           },
@@ -962,7 +972,7 @@ async function startServer() {
       const formattedAlbums = albums.map((a: any) => ({
         id: a.id.toString(),
         name: a.name,
-        imageUrl: "https://images.unsplash.com/photo-1548199973-03cce0bbc87b?q=80&w=600&auto=format&fit=crop", // placeholder cover
+        imageUrl: a.cover_url || "https://images.unsplash.com/photo-1548199973-03cce0bbc87b?q=80&w=600&auto=format&fit=crop",
         itemCount: a.itemCount || 0
       }));
       res.json({ success: true, albums: formattedAlbums });
@@ -1033,7 +1043,18 @@ async function startServer() {
       if (sv_pitch !== undefined) updates.sv_pitch = sv_pitch;
       if (sv_fov !== undefined) updates.sv_fov = sv_fov;
       if (place_label !== undefined) updates.place_label = place_label;
-      if (album_id !== undefined) updates.album_id = album_id;
+      if (album_id !== undefined) {
+        if (album_id !== null) {
+          const [albumRows] = await getPool().query(
+            "SELECT id FROM albums WHERE id = ? AND user_phone = ? LIMIT 1",
+            [album_id, req.user!.phone]
+          ) as any;
+          if (!albumRows.length) {
+            return res.status(403).json({ success: false, error: "Album not found or not yours." });
+          }
+        }
+        updates.album_id = album_id;
+      }
 
       const success = await updateCreation(id, req.user!.phone, updates);
       if (!success) {
@@ -1052,7 +1073,15 @@ async function startServer() {
       const url = req.query.url as string;
       if (!url) return res.status(400).send("Missing url parameter");
 
-      // We use node's global fetch
+      // Whitelist: only allow fetching from our configured media bucket host
+      const bucketEndpoint = process.env.MEDIA_BUCKET_URL;
+      const bucketName = process.env.MEDIA_BUCKET_NAME;
+      if (!bucketEndpoint || !bucketName) return res.status(503).send("Media storage not configured");
+      const allowedHost = `${bucketName}.${new URL(bucketEndpoint).host}`;
+      let parsedUrl: URL;
+      try { parsedUrl = new URL(url); } catch { return res.status(400).send("Invalid URL"); }
+      if (parsedUrl.hostname !== allowedHost) return res.status(403).send("Download not permitted for this URL");
+
       const fetchReq = await fetch(url);
       if (!fetchReq.ok) throw new Error(`Failed to fetch file: ${fetchReq.statusText}`);
 
@@ -1101,12 +1130,7 @@ async function startServer() {
         return res.status(404).json({ success: false, error: "Creation not found or has no image." });
       }
 
-      // 3. Deduct credits upfront (Admin bypass: skip deduction)
-      if (!isAdmin) {
-        await deductCredits(userPhone, VIDEO_COST);
-      }
-
-      // 4. Prepare image bytes (fetch from URL if needed, or parse base64)
+      // 3. Prepare image bytes (fetch from URL if needed, or parse base64)
       let imageBytes = "";
       let mimeType = "image/jpeg";
       if (creation.image_url.startsWith("data:image")) {
@@ -1132,6 +1156,11 @@ async function startServer() {
 
       const operationName = (op as any).name || (op as any).operation?.name;
       if (!operationName) throw new Error("Failed to get operation name from Veo");
+
+      // Deduct credits now that Veo confirmed the job is queued (Admin bypass)
+      if (!isAdmin) {
+        await deductCredits(userPhone, VIDEO_COST);
+      }
 
       // 6. Create job in DB
       const jobId = await createJob({
@@ -1163,11 +1192,16 @@ async function startServer() {
             if (op.done) {
               if (op.response?.generatedVideos?.[0]?.video) {
                 const videoData: any = op.response.generatedVideos[0].video;
-                // videoData usually has imageBytes for Veo
-                const base64Video = videoData.imageBytes || videoData;
-                
-                // Upload to object storage
-                const videoUrl = await uploadBase64Image(`data:video/mp4;base64,${base64Video}`);
+                let videoUrl: string;
+                if (videoData.uri) {
+                  const gcsRes = await fetch(videoData.uri);
+                  const buf = Buffer.from(await gcsRes.arrayBuffer());
+                  videoUrl = await uploadBase64Image(`data:video/mp4;base64,${buf.toString("base64")}`);
+                } else if (videoData.imageBytes) {
+                  videoUrl = await uploadBase64Image(`data:video/mp4;base64,${videoData.imageBytes}`);
+                } else {
+                  throw new Error("Veo returned no video URI or bytes");
+                }
                 
                 // Update DB
                 await updateJobStatus(jobId, "done");
@@ -1180,7 +1214,7 @@ async function startServer() {
                     await twilioClient.messages.create({
                       body: `🐾 Paws & Memories: Your pet video animation is ready! View it at ${process.env.APP_URL || "your app"}.`,
                       to: req.user!.phone,
-                      from: process.env.TWILIO_VERIFY_SERVICE_SID // Fallback if no dedicated messaging SID, or use a specific one
+                      from: process.env.TWILIO_PHONE_NUMBER
                     });
                   } catch (smsErr) {
                     console.warn("Failed to send SMS notification:", smsErr);
@@ -1191,7 +1225,9 @@ async function startServer() {
               } else {
                 // Failed or empty response
                 await updateJobStatus(jobId, "failed", "No video generated");
-                await refundCredits(req.user!.phone, job.credits_reserved);
+                if (!await isUserAdmin(req.user!.phone) && job.credits_reserved > 0) {
+                  await refundCredits(req.user!.phone, job.credits_reserved);
+                }
                 return res.json({ success: true, status: "failed", error: "Generation returned no video" });
               }
             } else {
@@ -1201,7 +1237,9 @@ async function startServer() {
           } catch (pollErr: any) {
             console.error("Video poll error:", pollErr);
             await updateJobStatus(jobId, "failed", pollErr.message);
-            await refundCredits(req.user!.phone, job.credits_reserved);
+            if (!await isUserAdmin(req.user!.phone) && job.credits_reserved > 0) {
+              await refundCredits(req.user!.phone, job.credits_reserved);
+            }
             return res.json({ success: true, status: "failed", error: pollErr.message });
           }
         }
@@ -1225,8 +1263,16 @@ async function startServer() {
           if (op.done) {
             if (op.response?.generatedVideos?.[0]?.video) {
               const videoData: any = op.response.generatedVideos[0].video;
-              const base64Video = videoData.imageBytes || videoData;
-              const videoUrl = await uploadBase64Image(`data:video/mp4;base64,${base64Video}`);
+              let videoUrl: string;
+              if (videoData.uri) {
+                const gcsRes = await fetch(videoData.uri);
+                const buf = Buffer.from(await gcsRes.arrayBuffer());
+                videoUrl = await uploadBase64Image(`data:video/mp4;base64,${buf.toString("base64")}`);
+              } else if (videoData.imageBytes) {
+                videoUrl = await uploadBase64Image(`data:video/mp4;base64,${videoData.imageBytes}`);
+              } else {
+                throw new Error("Veo returned no video URI or bytes");
+              }
               
               await updateJobStatus(job.id, "done");
               if (job.creation_id) {
@@ -1240,7 +1286,7 @@ async function startServer() {
                   await twilioClient.messages.create({
                     body: `🐾 Paws & Memories: Your pet video animation is ready! View it at ${process.env.APP_URL || "your app"}.`,
                     to: job.user_phone,
-                    from: process.env.TWILIO_VERIFY_SERVICE_SID
+                    from: process.env.TWILIO_PHONE_NUMBER
                   });
                 } catch (smsErr) {
                   console.warn("Failed to send SMS notification (poller):", smsErr);
@@ -1248,13 +1294,17 @@ async function startServer() {
               }
             } else {
               await updateJobStatus(job.id, "failed", "No video generated");
-              await refundCredits(job.user_phone, job.credits_reserved);
+              if (!await isUserAdmin(job.user_phone) && job.credits_reserved > 0) {
+                await refundCredits(job.user_phone, job.credits_reserved);
+              }
             }
           }
         } catch (err) {
           console.error(`Background poller error for job ${job.id}:`, err);
           await updateJobStatus(job.id, "failed", "Poller error");
-          await refundCredits(job.user_phone, job.credits_reserved);
+          if (!await isUserAdmin(job.user_phone) && job.credits_reserved > 0) {
+            await refundCredits(job.user_phone, job.credits_reserved);
+          }
         }
       }
     } catch (e) {

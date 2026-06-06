@@ -22,6 +22,7 @@ export default function ShareMemory({ creation, userCredits, onBack, isAdmin }: 
   const [animatingJobId, setAnimatingJobId] = useState<number | null>(null);
   const [pollStatus, setPollStatus] = useState<string>("");
   const [roverOwnerName, setRoverOwnerName] = useState("Alex");
+  const [busy, setBusy] = useState(false);
 
   const pollInterval = useRef<NodeJS.Timeout | null>(null);
 
