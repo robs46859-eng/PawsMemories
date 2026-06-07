@@ -55,7 +55,6 @@ export interface Album {
 
 export interface UserProfile {
   fullName: string;
-  phoneNumber: string;
   email?: string;
   credits: number;
   isAdmin?: boolean;
@@ -66,7 +65,6 @@ export interface UserProfile {
 /** User shape returned by the auth API. */
 export interface PublicUser {
   id: number;
-  phone: string;
   fullName: string;
   email: string;
   credits: number;

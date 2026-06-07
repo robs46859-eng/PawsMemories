@@ -42,32 +42,25 @@ async function parseError(res: Response, fallback: string): Promise<string> {
 
 // --- Auth flow -------------------------------------------------------------
 
-export async function sendCode(phone: string): Promise<void> {
-  const res = await fetch("/api/auth/send-code", {
+/** Step 1: create an account with email + password. Stores the session token. */
+export async function signup(email: string, password: string, confirmPassword: string): Promise<PublicUser> {
+  const res = await fetch("/api/auth/signup", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ phone }),
+    body: JSON.stringify({ email, password, confirmPassword }),
   });
-  if (!res.ok) throw new Error(await parseError(res, "Could not send the verification code."));
-}
-
-export async function verifyCode(phone: string, code: string): Promise<PublicUser> {
-  const res = await fetch("/api/auth/verify-code", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ phone, code }),
-  });
-  if (!res.ok) throw new Error(await parseError(res, "Verification failed."));
+  if (!res.ok) throw new Error(await parseError(res, "Sign up failed."));
   const data = await res.json();
   setToken(data.token);
   return data.user as PublicUser;
 }
 
-export async function completeProfile(fullName: string, email: string, password?: string, confirmPassword?: string, birthdate?: string, city?: string, pets?: {name: string, kind: string}[]): Promise<PublicUser> {
+/** Step 2: save the required profile (name, birthdate, city, pets) to the DB. */
+export async function completeProfile(fullName: string, birthdate: string, city: string, pets?: {name: string, kind: string}[]): Promise<PublicUser> {
   const res = await authedFetch("/api/auth/complete-profile", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ fullName, email, password, confirmPassword, birthdate, city, pets }),
+    body: JSON.stringify({ fullName, birthdate, city, pets }),
   });
   if (!res.ok) throw new Error(await parseError(res, "Could not save your profile."));
   const data = await res.json();

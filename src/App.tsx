@@ -12,7 +12,7 @@ import { fetchMe, fetchCreations, fetchAlbums, createAlbum, clearToken, claimAch
 import { Sparkles, User, History, FolderOpen, Sun, Moon, LogOut, RefreshCw, Zap } from "lucide-react";
 import CreditStore from "./components/CreditStore";
 
-const EMPTY_PROFILE: UserProfile = { fullName: "", phoneNumber: "", email: "", credits: 0, isAdmin: false, city: "", ageVerified: false };
+const EMPTY_PROFILE: UserProfile = { fullName: "", email: "", credits: 0, isAdmin: false, city: "", ageVerified: false };
 
 export default function App() {
   // Auth gating state
@@ -105,7 +105,6 @@ export default function App() {
   const applyUser = (user: PublicUser) => {
     setUserProfile({
       fullName: user.fullName,
-      phoneNumber: user.phone,
       email: user.email,
       credits: user.credits,
       isAdmin: user.isAdmin,
