@@ -1120,8 +1120,14 @@ async function startServer() {
         config: { aspectRatio: (aspectRatio === "9:16" ? "9:16" : "16:9") }, // Veo supports "16:9" (default) or "9:16" only
       });
 
-      const operationName = (op as any).name || (op as any).operation?.name;
-      if (!operationName) throw new Error("Failed to get operation name from Veo");
+      // Log full op shape so we can see what the SDK actually returns
+      console.log("Veo generateVideos raw response:", JSON.stringify(op, null, 2));
+      const operationName =
+        (op as any).name ||
+        (op as any).operation?.name ||
+        (op as any).metadata?.name ||
+        (op as any).operationName;
+      if (!operationName) throw new Error(`Failed to get operation name from Veo. Raw op: ${JSON.stringify(op)}`);
 
       // Deduct credits now that Veo confirmed the job is queued (Admin bypass)
       if (!isAdmin) {
@@ -1154,7 +1160,14 @@ async function startServer() {
       if (job.status === "running" || job.status === "queued") {
         if (job.operation_name) {
           try {
-            const op: any = await ai.operations.get({ name: job.operation_name });
+            // Poll via REST — SDK operations.get() requires a full Operation class instance,
+            // but we only store the name string in the DB, so we use the raw API directly.
+            const pollRes = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/${job.operation_name}`,
+              { headers: { 'x-goog-api-key': apiKey || '' } }
+            );
+            if (!pollRes.ok) throw new Error(`Operation poll failed: ${pollRes.status} ${pollRes.statusText}`);
+            const op: any = await pollRes.json();
             if (op.done) {
               if (op.response?.generatedVideos?.[0]?.video) {
                 const videoData: any = op.response.generatedVideos[0].video;
@@ -1211,7 +1224,13 @@ async function startServer() {
       for (const job of jobs) {
         if (!job.operation_name) continue;
         try {
-          const op: any = await ai.operations.get({ name: job.operation_name });
+          // Poll via REST — same reason as above
+          const pollRes = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/${job.operation_name}`,
+            { headers: { 'x-goog-api-key': apiKey || '' } }
+          );
+          if (!pollRes.ok) throw new Error(`Operation poll failed: ${pollRes.status} ${pollRes.statusText}`);
+          const op: any = await pollRes.json();
           if (op.done) {
             if (op.response?.generatedVideos?.[0]?.video) {
               const videoData: any = op.response.generatedVideos[0].video;
