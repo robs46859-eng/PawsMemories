@@ -1114,7 +1114,7 @@ async function startServer() {
 
       // 5. Start Veo operation
       const op = await ai.models.generateVideos({
-        model: "veo-3.1-fast-generate-001",
+        model: "veo-3.1-fast-generate-preview",
         prompt: motionPrompt || "Gentle breeze, subtle motion, cinematic lighting",
         image: { imageBytes, mimeType },
         config: { aspectRatio: "1:1" }, // Note: generateAudio is not supported in Gemini Developer API (only Vertex AI Enterprise); Veo 3 generates audio natively
