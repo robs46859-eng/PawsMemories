@@ -1069,7 +1069,7 @@ async function startServer() {
 
   app.post("/api/create-video", requireAuth, async (req: AuthedRequest, res) => {
     try {
-      const { creationId, motionPrompt } = req.body;
+      const { creationId, motionPrompt, aspectRatio } = req.body;
       if (!creationId) return res.status(400).json({ success: false, error: "creationId is required" });
 
       const userPhone = req.user!.phone;
@@ -1117,7 +1117,7 @@ async function startServer() {
         model: "veo-3.1-fast-generate-preview",
         prompt: motionPrompt || "Gentle breeze, subtle motion, cinematic lighting",
         image: { imageBytes, mimeType },
-        config: { aspectRatio: "16:9" }, // Veo only supports "16:9" or "9:16" — not "1:1"
+        config: { aspectRatio: (aspectRatio === "9:16" ? "9:16" : "16:9") }, // Veo supports "16:9" (default) or "9:16" only
       });
 
       const operationName = (op as any).name || (op as any).operation?.name;

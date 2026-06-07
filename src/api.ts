@@ -169,11 +169,16 @@ export async function updateCreationOrder(id: number, sortOrder: number): Promis
   if (!res.ok) throw new Error(await parseError(res, "Failed to update creation order."));
 }
 
-export async function createVideo(creationId: number, motionPrompt?: string, generateAudio: boolean = true): Promise<{ jobId: number }> {
+export async function createVideo(
+  creationId: number,
+  motionPrompt?: string,
+  generateAudio: boolean = true,
+  aspectRatio: "16:9" | "9:16" = "16:9"
+): Promise<{ jobId: number }> {
   const res = await authedFetch("/api/create-video", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ creationId, motionPrompt, generateAudio }),
+    body: JSON.stringify({ creationId, motionPrompt, generateAudio, aspectRatio }),
   });
   if (!res.ok) throw new Error(await parseError(res, "Failed to start video generation."));
   return await res.json();

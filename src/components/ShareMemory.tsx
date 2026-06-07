@@ -19,6 +19,7 @@ export default function ShareMemory({ creation, userCredits, onBack, isAdmin }: 
   const [showAnimateModal, setShowAnimateModal] = useState(false);
   const [selectedMotion, setSelectedMotion] = useState<"subtle" | "dynamic">("subtle");
   const [enableAudio, setEnableAudio] = useState(true);
+  const [selectedAspectRatio, setSelectedAspectRatio] = useState<"16:9" | "9:16">("16:9");
   const [animatingJobId, setAnimatingJobId] = useState<number | null>(null);
   const [pollStatus, setPollStatus] = useState<string>("");
   const [roverOwnerName, setRoverOwnerName] = useState("Alex");
@@ -63,7 +64,7 @@ export default function ShareMemory({ creation, userCredits, onBack, isAdmin }: 
     }
     setShowAnimateModal(false);
     try {
-      const res = await createVideo(localCreation.id, selectedMotion, enableAudio);
+      const res = await createVideo(localCreation.id, selectedMotion, enableAudio, selectedAspectRatio);
       startPolling(res.jobId);
     } catch (err: any) {
       alert(err.message || "Failed to start animation.");
@@ -447,6 +448,39 @@ export default function ShareMemory({ creation, userCredits, onBack, isAdmin }: 
                     }`}
                   >
                     Dynamic Action
+                  </button>
+                </div>
+              </div>
+
+
+              {/* Aspect Ratio */}
+              <div className="flex items-center justify-between bg-surface-container p-3 rounded-xl border border-outline-variant/30">
+                <div>
+                  <span className="text-xs font-bold">Aspect Ratio</span>
+                  <p className="text-[9px] text-on-surface-variant">Landscape or Portrait</p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedAspectRatio("16:9")}
+                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all border ${
+                      selectedAspectRatio === "16:9"
+                        ? "bg-primary text-white border-primary"
+                        : "bg-surface-container-high text-on-surface-variant border-outline-variant hover:bg-outline-variant/20"
+                    }`}
+                  >
+                    ⬛ 16:9
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedAspectRatio("9:16")}
+                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all border ${
+                      selectedAspectRatio === "9:16"
+                        ? "bg-primary text-white border-primary"
+                        : "bg-surface-container-high text-on-surface-variant border-outline-variant hover:bg-outline-variant/20"
+                    }`}
+                  >
+                    📱 9:16
                   </button>
                 </div>
               </div>
