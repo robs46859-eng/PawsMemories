@@ -1154,7 +1154,7 @@ async function startServer() {
       if (job.status === "running" || job.status === "queued") {
         if (job.operation_name) {
           try {
-            const op: any = await ai.operations.getVideosOperation({ operation: { name: job.operation_name } as any });
+            const op: any = await ai.operations.get({ name: job.operation_name });
             if (op.done) {
               if (op.response?.generatedVideos?.[0]?.video) {
                 const videoData: any = op.response.generatedVideos[0].video;
@@ -1211,7 +1211,7 @@ async function startServer() {
       for (const job of jobs) {
         if (!job.operation_name) continue;
         try {
-          const op: any = await ai.operations.getVideosOperation({ operation: { name: job.operation_name } as any });
+          const op: any = await ai.operations.get({ name: job.operation_name });
           if (op.done) {
             if (op.response?.generatedVideos?.[0]?.video) {
               const videoData: any = op.response.generatedVideos[0].video;
