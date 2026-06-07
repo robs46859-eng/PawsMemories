@@ -1069,7 +1069,7 @@ async function startServer() {
 
   app.post("/api/create-video", requireAuth, async (req: AuthedRequest, res) => {
     try {
-      const { creationId, motionPrompt, generateAudio } = req.body;
+      const { creationId, motionPrompt } = req.body;
       if (!creationId) return res.status(400).json({ success: false, error: "creationId is required" });
 
       const userPhone = req.user!.phone;
@@ -1117,7 +1117,7 @@ async function startServer() {
         model: "veo-3.1-fast-generate-001",
         prompt: motionPrompt || "Gentle breeze, subtle motion, cinematic lighting",
         image: { imageBytes, mimeType },
-        config: { aspectRatio: "1:1", generateAudio: generateAudio !== false }, // default true
+        config: { aspectRatio: "1:1" }, // Note: generateAudio is not supported in Gemini Developer API (only Vertex AI Enterprise); Veo 3 generates audio natively
       });
 
       const operationName = (op as any).name || (op as any).operation?.name;
