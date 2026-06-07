@@ -650,7 +650,7 @@ async function startServer() {
         try {
           // Style-transfer the input photo using the image generation model
           const response = await ai.models.generateContent({
-            model: 'gemini-2.0-flash-exp-image-generation',
+            model: 'gemini-2.5-flash-image',
             contents: {
               parts: [
                 {
@@ -769,7 +769,7 @@ async function startServer() {
         console.error("Imagen model error, trying gemini-2.5-flash-image fallback:", e);
         
         const response = await ai.models.generateContent({
-          model: 'gemini-2.0-flash-exp-image-generation',
+          model: 'gemini-2.5-flash-image',
           contents: {
             parts: [{ text: `Generate a beautiful artistic image matching this prompt: ${promptText}` }]
           },
@@ -1114,7 +1114,7 @@ async function startServer() {
 
       // 5. Start Veo operation
       const op = await ai.models.generateVideos({
-        model: "veo-3.1-fast-generate-preview",
+        model: "veo-3.1-fast-generate-001",
         prompt: motionPrompt || "Gentle breeze, subtle motion, cinematic lighting",
         image: { imageBytes, mimeType },
         config: { aspectRatio: "1:1", generateAudio: generateAudio !== false }, // default true

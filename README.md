@@ -1,6 +1,6 @@
 # Paws & Memories
 
-Turn your pet photos into magical claymation, sketch, and artistic digital heirlooms — guided by Randy, an AI assistant. Paws & Memories is a full‑stack web app with phone‑based sign‑in, a credits system, AI image generation, and the option to order a physical printed photo album.
+Turn your pet photos into magical claymation, sketch, and artistic digital heirlooms — guided by Randy, an AI assistant. Paws & Memories is a full‑stack web app with email + password sign‑in, a credits system, AI image generation, and the option to order a physical printed photo album.
 
 Live site: https://mypets.cc
 
@@ -8,44 +8,49 @@ Live site: https://mypets.cc
 
 - **Frontend:** React 19 + Vite 6, Tailwind CSS 4, Lucide icons, Motion for animation
 - **Backend:** Node 22 + Express 4 (single `server.ts`, bundled to `dist/server.cjs` with esbuild)
-- **Auth:** Twilio Verify (SMS one‑time codes) + JWT session tokens
+- **Auth:** Email + password with JWT session tokens (passwords hashed with scrypt)
 - **Database:** MySQL (via `mysql2`) for the user store
-- **AI:** Google Gemini (`@google/genai`)
-- **Payments:** Stripe Checkout (physical album orders) with webhook verification
+- **AI:** Google Gemini for chat (`@google/genai`), Imagen for stills, Veo for video
+- **Payments:** Stripe Checkout (physical album orders + credit packs) with webhook verification
 - **Hosting:** Hostinger, auto‑deployed from the `main` branch on every GitHub push
 
 ## How it fits together
 
-The Express server does double duty: it serves the built Vite frontend from `dist/` and exposes the JSON API under `/api`. Authentication is a three‑step phone flow — request a code, verify it, then complete a profile — after which the user receives a JWT that gates the rest of the app.
+The Express server does double duty: it serves the built Vite frontend from `dist/` and exposes the JSON API under `/api`. Authentication is email + password: a user signs up, is then required to complete a profile, and receives a 30‑day JWT that gates the rest of the app.
 
 ### Auth & gating flow
 
-1. `POST /api/auth/send-code` — normalizes the phone number and sends an SMS code via Twilio Verify.
-2. `POST /api/auth/verify-code` — checks the code with Twilio. On success, the user is created (or fetched) in MySQL and a 30‑day JWT is returned. New users start with a profile‑incomplete record.
-3. `POST /api/auth/complete-profile` — saves name + email and grants **50 free credits** the first time the profile is completed.
+1. `POST /api/auth/signup` — creates an account from an **email + password**. Email must be unique. Returns a 30‑day JWT. New users start with a **profile‑incomplete** record (and 0 credits).
+2. `POST /api/auth/complete-profile` — required for every new user. Saves full name, birthdate, city, and pets to MySQL, and grants **50 free credits** the first time the profile is completed.
+3. `POST /api/auth/login` — email + password login for returning users; returns a JWT.
 4. `GET /api/me` — restores the current user from a valid `Bearer` token.
 
-Protected routes use the `requireAuth` middleware, which rejects any request without a valid session token.
+Protected routes use the `requireAuth` middleware, which rejects any request without a valid session token. The frontend additionally blocks any user whose profile is incomplete from reaching the app, so the profile step is enforced for every new account.
 
 ### Database
 
-A single `users` table is created automatically on boot (`initDb()`):
+Tables are created automatically on boot (`initDb()`). The `users` table:
 
 | column | notes |
 | --- | --- |
 | `id` | auto‑increment primary key |
-| `phone` | unique, E.164 format |
-| `full_name`, `email` | filled in at profile completion |
+| `phone` | **internal opaque user key** (e.g. `u_3f9a…`), unique. Not a phone number — kept because `albums`, `creations`, `generation_jobs`, and `pets` foreign‑key to it. |
+| `email` | unique — the login identifier (lower‑cased) |
+| `password_hash` | scrypt salt:hash |
+| `full_name`, `birthdate`, `city` | filled in at profile completion |
 | `credits` | starts at 0, +50 on first profile completion |
 | `profile_complete` | `0` / `1` |
+| `is_admin` | `0` / `1` |
 | `created_at` | timestamp |
+
+> The legacy Twilio/phone verification flow has been removed. The `phone` column is now just a stable internal key per user.
 
 ## Project structure
 
 ```
 server.ts          Express app: static hosting + /api routes + Stripe webhook
-auth.ts            Twilio Verify helpers, JWT sign/verify, requireAuth middleware
-db.ts              MySQL pool, users table init, user CRUD helpers
+auth.ts            Email/password helpers, JWT sign/verify, requireAuth middleware
+db.ts              MySQL pool, table init, user/account CRUD helpers
 src/               React frontend (App, components, api client, types)
   components/      SignUp, Dashboard, EditMemory, OrderAlbumModal, RandyChat, ...
 dist/              Build output (vite assets + server.cjs)
@@ -58,13 +63,16 @@ Set these in Hostinger (Website → Environment variables) for production, or in
 
 | key | purpose |
 | --- | --- |
-| `GEMINI_API_KEY` | Google Gemini API access |
+| `JWT_SECRET` | Secret for signing session tokens (long random string, ≥16 chars) |
+| `ADMIN_KEY` | Internal row key for the seeded admin account (any short string, e.g. `admin`). Not secret. |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Admin login credentials. Admins log in through the normal login screen. |
+| `GEMINI_API_KEY` | Google Gemini / Imagen / Veo API access |
 | `APP_URL` | Public site URL (e.g. `https://mypets.cc`) |
 | `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | Stripe Checkout + webhook verification |
-| `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` | Twilio account credentials |
-| `TWILIO_VERIFY_SERVICE_SID` | Twilio Verify service (`VA…`) |
-| `JWT_SECRET` | Secret for signing session tokens |
 | `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` | MySQL connection |
+| `GOOGLE_MAPS_API_KEY_SERVER` | Server‑side Street View (IP‑restricted key) |
+| `VITE_GOOGLE_MAPS_API_KEY_BROWSER` | Browser Maps/Places (HTTP‑referrer‑restricted key) |
+| `MEDIA_BUCKET_NAME` / `MEDIA_BUCKET_URL` / `MEDIA_BUCKET_KEY` / `MEDIA_BUCKET_SECRET` | Object storage for generated media |
 
 > **Hostinger note:** set `DB_HOST` to `127.0.0.1`, not `localhost`. On Node 18+, `mysql2` resolves `localhost` to IPv6 (`::1`), which the Hostinger MySQL user grant does not cover — causing `Access denied … @'::1'`. Forcing IPv4 with `127.0.0.1` resolves it.
 
