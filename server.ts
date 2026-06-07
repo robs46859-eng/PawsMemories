@@ -1182,11 +1182,21 @@ async function startServer() {
                 return res.json({ success: true, status: "failed", error: `Veo API error: ${errMsg}` });
               }
 
-              if (op.response?.generatedVideos?.[0]?.video) {
-                const videoData: any = op.response.generatedVideos[0].video;
+              // Actual REST response shape:
+              // op.response.generateVideoResponse.generatedSamples[0].video.uri
+              const videoData: any =
+                op.response?.generateVideoResponse?.generatedSamples?.[0]?.video ||
+                op.response?.generatedVideos?.[0]?.video; // fallback for SDK shape
+
+              if (videoData) {
                 let videoUrl: string;
                 if (videoData.uri) {
-                  const gcsRes = await fetch(videoData.uri);
+                  // Google Files API URI — needs API key to download
+                  const dlUrl = videoData.uri.includes('?')
+                    ? `${videoData.uri}&key=${apiKey}`
+                    : `${videoData.uri}?key=${apiKey}`;
+                  const gcsRes = await fetch(dlUrl);
+                  if (!gcsRes.ok) throw new Error(`Failed to download video from Veo: ${gcsRes.status} ${gcsRes.statusText}`);
                   const buf = Buffer.from(await gcsRes.arrayBuffer());
                   videoUrl = await uploadBase64Image(`data:video/mp4;base64,${buf.toString("base64")}`);
                 } else if (videoData.videoBytes || videoData.imageBytes) {
@@ -1195,16 +1205,14 @@ async function startServer() {
                 } else {
                   throw new Error(`Veo returned video object but no URI or bytes. videoData: ${JSON.stringify(videoData)}`);
                 }
-                
+
                 // Update DB
                 await updateJobStatus(jobId, "done");
                 await setCreationVideoUrl(job.creation_id!, req.user!.phone, videoUrl);
-
                 return res.json({ success: true, status: "done", video_url: videoUrl });
               } else {
-                // Done but no video and no error — log the full response so we know why
                 const detail = JSON.stringify(op.response || op);
-                console.error("Veo returned done=true but no generatedVideos. Full response:", detail);
+                console.error("Veo done=true but no video found. Full response:", detail);
                 await updateJobStatus(jobId, "failed", `No video in response: ${detail}`);
                 if (!await isUserAdmin(req.user!.phone) && job.credits_reserved > 0) {
                   await refundCredits(req.user!.phone, job.credits_reserved);
@@ -1248,25 +1256,35 @@ async function startServer() {
           if (!pollRes.ok) throw new Error(`Operation poll failed: ${pollRes.status} ${pollRes.statusText}`);
           const op: any = await pollRes.json();
           if (op.done) {
-            if (op.response?.generatedVideos?.[0]?.video) {
-              const videoData: any = op.response.generatedVideos[0].video;
+            const videoData: any =
+              op.response?.generateVideoResponse?.generatedSamples?.[0]?.video ||
+              op.response?.generatedVideos?.[0]?.video;
+
+            if (videoData) {
               let videoUrl: string;
               if (videoData.uri) {
-                const gcsRes = await fetch(videoData.uri);
+                const dlUrl = videoData.uri.includes('?')
+                  ? `${videoData.uri}&key=${apiKey}`
+                  : `${videoData.uri}?key=${apiKey}`;
+                const gcsRes = await fetch(dlUrl);
+                if (!gcsRes.ok) throw new Error(`Failed to download video: ${gcsRes.status}`);
                 const buf = Buffer.from(await gcsRes.arrayBuffer());
                 videoUrl = await uploadBase64Image(`data:video/mp4;base64,${buf.toString("base64")}`);
-              } else if (videoData.imageBytes) {
-                videoUrl = await uploadBase64Image(`data:video/mp4;base64,${videoData.imageBytes}`);
+              } else if (videoData.videoBytes || videoData.imageBytes) {
+                const bytes = videoData.videoBytes || videoData.imageBytes;
+                videoUrl = await uploadBase64Image(`data:video/mp4;base64,${bytes}`);
               } else {
-                throw new Error("Veo returned no video URI or bytes");
+                throw new Error(`Veo returned video object but no URI or bytes: ${JSON.stringify(videoData)}`);
               }
-              
+
               await updateJobStatus(job.id, "done");
               if (job.creation_id) {
                 await setCreationVideoUrl(job.creation_id, job.user_phone, videoUrl);
               }
             } else {
-              await updateJobStatus(job.id, "failed", "No video generated");
+              const detail = JSON.stringify(op.response || op);
+              console.error(`Background poller: Veo done=true but no video for job ${job.id}:`, detail);
+              await updateJobStatus(job.id, "failed", `No video in response: ${detail}`);
               if (!await isUserAdmin(job.user_phone) && job.credits_reserved > 0) {
                 await refundCredits(job.user_phone, job.credits_reserved);
               }
