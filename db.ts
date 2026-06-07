@@ -1,4 +1,8 @@
 import mysql from "mysql2/promise";
+import { generateUserKey } from "./auth";
+
+/** Internal row key for the seeded admin account (not a phone number). */
+const ADMIN_KEY = process.env.ADMIN_KEY || process.env.ADMIN_PHONE || "";
 
 /**
  * MySQL-backed user store for Paws & Memories.
@@ -36,7 +40,6 @@ export interface UserRow {
   password_hash: string | null;
   birthdate: string | null;
   city: string | null;
-  phone_verified: number; // 0 | 1
   credits: number;
   profile_complete: number; // 0 | 1
   is_admin?: number; // 0 | 1
@@ -46,7 +49,6 @@ export interface UserRow {
 /** Public-safe shape returned to the client. */
 export interface PublicUser {
   id: number;
-  phone: string;
   fullName: string;
   email: string;
   credits: number;
@@ -67,14 +69,13 @@ export function toPublicUser(userRow: any): PublicUser {
   
   return {
     id: userRow.id,
-    phone: userRow.phone,
     fullName: userRow.full_name || "",
     email: userRow.email || "",
     city: userRow.city || "",
     birthdate: userRow.birthdate || "",
     profileComplete: !!userRow.profile_complete,
     credits: userRow.credits,
-    isAdmin: !!userRow.is_admin || (!!process.env.ADMIN_PHONE && userRow.phone === process.env.ADMIN_PHONE),
+    isAdmin: !!userRow.is_admin || (!!ADMIN_KEY && userRow.phone === ADMIN_KEY),
     dailyStreak: userRow.daily_streak || 0,
     lastStreakClaim: userRow.last_streak_claim || null,
     achievements: achievements
@@ -97,7 +98,6 @@ export async function initDb(): Promise<void> {
         password_hash VARCHAR(255) NULL,
         birthdate DATE NULL,
         city VARCHAR(120) NULL,
-        phone_verified TINYINT(1) NOT NULL DEFAULT 0,
         credits INT NOT NULL DEFAULT 0,
         profile_complete TINYINT(1) NOT NULL DEFAULT 0,
         is_admin TINYINT(1) NOT NULL DEFAULT 0,
@@ -120,7 +120,6 @@ export async function initDb(): Promise<void> {
       await getPool().query(`ALTER TABLE users ADD COLUMN password_hash VARCHAR(255) NULL`);
       await getPool().query(`ALTER TABLE users ADD COLUMN birthdate DATE NULL`);
       await getPool().query(`ALTER TABLE users ADD COLUMN city VARCHAR(120) NULL`);
-      await getPool().query(`ALTER TABLE users ADD COLUMN phone_verified TINYINT(1) NOT NULL DEFAULT 0`);
     }
 
     if (!columnNames.includes("daily_streak")) {
@@ -128,7 +127,24 @@ export async function initDb(): Promise<void> {
       await getPool().query(`ALTER TABLE users ADD COLUMN last_streak_claim DATE NULL`);
       await getPool().query(`ALTER TABLE users ADD COLUMN achievements_json TEXT NULL`);
     }
-    
+
+    // Email is now the login gate, so it must be unique. Add the index if it
+    // isn't already present. (MySQL allows multiple NULL emails under a UNIQUE
+    // index, so this is safe even if some legacy rows have no email.)
+    try {
+      const [idx] = await getPool().query(
+        `SELECT COUNT(*) AS c FROM information_schema.STATISTICS
+         WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND INDEX_NAME = 'uniq_email'`,
+        [dbName]
+      ) as any;
+      if (!idx[0] || Number(idx[0].c) === 0) {
+        await getPool().query(`ALTER TABLE users ADD UNIQUE INDEX uniq_email (email)`);
+        console.log("✅ Added unique index on users.email.");
+      }
+    } catch (idxErr) {
+      console.warn("⚠️ Could not add unique email index (duplicate emails may exist):", idxErr);
+    }
+
     await getPool().query(`
       CREATE TABLE IF NOT EXISTS albums (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -196,13 +212,14 @@ export async function initDb(): Promise<void> {
 
     console.log("✅ Users, creations, generation_jobs, and pets tables ready.");
 
-    // Seed admin account from environment variables — no hardcoded credentials
+    // Seed admin account from environment variables — no hardcoded credentials.
+    // Admins log in through the normal email + password login screen.
     try {
-      const adminPhone = process.env.ADMIN_PHONE;
+      const adminKey = ADMIN_KEY;
       const adminEmail = process.env.ADMIN_EMAIL;
       const adminPassword = process.env.ADMIN_PASSWORD;
 
-      if (adminPhone && adminEmail && adminPassword) {
+      if (adminKey && adminEmail && adminPassword) {
         const { hashPassword } = await import("./auth");
         const passwordHash = hashPassword(adminPassword);
         await getPool().query(
@@ -213,7 +230,7 @@ export async function initDb(): Promise<void> {
              password_hash = VALUES(password_hash),
              is_admin = 1,
              profile_complete = 1`,
-          [adminPhone, adminEmail, passwordHash]
+          [adminKey, adminEmail, passwordHash]
         );
         console.log("✅ Admin account upserted from env vars.");
       }
@@ -225,48 +242,74 @@ export async function initDb(): Promise<void> {
   }
 }
 
+/** Look up a user by their opaque internal key (stored in users.phone). */
 export async function findUserByPhone(phone: string): Promise<UserRow | null> {
   const [rows] = await getPool().query("SELECT * FROM users WHERE phone = ? LIMIT 1", [phone]);
   const arr = rows as unknown as UserRow[];
   return arr.length ? arr[0] : null;
 }
 
-/** Find an existing user by phone or create a fresh (profile-incomplete) record. */
-export async function findOrCreateUser(phone: string): Promise<UserRow> {
-  const existing = await findUserByPhone(phone);
-  if (existing) return existing;
-  await getPool().query(
-    "INSERT INTO users (phone, credits, profile_complete) VALUES (?, 0, 0)",
-    [phone]
-  );
-  const created = await findUserByPhone(phone);
+/** Look up a user by email (the login gate). Email is stored lower-cased. */
+export async function findUserByEmail(email: string): Promise<UserRow | null> {
+  const [rows] = await getPool().query("SELECT * FROM users WHERE email = ? LIMIT 1", [email]);
+  const arr = rows as unknown as UserRow[];
+  return arr.length ? arr[0] : null;
+}
+
+/** Raised when a sign-up uses an email that already has an account. */
+export class EmailTakenError extends Error {
+  constructor() {
+    super("An account with this email already exists. Please log in instead.");
+    this.name = "EmailTakenError";
+  }
+}
+
+/**
+ * Create a fresh (profile-incomplete) account gated by email + password.
+ * A synthetic internal key is generated for the users.phone column so the
+ * existing foreign-key relationships keep working. The 50 free credits are NOT
+ * granted here — they are granted when the user completes their profile.
+ */
+export async function createUserByEmail(email: string, passwordHash: string): Promise<UserRow> {
+  // Guard against a race / duplicate before insert.
+  const existing = await findUserByEmail(email);
+  if (existing) throw new EmailTakenError();
+
+  const userKey = generateUserKey();
+  try {
+    await getPool().query(
+      "INSERT INTO users (phone, email, password_hash, credits, profile_complete) VALUES (?, ?, ?, 0, 0)",
+      [userKey, email, passwordHash]
+    );
+  } catch (err: any) {
+    if (err && err.code === "ER_DUP_ENTRY") throw new EmailTakenError();
+    throw err;
+  }
+  const created = await findUserByPhone(userKey);
   if (!created) throw new Error("User creation failed");
   return created;
 }
 
 /**
- * Save name + email and mark the profile complete.
+ * Save the required profile details and mark the profile complete.
+ * Email + password were already set at sign-up, so they are not touched here.
  * Grants the 50 free credits only the first time the profile is completed.
  */
 export async function completeUserProfile(
   phone: string,
   fullName: string,
-  email: string,
-  passwordHash: string,
   birthdate: string,
   city: string
 ): Promise<UserRow> {
   await getPool().query(
     `UPDATE users
        SET full_name = ?,
-           email = ?,
-           password_hash = ?,
            birthdate = ?,
            city = ?,
            credits = CASE WHEN profile_complete = 0 THEN credits + 50 ELSE credits END,
            profile_complete = 1
      WHERE phone = ?`,
-    [fullName, email, passwordHash, birthdate, city, phone]
+    [fullName, birthdate, city, phone]
   );
   const updated = await findUserByPhone(phone);
   if (!updated) throw new Error("User not found after profile update");
@@ -549,9 +592,9 @@ export async function getDailyVideoCount(phone: string): Promise<number> {
 }
 
 export async function isUserAdmin(phone: string): Promise<boolean> {
-  // Hardcoded bypass for the developer's phone number
-  if (process.env.ADMIN_PHONE && phone === process.env.ADMIN_PHONE) return true;
-  
+  // Bypass for the seeded admin account (matched by internal row key).
+  if (ADMIN_KEY && phone === ADMIN_KEY) return true;
+
   const [rows] = await getPool().query("SELECT is_admin FROM users WHERE phone = ? LIMIT 1", [phone]);
   const arr = rows as unknown as { is_admin: number }[];
   return arr.length ? arr[0].is_admin === 1 : false;

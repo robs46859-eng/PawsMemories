@@ -1,64 +1,37 @@
-import twilio from "twilio";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import type { Request, Response, NextFunction } from "express";
 
 /**
- * Phone verification (Twilio Verify) + session tokens (JWT).
+ * Email + password authentication with JWT session tokens.
+ *
+ * Phone/SMS verification (Twilio) has been removed. Accounts are now gated by
+ * email + password only. Every user row still carries an opaque internal key in
+ * the `users.phone` column (kept because the albums/creations/jobs/pets tables
+ * foreign-key to it) — but it is NO LONGER a real phone number. For email
+ * sign-ups we generate a synthetic key with generateUserKey().
+ *
  * Required env vars:
- *   TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_VERIFY_SERVICE_SID, JWT_SECRET
+ *   JWT_SECRET
  */
 
 const JWT_SECRET = process.env.JWT_SECRET || "";
 
-export function authConfigured(): boolean {
-  return !!(
-    process.env.TWILIO_ACCOUNT_SID &&
-    process.env.TWILIO_AUTH_TOKEN &&
-    process.env.TWILIO_VERIFY_SERVICE_SID &&
-    process.env.JWT_SECRET
-  );
-}
-
-function client() {
-  return twilio(process.env.TWILIO_ACCOUNT_SID!, process.env.TWILIO_AUTH_TOKEN!);
-}
-
-function serviceSid(): string {
-  return process.env.TWILIO_VERIFY_SERVICE_SID!;
+/** Lower-case + trim an email for consistent storage and lookups. */
+export function normalizeEmail(input: string): string | null {
+  if (!input) return null;
+  const email = String(input).trim().toLowerCase();
+  // Simple, permissive RFC-ish check: something@something.tld
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return null;
+  return email;
 }
 
 /**
- * Normalize a phone number to a Twilio-friendly E.164-ish string.
- * The user is expected to include their country code (e.g. +1 ...).
- * Returns null if the input clearly isn't a usable number.
+ * Generate a unique opaque user key that fits the users.phone VARCHAR(32) column.
+ * Example: "u_3f9a1c2b8d4e5f60a1b2c3d4" (26 chars).
  */
-export function normalizePhone(input: string): string | null {
-  if (!input) return null;
-  let digits = input.replace(/[^0-9]/g, "");
-  // Convenience for US users: a bare 10-digit number (no country code) is
-  // assumed to be US and gets a "1" prefix, so "5551234567" -> "+15551234567".
-  // Numbers entered with a country code (e.g. "+44...", "+1 555...") are untouched.
-  if (digits.length === 10) {
-    digits = "1" + digits;
-  }
-  if (digits.length < 8 || digits.length > 15) return null;
-  return "+" + digits;
-}
-
-export async function sendVerificationCode(phone: string): Promise<void> {
-  await client().verify.v2.services(serviceSid()).verifications.create({
-    to: phone,
-    channel: "sms",
-  });
-}
-
-export async function checkVerificationCode(phone: string, code: string): Promise<boolean> {
-  const result = await client().verify.v2.services(serviceSid()).verificationChecks.create({
-    to: phone,
-    code,
-  });
-  return result.status === "approved";
+export function generateUserKey(): string {
+  return "u_" + crypto.randomBytes(12).toString("hex");
 }
 
 export function hashPassword(password: string): string {
@@ -75,6 +48,7 @@ export function verifyPassword(password: string, hash: string): boolean {
 }
 
 export interface TokenPayload {
+  /** Opaque internal user key (stored in users.phone). NOT a phone number. */
   phone: string;
   uid: number;
 }

@@ -5,14 +5,10 @@ import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import Stripe from "stripe";
 import fs from "fs";
-import twilio from "twilio";
-import { initDb, findOrCreateUser, findUserByPhone, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, getPool } from "./db";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, getPool } from "./db";
 import { uploadBase64Image } from "./storage";
 import {
-  authConfigured,
-  normalizePhone,
-  sendVerificationCode,
-  checkVerificationCode,
+  normalizeEmail,
   signToken,
   requireAuth,
   hashPassword,
@@ -155,89 +151,61 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
   // ---------------------------------------------------------------------------
-  // Authentication: phone verification (Twilio Verify) + session tokens (JWT)
+  // Authentication: email + password + session tokens (JWT)
   // ---------------------------------------------------------------------------
 
-  // Step 1: send an SMS verification code to the supplied phone number.
-  app.post("/api/auth/send-code", async (req, res) => {
+  // Step 1: create an account with email + password. Returns a session token.
+  // The new user has an INCOMPLETE profile — the client must then send them
+  // through /api/auth/complete-profile before they can use the app.
+  app.post("/api/auth/signup", async (req, res) => {
     try {
-      if (!authConfigured()) {
-        return res.status(503).json({ error: "Phone verification is not configured on the server yet." });
-      }
-      const phone = normalizePhone(req.body?.phone || "");
-      if (!phone) {
-        return res.status(400).json({ error: "Please enter a valid phone number including your country code (e.g. +1...)." });
-      }
-      await sendVerificationCode(phone);
-      res.json({ success: true });
-    } catch (err: any) {
-      console.error("send-code error:", err?.message || err);
-      res.status(500).json({ error: "Could not send the verification code. Please check the number and try again." });
-    }
-  });
-
-  // Step 2: verify the code. Creates the user if new, returns a session token.
-  app.post("/api/auth/verify-code", async (req, res) => {
-    try {
-      if (!authConfigured()) {
-        return res.status(503).json({ error: "Phone verification is not configured on the server yet." });
-      }
-      const phone = normalizePhone(req.body?.phone || "");
-      const code = String(req.body?.code || "").trim();
-      if (!phone || !code) {
-        return res.status(400).json({ error: "Phone number and verification code are required." });
-      }
-      // Step 2a: verify the code with Twilio. A failure here means a bad/expired code.
-      let approved = false;
-      try {
-        approved = await checkVerificationCode(phone, code);
-      } catch (err: any) {
-        console.error("verify-code Twilio error:", err?.message || err);
-        return res.status(502).json({ error: "We couldn't reach the verification service. Please try again in a moment." });
-      }
-      if (!approved) {
-        return res.status(401).json({ error: "That code is incorrect or has expired. Please try again." });
-      }
-
-      // Step 2b: the code is valid. Persist the user. A failure here is a SERVER/DB
-      // problem, not a bad code — surface it distinctly so it isn't mistaken for one.
-      let user;
-      try {
-        user = await findOrCreateUser(phone);
-      } catch (err: any) {
-        console.error("verify-code DB error:", err?.message || err);
-        return res.status(503).json({ error: "Your code was verified, but we couldn't finish creating your account. Please try again shortly." });
-      }
-
-      const token = signToken({ phone: user.phone, uid: user.id });
-      res.json({ success: true, token, user: toPublicUser(user) });
-    } catch (err: any) {
-      console.error("verify-code error:", err?.message || err);
-      res.status(500).json({ error: "Verification failed. Please try again." });
-    }
-  });
-
-  // Step 3: required profile setup. Grants the 50 free credits.
-  app.post("/api/auth/complete-profile", requireAuth, async (req: AuthedRequest, res) => {
-    try {
-      const fullName = String(req.body?.fullName || "").trim();
-      const email = String(req.body?.email || "").trim();
+      const email = normalizeEmail(req.body?.email || "");
       const password = String(req.body?.password || "");
       const confirmPassword = String(req.body?.confirmPassword || "");
-      const birthdate = String(req.body?.birthdate || "");
-      const city = String(req.body?.city || "").trim();
 
-      if (!fullName || !email || !password || !confirmPassword || !birthdate || !city) {
-        return res.status(400).json({ error: "All profile fields are required." });
-      }
-      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      if (!email) {
         return res.status(400).json({ error: "Please enter a valid email address." });
+      }
+      if (!password || !confirmPassword) {
+        return res.status(400).json({ error: "Password and confirmation are required." });
       }
       if (password !== confirmPassword) {
         return res.status(400).json({ error: "Passwords do not match." });
       }
       if (password.length < 6) {
         return res.status(400).json({ error: "Password must be at least 6 characters." });
+      }
+
+      let user;
+      try {
+        const passwordHash = hashPassword(password);
+        user = await createUserByEmail(email, passwordHash);
+      } catch (err: any) {
+        if (err instanceof EmailTakenError) {
+          return res.status(409).json({ error: err.message });
+        }
+        console.error("signup DB error:", err?.message || err);
+        return res.status(503).json({ error: "We couldn't finish creating your account. Please try again shortly." });
+      }
+
+      const token = signToken({ phone: user.phone, uid: user.id });
+      res.json({ success: true, token, user: toPublicUser(user) });
+    } catch (err: any) {
+      console.error("signup error:", err?.message || err);
+      res.status(500).json({ error: "Sign up failed. Please try again." });
+    }
+  });
+
+  // Step 2: required profile setup. Saved to the DB for EVERY new user.
+  // Grants the 50 free credits the first time the profile is completed.
+  app.post("/api/auth/complete-profile", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const fullName = String(req.body?.fullName || "").trim();
+      const birthdate = String(req.body?.birthdate || "");
+      const city = String(req.body?.city || "").trim();
+
+      if (!fullName || !birthdate || !city) {
+        return res.status(400).json({ error: "All profile fields are required." });
       }
 
       const dob = new Date(birthdate);
@@ -248,9 +216,8 @@ async function startServer() {
          return res.status(400).json({ error: "You must be at least 13 years old to use Paws & Memories." });
       }
 
-      const passwordHash = hashPassword(password);
-      const user = await completeUserProfile(req.user!.phone, fullName, email, passwordHash, birthdate, city);
-      
+      const user = await completeUserProfile(req.user!.phone, fullName, birthdate, city);
+
       const pets = req.body?.pets;
       if (Array.isArray(pets)) {
         for (const pet of pets) {
@@ -269,15 +236,14 @@ async function startServer() {
 
   app.post("/api/auth/login", async (req, res) => {
     try {
-      const email = String(req.body?.email || "").trim();
+      const email = normalizeEmail(req.body?.email || "");
       const password = String(req.body?.password || "");
       if (!email || !password) return res.status(400).json({ error: "Email and password are required." });
-      
-      const [rows] = await getPool().query("SELECT * FROM users WHERE email = ? LIMIT 1", [email]) as any;
-      if (!rows || rows.length === 0) {
+
+      const user = await findUserByEmail(email);
+      if (!user) {
         return res.status(401).json({ error: "Invalid email or password." });
       }
-      const user = rows[0];
       if (!user.password_hash || !verifyPassword(password, user.password_hash)) {
         return res.status(401).json({ error: "Invalid email or password." });
       }
@@ -1206,21 +1172,7 @@ async function startServer() {
                 // Update DB
                 await updateJobStatus(jobId, "done");
                 await setCreationVideoUrl(job.creation_id!, req.user!.phone, videoUrl);
-                
-                // Phase 4: Send Twilio SMS notification on success
-                if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
-                  try {
-                    const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-                    await twilioClient.messages.create({
-                      body: `🐾 Paws & Memories: Your pet video animation is ready! View it at ${process.env.APP_URL || "your app"}.`,
-                      to: req.user!.phone,
-                      from: process.env.TWILIO_PHONE_NUMBER
-                    });
-                  } catch (smsErr) {
-                    console.warn("Failed to send SMS notification:", smsErr);
-                  }
-                }
-                
+
                 return res.json({ success: true, status: "done", video_url: videoUrl });
               } else {
                 // Failed or empty response
@@ -1277,20 +1229,6 @@ async function startServer() {
               await updateJobStatus(job.id, "done");
               if (job.creation_id) {
                 await setCreationVideoUrl(job.creation_id, job.user_phone, videoUrl);
-              }
-              
-              // Phase 4: Send Twilio SMS notification on success (background poller)
-              if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
-                try {
-                  const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-                  await twilioClient.messages.create({
-                    body: `🐾 Paws & Memories: Your pet video animation is ready! View it at ${process.env.APP_URL || "your app"}.`,
-                    to: job.user_phone,
-                    from: process.env.TWILIO_PHONE_NUMBER
-                  });
-                } catch (smsErr) {
-                  console.warn("Failed to send SMS notification (poller):", smsErr);
-                }
               }
             } else {
               await updateJobStatus(job.id, "failed", "No video generated");
