@@ -1,20 +1,18 @@
 import React, { useState, useRef, useEffect } from "react";
-import { User, Phone, CheckCircle, RefreshCw, Mail, ShieldCheck, ArrowLeft, Lock, Calendar, MapPin, LogIn } from "lucide-react";
+import { User, RefreshCw, Mail, ArrowLeft, Lock, Calendar, MapPin, LogIn, UserPlus } from "lucide-react";
 import { PublicUser } from "../types";
-import { sendCode, verifyCode, completeProfile, login } from "../api";
+import { signup, completeProfile, login } from "../api";
 import { useJsApiLoader } from "@react-google-maps/api";
 
 interface SignUpProps {
-  /** Called once the user is fully verified AND has a complete profile. */
+  /** Called once the user is logged in AND has a complete profile. */
   onAuthenticated: (user: PublicUser, isNew: boolean) => void;
 }
 
-type Step = "login" | "phone" | "code" | "profile" | "pets";
+type Step = "login" | "signup" | "profile" | "pets";
 
 export default function SignUp({ onAuthenticated }: SignUpProps) {
   const [step, setStep] = useState<Step>("login");
-  const [phoneNumber, setPhoneNumber] = useState("");
-  const [code, setCode] = useState("");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -23,7 +21,7 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
   const [city, setCity] = useState("");
   const [petCount, setPetCount] = useState(1);
   const [pets, setPets] = useState<{name: string, kind: string}[]>([{name: "", kind: "dog"}]);
-  
+
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -69,53 +67,29 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
     }
   };
 
-  const handleSendCode = async (e: React.FormEvent) => {
+  // Step 1 of sign-up: create the account, then move to the required profile.
+  const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!phoneNumber.trim()) {
-      setError("Please enter your phone number.");
+    if (!email.trim() || !password || !confirmPassword) {
+      setError("Please fill out all fields.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters.");
       return;
     }
     setError("");
     setBusy(true);
     try {
-      await sendCode(phoneNumber.trim());
-      setStep("code");
+      await signup(email.trim(), password, confirmPassword);
+      // Account created (profile still incomplete) — force the profile step.
+      setStep("profile");
     } catch (err: any) {
-      setError(err.message || "Could not send the code.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleVerifyCode = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!code.trim()) {
-      setError("Please enter the 6-digit code we texted you.");
-      return;
-    }
-    setError("");
-    setBusy(true);
-    try {
-      const user = await verifyCode(phoneNumber.trim(), code.trim());
-      if (user.profileComplete) {
-        onAuthenticated(user, false); // returning user — straight in
-      } else {
-        setStep("profile"); // new user — must set up profile
-      }
-    } catch (err: any) {
-      setError(err.message || "Verification failed.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleResend = async () => {
-    setError("");
-    setBusy(true);
-    try {
-      await sendCode(phoneNumber.trim());
-    } catch (err: any) {
-      setError(err.message || "Could not resend the code.");
+      setError(err.message || "Could not create your account.");
     } finally {
       setBusy(false);
     }
@@ -123,12 +97,8 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
 
   const handleProfileNext = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullName.trim() || !email.trim() || !password || !confirmPassword || !birthdate || !city.trim()) {
+    if (!fullName.trim() || !birthdate || !city.trim()) {
       setError("Please fill out all fields.");
-      return;
-    }
-    if (password !== confirmPassword) {
-      setError("Passwords do not match.");
       return;
     }
     setError("");
@@ -141,7 +111,7 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
     setBusy(true);
     try {
       const validPets = pets.slice(0, petCount).filter(p => p.name.trim() !== "");
-      const user = await completeProfile(fullName.trim(), email.trim(), password, confirmPassword, birthdate, city.trim(), validPets);
+      const user = await completeProfile(fullName.trim(), birthdate, city.trim(), validPets);
       onAuthenticated(user, true); // brand-new user
     } catch (err: any) {
       setError(err.message || "Could not save your profile.");
@@ -171,22 +141,21 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
             </div>
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-on-surface mb-1">
-            {step === "login" ? "Welcome Back" : step === "profile" ? "Set Up Your Profile" : step === "pets" ? "About Your Pets" : "Create Account"}
+            {step === "login" ? "Welcome Back" : step === "signup" ? "Create Account" : step === "profile" ? "Set Up Your Profile" : "About Your Pets"}
           </h1>
           <p className="text-xs font-medium text-on-surface-variant opacity-80">
             {step === "login" && "Log in with your email and password."}
-            {step === "phone" && "Verify your phone to get started. New here? You'll get 50 free credits."}
-            {step === "code" && `Enter the 6-digit code we texted to ${phoneNumber}.`}
+            {step === "signup" && "Sign up with your email. New here? You'll get 50 free credits."}
             {step === "profile" && "Just a couple details and you're in."}
             {step === "pets" && "Tell us about your furry friends!"}
           </p>
         </div>
 
-        {/* Step indicator (only for sign up) */}
+        {/* Step indicator (only during sign up) */}
         {step !== "login" && (
           <div className="flex items-center justify-center gap-2 mb-4">
-            {(["phone", "code", "profile", "pets"] as Step[]).map((s, i) => {
-              const order = { phone: 0, code: 1, profile: 2, pets: 3, login: -1 } as Record<Step, number>;
+            {(["signup", "profile", "pets"] as Step[]).map((s, i) => {
+              const order = { signup: 0, profile: 1, pets: 2, login: -1 } as Record<Step, number>;
               const active = order[step] >= i;
               return (
                 <div
@@ -200,7 +169,7 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
 
         {/* Form Container */}
         <div className="bg-surface-container-lowest rounded-3xl p-5 soft-glow-shadow border border-surface-variant/30">
-          
+
           {/* STEP: Login */}
           {step === "login" && (
             <form className="space-y-3" onSubmit={handleLogin}>
@@ -241,48 +210,42 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
             </form>
           )}
 
-          {/* STEP 1 — Phone */}
-          {step === "phone" && (
-            <form className="space-y-4" onSubmit={handleSendCode}>
+          {/* STEP 1 — Sign up (email + password) */}
+          {step === "signup" && (
+            <form className="space-y-3" onSubmit={handleSignup}>
               <div className="space-y-1">
-                <label htmlFor="phone-number" className={labelClass}>Phone Number</label>
+                <label htmlFor="signup-email" className={labelClass}>Email Address</label>
                 <div className="relative group">
-                  <span className={iconWrap}><Phone size={16} /></span>
+                  <span className={iconWrap}><Mail size={16} /></span>
                   <input
-                    id="phone-number" type="tel" required
-                    placeholder="+1 (555) 000-0000"
-                    value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)}
+                    id="signup-email" type="email" required
+                    placeholder="you@example.com"
+                    value={email} onChange={(e) => setEmail(e.target.value)}
                     className={inputClass}
                   />
                 </div>
-                <p className="text-[10px] text-on-surface-variant/70 px-1 pt-1">
-                  Include your country code (e.g. +1 for the US).
-                </p>
               </div>
-
-              {error && <p className="text-[10px] text-error font-medium px-1">{error}</p>}
-
-              <button
-                type="submit" disabled={busy}
-                className="w-full bg-primary text-white font-semibold text-xs py-3 rounded-xl soft-glow-shadow hover:bg-primary/95 transition-all mt-2 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-70"
-              >
-                {busy ? <RefreshCw className="animate-spin" size={14} /> : <span>Send Code →</span>}
-              </button>
-            </form>
-          )}
-
-          {/* STEP 2 — Code */}
-          {step === "code" && (
-            <form className="space-y-4" onSubmit={handleVerifyCode}>
               <div className="space-y-1">
-                <label htmlFor="code" className={labelClass}>Verification Code</label>
+                <label htmlFor="signup-password" className={labelClass}>Password</label>
                 <div className="relative group">
-                  <span className={iconWrap}><ShieldCheck size={16} /></span>
+                  <span className={iconWrap}><Lock size={16} /></span>
                   <input
-                    id="code" type="text" inputMode="numeric" maxLength={8} required
-                    placeholder="123456"
-                    value={code} onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, ""))}
-                    className={`${inputClass} tracking-[0.5em] font-mono`}
+                    id="signup-password" type="password" required minLength={6}
+                    placeholder="At least 6 characters"
+                    value={password} onChange={(e) => setPassword(e.target.value)}
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label htmlFor="signup-confirm" className={labelClass}>Confirm Password</label>
+                <div className="relative group">
+                  <span className={iconWrap}><Lock size={16} /></span>
+                  <input
+                    id="signup-confirm" type="password" required minLength={6}
+                    placeholder="••••••••"
+                    value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
+                    className={inputClass}
                   />
                 </div>
               </div>
@@ -293,27 +256,12 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
                 type="submit" disabled={busy}
                 className="w-full bg-primary text-white font-semibold text-xs py-3 rounded-xl soft-glow-shadow hover:bg-primary/95 transition-all mt-2 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-70"
               >
-                {busy ? <RefreshCw className="animate-spin" size={14} /> : <><CheckCircle size={14} /> Verify & Continue</>}
+                {busy ? <RefreshCw className="animate-spin" size={14} /> : <><UserPlus size={14} /> Create Account →</>}
               </button>
-
-              <div className="flex items-center justify-between pt-1">
-                <button
-                  type="button" onClick={() => { setStep("phone"); setCode(""); setError(""); }}
-                  className="text-[10px] text-on-surface-variant font-semibold hover:text-primary flex items-center gap-1 cursor-pointer"
-                >
-                  <ArrowLeft size={10} /> Change number
-                </button>
-                <button
-                  type="button" onClick={handleResend} disabled={busy}
-                  className="text-[10px] text-primary font-bold hover:underline cursor-pointer disabled:opacity-50"
-                >
-                  Resend code
-                </button>
-              </div>
             </form>
           )}
 
-          {/* STEP 3 — Profile */}
+          {/* STEP 2 — Profile */}
           {step === "profile" && (
             <form className="space-y-3 max-h-[60vh] overflow-y-auto pr-2" onSubmit={handleProfileNext}>
               <div className="space-y-1">
@@ -324,44 +272,6 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
                     id="full-name" type="text" required
                     placeholder="Enter your name"
                     value={fullName} onChange={(e) => setFullName(e.target.value)}
-                    className={inputClass}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label htmlFor="email" className={labelClass}>Email Address</label>
-                <div className="relative group">
-                  <span className={iconWrap}><Mail size={16} /></span>
-                  <input
-                    id="email" type="email" required
-                    placeholder="you@example.com"
-                    value={email} onChange={(e) => setEmail(e.target.value)}
-                    className={inputClass}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label htmlFor="password" className={labelClass}>Password</label>
-                <div className="relative group">
-                  <span className={iconWrap}><Lock size={16} /></span>
-                  <input
-                    id="password" type="password" required minLength={6}
-                    placeholder="••••••••"
-                    value={password} onChange={(e) => setPassword(e.target.value)}
-                    className={inputClass}
-                  />
-                </div>
-              </div>
-              <div className="space-y-1">
-                <label htmlFor="confirm-password" className={labelClass}>Confirm Password</label>
-                <div className="relative group">
-                  <span className={iconWrap}><Lock size={16} /></span>
-                  <input
-                    id="confirm-password" type="password" required minLength={6}
-                    placeholder="••••••••"
-                    value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
                     className={inputClass}
                   />
                 </div>
@@ -405,13 +315,13 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
             </form>
           )}
 
-          {/* STEP 4 — Pets */}
+          {/* STEP 3 — Pets */}
           {step === "pets" && (
             <form className="space-y-3 max-h-[60vh] overflow-y-auto pr-2" onSubmit={handleCompleteProfile}>
               <div className="space-y-1">
                 <label className={labelClass}>How many pets do you have?</label>
-                <select 
-                  value={petCount} 
+                <select
+                  value={petCount}
                   onChange={(e) => {
                     const c = Number(e.target.value);
                     setPetCount(c);
@@ -470,20 +380,20 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
           )}
         </div>
 
-        {/* Footer Help */}
+        {/* Footer Help — toggle between Login and Sign up */}
         <p className="mt-6 text-center text-xs text-on-surface-variant font-medium">
           {step === "login" ? (
             <>
-              Don't have an account or prefer phone?{" "}
-              <button type="button" onClick={() => setStep("phone")} className="text-primary hover:underline font-bold cursor-pointer">
-                Sign up / Verify with Phone
+              Don't have an account?{" "}
+              <button type="button" onClick={() => { setStep("signup"); setError(""); }} className="text-primary hover:underline font-bold cursor-pointer">
+                Sign up
               </button>
             </>
-          ) : step === "phone" ? (
+          ) : step === "signup" ? (
             <>
-              Already have a password?{" "}
-              <button type="button" onClick={() => setStep("login")} className="text-primary hover:underline font-bold cursor-pointer">
-                Log in with Email
+              Already have an account?{" "}
+              <button type="button" onClick={() => { setStep("login"); setError(""); }} className="text-primary hover:underline font-bold cursor-pointer inline-flex items-center gap-1">
+                <ArrowLeft size={10} /> Log in
               </button>
             </>
           ) : (
