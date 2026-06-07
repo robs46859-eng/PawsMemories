@@ -1117,7 +1117,7 @@ async function startServer() {
         model: "veo-3.1-fast-generate-preview",
         prompt: motionPrompt || "Gentle breeze, subtle motion, cinematic lighting",
         image: { imageBytes, mimeType },
-        config: { aspectRatio: "1:1" }, // Note: generateAudio is not supported in Gemini Developer API (only Vertex AI Enterprise); Veo 3 generates audio natively
+        config: { aspectRatio: "16:9" }, // Veo only supports "16:9" or "9:16" — not "1:1"
       });
 
       const operationName = (op as any).name || (op as any).operation?.name;
