@@ -116,16 +116,30 @@ export async function initDb(): Promise<void> {
     ) as any;
     const columnNames = cols.map((c: any) => c.COLUMN_NAME);
 
-    if (!columnNames.includes("password_hash")) {
-      await getPool().query(`ALTER TABLE users ADD COLUMN password_hash VARCHAR(255) NULL`);
-      await getPool().query(`ALTER TABLE users ADD COLUMN birthdate DATE NULL`);
-      await getPool().query(`ALTER TABLE users ADD COLUMN city VARCHAR(120) NULL`);
-    }
-
-    if (!columnNames.includes("daily_streak")) {
-      await getPool().query(`ALTER TABLE users ADD COLUMN daily_streak INT NOT NULL DEFAULT 0`);
-      await getPool().query(`ALTER TABLE users ADD COLUMN last_streak_claim DATE NULL`);
-      await getPool().query(`ALTER TABLE users ADD COLUMN achievements_json TEXT NULL`);
+    // Robust migration: ensure every expected column exists on legacy tables.
+    // (Older deploys created `users` without some of these — e.g. is_admin —
+    //  and CREATE TABLE IF NOT EXISTS never alters an existing table.)
+    const requiredColumns: { name: string; ddl: string }[] = [
+      { name: "email",             ddl: "ADD COLUMN email VARCHAR(190) NULL" },
+      { name: "password_hash",     ddl: "ADD COLUMN password_hash VARCHAR(255) NULL" },
+      { name: "birthdate",         ddl: "ADD COLUMN birthdate DATE NULL" },
+      { name: "city",              ddl: "ADD COLUMN city VARCHAR(120) NULL" },
+      { name: "credits",           ddl: "ADD COLUMN credits INT NOT NULL DEFAULT 0" },
+      { name: "profile_complete",  ddl: "ADD COLUMN profile_complete TINYINT(1) NOT NULL DEFAULT 0" },
+      { name: "is_admin",          ddl: "ADD COLUMN is_admin TINYINT(1) NOT NULL DEFAULT 0" },
+      { name: "daily_streak",      ddl: "ADD COLUMN daily_streak INT NOT NULL DEFAULT 0" },
+      { name: "last_streak_claim", ddl: "ADD COLUMN last_streak_claim DATE NULL" },
+      { name: "achievements_json", ddl: "ADD COLUMN achievements_json TEXT NULL" },
+    ];
+    for (const col of requiredColumns) {
+      if (!columnNames.includes(col.name)) {
+        try {
+          await getPool().query(`ALTER TABLE users ${col.ddl}`);
+          console.log(`✅ Migrated users: added column ${col.name}.`);
+        } catch (colErr) {
+          console.warn(`⚠️ Could not add column ${col.name}:`, colErr);
+        }
+      }
     }
 
     // Email is now the login gate, so it must be unique. Add the index if it
