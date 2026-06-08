@@ -59,8 +59,10 @@ export async function uploadBase64Image(base64String: string): Promise<string> {
     throw new Error("Object storage is not configured. Please check MEDIA_BUCKET_* environment variables.");
   }
 
-  // Parse the base64 string
-  const matches = base64String.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+  // Parse the base64 string. The MIME type can contain digits, dots, "+" and
+  // "-" (e.g. "video/mp4", "image/svg+xml"), so the type/subtype char class must
+  // allow them — otherwise "video/mp4" fails to match and videos can't upload.
+  const matches = base64String.match(/^data:([\w.+-]+\/[\w.+-]+);base64,(.+)$/s);
   if (!matches || matches.length !== 3) {
     throw new Error("Invalid base64 data string provided to uploadBase64Image");
   }
