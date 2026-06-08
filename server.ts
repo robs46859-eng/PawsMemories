@@ -7,6 +7,7 @@ import Stripe from "stripe";
 import fs from "fs";
 import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, getPool } from "./db";
 import { uploadBase64Image } from "./storage";
+import { BACKGROUND_PROMPTS } from "./src/backgrounds";
 import {
   normalizeEmail,
   signToken,
@@ -591,7 +592,9 @@ async function startServer() {
         promptText += `hyper-realistic professional pet portrait, captured in a sun-drenched atmosphere with golden hour light and soft focus scenic bokeh. `;
       }
 
-      if (background === "Canyon") {
+      if (BACKGROUND_PROMPTS[background]) {
+        promptText += BACKGROUND_PROMPTS[background];
+      } else if (background === "Canyon") {
         promptText += `The pet is sitting in front of the majestic Grand Canyon National Park with its vast layered reddish-orange cliffs, dramatic canyon valley, and a flowing green river far below under a glowing warm morning sun. `;
       } else if (background === "Paris") {
         promptText += `The pet is sitting in a Paris park with the beautiful Eiffel Tower visible in the background, surrounded by blossoming pink cherry blossoms with delicate petals falling. `;
