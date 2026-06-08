@@ -19,6 +19,7 @@ export type BackgroundCategory =
   | "Nature"
   | "Cozy & Seasonal"
   | "Fantasy & Fun"
+  | "Real-World Scenes"
   | "For Business";
 
 export interface Background {
@@ -346,6 +347,125 @@ export const BACKGROUNDS: Background[] = [
     prompt:
       "The pet is in a sunny green community dog park with open grass, agility equipment, a blue sky, and other happy dogs playing in the background.",
   },
+
+  // ------------------------------------------------------- Real-World Scenes
+  {
+    value: "Playground",
+    label: "Playground",
+    category: "Real-World Scenes",
+    emoji: "🛝",
+    gradient: "from-yellow-300 to-sky-400",
+    prompt:
+      "The pet is on a bright, colourful children's playground on a sunny afternoon — surrounded by vivid red and yellow slides, climbing frames, swings gently moving in the breeze, and soft rubber mulch on the ground. Children can be seen blurred playfully in the background. Warm golden light, joyful and energetic atmosphere.",
+  },
+  {
+    value: "MovieSet",
+    label: "Movie Set",
+    category: "Real-World Scenes",
+    emoji: "🎬",
+    gradient: "from-slate-500 to-amber-400",
+    prompt:
+      "The pet is on an active Hollywood movie set — large Arri film cameras on cranes, booms and reflective bounce cards surrounding it, a director's chair and clapperboard visible nearby, cables and spotlights creating dramatic studio lighting. The pet looks directly into camera like a seasoned star. Cinematic, glamorous, behind-the-scenes energy.",
+  },
+  {
+    value: "TVStudio",
+    label: "TV Studio",
+    category: "Real-World Scenes",
+    emoji: "📺",
+    gradient: "from-blue-500 to-purple-500",
+    prompt:
+      "The pet is on the set of a live television broadcast studio — sleek anchor desk, vibrant lit set walls, multiple studio cameras pointed at it, a green screen behind it, and a live audience blurred in the background. Professional broadcast lighting rigs above. The pet sits with perfect composure like the star of the show.",
+  },
+  {
+    value: "SkatePark",
+    label: "Skate Park",
+    category: "Real-World Scenes",
+    emoji: "🛹",
+    gradient: "from-gray-500 to-orange-400",
+    prompt:
+      "The pet is at an outdoor concrete skate park at golden hour — smooth bowls, rails, and quarter-pipes surrounding it, colourful graffiti murals on the walls, and skateboarders blurred in the background doing tricks. The pet sits front and centre looking effortlessly cool. Urban energy, warm afternoon light, street-art atmosphere.",
+  },
+  {
+    value: "Carnival",
+    label: "Carnival / Fair",
+    category: "Real-World Scenes",
+    emoji: "🎡",
+    gradient: "from-pink-400 to-yellow-400",
+    prompt:
+      "The pet is at a lively county fair or carnival at dusk — a glowing Ferris wheel towering behind it, carnival game booths lit with string lights, the smell of popcorn and funnel cake in the air, colourful banners and flags waving. Warm incandescent fairground glow, excited crowds blurred in the background, festive and magical.",
+  },
+  {
+    value: "Stadium",
+    label: "Sports Stadium",
+    category: "Real-World Scenes",
+    emoji: "🏟️",
+    gradient: "from-green-500 to-emerald-600",
+    prompt:
+      "The pet stands on the manicured emerald-green turf of a packed professional sports stadium — tens of thousands of fans cheering in the stands behind it, giant stadium lights flooding the field with brilliant white light, jumbotron screen visible in the background. The pet looks like the ultimate MVP. Epic, triumphant, stadium-energy atmosphere.",
+  },
+  {
+    value: "BowlingAlley",
+    label: "Bowling Alley",
+    category: "Real-World Scenes",
+    emoji: "🎳",
+    gradient: "from-indigo-400 to-fuchsia-500",
+    prompt:
+      "The pet is inside a retro neon-lit bowling alley — rows of gleaming hardwood lanes stretching into the background, glowing neon signs above, bowling balls in the return racks, the satisfying clatter of pins echoing. The pet sits proudly in the foreground looking like a champion. Black-light glow, vibrant retro colours, fun and quirky atmosphere.",
+  },
+  {
+    value: "FoodTruckFest",
+    label: "Food Truck Festival",
+    category: "Real-World Scenes",
+    emoji: "🚚",
+    gradient: "from-orange-400 to-red-400",
+    prompt:
+      "The pet is at a bustling outdoor food truck festival on a sunny weekend — a row of colourfully painted gourmet food trucks behind it, string lights overhead, picnic tables with happy people eating, the aroma of amazing street food in the air. Warm afternoon sunlight, relaxed and festive community atmosphere.",
+  },
+  {
+    value: "Library",
+    label: "Grand Library",
+    category: "Real-World Scenes",
+    emoji: "📖",
+    gradient: "from-amber-300 to-stone-400",
+    prompt:
+      "The pet is inside a grand, cathedral-like library — soaring dark-wood bookshelves rising two storeys high, rows of leather-bound books, warm amber reading lamps, ornate spiral staircases, dust motes floating in shafts of afternoon sunlight through tall arched windows. The pet sits on an antique reading desk, regal and studious.",
+  },
+  {
+    value: "TrampolinePark",
+    label: "Trampoline Park",
+    category: "Real-World Scenes",
+    emoji: "🤸",
+    gradient: "from-cyan-400 to-lime-400",
+    prompt:
+      "The pet is in a giant indoor trampoline park — wall-to-wall connected trampolines in every direction, foam pit in the background, neon lighting and energetic music, kids mid-air in slow motion behind it. The pet sits right in the middle looking thrilled, ears flying slightly as if it just landed. High-energy, colourful, fun.",
+  },
+  {
+    value: "ConcertStage",
+    label: "Concert Stage",
+    category: "Real-World Scenes",
+    emoji: "🎸",
+    gradient: "from-purple-600 to-rose-500",
+    prompt:
+      "The pet is centre-stage at a massive live outdoor music concert at night — a sea of thousands of fans with phone lights raised stretching to the horizon, enormous speaker stacks on either side, laser light show beams cutting through haze, a massive LED backdrop screen glowing behind it. The pet poses like a rock star. Epic, electric, larger-than-life.",
+  },
+  {
+    value: "CityRooftop",
+    label: "City Rooftop",
+    category: "Real-World Scenes",
+    emoji: "🌆",
+    gradient: "from-slate-600 to-orange-400",
+    prompt:
+      "The pet is on a sleek urban rooftop terrace at sunset — the glistening skyline of a great city spread behind it, skyscrapers catching the last golden light, a cool breeze rippling its fur, potted olive trees and a glass railing at the edge. The pet gazes confidently into the camera. Sophisticated, metropolitan, aspirational.",
+  },
+  {
+    value: "Arcade",
+    label: "Retro Arcade",
+    category: "Real-World Scenes",
+    emoji: "🕹️",
+    gradient: "from-fuchsia-500 to-cyan-500",
+    prompt:
+      "The pet is inside a vibrant retro arcade — rows of classic cabinet machines glowing in neon blues, pinks, and greens, pinball machines dinging, ticket dispensers rattling, carpeted floor in a wild geometric pattern. The pet sits in front of a glowing joystick cabinet looking like the high-score champion. Electric, nostalgic, fun.",
+  },
 ];
 
 /** Ordered list of categories for the picker UI. */
@@ -354,6 +474,7 @@ export const BACKGROUND_CATEGORIES: BackgroundCategory[] = [
   "Nature",
   "Cozy & Seasonal",
   "Fantasy & Fun",
+  "Real-World Scenes",
   "For Business",
 ];
 

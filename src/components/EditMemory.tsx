@@ -3,6 +3,7 @@ import { Sparkles, Sun, Crop, Compass, Upload, Save, HelpCircle, AlertCircle, Re
 import { StyleType, BackgroundType, Creation, LocationParams } from "../types";
 import { STYLE_OPTIONS } from "../data";
 import { BACKGROUNDS, BACKGROUND_CATEGORIES, BackgroundCategory, getBackground } from "../backgrounds";
+import { MOTION_PRESETS, DEFAULT_MOTION_PRESET } from "../motionPresets";
 import { authedFetch, createVideo, pollJob } from "../api";
 import LocationPicker from "./LocationPicker";
 
@@ -71,6 +72,7 @@ export default function EditMemory({
   const [errorMessage, setErrorMessage] = useState("");
   const [generatedResult, setGeneratedResult] = useState<Creation | null>(null);
   const [animatingVideo, setAnimatingVideo] = useState(false);
+  const [selectedMotionPreset, setSelectedMotionPreset] = useState(DEFAULT_MOTION_PRESET.value);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -341,44 +343,81 @@ export default function EditMemory({
 
         <div className="w-full space-y-3 mt-4">
           {!generatedResult.video_url && (
-            <button 
-              onClick={async () => {
-                 setAnimatingVideo(true);
-                 setErrorMessage("");
-                 try {
-                   const { jobId } = await createVideo(generatedResult.id, "Gentle breeze", true);
+            <div className="space-y-3">
+              {/* Motion preset picker */}
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest px-1">
+                  🎬 Choose a Movement
+                </p>
+                <div className="flex gap-2 overflow-x-auto hide-scrollbar pb-1">
+                  {MOTION_PRESETS.map((preset) => {
+                    const active = selectedMotionPreset === preset.value;
+                    return (
+                      <button
+                        key={preset.value}
+                        type="button"
+                        onClick={() => setSelectedMotionPreset(preset.value)}
+                        className={`flex-shrink-0 flex flex-col items-center gap-1 w-20 rounded-xl p-2 border-2 transition-all cursor-pointer ${
+                          active
+                            ? "border-secondary bg-secondary/10 shadow-md scale-[1.04]"
+                            : "border-outline-variant/40 bg-surface-container hover:border-secondary/40"
+                        }`}
+                      >
+                        <span className="text-xl leading-none">{preset.emoji}</span>
+                        <span className={`text-[8px] font-bold uppercase tracking-tight text-center leading-tight ${
+                          active ? "text-secondary" : "text-on-surface-variant"
+                        }`}>
+                          {preset.label}
+                        </span>
+                        <span className="text-[7px] text-outline text-center leading-tight line-clamp-2">
+                          {preset.description}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
 
-                   videoPollingRef.current = setInterval(async () => {
-                     try {
-                        const jobRes = await pollJob(jobId);
-                        if (jobRes.status === "done") {
-                           clearInterval(videoPollingRef.current!);
-                           videoPollingRef.current = null;
-                           setGeneratedResult({...generatedResult, video_url: jobRes.video_url || null, media_type: 'video'});
-                           onDeductCredits(250);
-                           setAnimatingVideo(false);
-                        } else if (jobRes.status === "failed") {
-                           clearInterval(videoPollingRef.current!);
-                           videoPollingRef.current = null;
-                           setErrorMessage(jobRes.error || "Failed to animate video.");
-                           setAnimatingVideo(false);
-                        }
-                     } catch {
-                        // ignore transient polling errors
-                     }
-                   }, 3000);
-                   
-                 } catch(e:any) {
-                   setErrorMessage(e.message || "Failed to start animation.");
-                   setAnimatingVideo(false);
-                 }
-              }}
-              disabled={animatingVideo}
-              className="w-full py-4 bg-secondary text-white rounded-xl font-bold text-sm shadow-md hover:bg-secondary/95 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-70"
-            >
-              {animatingVideo ? <RefreshCw className="animate-spin" size={16}/> : <Video size={16}/>}
-              <span>{animatingVideo ? "Animating with Veo..." : "Animate with Veo (250 credits)"}</span>
-            </button>
+              <button
+                onClick={async () => {
+                   setAnimatingVideo(true);
+                   setErrorMessage("");
+                   const motionPreset = MOTION_PRESETS.find(p => p.value === selectedMotionPreset) ?? DEFAULT_MOTION_PRESET;
+                   try {
+                     const { jobId } = await createVideo(generatedResult.id, motionPreset.prompt, true);
+
+                     videoPollingRef.current = setInterval(async () => {
+                       try {
+                          const jobRes = await pollJob(jobId);
+                          if (jobRes.status === "done") {
+                             clearInterval(videoPollingRef.current!);
+                             videoPollingRef.current = null;
+                             setGeneratedResult({...generatedResult, video_url: jobRes.video_url || null, media_type: 'video'});
+                             onDeductCredits(250);
+                             setAnimatingVideo(false);
+                          } else if (jobRes.status === "failed") {
+                             clearInterval(videoPollingRef.current!);
+                             videoPollingRef.current = null;
+                             setErrorMessage(jobRes.error || "Failed to animate video.");
+                             setAnimatingVideo(false);
+                          }
+                       } catch {
+                          // ignore transient polling errors
+                       }
+                     }, 3000);
+                     
+                   } catch(e:any) {
+                     setErrorMessage(e.message || "Failed to start animation.");
+                     setAnimatingVideo(false);
+                   }
+                }}
+                disabled={animatingVideo}
+                className="w-full py-4 bg-secondary text-white rounded-xl font-bold text-sm shadow-md hover:bg-secondary/95 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-70"
+              >
+                {animatingVideo ? <RefreshCw className="animate-spin" size={16}/> : <Video size={16}/>}
+                <span>{animatingVideo ? "Animating with Veo..." : `Animate: ${MOTION_PRESETS.find(p=>p.value===selectedMotionPreset)?.emoji ?? ""} ${MOTION_PRESETS.find(p=>p.value===selectedMotionPreset)?.label ?? ""} · 250 cr`}</span>
+              </button>
+            </div>
           )}
 
           <button 
@@ -805,6 +844,40 @@ export default function EditMemory({
             </div>
           </div>
         </div>
+      </section>
+
+      {/* Motion preset picker (pre-generation) */}
+      <section className="space-y-2">
+        <h3 className="text-xs font-bold text-on-surface-variant uppercase tracking-widest px-1">
+          🎬 Video Movement (for Animate)
+        </h3>
+        <div className="flex gap-2 overflow-x-auto hide-scrollbar pb-1">
+          {MOTION_PRESETS.map((preset) => {
+            const active = selectedMotionPreset === preset.value;
+            return (
+              <button
+                key={preset.value}
+                type="button"
+                onClick={() => setSelectedMotionPreset(preset.value)}
+                className={`flex-shrink-0 flex flex-col items-center gap-1 w-[72px] rounded-xl p-2 border-2 transition-all cursor-pointer ${
+                  active
+                    ? "border-secondary bg-secondary/10 shadow-md scale-[1.04]"
+                    : "border-outline-variant/40 bg-surface-container hover:border-secondary/40"
+                }`}
+              >
+                <span className="text-lg leading-none">{preset.emoji}</span>
+                <span className={`text-[8px] font-bold uppercase tracking-tight text-center leading-tight ${
+                  active ? "text-secondary" : "text-on-surface-variant"
+                }`}>
+                  {preset.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-[10px] text-outline px-1 leading-relaxed">
+          {MOTION_PRESETS.find(p => p.value === selectedMotionPreset)?.description ?? ""}
+        </p>
       </section>
 
       {/* Global alert error handling display */}
