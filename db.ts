@@ -188,6 +188,8 @@ export async function initDb(): Promise<void> {
         image_url     TEXT NULL,
         video_url     TEXT NULL,
         sort_order    INT NOT NULL DEFAULT 0,
+        pet_name      VARCHAR(120) NULL,
+        pet_breed     VARCHAR(120) NULL,
         created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         INDEX (user_phone), 
         INDEX (album_id),
@@ -223,6 +225,28 @@ export async function initDb(): Promise<void> {
         FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
+
+    // Migration check for creations table
+    const [creationsCols] = await getPool().query(
+      `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'creations'`,
+      [dbName]
+    ) as any;
+    const creationsColumnNames = creationsCols.map((c: any) => c.COLUMN_NAME);
+
+    const requiredCreationsColumns: { name: string; ddl: string }[] = [
+      { name: "pet_name",  ddl: "ADD COLUMN pet_name VARCHAR(120) NULL" },
+      { name: "pet_breed", ddl: "ADD COLUMN pet_breed VARCHAR(120) NULL" },
+    ];
+    for (const col of requiredCreationsColumns) {
+      if (!creationsColumnNames.includes(col.name)) {
+        try {
+          await getPool().query(`ALTER TABLE creations ${col.ddl}`);
+          console.log(`✅ Migrated creations: added column ${col.name}.`);
+        } catch (colErr) {
+          console.warn(`⚠️ Could not add column ${col.name} to creations:`, colErr);
+        }
+      }
+    }
 
     console.log("✅ Users, creations, generation_jobs, and pets tables ready.");
 
@@ -422,6 +446,8 @@ export interface CreationRow {
   video_url: string | null;
   sort_order: number;
   created_at: string;
+  pet_name?: string | null;
+  pet_breed?: string | null;
 }
 
 export async function saveCreation(data: {
@@ -440,12 +466,14 @@ export async function saveCreation(data: {
   image_url?: string | null;
   video_url?: string | null;
   sort_order?: number;
+  pet_name?: string | null;
+  pet_breed?: string | null;
 }): Promise<number> {
   const [result] = await getPool().query(
     `INSERT INTO creations (
       user_phone, album_id, media_type, style, backdrop_kind, preset_name,
-      sv_lat, sv_lng, sv_heading, sv_pitch, sv_fov, place_label, image_url, video_url, sort_order
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      sv_lat, sv_lng, sv_heading, sv_pitch, sv_fov, place_label, image_url, video_url, sort_order, pet_name, pet_breed
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       data.user_phone,
       data.album_id || null,
@@ -462,6 +490,8 @@ export async function saveCreation(data: {
       data.image_url || null,
       data.video_url || null,
       data.sort_order || 0,
+      data.pet_name || null,
+      data.pet_breed || null,
     ]
   ) as any;
   return result.insertId;

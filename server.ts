@@ -714,6 +714,8 @@ async function startServer() {
               sv_fov: location?.fov || null,
               place_label: location?.placeLabel || null,
               image_url: finalImageUrl,
+              pet_name: name || null,
+              pet_breed: breed || null,
             });
 
             return res.json({ success: true, imageUrl: finalImageUrl, creationId, mode: "transform" });
@@ -765,6 +767,8 @@ async function startServer() {
           sv_fov: location?.fov || null,
           place_label: location?.placeLabel || null,
           image_url: finalImageUrl,
+          pet_name: name || null,
+          pet_breed: breed || null,
         });
         
         return res.json({ success: true, imageUrl: finalImageUrl, creationId, mode: "generate" });
@@ -821,6 +825,8 @@ async function startServer() {
             sv_fov: location?.fov || null,
             place_label: location?.placeLabel || null,
             image_url: finalImageUrl,
+            pet_name: name || null,
+            pet_breed: breed || null,
           });
 
           return res.json({ success: true, imageUrl: finalImageUrl, creationId, mode: "fallback" });
@@ -1070,6 +1076,143 @@ async function startServer() {
   const VIDEO_COST = 250;
   const MAX_DAILY_VIDEOS = 5;
 
+  function getEnhancedMotionPrompt(basePrompt: string, creation: any, userPets: any[] = []): string {
+    let enhanced = basePrompt;
+    const preset = (creation.preset_name || "").toLowerCase();
+    const label = (creation.place_label || "").toLowerCase();
+
+    // 1. Resolve pet species (dog, cat, or other)
+    let petKind = "dog"; // Default fallback
+    const petBreed = (creation.pet_breed || "").toLowerCase();
+    const petName = (creation.pet_name || "").toLowerCase();
+
+    const dogKeywords = ["dog", "canine", "puppy", "golden", "retriever", "labrador", "poodle", "pug", "shepherd", "terrier", "husky", "corgi", "spaniel", "beagle", "chihuahua", "bulldog", "boxer", "dachshund", "shih tzu", "maltese", "rottweiler"];
+    const catKeywords = ["cat", "feline", "kitten", "siamese", "persian", "maine coon", "tabby", "shorthair", "sphynx", "ragdoll", "bengal", "calico"];
+
+    if (catKeywords.some(keyword => petBreed.includes(keyword) || petName.includes(keyword))) {
+      petKind = "cat";
+    } else if (dogKeywords.some(keyword => petBreed.includes(keyword) || petName.includes(keyword))) {
+      petKind = "dog";
+    } else if (petBreed || petName) {
+      // Look up in the user's pet list if available
+      const matchedPet = userPets.find(
+        (p: any) => p.name.toLowerCase() === petName || p.kind.toLowerCase() === petBreed
+      );
+      if (matchedPet) {
+        petKind = matchedPet.kind; // 'dog' | 'cat' | 'other'
+      }
+    } else if (userPets && userPets.length > 0) {
+      // Fallback to first pet's kind if user has pets
+      petKind = userPets[0].kind;
+    }
+
+    // 2. Identify the setting category
+    const isUnderwater = preset === "underwater" || label.includes("underwater") || label.includes("ocean") || label.includes("reef") || label.includes("sea") || label.includes("coral") || label.includes("aquarium");
+    const isSpace = preset === "space" || label.includes("space") || label.includes("orbit") || label.includes("galaxy") || label.includes("moon") || label.includes("stars");
+    const isPark = preset === "dogpark" || preset === "meadow" || preset === "springgarden" || preset === "playground" || preset === "lavender" || preset === "cherryblossom" || label.includes("park") || label.includes("meadow") || label.includes("garden") || label.includes("lawn") || label.includes("field") || label.includes("playground") || label.includes("lavender") || label.includes("blossom");
+    const isLandmark = preset === "canyon" || preset === "paris" || preset === "london" || preset === "newyork" || preset === "rome" || preset === "tokyo" || preset === "egypt" || preset === "goldengate" || preset === "rocky" || preset === "tajmahal" || label.includes("canyon") || label.includes("tower") || label.includes("bridge") || label.includes("statue") || label.includes("museum") || label.includes("monument") || label.includes("pyramid") || label.includes("ruins") || label.includes("castle") || label.includes("city") || label.includes("skyline");
+    const isCozy = preset === "cabin" || preset === "bookshop" || preset === "library" || label.includes("cabin") || label.includes("bookshop") || label.includes("library") || label.includes("indoor") || label.includes("cozy") || label.includes("room") || label.includes("house") || label.includes("bedroom") || label.includes("living room");
+    const isFestive = preset === "christmas" || preset === "birthday" || preset === "carnival" || label.includes("christmas") || label.includes("birthday") || label.includes("party") || label.includes("festive") || label.includes("holiday") || label.includes("carnival") || label.includes("circus");
+    const isHeroic = preset === "superhero" || preset === "castle" || preset === "enchanted" || preset === "rainbow" || label.includes("hero") || label.includes("cape") || label.includes("magic") || label.includes("enchanted") || label.includes("rainbow") || label.includes("fairytale");
+    const isHighEnergy = preset === "skatepark" || preset === "trampolinepark" || preset === "concertstage" || preset === "stadium" || label.includes("skate") || label.includes("trampoline") || label.includes("concert") || label.includes("stage") || label.includes("stadium") || label.includes("arena") || label.includes("sports") || label.includes("play");
+    const isPampered = preset === "grooming" || preset === "vetclinic" || preset === "petstore" || preset === "dogdaycare" || label.includes("groom") || label.includes("spa") || label.includes("clinic") || label.includes("vet") || label.includes("pamper") || label.includes("store") || label.includes("daycare");
+    const isBeach = preset === "beach" || label.includes("beach") || label.includes("sand") || label.includes("shore") || label.includes("coast");
+    const isSnow = preset === "mountains" || preset === "cabin" || label.includes("snow") || label.includes("winter") || label.includes("glacier") || label.includes("ice") || label.includes("frost");
+
+    // 3. Construct the motion prompt with species-specific behaviors
+    if (isUnderwater) {
+      if (petKind === "dog") {
+        enhanced = `The dog is wearing a round glass diving helmet on its head. ${basePrompt} It is doggie paddling and floating weightlessly through the water, blinking curiously, looking around with wonder as tiny bubbles drift by.`;
+      } else if (petKind === "cat") {
+        enhanced = `The cat is wearing a round glass diving helmet on its head. ${basePrompt} It is swimming gracefully and floating weightlessly through the water, blinking curiously, looking around with wonder as tiny bubbles drift by.`;
+      } else {
+        enhanced = `The animal is wearing a round glass diving helmet on its head. ${basePrompt} It is paddling and floating weightlessly through the water, looking around curiously as tiny bubbles drift by.`;
+      }
+    } else if (isSpace) {
+      if (petKind === "dog") {
+        enhanced = `The dog is wearing a shiny glass astronaut helmet. ${basePrompt} It is weightless, floating and slowly paddling its paws in the zero-gravity environment of space, looking amazed with its ears floating slightly.`;
+      } else if (petKind === "cat") {
+        enhanced = `The cat is wearing a shiny glass astronaut helmet. ${basePrompt} It is weightless, floating and waving its paws gracefully in the zero-gravity environment of space, looking curious with its whiskers twitching.`;
+      } else {
+        enhanced = `The animal is wearing a shiny glass astronaut helmet. ${basePrompt} It is weightless, floating and slowly paddling its paws in the zero-gravity environment of space.`;
+      }
+    } else if (isPark) {
+      if (petKind === "dog") {
+        enhanced = `${basePrompt} The dog is panting happily with its tongue slightly out, tail wagging excitedly, looking joyful, energetic, and fully alive in the sunny park setting.`;
+      } else if (petKind === "cat") {
+        enhanced = `${basePrompt} The cat is looking around curiously with its tail twitching happily, looking alert, energetic, and fully alive in the sunny park setting.`;
+      } else {
+        enhanced = `${basePrompt} The animal is looking around happily and looking energetic, joyful, and fully alive in the sunny park setting.`;
+      }
+    } else if (isLandmark) {
+      if (petKind === "dog") {
+        enhanced = `${basePrompt} The dog looks proud and triumphant, sitting or standing tall, head held high, ears perked up, looking majestically into the distance with a happy expression.`;
+      } else if (petKind === "cat") {
+        enhanced = `${basePrompt} The cat looks proud and regal, sitting majestically, head held high, looking confidently into the distance with a calm and noble expression.`;
+      } else {
+        enhanced = `${basePrompt} The animal looks proud and majestic, sitting or standing tall, head held high, looking confidently into the distance.`;
+      }
+    } else if (isCozy) {
+      if (petKind === "dog") {
+        enhanced = `${basePrompt} The dog is calm, relaxed, and content, blinking sleepily and gently wagging its tail on the warm floor.`;
+      } else if (petKind === "cat") {
+        enhanced = `${basePrompt} The cat is calm, relaxed, and content, blinking sleepily, curling up or purring gently on the warm floor.`;
+      } else {
+        enhanced = `${basePrompt} The animal is calm, relaxed, and content, blinking sleepily on the warm floor.`;
+      }
+    } else if (isFestive) {
+      if (petKind === "dog") {
+        enhanced = `${basePrompt} The dog is wagging its tail enthusiastically with a festive, playful, and cheerful expression, looking around with bright, happy eyes.`
+      } else if (petKind === "cat") {
+        enhanced = `${basePrompt} The cat is playing playfully with a festive, cheerful expression, batting at decorations, looking around with bright, happy eyes.`;
+      } else {
+        enhanced = `${basePrompt} The animal is playing happily with a festive, cheerful expression, looking around with bright, happy eyes.`;
+      }
+    } else if (isHeroic) {
+      if (petKind === "dog") {
+        enhanced = `${basePrompt} The dog is posing heroically with its chest puffed out, ears and cape blowing dramatically in the wind, looking brave, determined, and magical.`;
+      } else if (petKind === "cat") {
+        enhanced = `${basePrompt} The cat is posing heroically with its head held high, fur and cape blowing dramatically in the wind, looking brave, regal, and magical.`;
+      } else {
+        enhanced = `${basePrompt} The animal is posing heroically, fur blowing dramatically in the wind, looking brave, determined, and magical.`;
+      }
+    } else if (isHighEnergy) {
+      if (petKind === "dog") {
+        enhanced = `${basePrompt} The dog looks thrilled and high-energy, tongue out, ears flapping happily as if mid-run or mid-bounce, basking under the spotlights.`;
+      } else if (petKind === "cat") {
+        enhanced = `${basePrompt} The cat looks energized and playful, eyes wide, pouncing and leaping with high energy, basking under the spotlights.`;
+      } else {
+        enhanced = `${basePrompt} The animal looks thrilled and high-energy, bounding or leaping with excitement, basking under the spotlights.`;
+      }
+    } else if (isPampered) {
+      if (petKind === "dog") {
+        enhanced = `${basePrompt} The dog looks extremely relaxed and pampered, closing its eyes blissfully under a warm, gentle blow-dry breeze.`;
+      } else if (petKind === "cat") {
+        enhanced = `${basePrompt} The cat looks extremely relaxed and clean, closing its eyes blissfully, purring under a gentle warm breeze.`;
+      } else {
+        enhanced = `${basePrompt} The animal looks extremely relaxed and content under a gentle warm breeze.`;
+      }
+    } else if (isBeach) {
+      if (petKind === "dog") {
+        enhanced = `${basePrompt} The dog is playing on the sandy beach, shaking water off its fur, and splashing in the gentle turquoise waves.`;
+      } else if (petKind === "cat") {
+        enhanced = `${basePrompt} The cat is walking carefully on the warm sandy beach, watching the gentle turquoise waves with curiosity.`;
+      } else {
+        enhanced = `${basePrompt} The animal is playing on the sandy beach, enjoying the sea breeze and splashing in the gentle waves.`;
+      }
+    } else if (isSnow) {
+      if (petKind === "dog") {
+        enhanced = `${basePrompt} The dog's breath is visible as a soft white mist in the crisp cold air, happily bounding and digging in the fluffy white snow.`;
+      } else if (petKind === "cat") {
+        enhanced = `${basePrompt} The cat's breath is visible as a soft white mist in the crisp cold air, stepping carefully and sniffing the fluffy white snow.`;
+      } else {
+        enhanced = `${basePrompt} The animal's breath is visible as a soft white mist in the crisp cold air, stepping and playing in the fluffy white snow.`;
+      }
+    }
+
+    return enhanced;
+  }
+
   app.post("/api/create-video", requireAuth, async (req: AuthedRequest, res) => {
     try {
       const { creationId, motionPrompt, aspectRatio } = req.body;
@@ -1088,7 +1231,7 @@ async function startServer() {
         // 1. Check balance
         const balance = await getCreditBalance(userPhone);
         if (balance < VIDEO_COST) {
-          return res.status(402).json({ success: false, error: `Insufficient credits. You need ${VIDEO_COST} credits.` });
+          return res.status(429).json({ success: false, error: `Insufficient credits. You need ${VIDEO_COST} credits.` });
         }
       }
 
@@ -1121,6 +1264,14 @@ async function startServer() {
         imageBytes = Buffer.from(buffer).toString("base64");
       }
 
+      const userPets = await getPets(userPhone);
+      const finalPrompt = getEnhancedMotionPrompt(
+        motionPrompt || "Gentle breeze, subtle motion, cinematic lighting",
+        creation,
+        userPets
+      );
+      console.log(`Enhanced Veo video motion prompt: "${finalPrompt}"`);
+
       // 5. Start Veo operation with a resilient model fallback chain
       let op: any;
       const veoModels = ["veo-3.1-fast-generate-preview", "veo-3.1-generate-preview", "veo-2.0-generate-001"];
@@ -1131,7 +1282,7 @@ async function startServer() {
           console.log(`Attempting video generation with model: ${modelName}`);
           op = await ai.models.generateVideos({
             model: modelName,
-            prompt: motionPrompt || "Gentle breeze, subtle motion, cinematic lighting",
+            prompt: finalPrompt,
             image: { imageBytes, mimeType },
             config: { aspectRatio: (aspectRatio === "9:16" ? "9:16" : "16:9") }, // Veo supports "16:9" or "9:16"
           });
