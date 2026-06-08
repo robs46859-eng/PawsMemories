@@ -10,7 +10,9 @@ export enum Screen {
 
 export type StyleType = "Realistic" | "Sketch" | "Clay" | "Artistic" | "Anime" | "3D" | "Retro";
 
-export type BackgroundType = "Canyon" | "Paris" | "Cabin" | "Rocky" | "Meadow";
+// Background ids are defined in src/backgrounds.ts (single source of truth).
+// Kept as a string so new presets can be added without touching this type.
+export type BackgroundType = string;
 
 export interface LocationParams {
   lat: number;
