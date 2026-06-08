@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Sparkles, Sun, Crop, Compass, Upload, Save, HelpCircle, AlertCircle, RefreshCw, Dog, Camera, Mic, MicOff, Video, MapPin } from "lucide-react";
+import { Sparkles, Sun, Crop, Compass, Upload, Save, HelpCircle, AlertCircle, RefreshCw, Dog, Camera, Mic, MicOff, Video, MapPin, ArrowLeft, Wand2 } from "lucide-react";
 import { StyleType, BackgroundType, Creation, LocationParams } from "../types";
-import { STYLE_OPTIONS, BACKGROUND_OPTIONS } from "../data";
+import { STYLE_OPTIONS } from "../data";
+import { BACKGROUNDS, BACKGROUND_CATEGORIES, BackgroundCategory, getBackground } from "../backgrounds";
 import { authedFetch, createVideo, pollJob } from "../api";
 import LocationPicker from "./LocationPicker";
 
@@ -25,7 +26,8 @@ export default function EditMemory({
   userCity,
 }: EditMemoryProps) {
   const [selectedStyle, setSelectedStyle] = useState<StyleType>("Clay");
-  const [selectedBackground, setSelectedBackground] = useState<BackgroundType>("Canyon");
+  const [selectedBackground, setSelectedBackground] = useState<BackgroundType>("Paris");
+  const [bgCategory, setBgCategory] = useState<BackgroundCategory>("Landmarks");
   const [customLocation, setCustomLocation] = useState<LocationParams | null>(null);
   const [showLocationPicker, setShowLocationPicker] = useState(false);
   const [brightness, setBrightness] = useState(80);
@@ -307,7 +309,18 @@ export default function EditMemory({
   if (generatedResult) {
     return (
       <div className="w-full max-w-md mx-auto px-4 py-6 space-y-6 flex flex-col items-center animate-fade-in">
-        <h2 className="text-2xl font-extrabold tracking-tight text-on-surface">Memory Generated!</h2>
+        <div className="w-full flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setGeneratedResult(null)}
+            className="w-9 h-9 rounded-full bg-surface-container hover:bg-outline-variant/30 text-on-surface flex items-center justify-center border border-outline-variant/30 transition-all cursor-pointer shadow-sm flex-shrink-0"
+            title="Back to editor"
+            aria-label="Back"
+          >
+            <ArrowLeft size={18} />
+          </button>
+          <h2 className="text-2xl font-extrabold tracking-tight text-on-surface">Memory Generated!</h2>
+        </div>
         
         <div className="w-full aspect-square rounded-2xl overflow-hidden shadow-xl border border-surface-variant/30 relative">
           {generatedResult.video_url ? (
@@ -389,7 +402,24 @@ export default function EditMemory({
 
   return (
     <div className="w-full max-w-md mx-auto px-4 py-6 space-y-6">
-      
+
+      {/* Header with Back button */}
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={onNavigateBack}
+          className="w-9 h-9 rounded-full bg-surface-container hover:bg-outline-variant/30 text-on-surface flex items-center justify-center border border-outline-variant/30 transition-all cursor-pointer shadow-sm flex-shrink-0"
+          title="Back to dashboard"
+          aria-label="Back"
+        >
+          <ArrowLeft size={18} />
+        </button>
+        <div>
+          <h2 className="text-lg font-extrabold tracking-tight text-on-surface leading-tight">Create a Memory</h2>
+          <p className="text-[11px] text-on-surface-variant font-medium">Add a photo, pick a style &amp; backdrop, then generate.</p>
+        </div>
+      </div>
+
       {/* Loading Overlay */}
       {loading && (
         <div className="fixed inset-0 bg-white/95 backdrop-blur-md z-50 flex flex-col justify-center items-center p-6 text-center space-y-6 animate-fade-in">
@@ -475,7 +505,7 @@ export default function EditMemory({
             </div>
             <div className="bg-white/85 backdrop-blur-md px-3 py-1 rounded-full flex items-center gap-1.5 shadow-sm border border-outline-variant/30">
               <Compass size={12} className="text-secondary" />
-              <span className="text-[10px] font-bold text-on-surface uppercase tracking-wider">📍 {selectedBackground}</span>
+              <span className="text-[10px] font-bold text-on-surface uppercase tracking-wider">📍 {customLocation ? customLocation.placeLabel : (getBackground(selectedBackground)?.label || selectedBackground)}</span>
             </div>
           </div>
         )}
@@ -628,36 +658,65 @@ export default function EditMemory({
         <div className="space-y-2">
           <div className="flex justify-between items-center px-1">
             <h3 className="text-xs font-bold text-on-surface-variant uppercase tracking-widest">
-              Dream Destinations
+              Background
             </h3>
+            {!customLocation && getBackground(selectedBackground) && (
+              <span className="text-[10px] font-bold text-primary">
+                {getBackground(selectedBackground)!.emoji} {getBackground(selectedBackground)!.label}
+              </span>
+            )}
           </div>
-          
-          <div className="flex gap-2.5 overflow-x-auto hide-scrollbar pb-2">
-            {BACKGROUND_OPTIONS.map((bgOpt) => (
-              <div
-                key={bgOpt.value}
-                onClick={() => {
-                  setSelectedBackground(bgOpt.value);
-                  setCustomLocation(null);
-                }}
-                className="flex-shrink-0 w-28 h-18 rounded-xl overflow-hidden relative cursor-pointer active:scale-95 transition-all shadow-sm border border-outline-variant/10"
+
+          {/* Category tabs */}
+          <div className="flex gap-1.5 overflow-x-auto hide-scrollbar pb-1">
+            {BACKGROUND_CATEGORIES.map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setBgCategory(cat)}
+                className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wide transition-all cursor-pointer border ${
+                  bgCategory === cat
+                    ? "bg-primary text-white border-primary"
+                    : "bg-surface-container-lowest text-on-surface-variant border-outline-variant/40 hover:border-primary/40"
+                }`}
               >
-                <img
-                  alt={bgOpt.label}
-                  className={`w-full h-full object-cover ${(!customLocation && selectedBackground === bgOpt.value) ? "brightness-90" : "brightness-75"}`}
-                  src={bgOpt.imageUrl}
-                  referrerPolicy="no-referrer"
-                />
-                {/* Active check border */}
-                {!customLocation && selectedBackground === bgOpt.value && (
-                  <div className="absolute inset-0 border-3 border-primary rounded-xl"></div>
-                )}
-                <div className="absolute bottom-1.5 left-2 bg-black/30 backdrop-blur-[1px] px-1.5 py-0.5 rounded">
-                  <span className="text-[9px] text-white font-bold uppercase tracking-tight">{bgOpt.label}</span>
-                </div>
-              </div>
+                {cat}
+              </button>
             ))}
-            
+          </div>
+
+          {/* Preset cards for the active category */}
+          <div className="flex gap-2.5 overflow-x-auto hide-scrollbar pb-2">
+            {BACKGROUNDS.filter((b) => b.category === bgCategory).map((bg) => {
+              const active = !customLocation && selectedBackground === bg.value;
+              return (
+                <button
+                  type="button"
+                  key={bg.value}
+                  onClick={() => {
+                    setSelectedBackground(bg.value);
+                    setCustomLocation(null);
+                  }}
+                  className={`flex-shrink-0 w-24 h-20 rounded-xl overflow-hidden relative cursor-pointer active:scale-95 transition-all shadow-sm bg-gradient-to-br ${bg.gradient} flex flex-col items-center justify-center gap-1 border-2 ${
+                    active ? "border-primary ring-2 ring-primary/40" : "border-transparent"
+                  }`}
+                >
+                  <span className="text-2xl drop-shadow-sm">{bg.emoji}</span>
+                  <span className="text-[9px] text-white font-bold uppercase tracking-tight px-1 text-center leading-tight drop-shadow">
+                    {bg.label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Use a real place: city landmarks + custom Street View */}
+          <div className="flex items-center gap-2 px-1 pt-1">
+            <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Or use a real place</span>
+            <div className="flex-grow h-px bg-outline-variant/40" />
+          </div>
+
+          <div className="flex gap-2.5 overflow-x-auto hide-scrollbar pb-2">
             {landmarks.map((lm, idx) => (
               <div
                 key={`lm-${idx}`}
@@ -756,13 +815,13 @@ export default function EditMemory({
         </div>
       )}
 
-      {/* Large save / restyle CTA button */}
+      {/* Large generate CTA button */}
       <button
         onClick={handleSaveToAlbum}
         className="w-full py-4 bg-primary text-white rounded-2xl font-bold font-sans text-sm shadow-md hover:bg-primary/95 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer border border-outline-variant/20"
       >
-        <span>Save & Restyle Memory</span>
-        <Save size={16} />
+        <Wand2 size={16} />
+        <span>Generate Memory{isAdmin ? "" : " · 40 credits"}</span>
       </button>
 
       {/* Location Picker Modal */}
