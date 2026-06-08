@@ -197,10 +197,31 @@ export default function App() {
   };
 
   const handleCreationSaved = (newCreation: Creation) => {
-    setCreations((prev) => [newCreation, ...prev]);
+    setCreations((prev) => {
+      const exists = prev.some((c) => c.id === newCreation.id);
+      if (exists) {
+        return prev.map((c) => (c.id === newCreation.id ? newCreation : c));
+      }
+      return [newCreation, ...prev];
+    });
     setSelectedCreationForShare(newCreation);
     handleUnlockAchievement("creation");
     setCurrentScreen(Screen.SHARE_MEMORY);
+  };
+
+  const handleCreationGenerated = (newCreation: Creation) => {
+    setCreations((prev) => {
+      const exists = prev.some((c) => c.id === newCreation.id);
+      if (exists) return prev;
+      return [newCreation, ...prev];
+    });
+    handleUnlockAchievement("creation");
+  };
+
+  const handleCreationUpdated = (updatedCreation: Creation) => {
+    setCreations((prev) =>
+      prev.map((c) => (c.id === updatedCreation.id ? updatedCreation : c))
+    );
   };
 
   const handleSelectCreation = (creation: Creation) => {
@@ -334,6 +355,8 @@ export default function App() {
                 credits={userProfile.credits}
                 isAdmin={userProfile.isAdmin}
                 onCreationSaved={handleCreationSaved}
+                onCreationGenerated={handleCreationGenerated}
+                onCreationUpdated={handleCreationUpdated}
                 onDeductCredits={handleDeductCredits}
                 onNavigateBack={() => setCurrentScreen(Screen.DASHBOARD)}
                 onUnlockAchievement={handleUnlockAchievement}

@@ -10,6 +10,8 @@ import LocationPicker from "./LocationPicker";
 interface EditMemoryProps {
   credits: number;
   onCreationSaved: (newCreation: Creation) => void;
+  onCreationGenerated?: (newCreation: Creation) => void;
+  onCreationUpdated?: (updatedCreation: Creation) => void;
   onDeductCredits: (amount: number) => void;
   onNavigateBack: () => void;
   onUnlockAchievement?: (id: string) => void;
@@ -20,6 +22,8 @@ interface EditMemoryProps {
 export default function EditMemory({
   credits,
   onCreationSaved,
+  onCreationGenerated,
+  onCreationUpdated,
   onDeductCredits,
   onNavigateBack,
   onUnlockAchievement,
@@ -298,6 +302,9 @@ export default function EditMemory({
       };
 
       setGeneratedResult(userCreation);
+      if (onCreationGenerated) {
+        onCreationGenerated(userCreation);
+      }
     } catch (err: any) {
       clearInterval(loadingInterval);
       setErrorMessage(
@@ -389,13 +396,17 @@ export default function EditMemory({
                      videoPollingRef.current = setInterval(async () => {
                        try {
                           const jobRes = await pollJob(jobId);
-                          if (jobRes.status === "done") {
-                             clearInterval(videoPollingRef.current!);
-                             videoPollingRef.current = null;
-                             setGeneratedResult({...generatedResult, video_url: jobRes.video_url || null, media_type: 'video'});
-                             onDeductCredits(250);
-                             setAnimatingVideo(false);
-                          } else if (jobRes.status === "failed") {
+                           if (jobRes.status === "done") {
+                              clearInterval(videoPollingRef.current!);
+                              videoPollingRef.current = null;
+                              const updated = {...generatedResult, video_url: jobRes.video_url || null, media_type: 'video' as const};
+                              setGeneratedResult(updated);
+                              onDeductCredits(250);
+                              setAnimatingVideo(false);
+                              if (onCreationUpdated) {
+                                 onCreationUpdated(updated);
+                              }
+                           } else if (jobRes.status === "failed") {
                              clearInterval(videoPollingRef.current!);
                              videoPollingRef.current = null;
                              setErrorMessage(jobRes.error || "Failed to animate video.");

@@ -1103,33 +1103,58 @@ async function startServer() {
       let imageBytes = "";
       let mimeType = "image/jpeg";
       if (creation.image_url.startsWith("data:image")) {
-        const matches = creation.image_url.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
-        if (matches) {
-          mimeType = matches[1];
-          imageBytes = matches[2];
+        const commaIdx = creation.image_url.indexOf(",");
+        if (commaIdx !== -1) {
+          const meta = creation.image_url.substring(0, commaIdx);
+          imageBytes = creation.image_url.substring(commaIdx + 1).replace(/[\r\n\s]+/g, "");
+          const mimeMatch = meta.match(/data:([^;]+);base64/);
+          if (mimeMatch) {
+            mimeType = mimeMatch[1];
+          }
         }
       } else {
         // Fetch from object storage URL
         const imgRes = await fetch(creation.image_url);
+        if (!imgRes.ok) throw new Error(`Failed to fetch image from storage: ${imgRes.statusText}`);
+        mimeType = imgRes.headers.get("content-type") || "image/jpeg";
         const buffer = await imgRes.arrayBuffer();
         imageBytes = Buffer.from(buffer).toString("base64");
       }
 
-      // 5. Start Veo operation
-      const op = await ai.models.generateVideos({
-        model: "veo-3.1-fast-generate-preview",
-        prompt: motionPrompt || "Gentle breeze, subtle motion, cinematic lighting",
-        image: { imageBytes, mimeType },
-        config: { aspectRatio: (aspectRatio === "9:16" ? "9:16" : "16:9") }, // Veo supports "16:9" (default) or "9:16" only
-      });
+      // 5. Start Veo operation with a resilient model fallback chain
+      let op: any;
+      const veoModels = ["veo-3.1-fast-generate-preview", "veo-3.1-generate-preview", "veo-2.0-generate-001"];
+      let lastVeoError: any = null;
+
+      for (const modelName of veoModels) {
+        try {
+          console.log(`Attempting video generation with model: ${modelName}`);
+          op = await ai.models.generateVideos({
+            model: modelName,
+            prompt: motionPrompt || "Gentle breeze, subtle motion, cinematic lighting",
+            image: { imageBytes, mimeType },
+            config: { aspectRatio: (aspectRatio === "9:16" ? "9:16" : "16:9") }, // Veo supports "16:9" or "9:16"
+          });
+          console.log(`Successfully queued Veo video generation with model: ${modelName}`);
+          lastVeoError = null;
+          break; // Success! Exit loop
+        } catch (err: any) {
+          console.warn(`Model ${modelName} failed to start:`, err.message || err);
+          lastVeoError = err;
+        }
+      }
+
+      if (lastVeoError) {
+        throw new Error(`All video generation models failed to start. Last error: ${lastVeoError.message || lastVeoError}`);
+      }
 
       // Log full op shape so we can see what the SDK actually returns
       console.log("Veo generateVideos raw response:", JSON.stringify(op, null, 2));
       const operationName =
-        (op as any).name ||
-        (op as any).operation?.name ||
-        (op as any).metadata?.name ||
-        (op as any).operationName;
+        op.name ||
+        op.operation?.name ||
+        op.metadata?.name ||
+        op.operationName;
       if (!operationName) throw new Error(`Failed to get operation name from Veo. Raw op: ${JSON.stringify(op)}`);
 
       // Deduct credits now that Veo confirmed the job is queued (Admin bypass)
