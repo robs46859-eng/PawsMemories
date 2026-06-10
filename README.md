@@ -39,11 +39,40 @@ Tables are created automatically on boot (`initDb()`). The `users` table:
 | `password_hash` | scrypt salt:hash |
 | `full_name`, `birthdate`, `city` | filled in at profile completion |
 | `credits` | starts at 0, +50 on first profile completion |
+| `treats` | daily streak reward count, used to feed pet avatars |
 | `profile_complete` | `0` / `1` |
 | `is_admin` | `0` / `1` |
 | `created_at` | timestamp |
 
+The `avatars` table:
+
+| column | notes |
+| --- | --- |
+| `id` | auto‑increment primary key |
+| `user_phone` | links to the owner's `phone` |
+| `name` | custom name of the pet avatar |
+| `image_url` | URL of the avatar image (preset or generated) |
+| `food_level` | current food percentage (0-100, decays 5%/hr) |
+| `water_level` | current water percentage (0-100, decays 5%/hr) |
+| `last_fed` | timestamp of the last feeding action |
+| `last_watered` | timestamp of the last watering action |
+| `created_at` | timestamp |
+
 > The legacy Twilio/phone verification flow has been removed. The `phone` column is now just a stable internal key per user.
+
+## AI Pet Avatar & Tamagotchi System
+
+Paws & Memories features an interactive, Tamagotchi-style pet avatar system with the following mechanics:
+
+- **AI Avatar Creation**: Users can upload a photo of their pet or pick a preset dog, then choose an AI Avatar Style (e.g., Pixar-style 3D Render, Claymation, Anime, Watercolor). The image is styled using Google's `gemini-2.5-flash-image` (costs 40 credits).
+- **Life-like Biological Economy**: Avatars track their **Food** and **Water** levels. Both levels decay naturally over time (5% per hour). Users must feed and water their pets to keep them healthy.
+- **Daily Treats**: Claiming the daily login streak rewards users with virtual **Treats** in addition to credits. Treats can be fed to avatars for bonus food.
+- **3D Playpen Yard**: Displays pets in a grassy yard featuring:
+  - **3D Parallax Hover**: Moving your cursor tilts the yard dynamically in 3D space.
+  - **Idle Roaming**: Pets hop, roam, and flip directions automatically.
+  - **Action Drop Animations**: Feeding, watering, or giving a treat drops the item into the yard. The pet runs to it, eats it, displays happy emoji bursts, and then updates the database.
+  - **Tired & Trick States**: Low-energy pets move slower and show sleepy `💤` bubbles. Tapping a pet makes it perform a spin or jump trick.
+
 
 ## Project structure
 
