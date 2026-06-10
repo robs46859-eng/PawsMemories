@@ -1,4 +1,4 @@
-import { PublicUser, Creation, Album, LocationParams } from "./types";
+import { PublicUser, Creation, Album, LocationParams, Avatar } from "./types";
 
 /**
  * Lightweight API client that manages the session token and auth flow.
@@ -187,5 +187,49 @@ export async function createVideo(
 export async function pollJob(jobId: number): Promise<{ status: string; video_url?: string | null; error?: string | null }> {
   const res = await authedFetch(`/api/jobs/${jobId}`);
   if (!res.ok) throw new Error(await parseError(res, "Failed to poll job status."));
+  return await res.json();
+}
+
+// --- Avatars Flow ----------------------------------------------------------
+
+export async function fetchAvatars(): Promise<Avatar[]> {
+  try {
+    const res = await authedFetch("/api/avatars");
+    if (!res.ok) throw new Error("Failed to fetch avatars");
+    const data = await res.json();
+    return data.avatars || [];
+  } catch (err) {
+    console.error(err);
+    return [];
+  }
+}
+
+export async function createNewAvatar(name: string, image_url: string, style?: string): Promise<{ success: boolean; id?: number; imageUrl?: string }> {
+  const res = await authedFetch("/api/avatars", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, image_url, style }),
+  });
+  if (!res.ok) throw new Error(await parseError(res, "Failed to create avatar."));
+  return await res.json();
+}
+
+export async function feedAvatarReq(id: number): Promise<boolean> {
+  const res = await authedFetch(`/api/avatars/${id}/feed`, { method: "POST" });
+  if (!res.ok) throw new Error(await parseError(res, "Failed to feed avatar."));
+  const data = await res.json();
+  return data.success;
+}
+
+export async function waterAvatarReq(id: number): Promise<boolean> {
+  const res = await authedFetch(`/api/avatars/${id}/water`, { method: "POST" });
+  if (!res.ok) throw new Error(await parseError(res, "Failed to water avatar."));
+  const data = await res.json();
+  return data.success;
+}
+
+export async function giveTreatReq(id: number): Promise<{ success: boolean, user?: PublicUser }> {
+  const res = await authedFetch(`/api/avatars/${id}/treat`, { method: "POST" });
+  if (!res.ok) throw new Error(await parseError(res, "Failed to give treat."));
   return await res.json();
 }

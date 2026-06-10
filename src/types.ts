@@ -6,6 +6,7 @@ export enum Screen {
   ALBUM_VIEW = "ALBUM_VIEW",
   EDIT_MEMORY = "EDIT_MEMORY",
   SHARE_MEMORY = "SHARE_MEMORY",
+  AVATAR_DASHBOARD = "AVATAR_DASHBOARD",
 }
 
 export type StyleType = "Realistic" | "Sketch" | "Clay" | "Artistic" | "Anime" | "3D" | "Retro";
@@ -59,17 +60,18 @@ export interface UserProfile {
   fullName: string;
   email?: string;
   credits: number;
+  treats: number;
   isAdmin?: boolean;
   city?: string;
   ageVerified?: boolean;
 }
 
-/** User shape returned by the auth API. */
 export interface PublicUser {
   id: number;
   fullName: string;
   email: string;
   credits: number;
+  treats: number;
   city: string;
   birthdate: string;
   profileComplete: boolean;
@@ -102,5 +104,17 @@ export interface GenerationJob {
   status: "queued" | "running" | "done" | "failed";
   video_url?: string | null;
   error?: string | null;
+}
+
+export interface Avatar {
+  id: number;
+  user_phone: string;
+  name: string;
+  image_url: string;
+  food_level: number;
+  water_level: number;
+  last_fed: string;
+  last_watered: string;
+  created_at: string;
 }
 

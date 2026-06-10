@@ -9,10 +9,11 @@ import ShareMemory from "./components/ShareMemory";
 import RandyChat from "./components/RandyChat";
 import AlbumView from "./components/AlbumView";
 import { fetchMe, fetchCreations, fetchAlbums, createAlbum, clearToken, claimAchievement, claimDailyStreak } from "./api";
-import { Sparkles, User, History, FolderOpen, Sun, Moon, LogOut, RefreshCw, Zap } from "lucide-react";
+import { Sparkles, User, History, FolderOpen, Sun, Moon, LogOut, RefreshCw, Zap, Dog } from "lucide-react";
 import CreditStore from "./components/CreditStore";
+import AvatarDashboard from "./components/AvatarDashboard";
 
-const EMPTY_PROFILE: UserProfile = { fullName: "", email: "", credits: 0, isAdmin: false, city: "", ageVerified: false };
+const EMPTY_PROFILE: UserProfile = { fullName: "", email: "", credits: 0, treats: 0, isAdmin: false, city: "", ageVerified: false };
 
 export default function App() {
   // Auth gating state
@@ -107,6 +108,7 @@ export default function App() {
       fullName: user.fullName,
       email: user.email,
       credits: user.credits,
+      treats: user.treats,
       isAdmin: user.isAdmin,
       city: user.city,
     });
@@ -384,10 +386,20 @@ export default function App() {
               />
             )}
 
+            {currentScreen === Screen.AVATAR_DASHBOARD && (
+              <AvatarDashboard
+                userProfile={userProfile}
+                onUpdateUser={(updatedUser) => {
+                  applyUser(updatedUser);
+                }}
+                isDarkMode={isDarkMode}
+              />
+            )}
+
             {/* Safety net: if somehow on SIGN_UP while authed, send to dashboard */}
             {currentScreen === Screen.SIGN_UP && (
               <Dashboard
-                userProfile={userProfile}
+                userProfile={userProfile as PublicUser}
                 albums={albums}
                 creations={creations}
                 onAddMemory={() => setCurrentScreen(Screen.EDIT_MEMORY)}
@@ -411,7 +423,7 @@ export default function App() {
       </main>
 
       {/* Floating Bottom Navigator (only when signed in and past onboarding) */}
-      {isAuthed && [Screen.DASHBOARD, Screen.EDIT_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW].includes(currentScreen) && (
+      {isAuthed && [Screen.DASHBOARD, Screen.EDIT_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.AVATAR_DASHBOARD].includes(currentScreen) && (
         <div className="fixed bottom-0 left-0 right-0 bg-surface-container-lowest/90 backdrop-blur-md border-t border-outline-variant/30 py-2 px-6 flex justify-around items-center max-w-md mx-auto z-40 rounded-t-3xl soft-glow-shadow">
           <button
             onClick={() => setCurrentScreen(Screen.DASHBOARD)}
@@ -444,6 +456,16 @@ export default function App() {
           >
             <FolderOpen size={20} />
             <span className="text-[9px] uppercase tracking-wider font-extrabold">Albums</span>
+          </button>
+
+          <button
+            onClick={() => setCurrentScreen(Screen.AVATAR_DASHBOARD)}
+            className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-xl transition-all cursor-pointer ${
+              currentScreen === Screen.AVATAR_DASHBOARD ? "text-primary scale-103 font-bold" : "text-on-surface-variant opacity-75"
+            }`}
+          >
+            <Dog size={20} />
+            <span className="text-[9px] uppercase tracking-wider font-extrabold">Pets</span>
           </button>
         </div>
       )}

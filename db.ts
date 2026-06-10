@@ -41,8 +41,12 @@ export interface UserRow {
   birthdate: string | null;
   city: string | null;
   credits: number;
+  treats: number;
   profile_complete: number; // 0 | 1
   is_admin?: number; // 0 | 1
+  daily_streak?: number;
+  last_streak_claim?: string | null;
+  achievements_json?: string | null;
   created_at: string;
 }
 
@@ -52,6 +56,7 @@ export interface PublicUser {
   fullName: string;
   email: string;
   credits: number;
+  treats: number;
   city: string;
   birthdate: string;
   profileComplete: boolean;
@@ -75,6 +80,7 @@ export function toPublicUser(userRow: any): PublicUser {
     birthdate: userRow.birthdate || "",
     profileComplete: !!userRow.profile_complete,
     credits: userRow.credits,
+    treats: userRow.treats || 0,
     isAdmin: !!userRow.is_admin || (!!ADMIN_KEY && userRow.phone === ADMIN_KEY),
     dailyStreak: userRow.daily_streak || 0,
     lastStreakClaim: userRow.last_streak_claim || null,
@@ -99,6 +105,7 @@ export async function initDb(): Promise<void> {
         birthdate DATE NULL,
         city VARCHAR(120) NULL,
         credits INT NOT NULL DEFAULT 0,
+        treats INT NOT NULL DEFAULT 0,
         profile_complete TINYINT(1) NOT NULL DEFAULT 0,
         is_admin TINYINT(1) NOT NULL DEFAULT 0,
         daily_streak INT NOT NULL DEFAULT 0,
@@ -125,6 +132,7 @@ export async function initDb(): Promise<void> {
       { name: "birthdate",         ddl: "ADD COLUMN birthdate DATE NULL" },
       { name: "city",              ddl: "ADD COLUMN city VARCHAR(120) NULL" },
       { name: "credits",           ddl: "ADD COLUMN credits INT NOT NULL DEFAULT 0" },
+      { name: "treats",            ddl: "ADD COLUMN treats INT NOT NULL DEFAULT 0" },
       { name: "profile_complete",  ddl: "ADD COLUMN profile_complete TINYINT(1) NOT NULL DEFAULT 0" },
       { name: "is_admin",          ddl: "ADD COLUMN is_admin TINYINT(1) NOT NULL DEFAULT 0" },
       { name: "daily_streak",      ddl: "ADD COLUMN daily_streak INT NOT NULL DEFAULT 0" },
@@ -226,6 +234,22 @@ export async function initDb(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS avatars (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_phone VARCHAR(32) NOT NULL,
+        name VARCHAR(120) NOT NULL,
+        image_url TEXT NOT NULL,
+        food_level INT NOT NULL DEFAULT 100,
+        water_level INT NOT NULL DEFAULT 100,
+        last_fed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_watered TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX (user_phone),
+        FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
     // Migration check for creations table
     const [creationsCols] = await getPool().query(
       `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'creations'`,
@@ -248,7 +272,7 @@ export async function initDb(): Promise<void> {
       }
     }
 
-    console.log("✅ Users, creations, generation_jobs, and pets tables ready.");
+    console.log("✅ Users, creations, generation_jobs, pets, and avatars tables ready.");
 
     // Seed admin account from environment variables — no hardcoded credentials.
     // Admins log in through the normal email + password login screen.
@@ -316,7 +340,7 @@ export async function createUserByEmail(email: string, passwordHash: string): Pr
   const userKey = generateUserKey();
   try {
     await getPool().query(
-      "INSERT INTO users (phone, email, password_hash, credits, profile_complete) VALUES (?, ?, ?, 0, 0)",
+      "INSERT INTO users (phone, email, password_hash, credits, treats, profile_complete) VALUES (?, ?, ?, 0, 0, 0)",
       [userKey, email, passwordHash]
     );
   } catch (err: any) {
@@ -681,3 +705,113 @@ export async function deletePet(id: number, phone: string): Promise<boolean> {
   const [result] = await getPool().query(`DELETE FROM pets WHERE id = ? AND user_phone = ?`, [id, phone]) as any;
   return result.affectedRows === 1;
 }
+
+// ============================================================================
+// Avatars Helpers
+// ============================================================================
+
+export interface AvatarRow {
+  id: number;
+  user_phone: string;
+  name: string;
+  image_url: string;
+  food_level: number;
+  water_level: number;
+  last_fed: string;
+  last_watered: string;
+  created_at: string;
+}
+
+export async function createAvatar(phone: string, name: string, image_url: string): Promise<number> {
+  const [result] = await getPool().query(
+    `INSERT INTO avatars (user_phone, name, image_url) VALUES (?, ?, ?)`,
+    [phone, name, image_url]
+  ) as any;
+  return result.insertId;
+}
+
+export async function getAvatars(phone: string): Promise<AvatarRow[]> {
+  const [rows] = await getPool().query(`SELECT * FROM avatars WHERE user_phone = ? ORDER BY created_at ASC`, [phone]);
+  return rows as unknown as AvatarRow[];
+}
+
+export async function feedAvatar(id: number, phone: string): Promise<boolean> {
+  const [result] = await getPool().query(
+    `UPDATE avatars SET food_level = 100, last_fed = CURRENT_TIMESTAMP WHERE id = ? AND user_phone = ?`,
+    [id, phone]
+  ) as any;
+  return result.affectedRows === 1;
+}
+
+export async function waterAvatar(id: number, phone: string): Promise<boolean> {
+  const [result] = await getPool().query(
+    `UPDATE avatars SET water_level = 100, last_watered = CURRENT_TIMESTAMP WHERE id = ? AND user_phone = ?`,
+    [id, phone]
+  ) as any;
+  return result.affectedRows === 1;
+}
+
+export async function giveTreatToAvatar(id: number, phone: string): Promise<boolean> {
+  // Deduct 1 treat from user, if successful, feed the avatar by +20 (cap at 100)
+  const connection = await getPool().getConnection();
+  try {
+    await connection.beginTransaction();
+    const [updateUser] = await connection.query(
+      `UPDATE users SET treats = treats - 1 WHERE phone = ? AND treats >= 1`,
+      [phone]
+    ) as any;
+    
+    if (updateUser.affectedRows === 0) {
+      await connection.rollback();
+      return false; // Not enough treats
+    }
+    
+    await connection.query(
+      `UPDATE avatars SET food_level = LEAST(food_level + 20, 100) WHERE id = ? AND user_phone = ?`,
+      [id, phone]
+    );
+    
+    await connection.commit();
+    return true;
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    connection.release();
+  }
+}
+
+// Daily Streak with Treats
+export async function claimDailyStreak(phone: string): Promise<{success: boolean}> {
+  const user = await findUserByPhone(phone);
+  if (!user) return { success: false };
+
+  const today = new Date().toISOString().split('T')[0];
+  if (user.last_streak_claim && user.last_streak_claim.startsWith(today)) {
+    return { success: false }; // Already claimed today
+  }
+
+  // Determine if it's contiguous (yesterday)
+  let newStreak = 1;
+  if (user.last_streak_claim) {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    if (user.last_streak_claim.startsWith(yesterdayStr)) {
+      newStreak = (user.daily_streak || 0) + 1;
+    }
+  }
+
+  // Reward: 5 credits and 1 treat
+  await getPool().query(
+    `UPDATE users 
+     SET daily_streak = ?, 
+         last_streak_claim = ?, 
+         credits = credits + 5,
+         treats = treats + 1
+     WHERE phone = ?`,
+    [newStreak, today, phone]
+  );
+  return { success: true };
+}
+
