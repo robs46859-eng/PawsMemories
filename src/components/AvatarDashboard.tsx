@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Avatar, PublicUser, UserProfile } from "../types";
 import { fetchAvatars, createNewAvatar, feedAvatarReq, waterAvatarReq, giveTreatReq } from "../api";
 import CreateAvatarDialog from "./CreateAvatarDialog";
+import AvatarPlaypen from "./AvatarPlaypen";
 import { Plus, Coffee, Droplets, Bone, RefreshCw, Info } from "lucide-react";
 
 interface AvatarDashboardProps {
@@ -15,6 +16,9 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode 
   const [isLoading, setIsLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
+
+  // Tracks active animation triggers for each avatar
+  const [actionTriggers, setActionTriggers] = useState<Record<number, { type: "feed" | "water" | "treat"; timestamp: number } | null>>({});
 
   const loadAvatars = async () => {
     setIsLoading(true);
@@ -39,7 +43,18 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode 
     setCreating(false);
   };
 
-  const handleAction = async (actionType: "feed" | "water" | "treat", id: number) => {
+  // 1. Triggers the local animation in the playpen
+  const handleActionClick = (actionType: "feed" | "water" | "treat", id: number) => {
+    if (actionTriggers[id]) return; // Action already playing
+
+    setActionTriggers((prev) => ({
+      ...prev,
+      [id]: { type: actionType, timestamp: Date.now() },
+    }));
+  };
+
+  // 2. Executes the API call once the pet eats the dropped item
+  const handleActionComplete = async (actionType: "feed" | "water" | "treat", id: number) => {
     try {
       if (actionType === "feed") {
         await feedAvatarReq(id);
@@ -51,9 +66,15 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode 
           onUpdateUser(res.user);
         }
       }
-      await loadAvatars();
     } catch (err: any) {
       alert(err.message || "Action failed.");
+    } finally {
+      // Reset the trigger and reload avatar data from server
+      setActionTriggers((prev) => ({
+        ...prev,
+        [id]: null,
+      }));
+      await loadAvatars();
     }
   };
 
@@ -122,17 +143,24 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode 
             
             const isHungry = currentFood < 30;
             const isThirsty = currentWater < 30;
+            const isAnimating = !!actionTriggers[avatar.id];
 
             return (
               <div key={avatar.id} className="bg-surface-container rounded-3xl overflow-hidden shadow-lg border border-outline-variant/20 flex flex-col transition-all hover:-translate-y-1 hover:shadow-xl">
-                <div className="relative aspect-square">
-                  <img src={avatar.image_url} alt={avatar.name} className="w-full h-full object-cover" />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent pointer-events-none" />
-                  <h3 className="absolute bottom-4 left-4 text-white text-2xl font-black drop-shadow-md">
+                {/* 3D Playpen Yard */}
+                <div className="relative aspect-square bg-slate-900/5 dark:bg-slate-100/5">
+                  <AvatarPlaypen
+                    avatar={avatar}
+                    actionTrigger={actionTriggers[avatar.id] || null}
+                    onActionComplete={handleActionComplete}
+                    isDarkMode={isDarkMode}
+                  />
+                  <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/60 to-transparent pointer-events-none z-10" />
+                  <h3 className="absolute bottom-4 left-4 text-white text-2xl font-black drop-shadow-md z-20">
                     {avatar.name}
                   </h3>
                   {(isHungry || isThirsty) && (
-                    <div className="absolute top-4 right-4 bg-error text-white px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 shadow-lg animate-pulse">
+                    <div className="absolute top-4 right-4 bg-error text-white px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 shadow-lg animate-pulse z-20">
                       <Info size={12} /> Needs care!
                     </div>
                   )}
@@ -171,25 +199,25 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode 
                   {/* Action Buttons */}
                   <div className="grid grid-cols-3 gap-2 mt-2">
                     <button 
-                      onClick={() => handleAction("feed", avatar.id)}
-                      disabled={currentFood >= 100}
-                      className="flex flex-col items-center justify-center gap-1 bg-green-500/10 text-green-600 hover:bg-green-500/20 disabled:opacity-50 py-2 rounded-xl transition-colors"
+                      onClick={() => handleActionClick("feed", avatar.id)}
+                      disabled={currentFood >= 100 || isAnimating}
+                      className="flex flex-col items-center justify-center gap-1 bg-green-500/10 text-green-600 hover:bg-green-500/20 disabled:opacity-50 py-2 rounded-xl transition-colors cursor-pointer"
                     >
                       <Coffee size={16} />
                       <span className="text-[10px] font-black uppercase">Feed</span>
                     </button>
                     <button 
-                      onClick={() => handleAction("water", avatar.id)}
-                      disabled={currentWater >= 100}
-                      className="flex flex-col items-center justify-center gap-1 bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 disabled:opacity-50 py-2 rounded-xl transition-colors"
+                      onClick={() => handleActionClick("water", avatar.id)}
+                      disabled={currentWater >= 100 || isAnimating}
+                      className="flex flex-col items-center justify-center gap-1 bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 disabled:opacity-50 py-2 rounded-xl transition-colors cursor-pointer"
                     >
                       <Droplets size={16} />
                       <span className="text-[10px] font-black uppercase">Water</span>
                     </button>
                     <button 
-                      onClick={() => handleAction("treat", avatar.id)}
-                      disabled={userProfile.treats <= 0 || currentFood >= 100}
-                      className="flex flex-col items-center justify-center gap-1 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 disabled:opacity-50 py-2 rounded-xl transition-colors relative"
+                      onClick={() => handleActionClick("treat", avatar.id)}
+                      disabled={userProfile.treats <= 0 || currentFood >= 100 || isAnimating}
+                      className="flex flex-col items-center justify-center gap-1 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 disabled:opacity-50 py-2 rounded-xl transition-colors relative cursor-pointer"
                     >
                       <Bone size={16} />
                       <span className="text-[10px] font-black uppercase">Treat</span>
