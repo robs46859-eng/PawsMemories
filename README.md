@@ -10,9 +10,10 @@ Live site: https://mypets.cc
 - **Backend:** Node 22 + Express 4 (single `server.ts`, bundled to `dist/server.cjs` with esbuild)
 - **Auth:** Email + password with JWT session tokens (passwords hashed with scrypt)
 - **Database:** MySQL (via `mysql2`) for the user store
-- **AI:** Google Gemini for chat (`@google/genai`), Imagen for stills, Veo for video
-- **Payments:** Stripe Checkout (physical album orders + credit packs) with webhook verification
-- **Hosting:** Hostinger, auto‑deployed from the `main` branch on every GitHub push
+- **AI / 3D:** Google Gemini for chat, Imagen for stills, Veo for video. Blender 3D via dedicated `bpy` microservice.
+- **Payments:** Stripe Checkout (memory requests, physical album orders, credit packs) with webhook verification
+- **Notifications:** Twilio SMS for notifying users when their memory requests are fulfilled
+- **Hosting:** Hostinger for main app. Render.com for the Blender microservice.
 
 ## How it fits together
 
@@ -60,11 +61,20 @@ The `avatars` table:
 
 > The legacy Twilio/phone verification flow has been removed. The `phone` column is now just a stable internal key per user.
 
+### Memory Requests & Admin Fulfillment
+
+Direct AI generation of photos and videos is restricted to **Admins**. Regular users must use the **Request a Memory** flow:
+1. User submits a request (specifying photo or video, style tier, and instructions).
+2. User pays upfront flat rates via **Stripe Checkout**.
+3. Admin receives the pending request in the **Admin Dashboard**, and generates the photo/video using the premium AI tools.
+4. Admin clicks "Fulfill", which clones the generated creation to the user's gallery and sends an automated **Twilio SMS** to notify the user.
+
 ## AI Pet Avatar & Tamagotchi System
 
 Paws & Memories features an interactive, Tamagotchi-style pet avatar system with the following mechanics:
 
-- **AI Avatar Creation**: Users can upload a photo of their pet or pick a preset dog, then choose an AI Avatar Style (e.g., Pixar-style 3D Render, Claymation, Anime, Watercolor). The image is styled using Google's `gemini-2.5-flash-image` (costs 40 credits).
+- **Blender Scripting Engine**: Instead of simple image uploads, users configure their avatars by writing **Blender Python scripts (`bpy`)** in a dedicated code editor UI. 
+- **Microservice Architecture**: Because the main app runs on Hostinger shared hosting, the `bpy` scripts are sent securely via HTTP to a dedicated Docker microservice (`blender-worker`) running on Render, which safely executes the render and returns the 3D Avatar.
 - **Life-like Biological Economy**: Avatars track their **Food** and **Water** levels. Both levels decay naturally over time (5% per hour). Users must feed and water their pets to keep them healthy.
 - **Daily Treats**: Claiming the daily login streak rewards users with virtual **Treats** in addition to credits. Treats can be fed to avatars for bonus food.
 - **3D Playpen Yard**: Displays pets in a grassy yard featuring:
@@ -81,7 +91,8 @@ server.ts          Express app: static hosting + /api routes + Stripe webhook
 auth.ts            Email/password helpers, JWT sign/verify, requireAuth middleware
 db.ts              MySQL pool, table init, user/account CRUD helpers
 src/               React frontend (App, components, api client, types)
-  components/      SignUp, Dashboard, EditMemory, OrderAlbumModal, RandyChat, ...
+  components/      SignUp, Dashboard, EditMemory, RequestMemory, AdminRequestPanel, ...
+blender-worker/    Standalone Express + Docker microservice for running Blender scripts
 dist/              Build output (vite assets + server.cjs)
 .env.example       Documented environment variables
 ```
@@ -102,6 +113,8 @@ Set these in Hostinger (Website → Environment variables) for production, or in
 | `GOOGLE_MAPS_API_KEY_SERVER` | Server‑side Street View (IP‑restricted key) |
 | `VITE_GOOGLE_MAPS_API_KEY_BROWSER` | Browser Maps/Places (HTTP‑referrer‑restricted key) |
 | `MEDIA_BUCKET_NAME` / `MEDIA_BUCKET_URL` / `MEDIA_BUCKET_KEY` / `MEDIA_BUCKET_SECRET` | Object storage for generated media |
+| `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_PHONE_NUMBER` | Twilio SMS API for request fulfillment notifications |
+| `BLENDER_WORKER_URL` | URL to the separate blender microservice (e.g. `https://pawsmemories.onrender.com/render`) |
 
 > **Hostinger note:** set `DB_HOST` to `127.0.0.1`, not `localhost`. On Node 18+, `mysql2` resolves `localhost` to IPv6 (`::1`), which the Hostinger MySQL user grant does not cover — causing `Access denied … @'::1'`. Forcing IPv4 with `127.0.0.1` resolves it.
 
