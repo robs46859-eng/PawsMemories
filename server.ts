@@ -390,40 +390,32 @@ async function startServer() {
         }
       }
 
-      // Generate temp paths
-      const tempId = crypto.randomUUID();
-      const scriptPath = path.join(os.tmpdir(), `avatar_${tempId}.py`);
-      const outputPath = path.join(os.tmpdir(), `avatar_${tempId}.png`);
+      // Offload to Render Microservice
+      const workerUrl = process.env.BLENDER_WORKER_URL || "http://localhost:10000/render";
+      console.log(`Sending script to Blender worker at ${workerUrl}`);
 
-      // Override the output path in the script
-      let modifiedScript = python_script;
-      modifiedScript = modifiedScript.replace(/output_path\s*=\s*.+/g, `output_path = r"${outputPath}"`);
+      const workerRes = await fetch(workerUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ python_script })
+      });
 
-      // Write script to temp directory
-      fs.writeFileSync(scriptPath, modifiedScript, 'utf8');
-
-      // Execute blender
-      try {
-        execSync(`blender --background --python "${scriptPath}"`, { stdio: 'inherit' });
-      } catch (blenderErr) {
-        console.error("Blender execution failed:", blenderErr);
-        if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath);
-        return res.status(500).json({ error: "Avatar generation failed during rendering." });
+      if (!workerRes.ok) {
+        let errorMsg = "Avatar generation failed during rendering.";
+        try {
+          const errData = await workerRes.json();
+          if (errData.error) errorMsg = errData.error;
+        } catch (e) {}
+        console.error("Worker error:", errorMsg);
+        return res.status(500).json({ error: errorMsg });
       }
 
-      // Read output image
-      if (!fs.existsSync(outputPath)) {
-        if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath);
-        return res.status(500).json({ error: "Avatar generation failed: No image was outputted." });
+      const workerData = await workerRes.json();
+      if (!workerData.success || !workerData.image_base64) {
+        return res.status(500).json({ error: "Worker returned invalid response." });
       }
 
-      const imageBuffer = fs.readFileSync(outputPath);
-      const base64Data = imageBuffer.toString("base64");
-      const finalImageUrl = `data:image/png;base64,\${base64Data}`;
-
-      // Clean up temp files
-      fs.unlinkSync(scriptPath);
-      fs.unlinkSync(outputPath);
+      const finalImageUrl = workerData.image_base64;
 
       // Upload to storage
       let uploadedUrl = finalImageUrl;
