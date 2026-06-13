@@ -204,11 +204,11 @@ export async function fetchAvatars(): Promise<Avatar[]> {
   }
 }
 
-export async function createNewAvatar(name: string, image_url: string, style?: string): Promise<{ success: boolean; id?: number; imageUrl?: string }> {
+export async function createNewAvatar(name: string, python_script: string): Promise<{ success: boolean; id?: number; imageUrl?: string }> {
   const res = await authedFetch("/api/avatars", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, image_url, style }),
+    body: JSON.stringify({ name, python_script }),
   });
   if (!res.ok) throw new Error(await parseError(res, "Failed to create avatar."));
   return await res.json();

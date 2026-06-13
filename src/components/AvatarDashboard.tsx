@@ -31,10 +31,10 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode 
     loadAvatars();
   }, []);
 
-  const handleCreate = async (name: string, imageUrl: string, style?: string) => {
+  const handleCreateAvatar = async (name: string, python_script: string) => {
     setCreating(true);
     try {
-      await createNewAvatar(name, imageUrl, style);
+      await createNewAvatar(name, python_script);
       setShowCreate(false);
       await loadAvatars();
     } catch (err: any) {
@@ -235,7 +235,7 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode 
         <CreateAvatarDialog
           isDarkMode={isDarkMode}
           onClose={() => setShowCreate(false)}
-          onSubmit={handleCreate}
+          onSubmit={handleCreateAvatar}
         />
       )}
       

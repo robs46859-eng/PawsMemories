@@ -5,6 +5,9 @@ import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import Stripe from "stripe";
 import fs from "fs";
+import os from "os";
+import crypto from "crypto";
+import { execSync } from "child_process";
 import twilio from "twilio";
 import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, getPool, createPhotoRequest, getPhotoRequests, getAllPhotoRequests, getPhotoRequest, markPhotoRequestPaid, fulfillPhotoRequest, rejectPhotoRequest, getPhotoRequestByStripeSession } from "./db";
 import { uploadBase64Image } from "./storage";
@@ -375,103 +378,68 @@ async function startServer() {
 
   app.post("/api/avatars", requireAuth, async (req: AuthedRequest, res) => {
     try {
-      const { name, image_url, style } = req.body;
-      if (!name || !image_url) return res.status(400).json({ error: "Name and image_url required." });
+      const { name, python_script } = req.body;
+      if (!name || !python_script) return res.status(400).json({ error: "Name and python_script required." });
       
-      let finalImageUrl = image_url;
-
-      // AI Restyling if it's an uploaded image or a preset that the user wants restyled
-      if (style) {
-        // Charge 40 credits for AI restyling
-        const GENERATION_COST = 40;
-        const isAdmin = await isUserAdmin(req.user!.phone);
-        if (!isAdmin) {
-          const currentBalance = await getCreditBalance(req.user!.phone);
-          if (currentBalance < GENERATION_COST) {
-            return res.status(402).json({ error: `Insufficient credits. You need ${GENERATION_COST} credits for AI generation.` });
-          }
-        }
-
-        let base64Data = "";
-        let mimeType = "image/jpeg";
-        
-        if (image_url.startsWith("data:image")) {
-          const matches = image_url.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
-          if (matches && matches.length >= 3) {
-            mimeType = matches[1];
-            base64Data = matches[2];
-          }
-        } else {
-          // It's a URL (e.g. preset), we need to fetch it and convert to base64
-          try {
-            const fetchRes = await fetch(image_url);
-            const buffer = await fetchRes.arrayBuffer();
-            base64Data = Buffer.from(buffer).toString("base64");
-            mimeType = fetchRes.headers.get("content-type") || "image/jpeg";
-          } catch (err) {
-            console.error("Failed to fetch preset image for AI generation:", err);
-          }
-        }
-
-        if (base64Data) {
-          let promptText = `Turn this pet into a beautiful digital virtual pet avatar named ${name}.`;
-          if (style === "Clay") promptText += " Style in high-quality claymation / clay-render / clay model illustration with visible tactile clay textures. Whimsical and charming.";
-          else if (style === "Sketch") promptText += " Delicate charcoal and pencil sketch style with expressive artistic hand-drawn strokes.";
-          else if (style === "Artistic") promptText += " Magical, dreamy watercolor painting style with beautiful color bleed.";
-          else if (style === "Anime") promptText += " Styled in beautiful vibrant Japanese anime art style, resembling Studio Ghibli, with lush colorful backgrounds.";
-          else if (style === "3D") promptText += " Styled as a cute Pixar-like 3D computer graphics render, high fidelity, soft rim lighting, highly detailed and expressive.";
-          else if (style === "Retro") promptText += " Styled in 1980s retro synthwave aesthetic, neon colors, lo-fi VHS tape grain.";
-          else promptText += " Hyper-realistic professional pet portrait.";
-
-          promptText += " The image must convey an empathetic, nostalgic, warm, and highly nurturing aesthetic, perfect for a Tamagotchi-like virtual pet game. Respond with only the generated image.";
-
-          try {
-            const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "placeholder-key" });
-            const response = await ai.models.generateContent({
-              model: 'gemini-2.5-flash-image',
-              contents: {
-                parts: [
-                  { inlineData: { data: base64Data, mimeType } },
-                  { text: promptText },
-                ],
-              },
-              config: { imageConfig: { aspectRatio: "1:1" } }
-            });
-
-            let generatedBase64: string | null = null;
-            if (response.candidates && response.candidates[0]?.content?.parts) {
-              for (const part of response.candidates[0].content.parts) {
-                if (part.inlineData) {
-                  generatedBase64 = `data:image/png;base64,${part.inlineData.data}`;
-                  break;
-                }
-              }
-            }
-
-            if (generatedBase64) {
-              if (!isAdmin) {
-                await deductCredits(req.user!.phone, GENERATION_COST);
-              }
-              finalImageUrl = generatedBase64;
-            }
-          } catch (aiErr) {
-            console.error("AI Avatar Generation failed:", aiErr);
-            return res.status(500).json({ error: "AI generation failed. Please try again." });
-          }
+      const GENERATION_COST = 40;
+      const isAdmin = await isUserAdmin(req.user!.phone);
+      if (!isAdmin) {
+        const currentBalance = await getCreditBalance(req.user!.phone);
+        if (currentBalance < GENERATION_COST) {
+          return res.status(402).json({ error: `Insufficient credits. You need ${GENERATION_COST} credits to generate an avatar.` });
         }
       }
 
-      // If it's a base64 string (either uploaded directly or generated by AI), upload it to storage
-      if (finalImageUrl.startsWith("data:image")) {
-        try {
-          finalImageUrl = await uploadBase64Image(finalImageUrl);
-        } catch (uploadErr) {
-          console.error("Failed to upload avatar to storage:", uploadErr);
-        }
+      // Generate temp paths
+      const tempId = crypto.randomUUID();
+      const scriptPath = path.join(os.tmpdir(), `avatar_${tempId}.py`);
+      const outputPath = path.join(os.tmpdir(), `avatar_${tempId}.png`);
+
+      // Override the output path in the script
+      let modifiedScript = python_script;
+      modifiedScript = modifiedScript.replace(/output_path\s*=\s*.+/g, `output_path = r"${outputPath}"`);
+
+      // Write script to temp directory
+      fs.writeFileSync(scriptPath, modifiedScript, 'utf8');
+
+      // Execute blender
+      try {
+        execSync(`blender --background --python "${scriptPath}"`, { stdio: 'inherit' });
+      } catch (blenderErr) {
+        console.error("Blender execution failed:", blenderErr);
+        if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath);
+        return res.status(500).json({ error: "Avatar generation failed during rendering." });
       }
 
-      const id = await createAvatar(req.user!.phone, name, finalImageUrl);
-      res.json({ success: true, id, imageUrl: finalImageUrl });
+      // Read output image
+      if (!fs.existsSync(outputPath)) {
+        if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath);
+        return res.status(500).json({ error: "Avatar generation failed: No image was outputted." });
+      }
+
+      const imageBuffer = fs.readFileSync(outputPath);
+      const base64Data = imageBuffer.toString("base64");
+      const finalImageUrl = `data:image/png;base64,\${base64Data}`;
+
+      // Clean up temp files
+      fs.unlinkSync(scriptPath);
+      fs.unlinkSync(outputPath);
+
+      // Upload to storage
+      let uploadedUrl = finalImageUrl;
+      try {
+        uploadedUrl = await uploadBase64Image(finalImageUrl);
+      } catch (uploadErr) {
+        console.error("Failed to upload avatar to storage:", uploadErr);
+      }
+
+      // Deduct credits
+      if (!isAdmin) {
+        await deductCredits(req.user!.phone, GENERATION_COST);
+      }
+
+      const id = await createAvatar(req.user!.phone, name, uploadedUrl);
+      res.json({ success: true, id, imageUrl: uploadedUrl });
     } catch (err: any) {
       console.error("Failed to create avatar:", err);
       res.status(500).json({ error: "Failed to create avatar." });
