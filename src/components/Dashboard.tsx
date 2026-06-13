@@ -19,6 +19,7 @@ interface DashboardProps {
   dailyStreakClaimed: boolean;
   onSelectAlbum: (album: Album) => void;
   onCreateAlbum: (name: string) => Promise<void>;
+  onOpenAdminPanel?: () => void;
 }
 
 export default function Dashboard({
@@ -36,6 +37,7 @@ export default function Dashboard({
   dailyStreakClaimed,
   onSelectAlbum,
   onCreateAlbum,
+  onOpenAdminPanel,
 }: DashboardProps) {
   const [dailyClaimed, setDailyClaimed] = useState(false);
   const [createAlbumName, setCreateAlbumName] = useState("");
@@ -259,20 +261,52 @@ export default function Dashboard({
           <div className="absolute bottom-0 p-6 w-full flex justify-between items-end">
             <div>
               <span className="inline-block px-3 py-1 bg-secondary text-white rounded-full text-[10px] font-bold uppercase tracking-wider mb-2">
-                Premium AI
+                {userProfile.isAdmin ? "Admin AI" : "Handcrafted"}
               </span>
-              <h3 className="text-xl font-bold text-white mb-0.5">New Memory</h3>
-              <p className="text-white/80 text-xs font-medium">Transform a photo into an AI masterpiece</p>
+              <h3 className="text-xl font-bold text-white mb-0.5">
+                {userProfile.isAdmin ? "New Memory" : "Request a Memory"}
+              </h3>
+              <p className="text-white/80 text-xs font-medium">
+                {userProfile.isAdmin
+                  ? "Generate directly with AI — admin mode"
+                  : "Submit a request & our team personally crafts it"}
+              </p>
             </div>
             
             <div className="flex flex-col items-end">
-              <span className="text-[11px] font-bold text-secondary-container mb-1 tracking-wider">40cr</span>
+              <span className="text-[11px] font-bold text-secondary-container mb-1 tracking-wider">
+                {userProfile.isAdmin ? "Admin" : "From $2.99"}
+              </span>
               <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center text-primary shadow-md group-hover:scale-110 transition-transform active:scale-95">
                 <Plus size={24} />
               </div>
             </div>
           </div>
         </div>
+
+        {/* Admin: Review Requests button */}
+        {userProfile.isAdmin && onOpenAdminPanel && (
+          <div
+            onClick={onOpenAdminPanel}
+            className="group relative overflow-hidden rounded-3xl border-2 border-secondary/40 bg-secondary/5 shadow-sm flex flex-col justify-between p-6 cursor-pointer hover:border-secondary/70 hover:bg-secondary/10 transition-all"
+          >
+            <div>
+              <div className="w-12 h-12 bg-secondary/15 rounded-2xl flex items-center justify-center mb-4 text-secondary">
+                <Sparkles size={24} />
+              </div>
+              <h3 className="text-xl font-bold text-on-surface">Review Requests</h3>
+              <p className="text-on-surface-variant text-xs mt-1 leading-relaxed">
+                View pending user requests, generate their memories, and send results
+              </p>
+            </div>
+            <div className="flex justify-between items-center mt-6">
+              <span className="text-sm font-bold text-secondary">Admin Panel</span>
+              <div className="px-4 py-2 bg-secondary text-white rounded-full text-xs font-bold shadow-sm group-hover:bg-secondary/90 transition-all">
+                Open →
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* New Album CTA */}
         <div className="group relative overflow-hidden rounded-3xl border border-outline-variant/30 bg-surface-container shadow-sm flex flex-col justify-between p-6">
@@ -658,7 +692,7 @@ export default function Dashboard({
                       </div>
                     </div>
                     
-                    {creation.media_type === "still" && !animating && (
+                    {creation.media_type === "still" && !animating && userProfile.isAdmin && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -667,7 +701,7 @@ export default function Dashboard({
                         className="mt-2 w-full py-1.5 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer"
                       >
                         <Video size={10} />
-                        Animate (250cr)
+                        Animate (Admin)
                       </button>
                     )}
                     

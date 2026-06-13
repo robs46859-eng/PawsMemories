@@ -250,6 +250,28 @@ export async function initDb(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS photo_requests (
+        id                INT AUTO_INCREMENT PRIMARY KEY,
+        user_phone        VARCHAR(32) NOT NULL,
+        request_type      ENUM('photo_standard','photo_premium','video_standard','video_premium') NOT NULL,
+        comment           TEXT NOT NULL,
+        photo_url         TEXT NULL,
+        result_url        TEXT NULL,
+        creation_id       INT NULL,
+        status            ENUM('pending','fulfilled','rejected') NOT NULL DEFAULT 'pending',
+        stripe_session_id VARCHAR(255) NULL,
+        paid              TINYINT(1) NOT NULL DEFAULT 0,
+        amount_paid       DECIMAL(6,2) NULL,
+        admin_notes       TEXT NULL,
+        created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX (user_phone),
+        INDEX (status),
+        FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
     // Migration check for creations table
     const [creationsCols] = await getPool().query(
       `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'creations'`,
@@ -272,7 +294,7 @@ export async function initDb(): Promise<void> {
       }
     }
 
-    console.log("✅ Users, creations, generation_jobs, pets, and avatars tables ready.");
+    console.log("✅ Users, creations, generation_jobs, pets, avatars, and photo_requests tables ready.");
 
     // Seed admin account from environment variables — no hardcoded credentials.
     // Admins log in through the normal email + password login screen.
@@ -815,3 +837,122 @@ export async function claimDailyStreak(phone: string): Promise<{success: boolean
   return { success: true };
 }
 
+// ============================================================================
+// Photo Requests Helpers
+// ============================================================================
+
+export interface PhotoRequestRow {
+  id: number;
+  user_phone: string;
+  request_type: 'photo_standard' | 'photo_premium' | 'video_standard' | 'video_premium';
+  comment: string;
+  photo_url: string | null;
+  result_url: string | null;
+  creation_id: number | null;
+  status: 'pending' | 'fulfilled' | 'rejected';
+  stripe_session_id: string | null;
+  paid: number; // 0 | 1
+  amount_paid: number | null;
+  admin_notes: string | null;
+  created_at: string;
+  updated_at: string;
+  // Joined fields (admin view only)
+  user_full_name?: string | null;
+  user_email?: string | null;
+}
+
+export async function createPhotoRequest(data: {
+  user_phone: string;
+  request_type: 'photo_standard' | 'photo_premium' | 'video_standard' | 'video_premium';
+  comment: string;
+  photo_url?: string | null;
+  stripe_session_id?: string | null;
+  amount_paid?: number | null;
+}): Promise<number> {
+  const [result] = await getPool().query(
+    `INSERT INTO photo_requests (user_phone, request_type, comment, photo_url, stripe_session_id, amount_paid, status, paid)
+     VALUES (?, ?, ?, ?, ?, ?, 'pending', 0)`,
+    [
+      data.user_phone,
+      data.request_type,
+      data.comment,
+      data.photo_url || null,
+      data.stripe_session_id || null,
+      data.amount_paid || null,
+    ]
+  ) as any;
+  return result.insertId;
+}
+
+export async function getPhotoRequests(phone: string): Promise<PhotoRequestRow[]> {
+  const [rows] = await getPool().query(
+    `SELECT * FROM photo_requests WHERE user_phone = ? ORDER BY created_at DESC`,
+    [phone]
+  );
+  return rows as unknown as PhotoRequestRow[];
+}
+
+export async function getAllPhotoRequests(): Promise<PhotoRequestRow[]> {
+  const [rows] = await getPool().query(
+    `SELECT pr.*, u.full_name as user_full_name, u.email as user_email
+     FROM photo_requests pr
+     LEFT JOIN users u ON u.phone = pr.user_phone
+     ORDER BY pr.created_at DESC`
+  );
+  return rows as unknown as PhotoRequestRow[];
+}
+
+export async function getPhotoRequest(id: number): Promise<PhotoRequestRow | null> {
+  const [rows] = await getPool().query(
+    `SELECT pr.*, u.full_name as user_full_name, u.email as user_email
+     FROM photo_requests pr
+     LEFT JOIN users u ON u.phone = pr.user_phone
+     WHERE pr.id = ? LIMIT 1`,
+    [id]
+  );
+  const arr = rows as unknown as PhotoRequestRow[];
+  return arr.length ? arr[0] : null;
+}
+
+export async function markPhotoRequestPaid(
+  stripeSessionId: string,
+  amountPaid: number
+): Promise<PhotoRequestRow | null> {
+  await getPool().query(
+    `UPDATE photo_requests SET paid = 1, amount_paid = ? WHERE stripe_session_id = ? AND paid = 0`,
+    [amountPaid, stripeSessionId]
+  );
+  return getPhotoRequestByStripeSession(stripeSessionId);
+}
+
+export async function fulfillPhotoRequest(
+  id: number,
+  creationId: number,
+  resultUrl: string
+): Promise<boolean> {
+  const [result] = await getPool().query(
+    `UPDATE photo_requests SET status = 'fulfilled', creation_id = ?, result_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+    [creationId, resultUrl, id]
+  ) as any;
+  return result.affectedRows === 1;
+}
+
+export async function rejectPhotoRequest(
+  id: number,
+  adminNotes?: string | null
+): Promise<boolean> {
+  const [result] = await getPool().query(
+    `UPDATE photo_requests SET status = 'rejected', admin_notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+    [adminNotes || null, id]
+  ) as any;
+  return result.affectedRows === 1;
+}
+
+export async function getPhotoRequestByStripeSession(sessionId: string): Promise<PhotoRequestRow | null> {
+  const [rows] = await getPool().query(
+    `SELECT * FROM photo_requests WHERE stripe_session_id = ? LIMIT 1`,
+    [sessionId]
+  );
+  const arr = rows as unknown as PhotoRequestRow[];
+  return arr.length ? arr[0] : null;
+}

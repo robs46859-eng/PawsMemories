@@ -5,7 +5,8 @@ import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import Stripe from "stripe";
 import fs from "fs";
-import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, getPool } from "./db";
+import twilio from "twilio";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, getPool, createPhotoRequest, getPhotoRequests, getAllPhotoRequests, getPhotoRequest, markPhotoRequestPaid, fulfillPhotoRequest, rejectPhotoRequest, getPhotoRequestByStripeSession } from "./db";
 import { uploadBase64Image } from "./storage";
 import { createAvatar, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar } from "./db";
 import { BACKGROUND_PROMPTS } from "./src/backgrounds";
@@ -76,6 +77,34 @@ async function startServer() {
     } catch (err: any) {
       console.error(`Webhook signature verification failed: ${err.message}`);
       return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    // Handle photo_request_payment: mark request as paid and send Twilio SMS
+    if (event.type === "checkout.session.completed") {
+      const session = event.data.object as Stripe.Checkout.Session;
+      const metadata = session.metadata || {};
+
+      if (metadata.type === "photo_request_payment" && session.payment_status === "paid") {
+        const amountPaid = (session.amount_total || 0) / 100;
+        const request = await markPhotoRequestPaid(session.id, amountPaid);
+        if (request) {
+          console.log(`✅ Photo request #${request.id} marked paid ($${amountPaid}).`);
+          // Notify user via SMS
+          try {
+            const twilioClient = (global as any).__twilioClient;
+            if (twilioClient && process.env.TWILIO_PHONE_NUMBER && metadata.userPhone) {
+              const user = await findUserByPhone(metadata.userPhone);
+              await twilioClient.messages.create({
+                body: `🐾 Paws & Memories: Your ${metadata.request_label || 'memory'} request has been received and paid! We'll craft it personally and notify you when it's ready.`,
+                from: process.env.TWILIO_PHONE_NUMBER,
+                to: metadata.userPhone,
+              });
+            }
+          } catch (smsErr) {
+            console.warn('Photo request paid SMS failed (non-fatal):', smsErr);
+          }
+        }
+      }
     }
 
     const handleSuccessfulPayment = async (session: Stripe.Checkout.Session) => {
@@ -482,6 +511,49 @@ async function startServer() {
   });
 
 
+  // Initialize Twilio client for SMS notifications
+  let twilioClient: ReturnType<typeof twilio> | null = null;
+  if (
+    process.env.TWILIO_ACCOUNT_SID &&
+    process.env.TWILIO_AUTH_TOKEN &&
+    process.env.TWILIO_PHONE_NUMBER
+  ) {
+    try {
+      twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+      (global as any).__twilioClient = twilioClient;
+      console.log('✅ Twilio SMS client initialized.');
+    } catch (err) {
+      console.warn('⚠️ Twilio client failed to initialize (non-fatal):', err);
+    }
+  } else {
+    console.warn('⚠️ TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_PHONE_NUMBER not set. SMS notifications disabled.');
+  }
+
+  // Helper: send SMS notification (fire-and-forget, non-fatal)
+  async function sendSms(to: string, body: string): Promise<void> {
+    if (!twilioClient || !process.env.TWILIO_PHONE_NUMBER) return;
+    try {
+      await twilioClient.messages.create({ body, from: process.env.TWILIO_PHONE_NUMBER!, to });
+    } catch (err) {
+      console.warn('SMS send failed (non-fatal):', err);
+    }
+  }
+
+  // Flat-rate pricing for photo/video requests (USD)
+  const REQUEST_PRICES: Record<string, number> = {
+    photo_standard: 2.99,
+    photo_premium:  4.99,
+    video_standard: 7.99,
+    video_premium:  12.99,
+  };
+
+  const REQUEST_LABELS: Record<string, string> = {
+    photo_standard: 'Standard Photo',
+    photo_premium:  'Premium Photo',
+    video_standard: 'Standard Video',
+    video_premium:  'Premium Video',
+  };
+
   // Initialize Gemini API
   const apiKey = process.env.GEMINI_API_KEY;
   const ai = new GoogleGenAI({
@@ -691,26 +763,23 @@ async function startServer() {
 
   app.post("/api/create-creation", requireAuth, async (req, res) => {
     try {
+      // Admin-only: direct AI generation is restricted to admin accounts.
+      // Regular users submit requests via POST /api/photo-requests instead.
+      const authedReq = req as AuthedRequest;
+      const userPhone = authedReq.user!.phone;
+      const isAdmin = await isUserAdmin(userPhone);
+      if (!isAdmin) {
+        return res.status(403).json({
+          success: false,
+          error: "Direct AI generation is admin-only. Please submit a request through the Request a Memory form."
+        });
+      }
+
       if (!apiKey || apiKey === "placeholder-key" || apiKey === "MY_GEMINI_API_KEY") {
         throw new Error("Missing or invalid GEMINI_API_KEY. Please configure your Gemini API key in the AI Studio Secrets panel.");
       }
 
-      const authedReq = req as AuthedRequest;
-      const userPhone = authedReq.user!.phone;
       const GENERATION_COST = 40;
-
-      // Fix 2: Server-side credit check + atomic deduction before calling AI
-      // Admin bypass: skip credit checks for developer phone number
-      const isAdmin = await isUserAdmin(userPhone);
-      if (!isAdmin) {
-        const currentBalance = await getCreditBalance(userPhone);
-        if (currentBalance < GENERATION_COST) {
-          return res.status(402).json({
-            success: false,
-            error: `Insufficient credits. You need ${GENERATION_COST} credits but only have ${currentBalance}. Purchase more credits to continue.`
-          });
-        }
-      }
 
       const { style, background, photo, breed, name, brightness, contrast, location } = req.body;
       
@@ -1369,19 +1438,13 @@ async function startServer() {
 
       const userPhone = req.user!.phone;
       const isAdmin = await isUserAdmin(userPhone);
-      
-      // Phase 4: Rate limit check (Admin bypass)
+
+      // Admin-only: direct video generation is restricted to admin accounts.
       if (!isAdmin) {
-        const dailyCount = await getDailyVideoCount(userPhone);
-        if (dailyCount >= MAX_DAILY_VIDEOS) {
-          return res.status(429).json({ success: false, error: `Daily video limit reached (${MAX_DAILY_VIDEOS}/day). Please try again tomorrow.` });
-        }
-        
-        // 1. Check balance
-        const balance = await getCreditBalance(userPhone);
-        if (balance < VIDEO_COST) {
-          return res.status(429).json({ success: false, error: `Insufficient credits. You need ${VIDEO_COST} credits.` });
-        }
+        return res.status(403).json({
+          success: false,
+          error: "Direct video generation is admin-only. Please submit a request through the Request a Memory form."
+        });
       }
 
       // 2. Fetch creation to get the image
@@ -1679,6 +1742,235 @@ async function startServer() {
         success: true, 
         text: "My furry ears drooped a bit because my signal got tangled in the leash *whines softly*. Could you try asking me again, friend? (And make sure your Gemini API key is configured correctly in Settings > Secrets!)" 
       });
+    }
+  });
+
+  // --- Photo Requests Endpoints ---
+
+  // POST /api/photo-requests — user submits a memory request with upfront Stripe payment
+  app.post("/api/photo-requests", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { request_type, comment, photo } = req.body;
+
+      if (!request_type || !REQUEST_PRICES[request_type]) {
+        return res.status(400).json({ success: false, error: "Invalid request_type. Must be photo_standard, photo_premium, video_standard, or video_premium." });
+      }
+      if (!comment || comment.trim().length < 10) {
+        return res.status(400).json({ success: false, error: "Please describe what you'd like (at least 10 characters)." });
+      }
+
+      const userPhone = req.user!.phone;
+      const price = REQUEST_PRICES[request_type];
+      const label = REQUEST_LABELS[request_type];
+      const appUrl = process.env.APP_URL || "http://localhost:3000";
+
+      // Upload photo to object storage if provided
+      let photoUrl: string | null = null;
+      if (photo && photo.startsWith("data:image")) {
+        try {
+          photoUrl = await uploadBase64Image(photo);
+        } catch (uploadErr) {
+          console.warn("Failed to upload request photo to storage (non-fatal):", uploadErr);
+          photoUrl = photo; // fall back to base64 in DB
+        }
+      }
+
+      // Sandbox mode — no Stripe
+      if (!stripe) {
+        const requestId = await createPhotoRequest({
+          user_phone: userPhone,
+          request_type: request_type as any,
+          comment: comment.trim(),
+          photo_url: photoUrl,
+          stripe_session_id: null,
+          amount_paid: price,
+        });
+        // Auto-mark as paid in sandbox
+        await (async () => {
+          const { getPool: gp } = await import("./db");
+          await gp().query(`UPDATE photo_requests SET paid = 1 WHERE id = ?`, [requestId]);
+        })();
+        const simulatedUrl = `${appUrl}/?request_success=true&request_id=${requestId}`;
+        return res.json({ success: true, requestId, checkoutUrl: simulatedUrl, mode: "sandbox" });
+      }
+
+      // Create Stripe Checkout session first (session id needed for DB row)
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ["card"],
+        line_items: [{
+          price_data: {
+            currency: "usd",
+            product_data: {
+              name: `Paws & Memories — ${label}`,
+              description: `Custom AI pet ${request_type.startsWith('video') ? 'video' : 'photo'} created personally for you`,
+            },
+            unit_amount: Math.round(price * 100),
+          },
+          quantity: 1,
+        }],
+        mode: "payment",
+        metadata: {
+          type: "photo_request_payment",
+          userPhone,
+          request_label: label,
+        },
+        success_url: `${appUrl}/?request_success=true`,
+        cancel_url: `${appUrl}/?request_cancelled=true`,
+      });
+
+      // Create request row now with the session id
+      const requestId = await createPhotoRequest({
+        user_phone: userPhone,
+        request_type: request_type as any,
+        comment: comment.trim(),
+        photo_url: photoUrl,
+        stripe_session_id: session.id,
+        amount_paid: price,
+      });
+
+      // Update session metadata with the new requestId
+      await stripe.checkout.sessions.update(session.id, {
+        metadata: {
+          type: "photo_request_payment",
+          userPhone,
+          request_label: label,
+          requestId: String(requestId),
+        }
+      });
+
+      return res.json({ success: true, requestId, checkoutUrl: session.url, mode: "live_stripe" });
+    } catch (err: any) {
+      console.error("Error creating photo request:", err);
+      res.status(500).json({ success: false, error: err.message || "Failed to submit request." });
+    }
+  });
+
+  // GET /api/photo-requests — user's own requests
+  app.get("/api/photo-requests", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const requests = await getPhotoRequests(req.user!.phone);
+      res.json({ success: true, requests });
+    } catch (err: any) {
+      console.error("Error fetching photo requests:", err);
+      res.status(500).json({ success: false, error: "Failed to fetch your requests." });
+    }
+  });
+
+  // GET /api/admin/photo-requests — admin view of all requests
+  app.get("/api/admin/photo-requests", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const isAdmin = await isUserAdmin(req.user!.phone);
+      if (!isAdmin) return res.status(403).json({ success: false, error: "Admin only." });
+      const requests = await getAllPhotoRequests();
+      res.json({ success: true, requests });
+    } catch (err: any) {
+      console.error("Error fetching all photo requests:", err);
+      res.status(500).json({ success: false, error: "Failed to fetch requests." });
+    }
+  });
+
+  // PUT /api/admin/photo-requests/:id/fulfill — admin fulfills a request
+  // Body: { creationId } — the ID of the creation generated for this user
+  app.put("/api/admin/photo-requests/:id/fulfill", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const isAdmin = await isUserAdmin(req.user!.phone);
+      if (!isAdmin) return res.status(403).json({ success: false, error: "Admin only." });
+
+      const requestId = parseInt(req.params.id, 10);
+      const { creationId } = req.body;
+      if (!creationId) return res.status(400).json({ success: false, error: "creationId is required." });
+
+      const request = await getPhotoRequest(requestId);
+      if (!request) return res.status(404).json({ success: false, error: "Request not found." });
+      if (request.status !== 'pending') return res.status(400).json({ success: false, error: `Request is already ${request.status}.` });
+
+      // Fetch the creation to get the result URL and reassign to user
+      const adminCreations = await getCreations(req.user!.phone);
+      const creation = adminCreations.find((c: any) => c.id === creationId);
+      if (!creation) return res.status(404).json({ success: false, error: "Creation not found." });
+
+      // Clone the creation to the requesting user's account
+      const userCreationId = await saveCreation({
+        user_phone: request.user_phone,
+        media_type: creation.media_type,
+        style: creation.style,
+        backdrop_kind: creation.backdrop_kind,
+        preset_name: creation.preset_name,
+        sv_lat: creation.sv_lat,
+        sv_lng: creation.sv_lng,
+        sv_heading: creation.sv_heading,
+        sv_pitch: creation.sv_pitch,
+        sv_fov: creation.sv_fov,
+        place_label: creation.place_label,
+        image_url: creation.image_url,
+        video_url: creation.video_url,
+        pet_name: creation.pet_name,
+        pet_breed: creation.pet_breed,
+      });
+
+      const resultUrl = creation.video_url || creation.image_url || "";
+      await fulfillPhotoRequest(requestId, userCreationId, resultUrl);
+
+      // Send SMS notification to user
+      const user = await findUserByPhone(request.user_phone);
+      if (user) {
+        const userName = user.full_name ? user.full_name.split(' ')[0] : 'there';
+        const mediaType = creation.video_url ? 'video' : 'photo';
+        await sendSms(
+          request.user_phone,
+          `🐾 Paws & Memories: Great news, ${userName}! Your custom ${mediaType} is ready! Open the app and check your gallery to see your creation. 🌟`
+        );
+      }
+
+      res.json({ success: true, userCreationId });
+    } catch (err: any) {
+      console.error("Error fulfilling photo request:", err);
+      res.status(500).json({ success: false, error: err.message || "Failed to fulfill request." });
+    }
+  });
+
+  // PUT /api/admin/photo-requests/:id/reject — admin rejects a request and refunds via Stripe
+  app.put("/api/admin/photo-requests/:id/reject", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const isAdmin = await isUserAdmin(req.user!.phone);
+      if (!isAdmin) return res.status(403).json({ success: false, error: "Admin only." });
+
+      const requestId = parseInt(req.params.id, 10);
+      const { adminNotes } = req.body;
+
+      const request = await getPhotoRequest(requestId);
+      if (!request) return res.status(404).json({ success: false, error: "Request not found." });
+      if (request.status !== 'pending') return res.status(400).json({ success: false, error: `Request is already ${request.status}.` });
+
+      // Issue Stripe refund if there's a session and Stripe is configured
+      if (stripe && request.stripe_session_id && request.paid) {
+        try {
+          const session = await stripe.checkout.sessions.retrieve(request.stripe_session_id);
+          if (session.payment_intent) {
+            await stripe.refunds.create({ payment_intent: session.payment_intent as string });
+            console.log(`✅ Stripe refund issued for request #${requestId}`);
+          }
+        } catch (refundErr) {
+          console.warn(`⚠️ Stripe refund failed for request #${requestId} (non-fatal):`, refundErr);
+        }
+      }
+
+      await rejectPhotoRequest(requestId, adminNotes || null);
+
+      // Notify user of rejection via SMS
+      const user = await findUserByPhone(request.user_phone);
+      if (user) {
+        const userName = user.full_name ? user.full_name.split(' ')[0] : 'there';
+        await sendSms(
+          request.user_phone,
+          `🐾 Paws & Memories: Hi ${userName}, unfortunately we were unable to fulfill your recent memory request${adminNotes ? ': ' + adminNotes : '. Please reach out if you have questions'}. A full refund has been issued.`
+        );
+      }
+
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("Error rejecting photo request:", err);
+      res.status(500).json({ success: false, error: err.message || "Failed to reject request." });
     }
   });
 

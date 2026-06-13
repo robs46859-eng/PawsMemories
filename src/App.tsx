@@ -5,11 +5,13 @@ import Welcome from "./components/Welcome";
 import Tutorial from "./components/Tutorial";
 import Dashboard from "./components/Dashboard";
 import EditMemory from "./components/EditMemory";
+import RequestMemory from "./components/RequestMemory";
+import AdminRequestPanel from "./components/AdminRequestPanel";
 import ShareMemory from "./components/ShareMemory";
 import RandyChat from "./components/RandyChat";
 import AlbumView from "./components/AlbumView";
 import { fetchMe, fetchCreations, fetchAlbums, createAlbum, clearToken, claimAchievement, claimDailyStreak } from "./api";
-import { Sparkles, User, History, FolderOpen, Sun, Moon, LogOut, RefreshCw, Zap, Dog } from "lucide-react";
+import { Sparkles, User, History, FolderOpen, Sun, Moon, LogOut, RefreshCw, Zap, Dog, ClipboardList, Bell } from "lucide-react";
 import CreditStore from "./components/CreditStore";
 import AvatarDashboard from "./components/AvatarDashboard";
 
@@ -27,6 +29,8 @@ export default function App() {
   const [successOrderSessionId, setSuccessOrderSessionId] = useState("");
   const [showCreditStore, setShowCreditStore] = useState(false);
   const [creditSuccessMsg, setCreditSuccessMsg] = useState("");
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [requestSuccessMsg, setRequestSuccessMsg] = useState("");
 
   const [albums, setAlbums] = useState<Album[]>([]);
   const [creations, setCreations] = useState<Creation[]>([]);
@@ -99,6 +103,18 @@ export default function App() {
       window.history.replaceState({}, document.title, window.location.pathname);
       setTimeout(() => setCreditSuccessMsg(""), 5000);
     } else if (params.get("credits_cancelled") === "true") {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+
+  // Handle photo request success/cancel redirects
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("request_success") === "true") {
+      setRequestSuccessMsg("✅ Your memory request has been submitted and payment received! We'll notify you by SMS when it's ready.");
+      window.history.replaceState({}, document.title, window.location.pathname);
+      setTimeout(() => setRequestSuccessMsg(""), 8000);
+    } else if (params.get("request_cancelled") === "true") {
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, []);
@@ -335,7 +351,7 @@ export default function App() {
                 userProfile={userProfile}
                 albums={albums}
                 creations={creations}
-                onAddMemory={() => setCurrentScreen(Screen.EDIT_MEMORY)}
+                onAddMemory={() => setCurrentScreen(userProfile.isAdmin ? Screen.EDIT_MEMORY : Screen.REQUEST_MEMORY)}
                 onClaimDailyBonus={handleClaimDailyBonus}
                 onShareCompleted={handleShareCompleted}
                 onSelectCreation={handleSelectCreation}
@@ -349,10 +365,11 @@ export default function App() {
                   setCurrentScreen(Screen.ALBUM_VIEW);
                 }}
                 onCreateAlbum={handleCreateAlbum}
+                onOpenAdminPanel={userProfile.isAdmin ? () => setShowAdminPanel(true) : undefined}
               />
             )}
 
-            {currentScreen === Screen.EDIT_MEMORY && (
+            {currentScreen === Screen.EDIT_MEMORY && userProfile.isAdmin && (
               <EditMemory
                 credits={userProfile.credits}
                 isAdmin={userProfile.isAdmin}
@@ -363,6 +380,21 @@ export default function App() {
                 onNavigateBack={() => setCurrentScreen(Screen.DASHBOARD)}
                 onUnlockAchievement={handleUnlockAchievement}
                 userCity={userProfile.city}
+              />
+            )}
+
+            {/* Non-admin users who somehow reach EDIT_MEMORY are bounced to REQUEST_MEMORY */}
+            {currentScreen === Screen.EDIT_MEMORY && !userProfile.isAdmin && (
+              <RequestMemory
+                onNavigateBack={() => setCurrentScreen(Screen.DASHBOARD)}
+                onUnlockAchievement={handleUnlockAchievement}
+              />
+            )}
+
+            {currentScreen === Screen.REQUEST_MEMORY && (
+              <RequestMemory
+                onNavigateBack={() => setCurrentScreen(Screen.DASHBOARD)}
+                onUnlockAchievement={handleUnlockAchievement}
               />
             )}
 
@@ -402,7 +434,7 @@ export default function App() {
                 userProfile={userProfile as PublicUser}
                 albums={albums}
                 creations={creations}
-                onAddMemory={() => setCurrentScreen(Screen.EDIT_MEMORY)}
+                onAddMemory={() => setCurrentScreen(userProfile.isAdmin ? Screen.EDIT_MEMORY : Screen.REQUEST_MEMORY)}
                 onClaimDailyBonus={handleClaimDailyBonus}
                 onShareCompleted={handleShareCompleted}
                 onSelectCreation={handleSelectCreation}
@@ -416,6 +448,7 @@ export default function App() {
                   setCurrentScreen(Screen.ALBUM_VIEW);
                 }}
                 onCreateAlbum={handleCreateAlbum}
+                onOpenAdminPanel={userProfile.isAdmin ? () => setShowAdminPanel(true) : undefined}
               />
             )}
           </>
@@ -423,7 +456,7 @@ export default function App() {
       </main>
 
       {/* Floating Bottom Navigator (only when signed in and past onboarding) */}
-      {isAuthed && [Screen.DASHBOARD, Screen.EDIT_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.AVATAR_DASHBOARD].includes(currentScreen) && (
+      {isAuthed && [Screen.DASHBOARD, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.AVATAR_DASHBOARD].includes(currentScreen) && (
         <div className="fixed bottom-0 left-0 right-0 bg-surface-container-lowest/90 backdrop-blur-md border-t border-outline-variant/30 py-2 px-6 flex justify-around items-center max-w-md mx-auto z-40 rounded-t-3xl soft-glow-shadow">
           <button
             onClick={() => setCurrentScreen(Screen.DASHBOARD)}
@@ -436,18 +469,17 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => setCurrentScreen(Screen.EDIT_MEMORY)}
+            onClick={() => setCurrentScreen(userProfile.isAdmin ? Screen.EDIT_MEMORY : Screen.REQUEST_MEMORY)}
             className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-xl transition-all cursor-pointer ${
-              currentScreen === Screen.EDIT_MEMORY ? "text-primary scale-103 font-bold" : "text-on-surface-variant opacity-75"
+              currentScreen === Screen.EDIT_MEMORY || currentScreen === Screen.REQUEST_MEMORY ? "text-primary scale-103 font-bold" : "text-on-surface-variant opacity-75"
             }`}
           >
             <Sparkles size={20} />
-            <span className="text-[9px] uppercase tracking-wider font-extrabold">Create</span>
+            <span className="text-[9px] uppercase tracking-wider font-extrabold">{userProfile.isAdmin ? "Create" : "Request"}</span>
           </button>
 
           <button
             onClick={() => {
-              // Usually toggles a sheet or scrolls down, for now go to Dashboard
               setCurrentScreen(Screen.DASHBOARD);
             }}
             className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-xl transition-all cursor-pointer ${
@@ -473,6 +505,14 @@ export default function App() {
       {/* Randy AI-chat bubble companion (only for signed-in users) */}
       {isAuthed && <RandyChat onUnlockAchievement={handleUnlockAchievement} isDarkMode={isDarkMode} />}
 
+      {/* Request success toast */}
+      {requestSuccessMsg && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 text-white px-5 py-3 rounded-2xl shadow-xl text-sm font-bold animate-fade-in flex items-center gap-2 max-w-sm text-center">
+          <Bell size={16} />
+          {requestSuccessMsg}
+        </div>
+      )}
+
       {/* Credit success toast */}
       {creditSuccessMsg && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-primary text-white px-5 py-3 rounded-2xl shadow-xl text-sm font-bold animate-fade-in flex items-center gap-2">
@@ -486,6 +526,16 @@ export default function App() {
         <CreditStore
           currentCredits={userProfile.credits}
           onClose={() => setShowCreditStore(false)}
+        />
+      )}
+
+      {/* Admin Request Panel */}
+      {showAdminPanel && userProfile.isAdmin && (
+        <AdminRequestPanel
+          onClose={() => setShowAdminPanel(false)}
+          onGenerateForRequest={(photoUrl, comment) => {
+            setCurrentScreen(Screen.EDIT_MEMORY);
+          }}
         />
       )}
 

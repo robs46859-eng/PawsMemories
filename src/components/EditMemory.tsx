@@ -315,6 +315,32 @@ export default function EditMemory({
     }
   };
 
+  // ── Admin guard ──────────────────────────────────────────────────────────
+  // Direct AI generation is restricted to admin accounts. Non-admin users
+  // should use the Request a Memory flow instead. This guard stops the UI
+  // from rendering even if the router lets a non-admin reach this screen.
+  if (!isAdmin) {
+    return (
+      <div className="w-full max-w-md mx-auto px-4 py-12 flex flex-col items-center text-center space-y-6 animate-fade-in">
+        <div className="w-24 h-24 bg-error-container rounded-full flex items-center justify-center">
+          <span className="text-5xl">🔒</span>
+        </div>
+        <div>
+          <h2 className="text-xl font-extrabold text-on-surface mb-2">Admin Only</h2>
+          <p className="text-sm text-on-surface-variant leading-relaxed max-w-xs">
+            Direct AI generation is restricted to admins. Use <strong>Request a Memory</strong> to commission a custom creation.
+          </p>
+        </div>
+        <button
+          onClick={onNavigateBack}
+          className="px-8 py-3 bg-primary text-white rounded-2xl font-bold text-sm shadow-md hover:bg-primary/95 active:scale-[0.98] transition-all cursor-pointer"
+        >
+          ← Back to Dashboard
+        </button>
+      </div>
+    );
+  }
+
   if (generatedResult) {
     return (
       <div className="w-full max-w-md mx-auto px-4 py-6 space-y-6 flex flex-col items-center animate-fade-in">
@@ -349,7 +375,7 @@ export default function EditMemory({
         </p>
 
         <div className="w-full space-y-3 mt-4">
-          {!generatedResult.video_url && (
+          {!generatedResult.video_url && isAdmin && (
             <div className="space-y-3">
               {/* Motion preset picker */}
               <div className="space-y-2">

@@ -12,10 +12,10 @@ interface CreditPack {
 }
 
 const PACKS: CreditPack[] = [
-  { id: "pack_100",  credits: 100,  price: 1.99,  label: "Starter Pack",  badge: "2 creations" },
-  { id: "pack_300",  credits: 300,  price: 4.99,  label: "Popular Pack",  badge: "7 creations", highlight: true },
-  { id: "pack_700",  credits: 700,  price: 9.99,  label: "Pro Pack",       badge: "17 creations" },
-  { id: "pack_1500", credits: 1500, price: 17.99, label: "Studio Pack",    badge: "37 creations + album" },
+  { id: "pack_100",  credits: 100,  price: 1.99,  label: "Starter Pack",  badge: "2 Avatar styles" },
+  { id: "pack_300",  credits: 300,  price: 4.99,  label: "Popular Pack",  badge: "7 Avatar styles", highlight: true },
+  { id: "pack_700",  credits: 700,  price: 9.99,  label: "Pro Pack",       badge: "17 Avatar styles" },
+  { id: "pack_1500", credits: 1500, price: 17.99, label: "Studio Pack",    badge: "37 Avatar styles + album" },
 ];
 
 interface CreditStoreProps {
@@ -72,7 +72,7 @@ export default function CreditStore({ onClose, currentCredits }: CreditStoreProp
         <div className="bg-primary/5 border border-primary/15 rounded-2xl px-4 py-3 mb-5 flex items-center gap-3">
           <Sparkles size={16} className="text-primary shrink-0" />
           <p className="text-xs text-primary leading-relaxed font-medium">
-            Every <strong>40 credits</strong> = 1 AI pet creation. Every <strong>800 credits</strong> = 1 physical printed album.
+            Credits power your <strong>AI Avatar</strong> features — every <strong>40 credits</strong> = 1 Avatar restyle. For photo &amp; video memories, use the <strong>Request a Memory</strong> form.
           </p>
         </div>
 

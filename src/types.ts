@@ -7,6 +7,7 @@ export enum Screen {
   EDIT_MEMORY = "EDIT_MEMORY",
   SHARE_MEMORY = "SHARE_MEMORY",
   AVATAR_DASHBOARD = "AVATAR_DASHBOARD",
+  REQUEST_MEMORY = "REQUEST_MEMORY",
 }
 
 export type StyleType = "Realistic" | "Sketch" | "Clay" | "Artistic" | "Anime" | "3D" | "Retro";
@@ -118,3 +119,24 @@ export interface Avatar {
   created_at: string;
 }
 
+export type RequestType = 'photo_standard' | 'photo_premium' | 'video_standard' | 'video_premium';
+export type RequestStatus = 'pending' | 'fulfilled' | 'rejected';
+
+export interface PhotoRequest {
+  id: number;
+  user_phone?: string;
+  request_type: RequestType;
+  comment: string;
+  photo_url: string | null;
+  result_url: string | null;
+  creation_id: number | null;
+  status: RequestStatus;
+  paid: number;
+  amount_paid: number | null;
+  admin_notes?: string | null;
+  created_at: string;
+  updated_at?: string;
+  // Admin-joined fields
+  user_full_name?: string | null;
+  user_email?: string | null;
+}

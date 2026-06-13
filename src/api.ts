@@ -1,4 +1,4 @@
-import { PublicUser, Creation, Album, LocationParams, Avatar } from "./types";
+import { PublicUser, Creation, Album, LocationParams, Avatar, PhotoRequest, RequestType } from "./types";
 
 /**
  * Lightweight API client that manages the session token and auth flow.
@@ -231,5 +231,76 @@ export async function waterAvatarReq(id: number): Promise<boolean> {
 export async function giveTreatReq(id: number): Promise<{ success: boolean, user?: PublicUser }> {
   const res = await authedFetch(`/api/avatars/${id}/treat`, { method: "POST" });
   if (!res.ok) throw new Error(await parseError(res, "Failed to give treat."));
+  return await res.json();
+}
+
+// --- Photo Requests Flow ---------------------------------------------------
+
+/** Submit a photo/video memory request with upfront Stripe payment. */
+export async function submitPhotoRequest(
+  request_type: RequestType,
+  comment: string,
+  photo?: string | null
+): Promise<{ requestId: number; checkoutUrl: string; mode: string }> {
+  const res = await authedFetch("/api/photo-requests", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ request_type, comment, photo: photo || null }),
+  });
+  if (!res.ok) throw new Error(await parseError(res, "Failed to submit request."));
+  return await res.json();
+}
+
+/** Fetch the current user's photo/video requests. */
+export async function fetchMyRequests(): Promise<PhotoRequest[]> {
+  try {
+    const res = await authedFetch("/api/photo-requests");
+    if (!res.ok) throw new Error("Failed to fetch requests");
+    const data = await res.json();
+    return data.requests || [];
+  } catch (err) {
+    console.error(err);
+    return [];
+  }
+}
+
+/** Admin: fetch all photo/video requests. */
+export async function fetchAdminRequests(): Promise<PhotoRequest[]> {
+  try {
+    const res = await authedFetch("/api/admin/photo-requests");
+    if (!res.ok) throw new Error("Failed to fetch admin requests");
+    const data = await res.json();
+    return data.requests || [];
+  } catch (err) {
+    console.error(err);
+    return [];
+  }
+}
+
+/** Admin: fulfill a request by linking a generation result. */
+export async function fulfillRequest(
+  requestId: number,
+  creationId: number
+): Promise<{ success: boolean; userCreationId?: number }> {
+  const res = await authedFetch(`/api/admin/photo-requests/${requestId}/fulfill`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ creationId }),
+  });
+  if (!res.ok) throw new Error(await parseError(res, "Failed to fulfill request."));
+  return await res.json();
+}
+
+/** Admin: reject a request and trigger Stripe refund. */
+export async function rejectRequest(
+  requestId: number,
+  adminNotes?: string
+): Promise<{ success: boolean }> {
+  const res = await authedFetch(`/api/admin/photo-requests/${requestId}/reject`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ adminNotes }),
+  });
+  if (!res.ok) throw new Error(await parseError(res, "Failed to reject request."));
   return await res.json();
 }
