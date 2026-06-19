@@ -90,13 +90,28 @@ async function uploadImageToSpace(imageBase64: string): Promise<string> {
     throw new Error(`HuggingFace upload failed (${uploadRes.status}): ${errText}`);
   }
 
-  const uploadData = (await uploadRes.json()) as GradioUploadResult[];
-  if (!uploadData || !uploadData[0]?.path) {
+  const uploadData = await uploadRes.json();
+  let uploadedPath = "";
+
+  if (Array.isArray(uploadData) && uploadData.length > 0) {
+    if (typeof uploadData[0] === "string") {
+      uploadedPath = uploadData[0];
+    } else if (uploadData[0]?.path) {
+      uploadedPath = uploadData[0].path;
+    }
+  } else if (typeof uploadData === "string") {
+    uploadedPath = uploadData;
+  } else if (uploadData && typeof uploadData === "object" && uploadData.path) {
+    uploadedPath = uploadData.path;
+  }
+
+  if (!uploadedPath) {
+    console.error("[HF-3D] Upload returned unexpected format:", uploadData);
     throw new Error("HuggingFace upload returned no file path");
   }
 
-  console.log(`[HF-3D] Image uploaded to Space: ${uploadData[0].path}`);
-  return uploadData[0].path;
+  console.log(`[HF-3D] Image uploaded to Space: ${uploadedPath}`);
+  return uploadedPath;
 }
 
 /**
