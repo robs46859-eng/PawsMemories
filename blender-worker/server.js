@@ -44,7 +44,7 @@ app.post("/render", async (req, res) => {
     // Execute blender in the background
     console.log(`[Job ${tempId}] Running Blender CLI...`);
     try {
-      execSync(`blender --background --python "${scriptPath}"`, { stdio: 'pipe' });
+      execSync(`blender --background --python-exit-code 1 --python "${scriptPath}"`, { stdio: 'pipe' });
     } catch (blenderErr) {
       console.error(`[Job ${tempId}] Blender execution failed:`, blenderErr.message);
       if (blenderErr.stdout) console.error("Stdout:", blenderErr.stdout.toString());
@@ -170,7 +170,7 @@ print("[Rig] RIGGING_EXPORT_COMPLETE")
     // Execute Blender
     console.log(`[Rig ${tempId}] Running Blender CLI for rigging...`);
     try {
-      const stdout = execSync(`blender --background --python "${scriptPath}"`, {
+      const stdout = execSync(`blender --background --python-exit-code 1 --python "${scriptPath}"`, {
         stdio: 'pipe',
         timeout: 120000, // 2 minute timeout
       });
@@ -179,7 +179,8 @@ print("[Rig] RIGGING_EXPORT_COMPLETE")
       console.error(`[Rig ${tempId}] Blender rigging failed:`, blenderErr.message);
       if (blenderErr.stdout) console.error("Stdout:", blenderErr.stdout.toString().slice(-1000));
       if (blenderErr.stderr) console.error("Stderr:", blenderErr.stderr.toString().slice(-1000));
-      return res.status(500).json({ error: "Blender rigging failed. The AI-generated script may have errors." });
+      const stderrStr = blenderErr.stderr ? blenderErr.stderr.toString().slice(-1000) : "";
+      return res.status(500).json({ error: `Blender rigging failed. Script error: ${stderrStr}` });
     }
 
     // Check output
@@ -366,7 +367,7 @@ print("[Sprites] SPRITE_BAKE_COMPLETE")
     // Execute Blender
     console.log(`[Sprites ${tempId}] Running Blender CLI for sprite baking...`);
     try {
-      const stdout = execSync(`blender --background --python "${scriptPath}"`, {
+      const stdout = execSync(`blender --background --python-exit-code 1 --python "${scriptPath}"`, {
         stdio: 'pipe',
         timeout: 180000, // 3 minute timeout
       });
@@ -375,7 +376,8 @@ print("[Sprites] SPRITE_BAKE_COMPLETE")
       console.error(`[Sprites ${tempId}] Blender sprite bake failed:`, blenderErr.message);
       if (blenderErr.stdout) console.error("Stdout:", blenderErr.stdout.toString().slice(-1000));
       if (blenderErr.stderr) console.error("Stderr:", blenderErr.stderr.toString().slice(-1000));
-      return res.status(500).json({ error: "Blender sprite baking failed." });
+      const stderrStr = blenderErr.stderr ? blenderErr.stderr.toString().slice(-1000) : "";
+      return res.status(500).json({ error: `Blender sprite baking failed. Script error: ${stderrStr}` });
     }
 
     // Read sprite sheet
