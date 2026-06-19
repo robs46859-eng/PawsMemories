@@ -7,6 +7,11 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# Fix numpy 1.24+ compatibility issue in Blender's gltf importer (np.bool, np.float, np.int were removed)
+RUN find /usr/share/blender/scripts/addons/io_scene_gltf2/ -type f -name "*.py" -exec sed -i 's/np\.bool/bool/g' {} + || true
+RUN find /usr/share/blender/scripts/addons/io_scene_gltf2/ -type f -name "*.py" -exec sed -i 's/np\.float/float/g' {} + || true
+RUN find /usr/share/blender/scripts/addons/io_scene_gltf2/ -type f -name "*.py" -exec sed -i 's/np\.int/int/g' {} + || true
+
 # Set the working directory in the container
 WORKDIR /app
 
