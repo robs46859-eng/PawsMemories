@@ -8,9 +8,10 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Fix numpy 1.24+ compatibility issue in Blender's gltf importer (np.bool, np.float, np.int were removed)
-RUN find /usr/share/blender/scripts/addons/io_scene_gltf2/ -type f -name "*.py" -exec sed -i 's/np\.bool/bool/g' {} + || true
-RUN find /usr/share/blender/scripts/addons/io_scene_gltf2/ -type f -name "*.py" -exec sed -i 's/np\.float/float/g' {} + || true
-RUN find /usr/share/blender/scripts/addons/io_scene_gltf2/ -type f -name "*.py" -exec sed -i 's/np\.int/int/g' {} + || true
+# IMPORTANT: Use word-boundary matching so np.float32, np.int64, np.bool_ etc. are NOT corrupted
+RUN find /usr/share/blender/scripts/addons/io_scene_gltf2/ -type f -name "*.py" -exec sed -Ei 's/\bnp\.bool\b/bool/g' {} + || true
+RUN find /usr/share/blender/scripts/addons/io_scene_gltf2/ -type f -name "*.py" -exec sed -Ei 's/\bnp\.float\b/float/g' {} + || true
+RUN find /usr/share/blender/scripts/addons/io_scene_gltf2/ -type f -name "*.py" -exec sed -Ei 's/\bnp\.int\b/int/g' {} + || true
 
 # Set the working directory in the container
 WORKDIR /app
