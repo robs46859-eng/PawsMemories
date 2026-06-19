@@ -62,6 +62,25 @@ function extractJson<T>(text: string): T {
   throw new Error(`Could not extract JSON from AI response: ${text.slice(0, 200)}`);
 }
 
+/**
+ * Wraps Gemini API calls with exponential backoff to handle 503 "High Demand" errors.
+ */
+async function generateContentWithRetry(ai: any, request: any, maxRetries = 3) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await ai.models.generateContent(request);
+    } catch (err: any) {
+      if (err.status === 503 && i < maxRetries - 1) {
+        const waitTime = Math.pow(2, i) * 2000;
+        console.warn(`[AI Agent] Gemini 503 High Demand Error. Retrying in ${waitTime}ms...`);
+        await new Promise(r => setTimeout(r, waitTime));
+      } else {
+        throw err;
+      }
+    }
+  }
+}
+
 // =============================================================================
 // Public API
 // =============================================================================
@@ -114,7 +133,7 @@ Return ONLY the JSON object.`;
       cleanBase64 = match[2];
     }
 
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithRetry(ai, {
       model: 'gemini-2.5-flash',
       contents: [
         {
@@ -197,7 +216,7 @@ The script must:
 IMPORTANT: Return ONLY the Python code, no markdown fences, no explanations. Start with "import bpy".`;
 
   const ai = getAiClient();
-  const response = await ai.models.generateContent({
+  const response = await generateContentWithRetry(ai, {
     model: 'gemini-2.5-flash', // Using 2.5-flash for compatibility
     contents: prompt,
     config: { temperature: 0.1 }
@@ -294,7 +313,7 @@ ACTION 6 - "photo" (4 frames at 8fps):
 IMPORTANT: Return ONLY the Python code. Start with "import bpy".`;
 
   const ai = getAiClient();
-  const response = await ai.models.generateContent({
+  const response = await generateContentWithRetry(ai, {
     model: 'gemini-2.5-flash',
     contents: prompt,
     config: { temperature: 0.1 }
