@@ -70,34 +70,19 @@ async function uploadImageToSpace(imageBase64: string): Promise<string> {
   const ext = mimeType.includes("png") ? "png" : mimeType.includes("webp") ? "webp" : "jpg";
   const filename = `pet_photo.${ext}`;
 
-  // Gradio's upload endpoint accepts multipart/form-data
-  const formBoundary = `----FormBoundary${Date.now()}`;
-  const formParts: Buffer[] = [];
+  // Use native FormData (available in Node 18+)
+  const formData = new FormData();
+  formData.append("files", new Blob([imageBuffer], { type: mimeType }), filename);
 
-  // Build multipart body manually (no external dependency needed)
-  const fileHeader = [
-    `--${formBoundary}`,
-    `Content-Disposition: form-data; name="files"; filename="${filename}"`,
-    `Content-Type: ${mimeType}`,
-    "",
-    "",
-  ].join("\r\n");
-
-  formParts.push(Buffer.from(fileHeader, "utf-8"));
-  formParts.push(imageBuffer);
-  formParts.push(Buffer.from(`\r\n--${formBoundary}--\r\n`, "utf-8"));
-
-  const formBody = Buffer.concat(formParts);
+  const headers: Record<string, string> = {};
+  if (process.env.HUGGINGFACE_TOKEN) {
+    headers["Authorization"] = `Bearer ${process.env.HUGGINGFACE_TOKEN}`;
+  }
 
   const uploadRes = await fetch(`${spaceUrl}/upload`, {
     method: "POST",
-    headers: {
-      "Content-Type": `multipart/form-data; boundary=${formBoundary}`,
-      ...(process.env.HUGGINGFACE_TOKEN
-        ? { Authorization: `Bearer ${process.env.HUGGINGFACE_TOKEN}` }
-        : {}),
-    },
-    body: formBody,
+    headers, // Do NOT set Content-Type, fetch will automatically set it with the correct boundary for FormData
+    body: formData,
   });
 
   if (!uploadRes.ok) {

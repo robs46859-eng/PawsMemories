@@ -1,13 +1,16 @@
 /**
- * Ollama AI Agent for pet image analysis and Blender script generation.
- * Uses Ollama's cloud API (ollama.com) with a vision model to:
+ * AI Agent for pet image analysis and Blender script generation.
+ * (Note: Originally designed for Ollama, but switched to Google Gemini 1.5
+ * to avoid 401 Unauthorized errors on public endpoints, since Gemini is 
+ * already configured and authenticated in this project.)
+ * 
+ * Uses Gemini Pro/Flash vision model to:
  *   1. Analyze pet photos — identify species, breed, pose, anatomy
  *   2. Generate Blender Python rigging scripts — armature with proper bone structure
  *   3. Generate Blender Python animation scripts — 6 action animations baked to sprite sheet
  */
 
-const DEFAULT_OLLAMA_URL = "https://api.ollama.com";
-const DEFAULT_MODEL = "llama3.2-vision";
+import { GoogleGenAI } from "@google/genai";
 
 // =============================================================================
 // Types
@@ -33,57 +36,11 @@ export interface PetAnalysis {
 // Helpers
 // =============================================================================
 
-function getOllamaUrl(): string {
-  return process.env.OLLAMA_API_URL || DEFAULT_OLLAMA_URL;
-}
-
-function getModel(): string {
-  return process.env.OLLAMA_MODEL || DEFAULT_MODEL;
-}
-
-/**
- * Send a prompt (with optional image) to Ollama and get a text response.
- */
-async function callOllama(prompt: string, imageBase64?: string): Promise<string> {
-  const url = `${getOllamaUrl()}/api/generate`;
-  const model = getModel();
-
-  // Strip data URI prefix if present
-  let cleanBase64 = imageBase64;
-  if (cleanBase64) {
-    const match = cleanBase64.match(/^data:[^;]+;base64,(.+)$/);
-    if (match) cleanBase64 = match[1];
+function getAiClient() {
+  if (!process.env.GEMINI_API_KEY) {
+    throw new Error("GEMINI_API_KEY is not set. Cannot use AI agent.");
   }
-
-  const body: any = {
-    model,
-    prompt,
-    stream: false,
-    options: {
-      temperature: 0.3,
-      num_predict: 4096,
-    },
-  };
-
-  if (cleanBase64) {
-    body.images = [cleanBase64];
-  }
-
-  console.log(`[Ollama] Calling ${model} at ${url}...`);
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Ollama API error (${res.status}): ${errText}`);
-  }
-
-  const data = await res.json();
-  return data.response || "";
+  return new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 }
 
 /**
@@ -102,7 +59,7 @@ function extractJson<T>(text: string): T {
     return JSON.parse(jsonMatch[0]);
   }
 
-  throw new Error(`Could not extract JSON from Ollama response: ${text.slice(0, 200)}`);
+  throw new Error(`Could not extract JSON from AI response: ${text.slice(0, 200)}`);
 }
 
 // =============================================================================
@@ -110,11 +67,11 @@ function extractJson<T>(text: string): T {
 // =============================================================================
 
 /**
- * Analyze a pet photo using Ollama vision model.
+ * Analyze a pet photo using Gemini vision model.
  * Returns structured data about the animal's species, breed, anatomy, and pose.
  */
 export async function analyzePetImage(imageBase64: string): Promise<PetAnalysis> {
-  console.log("[Ollama] Analyzing pet image...");
+  console.log("[AI Agent] Analyzing pet image with Gemini...");
 
   const prompt = `You are an expert animal anatomist and 3D modeler. Analyze this pet photo and return a JSON object with the following structure. Be precise about the animal's anatomy as this will be used for 3D rigging.
 
@@ -145,14 +102,45 @@ Rules:
 
 Return ONLY the JSON object.`;
 
-  const response = await callOllama(prompt, imageBase64);
-
   try {
-    const analysis = extractJson<PetAnalysis>(response);
-    console.log(`[Ollama] ✅ Detected: ${analysis.species} (${analysis.breed}), ${analysis.bodyType}, pose: ${analysis.estimatedPose}`);
+    const ai = getAiClient();
+    
+    // Process base64
+    let cleanBase64 = imageBase64;
+    let mimeType = "image/jpeg";
+    const match = imageBase64.match(/^data:([^;]+);base64,(.+)$/);
+    if (match) {
+      mimeType = match[1];
+      cleanBase64 = match[2];
+    }
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-1.5-flash',
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: prompt },
+            {
+              inlineData: {
+                data: cleanBase64,
+                mimeType,
+              }
+            }
+          ]
+        }
+      ],
+      config: {
+        temperature: 0.1,
+      }
+    });
+
+    const responseText = response.text || "";
+    const analysis = extractJson<PetAnalysis>(responseText);
+    console.log(`[AI Agent] ✅ Detected: ${analysis.species} (${analysis.breed}), ${analysis.bodyType}, pose: ${analysis.estimatedPose}`);
     return analysis;
   } catch (err) {
-    console.warn("[Ollama] Failed to parse analysis, using fallback:", err);
+    console.warn("[AI Agent] Failed to parse analysis, using fallback:", err);
     // Fallback to a safe default (dog)
     return {
       species: "dog",
@@ -174,15 +162,9 @@ Return ONLY the JSON object.`;
 
 /**
  * Generate a Blender Python script for rigging a 3D mesh based on pet analysis.
- * The script creates an armature with bones mapped to the animal's anatomy:
- * - Spine chain (hips → spine → chest)
- * - Neck → Head
- * - Front legs (L/R): shoulder → upper_arm → forearm → paw
- * - Back legs (L/R): hip → thigh → shin → paw
- * - Tail chain
  */
 export async function generateRiggingScript(analysis: PetAnalysis): Promise<string> {
-  console.log(`[Ollama] Generating rigging script for ${analysis.species} (${analysis.breed})...`);
+  console.log(`[AI Agent] Generating rigging script for ${analysis.species} (${analysis.breed}) using Gemini...`);
 
   const prompt = `You are an expert Blender Python (bpy) scripter specializing in 3D character rigging.
 
@@ -214,10 +196,15 @@ The script must:
 
 IMPORTANT: Return ONLY the Python code, no markdown fences, no explanations. Start with "import bpy".`;
 
-  const response = await callOllama(prompt);
+  const ai = getAiClient();
+  const response = await ai.models.generateContent({
+    model: 'gemini-1.5-pro', // Using pro for better coding
+    contents: prompt,
+    config: { temperature: 0.1 }
+  });
 
   // Extract just the Python code
-  let script = response;
+  let script = response.text || "";
 
   // Remove markdown fences if present
   const fenceMatch = script.match(/```(?:python)?\s*\n?([\s\S]*?)\n?```/);
@@ -238,24 +225,16 @@ IMPORTANT: Return ONLY the Python code, no markdown fences, no explanations. Sta
     script += '\nprint("RIGGING_COMPLETE")\n';
   }
 
-  console.log(`[Ollama] ✅ Rigging script generated (${script.length} chars)`);
+  console.log(`[AI Agent] ✅ Rigging script generated (${script.length} chars)`);
   return script;
 }
 
 /**
  * Generate a Blender Python script that creates 6 action animations
  * and bakes them into a sprite sheet PNG.
- *
- * Animations:
- * 1. Eating — head dips down, jaw moves
- * 2. Drinking — head dips to water level, lapping motion
- * 3. Running — leg cycling, body bob
- * 4. Playing — jump, spin, bounce
- * 5. Sleeping — lying down, slow breathing
- * 6. Taking a photo — sit/stand still, head tilt, ears perk
  */
 export async function generateSpriteAnimationScript(analysis: PetAnalysis): Promise<string> {
-  console.log(`[Ollama] Generating sprite animation script for ${analysis.species}...`);
+  console.log(`[AI Agent] Generating sprite animation script for ${analysis.species} using Gemini...`);
 
   const prompt = `You are an expert Blender Python (bpy) scripter specializing in character animation and sprite sheet rendering.
 
@@ -314,10 +293,15 @@ ACTION 6 - "photo" (4 frames at 8fps):
 
 IMPORTANT: Return ONLY the Python code. Start with "import bpy".`;
 
-  const response = await callOllama(prompt);
+  const ai = getAiClient();
+  const response = await ai.models.generateContent({
+    model: 'gemini-1.5-pro',
+    contents: prompt,
+    config: { temperature: 0.1 }
+  });
 
   // Extract the Python code
-  let script = response;
+  let script = response.text || "";
   const fenceMatch = script.match(/```(?:python)?\s*\n?([\s\S]*?)\n?```/);
   if (fenceMatch) {
     script = fenceMatch[1];
@@ -334,12 +318,12 @@ IMPORTANT: Return ONLY the Python code. Start with "import bpy".`;
     script += '\nprint("SPRITE_BAKE_COMPLETE")\n';
   }
 
-  console.log(`[Ollama] ✅ Animation/sprite script generated (${script.length} chars)`);
+  console.log(`[AI Agent] ✅ Animation/sprite script generated (${script.length} chars)`);
   return script;
 }
 
 /**
- * Convenience: run the full Ollama analysis + script generation pipeline.
+ * Convenience: run the full analysis + script generation pipeline.
  * Returns both scripts ready for the Blender worker.
  */
 export async function generateAvatarScripts(imageBase64: string): Promise<{
