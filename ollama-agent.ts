@@ -65,14 +65,16 @@ function extractJson<T>(text: string): T {
 /**
  * Wraps Gemini API calls with exponential backoff to handle 503 "High Demand" errors.
  */
-async function generateContentWithRetry(ai: any, request: any, maxRetries = 3) {
+async function generateContentWithRetry(ai: any, request: any, maxRetries = 5) {
   for (let i = 0; i < maxRetries; i++) {
     try {
       return await ai.models.generateContent(request);
     } catch (err: any) {
-      if (err.status === 503 && i < maxRetries - 1) {
+      const isRetryable = err.status === 503 || err.status === 429 || (err.message && (err.message.includes("503") || err.message.includes("429") || err.message.includes("UNAVAILABLE") || err.message.includes("high demand")));
+      
+      if (isRetryable && i < maxRetries - 1) {
         const waitTime = Math.pow(2, i) * 2000;
-        console.warn(`[AI Agent] Gemini 503 High Demand Error. Retrying in ${waitTime}ms...`);
+        console.warn(`[AI Agent] Gemini High Demand Error (Attempt ${i + 1}/${maxRetries}). Retrying in ${waitTime}ms...`);
         await new Promise(r => setTimeout(r, waitTime));
       } else {
         throw err;
