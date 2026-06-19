@@ -240,6 +240,13 @@ export async function initDb(): Promise<void> {
         user_phone VARCHAR(32) NOT NULL,
         name VARCHAR(120) NOT NULL,
         image_url TEXT NOT NULL,
+        model_url TEXT NULL,
+        sprite_sheet_url TEXT NULL,
+        animation_data JSON NULL,
+        animal_type VARCHAR(50) NULL,
+        breed VARCHAR(120) NULL,
+        generation_status ENUM('pending','generating_mesh','rigging','baking_sprites','done','failed') NOT NULL DEFAULT 'done',
+        generation_error TEXT NULL,
         food_level INT NOT NULL DEFAULT 100,
         water_level INT NOT NULL DEFAULT 100,
         last_fed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -249,6 +256,33 @@ export async function initDb(): Promise<void> {
         FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
+
+    // Migration: add 3D columns to existing avatars table
+    const [avatarCols] = await getPool().query(
+      `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'avatars'`,
+      [dbName]
+    ) as any;
+    const avatarColumnNames = avatarCols.map((c: any) => c.COLUMN_NAME);
+
+    const requiredAvatarColumns: { name: string; ddl: string }[] = [
+      { name: "model_url",          ddl: "ADD COLUMN model_url TEXT NULL" },
+      { name: "sprite_sheet_url",   ddl: "ADD COLUMN sprite_sheet_url TEXT NULL" },
+      { name: "animation_data",     ddl: "ADD COLUMN animation_data JSON NULL" },
+      { name: "animal_type",        ddl: "ADD COLUMN animal_type VARCHAR(50) NULL" },
+      { name: "breed",              ddl: "ADD COLUMN breed VARCHAR(120) NULL" },
+      { name: "generation_status",  ddl: "ADD COLUMN generation_status ENUM('pending','generating_mesh','rigging','baking_sprites','done','failed') NOT NULL DEFAULT 'done'" },
+      { name: "generation_error",   ddl: "ADD COLUMN generation_error TEXT NULL" },
+    ];
+    for (const col of requiredAvatarColumns) {
+      if (!avatarColumnNames.includes(col.name)) {
+        try {
+          await getPool().query(`ALTER TABLE avatars ${col.ddl}`);
+          console.log(`✅ Migrated avatars: added column ${col.name}.`);
+        } catch (colErr) {
+          console.warn(`⚠️ Could not add column ${col.name} to avatars:`, colErr);
+        }
+      }
+    }
 
     await getPool().query(`
       CREATE TABLE IF NOT EXISTS photo_requests (
@@ -737,6 +771,13 @@ export interface AvatarRow {
   user_phone: string;
   name: string;
   image_url: string;
+  model_url: string | null;
+  sprite_sheet_url: string | null;
+  animation_data: any | null;
+  animal_type: string | null;
+  breed: string | null;
+  generation_status: 'pending' | 'generating_mesh' | 'rigging' | 'baking_sprites' | 'done' | 'failed';
+  generation_error: string | null;
   food_level: number;
   water_level: number;
   last_fed: string;
@@ -744,12 +785,63 @@ export interface AvatarRow {
   created_at: string;
 }
 
-export async function createAvatar(phone: string, name: string, image_url: string): Promise<number> {
+export async function createAvatar(
+  phone: string,
+  name: string,
+  image_url: string,
+  opts?: {
+    animal_type?: string;
+    breed?: string;
+    generation_status?: string;
+  }
+): Promise<number> {
   const [result] = await getPool().query(
-    `INSERT INTO avatars (user_phone, name, image_url) VALUES (?, ?, ?)`,
-    [phone, name, image_url]
+    `INSERT INTO avatars (user_phone, name, image_url, animal_type, breed, generation_status) VALUES (?, ?, ?, ?, ?, ?)`,
+    [
+      phone,
+      name,
+      image_url,
+      opts?.animal_type || null,
+      opts?.breed || null,
+      opts?.generation_status || 'done',
+    ]
   ) as any;
   return result.insertId;
+}
+
+export async function updateAvatarModel(
+  id: number,
+  phone: string,
+  modelUrl: string,
+  spriteSheetUrl: string,
+  animationData: any
+): Promise<boolean> {
+  const [result] = await getPool().query(
+    `UPDATE avatars SET model_url = ?, sprite_sheet_url = ?, animation_data = ?, generation_status = 'done' WHERE id = ? AND user_phone = ?`,
+    [modelUrl, spriteSheetUrl, JSON.stringify(animationData), id, phone]
+  ) as any;
+  return result.affectedRows === 1;
+}
+
+export async function updateAvatarGenerationStatus(
+  id: number,
+  status: 'pending' | 'generating_mesh' | 'rigging' | 'baking_sprites' | 'done' | 'failed',
+  error?: string | null
+): Promise<boolean> {
+  const [result] = await getPool().query(
+    `UPDATE avatars SET generation_status = ?, generation_error = ? WHERE id = ?`,
+    [status, error || null, id]
+  ) as any;
+  return result.affectedRows === 1;
+}
+
+export async function getAvatarById(id: number, phone: string): Promise<AvatarRow | null> {
+  const [rows] = await getPool().query(
+    `SELECT * FROM avatars WHERE id = ? AND user_phone = ? LIMIT 1`,
+    [id, phone]
+  );
+  const arr = rows as unknown as AvatarRow[];
+  return arr.length ? arr[0] : null;
 }
 
 export async function getAvatars(phone: string): Promise<AvatarRow[]> {

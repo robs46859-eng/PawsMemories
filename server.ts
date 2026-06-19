@@ -11,7 +11,10 @@ import { execSync } from "child_process";
 import twilio from "twilio";
 import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, getPool, createPhotoRequest, getPhotoRequests, getAllPhotoRequests, getPhotoRequest, markPhotoRequestPaid, fulfillPhotoRequest, rejectPhotoRequest, getPhotoRequestByStripeSession } from "./db";
 import { uploadBase64Image } from "./storage";
-import { createAvatar, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar } from "./db";
+import { createAvatar, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById } from "./db";
+import { generateMeshFromImage } from "./huggingface-3d";
+import { analyzePetImage, generateRiggingScript, generateSpriteAnimationScript } from "./ollama-agent";
+import type { PetAnalysis } from "./ollama-agent";
 import { BACKGROUND_PROMPTS } from "./src/backgrounds";
 import {
   normalizeEmail,
@@ -376,11 +379,29 @@ async function startServer() {
     }
   });
 
+  // Get generation status for a specific avatar
+  app.get("/api/avatars/:id/status", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const avatar = await getAvatarById(Number(req.params.id), req.user!.phone);
+      if (!avatar) return res.status(404).json({ error: "Avatar not found." });
+      res.json({
+        status: avatar.generation_status,
+        error: avatar.generation_error,
+        model_url: avatar.model_url,
+        sprite_sheet_url: avatar.sprite_sheet_url,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to get avatar status." });
+    }
+  });
+
+  // Create a new 3D avatar from a pet photo
   app.post("/api/avatars", requireAuth, async (req: AuthedRequest, res) => {
     try {
-      const { name, python_script } = req.body;
-      if (!name || !python_script) return res.status(400).json({ error: "Name and python_script required." });
-      
+      const { name, photo } = req.body;
+      if (!name) return res.status(400).json({ error: "Name is required." });
+      if (!photo) return res.status(400).json({ error: "A pet photo is required for 3D avatar generation." });
+
       const GENERATION_COST = 40;
       const isAdmin = await isUserAdmin(req.user!.phone);
       if (!isAdmin) {
@@ -390,48 +411,174 @@ async function startServer() {
         }
       }
 
-      // Offload to Render Microservice
-      const workerUrl = process.env.BLENDER_WORKER_URL || "http://localhost:10000/render";
-      console.log(`Sending script to Blender worker at ${workerUrl}`);
+      // Use the uploaded photo as the avatar thumbnail
+      let thumbnailUrl = photo;
+      try {
+        thumbnailUrl = await uploadBase64Image(photo);
+      } catch (uploadErr) {
+        console.warn("Failed to upload avatar thumbnail (using inline):", uploadErr);
+      }
 
-      const workerRes = await fetch(workerUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ python_script })
+      // Create avatar record with 'pending' status
+      const avatarId = await createAvatar(req.user!.phone, name, thumbnailUrl, {
+        generation_status: 'pending',
       });
 
-      if (!workerRes.ok) {
-        let errorMsg = "Avatar generation failed during rendering.";
-        try {
-          const errData = await workerRes.json();
-          if (errData.error) errorMsg = errData.error;
-        } catch (e) {}
-        console.error("Worker error:", errorMsg);
-        return res.status(500).json({ error: errorMsg });
-      }
-
-      const workerData = await workerRes.json();
-      if (!workerData.success || !workerData.image_base64) {
-        return res.status(500).json({ error: "Worker returned invalid response." });
-      }
-
-      const finalImageUrl = workerData.image_base64;
-
-      // Upload to storage
-      let uploadedUrl = finalImageUrl;
-      try {
-        uploadedUrl = await uploadBase64Image(finalImageUrl);
-      } catch (uploadErr) {
-        console.error("Failed to upload avatar to storage:", uploadErr);
-      }
-
-      // Deduct credits
+      // Deduct credits upfront
       if (!isAdmin) {
         await deductCredits(req.user!.phone, GENERATION_COST);
       }
 
-      const id = await createAvatar(req.user!.phone, name, uploadedUrl);
-      res.json({ success: true, id, imageUrl: uploadedUrl });
+      // Return immediately with HTTP 202 — generation happens async
+      res.status(202).json({ success: true, avatarId, status: 'pending' });
+
+      // ================================================================
+      // Async 3D Generation Pipeline (runs in background)
+      // ================================================================
+      const userPhone = req.user!.phone;
+      (async () => {
+        try {
+          console.log(`[3D Avatar #${avatarId}] Starting async generation pipeline...`);
+
+          // --- Step 1: Analyze pet image with Ollama ---
+          await updateAvatarGenerationStatus(avatarId, 'generating_mesh');
+          console.log(`[3D Avatar #${avatarId}] Step 1: Analyzing pet image with Ollama...`);
+          let analysis: PetAnalysis;
+          try {
+            analysis = await analyzePetImage(photo);
+          } catch (ollamaErr: any) {
+            console.warn(`[3D Avatar #${avatarId}] Ollama analysis failed, using defaults:`, ollamaErr.message);
+            analysis = {
+              species: 'dog', breed: 'Mixed Breed', bodyType: 'quadruped',
+              estimatedPose: 'standing', legCount: 4, hasTail: true, hasWings: false,
+              bodyProportions: { headSize: 'medium', legLength: 'medium', bodyLength: 'medium', neckLength: 'medium' }
+            };
+          }
+
+          // Update avatar with detected animal info
+          try {
+            await getPool().query(
+              `UPDATE avatars SET animal_type = ?, breed = ? WHERE id = ?`,
+              [analysis.species, analysis.breed, avatarId]
+            );
+          } catch (e) { /* non-fatal */ }
+
+          // --- Step 2: Generate 3D mesh via HuggingFace ---
+          console.log(`[3D Avatar #${avatarId}] Step 2: Generating 3D mesh via HuggingFace...`);
+          let glbBuffer: Buffer;
+          try {
+            glbBuffer = await generateMeshFromImage(photo);
+          } catch (hfErr: any) {
+            console.error(`[3D Avatar #${avatarId}] HuggingFace mesh generation failed:`, hfErr.message);
+            await updateAvatarGenerationStatus(avatarId, 'failed', `Mesh generation failed: ${hfErr.message}`);
+            return;
+          }
+
+          // --- Step 3: Generate rigging script with Ollama ---
+          await updateAvatarGenerationStatus(avatarId, 'rigging');
+          console.log(`[3D Avatar #${avatarId}] Step 3: Generating rigging script with Ollama...`);
+          let riggingScript: string;
+          try {
+            riggingScript = await generateRiggingScript(analysis);
+          } catch (rigErr: any) {
+            console.error(`[3D Avatar #${avatarId}] Rigging script generation failed:`, rigErr.message);
+            await updateAvatarGenerationStatus(avatarId, 'failed', `Rigging script generation failed: ${rigErr.message}`);
+            return;
+          }
+
+          // --- Step 4: Send to Blender worker for rigging ---
+          console.log(`[3D Avatar #${avatarId}] Step 4: Sending to Blender worker for rigging...`);
+          const workerBaseUrl = (process.env.BLENDER_WORKER_URL || 'http://localhost:10000/render').replace('/render', '');
+          let riggedGlbBase64: string;
+          try {
+            const rigRes = await fetch(`${workerBaseUrl}/rig-model`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                glb_base64: glbBuffer.toString('base64'),
+                rigging_script: riggingScript,
+              }),
+            });
+            if (!rigRes.ok) {
+              const errData = await rigRes.json().catch(() => ({}));
+              throw new Error(errData.error || `Worker returned ${rigRes.status}`);
+            }
+            const rigData = await rigRes.json();
+            if (!rigData.success || !rigData.rigged_glb_base64) {
+              throw new Error('Worker returned invalid rigging result');
+            }
+            riggedGlbBase64 = rigData.rigged_glb_base64;
+          } catch (workerErr: any) {
+            console.error(`[3D Avatar #${avatarId}] Blender rigging failed:`, workerErr.message);
+            await updateAvatarGenerationStatus(avatarId, 'failed', `Rigging failed: ${workerErr.message}`);
+            return;
+          }
+
+          // --- Step 5: Generate sprite animation script with Ollama ---
+          await updateAvatarGenerationStatus(avatarId, 'baking_sprites');
+          console.log(`[3D Avatar #${avatarId}] Step 5: Generating sprite animation script...`);
+          let spriteScript: string;
+          try {
+            spriteScript = await generateSpriteAnimationScript(analysis);
+          } catch (spriteErr: any) {
+            console.error(`[3D Avatar #${avatarId}] Sprite script generation failed:`, spriteErr.message);
+            await updateAvatarGenerationStatus(avatarId, 'failed', `Animation script failed: ${spriteErr.message}`);
+            return;
+          }
+
+          // --- Step 6: Send to Blender worker for sprite baking ---
+          console.log(`[3D Avatar #${avatarId}] Step 6: Baking sprite sheet...`);
+          let spriteSheetBase64: string;
+          let animationMetadata: any;
+          try {
+            const spriteRes = await fetch(`${workerBaseUrl}/bake-sprites`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                rigged_glb_base64: riggedGlbBase64,
+                animation_script: spriteScript,
+              }),
+            });
+            if (!spriteRes.ok) {
+              const errData = await spriteRes.json().catch(() => ({}));
+              throw new Error(errData.error || `Worker returned ${spriteRes.status}`);
+            }
+            const spriteData = await spriteRes.json();
+            if (!spriteData.success) {
+              throw new Error('Worker returned invalid sprite result');
+            }
+            spriteSheetBase64 = spriteData.sprite_sheet_base64;
+            animationMetadata = spriteData.animation_metadata;
+          } catch (bakeErr: any) {
+            console.error(`[3D Avatar #${avatarId}] Sprite baking failed:`, bakeErr.message);
+            await updateAvatarGenerationStatus(avatarId, 'failed', `Sprite baking failed: ${bakeErr.message}`);
+            return;
+          }
+
+          // --- Step 7: Upload assets to storage ---
+          console.log(`[3D Avatar #${avatarId}] Step 7: Uploading assets to storage...`);
+          let modelUrl = `data:model/gltf-binary;base64,${riggedGlbBase64}`;
+          let spriteSheetUrl = spriteSheetBase64;
+          try {
+            modelUrl = await uploadBase64Image(`data:model/gltf-binary;base64,${riggedGlbBase64}`);
+          } catch (e) {
+            console.warn(`[3D Avatar #${avatarId}] Model upload failed, keeping inline`);
+          }
+          try {
+            spriteSheetUrl = await uploadBase64Image(spriteSheetBase64);
+          } catch (e) {
+            console.warn(`[3D Avatar #${avatarId}] Sprite sheet upload failed, keeping inline`);
+          }
+
+          // --- Step 8: Update avatar record ---
+          await updateAvatarModel(avatarId, userPhone, modelUrl, spriteSheetUrl, animationMetadata);
+          console.log(`[3D Avatar #${avatarId}] ✅ 3D avatar generation complete!`);
+
+        } catch (pipelineErr: any) {
+          console.error(`[3D Avatar #${avatarId}] Pipeline error:`, pipelineErr);
+          await updateAvatarGenerationStatus(avatarId, 'failed', pipelineErr.message || 'Unknown pipeline error');
+        }
+      })();
     } catch (err: any) {
       console.error("Failed to create avatar:", err);
       res.status(500).json({ error: "Failed to create avatar." });

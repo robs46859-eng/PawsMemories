@@ -1,0 +1,354 @@
+/**
+ * Ollama AI Agent for pet image analysis and Blender script generation.
+ * Uses Ollama's cloud API (ollama.com) with a vision model to:
+ *   1. Analyze pet photos — identify species, breed, pose, anatomy
+ *   2. Generate Blender Python rigging scripts — armature with proper bone structure
+ *   3. Generate Blender Python animation scripts — 6 action animations baked to sprite sheet
+ */
+
+const DEFAULT_OLLAMA_URL = "https://api.ollama.com";
+const DEFAULT_MODEL = "llama3.2-vision";
+
+// =============================================================================
+// Types
+// =============================================================================
+
+export interface PetAnalysis {
+  species: string;        // "dog", "cat", "bird", "rabbit", etc.
+  breed: string;          // "Golden Retriever", "Persian Cat", etc.
+  bodyType: string;       // "quadruped", "biped", "winged"
+  estimatedPose: string;  // "standing", "sitting", "lying_down"
+  legCount: number;       // 4 for most pets
+  hasTail: boolean;
+  hasWings: boolean;
+  bodyProportions: {
+    headSize: string;     // "small", "medium", "large"
+    legLength: string;    // "short", "medium", "long"
+    bodyLength: string;   // "compact", "medium", "elongated"
+    neckLength: string;   // "short", "medium", "long"
+  };
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+function getOllamaUrl(): string {
+  return process.env.OLLAMA_API_URL || DEFAULT_OLLAMA_URL;
+}
+
+function getModel(): string {
+  return process.env.OLLAMA_MODEL || DEFAULT_MODEL;
+}
+
+/**
+ * Send a prompt (with optional image) to Ollama and get a text response.
+ */
+async function callOllama(prompt: string, imageBase64?: string): Promise<string> {
+  const url = `${getOllamaUrl()}/api/generate`;
+  const model = getModel();
+
+  // Strip data URI prefix if present
+  let cleanBase64 = imageBase64;
+  if (cleanBase64) {
+    const match = cleanBase64.match(/^data:[^;]+;base64,(.+)$/);
+    if (match) cleanBase64 = match[1];
+  }
+
+  const body: any = {
+    model,
+    prompt,
+    stream: false,
+    options: {
+      temperature: 0.3,
+      num_predict: 4096,
+    },
+  };
+
+  if (cleanBase64) {
+    body.images = [cleanBase64];
+  }
+
+  console.log(`[Ollama] Calling ${model} at ${url}...`);
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Ollama API error (${res.status}): ${errText}`);
+  }
+
+  const data = await res.json();
+  return data.response || "";
+}
+
+/**
+ * Extract JSON from a potentially mixed text + JSON response.
+ */
+function extractJson<T>(text: string): T {
+  // Try to find JSON block in markdown code fences
+  const fenceMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+  if (fenceMatch) {
+    return JSON.parse(fenceMatch[1].trim());
+  }
+
+  // Try to find raw JSON object
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    return JSON.parse(jsonMatch[0]);
+  }
+
+  throw new Error(`Could not extract JSON from Ollama response: ${text.slice(0, 200)}`);
+}
+
+// =============================================================================
+// Public API
+// =============================================================================
+
+/**
+ * Analyze a pet photo using Ollama vision model.
+ * Returns structured data about the animal's species, breed, anatomy, and pose.
+ */
+export async function analyzePetImage(imageBase64: string): Promise<PetAnalysis> {
+  console.log("[Ollama] Analyzing pet image...");
+
+  const prompt = `You are an expert animal anatomist and 3D modeler. Analyze this pet photo and return a JSON object with the following structure. Be precise about the animal's anatomy as this will be used for 3D rigging.
+
+Return ONLY a valid JSON object with this exact structure (no other text):
+{
+  "species": "dog",
+  "breed": "Golden Retriever",
+  "bodyType": "quadruped",
+  "estimatedPose": "standing",
+  "legCount": 4,
+  "hasTail": true,
+  "hasWings": false,
+  "bodyProportions": {
+    "headSize": "medium",
+    "legLength": "medium",
+    "bodyLength": "medium",
+    "neckLength": "medium"
+  }
+}
+
+Rules:
+- species: the animal type (dog, cat, bird, rabbit, hamster, etc.)
+- breed: best guess at the breed, or "Mixed" if unclear
+- bodyType: "quadruped" for 4-legged, "biped" for 2-legged, "winged" for birds
+- estimatedPose: "standing", "sitting", "lying_down", or "other"
+- legCount: number of legs (4 for dogs/cats, 2 for birds)
+- bodyProportions values: "small", "medium", or "large" / "short", "medium", "long" / "compact", "medium", "elongated"
+
+Return ONLY the JSON object.`;
+
+  const response = await callOllama(prompt, imageBase64);
+
+  try {
+    const analysis = extractJson<PetAnalysis>(response);
+    console.log(`[Ollama] ✅ Detected: ${analysis.species} (${analysis.breed}), ${analysis.bodyType}, pose: ${analysis.estimatedPose}`);
+    return analysis;
+  } catch (err) {
+    console.warn("[Ollama] Failed to parse analysis, using fallback:", err);
+    // Fallback to a safe default (dog)
+    return {
+      species: "dog",
+      breed: "Mixed Breed",
+      bodyType: "quadruped",
+      estimatedPose: "standing",
+      legCount: 4,
+      hasTail: true,
+      hasWings: false,
+      bodyProportions: {
+        headSize: "medium",
+        legLength: "medium",
+        bodyLength: "medium",
+        neckLength: "medium",
+      },
+    };
+  }
+}
+
+/**
+ * Generate a Blender Python script for rigging a 3D mesh based on pet analysis.
+ * The script creates an armature with bones mapped to the animal's anatomy:
+ * - Spine chain (hips → spine → chest)
+ * - Neck → Head
+ * - Front legs (L/R): shoulder → upper_arm → forearm → paw
+ * - Back legs (L/R): hip → thigh → shin → paw
+ * - Tail chain
+ */
+export async function generateRiggingScript(analysis: PetAnalysis): Promise<string> {
+  console.log(`[Ollama] Generating rigging script for ${analysis.species} (${analysis.breed})...`);
+
+  const prompt = `You are an expert Blender Python (bpy) scripter specializing in 3D character rigging.
+
+Generate a complete Blender Python script that:
+1. Assumes a GLB mesh is already imported and is the active object
+2. Creates a new armature with bones appropriate for a ${analysis.species} (${analysis.breed})
+3. The animal is a ${analysis.bodyType} with ${analysis.legCount} legs
+4. Body proportions: head=${analysis.bodyProportions.headSize}, legs=${analysis.bodyProportions.legLength}, body=${analysis.bodyProportions.bodyLength}, neck=${analysis.bodyProportions.neckLength}
+5. Has tail: ${analysis.hasTail}
+
+The armature MUST include these bone chains (using these EXACT bone names):
+- ROOT bone at the center of mass
+- Spine chain: "hips" → "spine" → "chest"
+- Neck: "neck" → "head"
+- Front left leg: "front_leg_upper.L" → "front_leg_lower.L" → "front_paw.L"
+- Front right leg: "front_leg_upper.R" → "front_leg_lower.R" → "front_paw.R"
+- Back left leg: "back_leg_upper.L" → "back_leg_lower.L" → "back_paw.L"
+- Back right leg: "back_leg_upper.R" → "back_leg_lower.R" → "back_paw.R"
+${analysis.hasTail ? '- Tail chain: "tail_01" → "tail_02" → "tail_03"' : ""}
+
+The script must:
+- Create the armature in edit mode
+- Position bones approximately based on the mesh bounding box
+- Parent the mesh to the armature with automatic weights (Armature Deform With Automatic Weights)
+- Set the armature as the active object when done
+- NOT render anything
+- NOT save the file
+- Print "RIGGING_COMPLETE" when done
+
+IMPORTANT: Return ONLY the Python code, no markdown fences, no explanations. Start with "import bpy".`;
+
+  const response = await callOllama(prompt);
+
+  // Extract just the Python code
+  let script = response;
+
+  // Remove markdown fences if present
+  const fenceMatch = script.match(/```(?:python)?\s*\n?([\s\S]*?)\n?```/);
+  if (fenceMatch) {
+    script = fenceMatch[1];
+  }
+
+  // Ensure script starts with import
+  if (!script.trim().startsWith("import")) {
+    const importIdx = script.indexOf("import bpy");
+    if (importIdx >= 0) {
+      script = script.slice(importIdx);
+    }
+  }
+
+  // Ensure the completion marker is present
+  if (!script.includes("RIGGING_COMPLETE")) {
+    script += '\nprint("RIGGING_COMPLETE")\n';
+  }
+
+  console.log(`[Ollama] ✅ Rigging script generated (${script.length} chars)`);
+  return script;
+}
+
+/**
+ * Generate a Blender Python script that creates 6 action animations
+ * and bakes them into a sprite sheet PNG.
+ *
+ * Animations:
+ * 1. Eating — head dips down, jaw moves
+ * 2. Drinking — head dips to water level, lapping motion
+ * 3. Running — leg cycling, body bob
+ * 4. Playing — jump, spin, bounce
+ * 5. Sleeping — lying down, slow breathing
+ * 6. Taking a photo — sit/stand still, head tilt, ears perk
+ */
+export async function generateSpriteAnimationScript(analysis: PetAnalysis): Promise<string> {
+  console.log(`[Ollama] Generating sprite animation script for ${analysis.species}...`);
+
+  const prompt = `You are an expert Blender Python (bpy) scripter specializing in character animation and sprite sheet rendering.
+
+Generate a complete Blender Python script that:
+1. Assumes a rigged ${analysis.species} mesh is the active object with an armature
+2. The armature has these bone names: hips, spine, chest, neck, head, front_leg_upper.L/R, front_leg_lower.L/R, front_paw.L/R, back_leg_upper.L/R, back_leg_lower.L/R, back_paw.L/R${analysis.hasTail ? ", tail_01, tail_02, tail_03" : ""}
+3. Creates 6 separate NLA actions with keyframe animations:
+
+ACTION 1 - "eating" (8 frames at 12fps):
+  - Head and neck dip down toward the ground
+  - Small jaw-like bobbing motion on the head bone
+  - Body stays mostly still, slight lean forward
+
+ACTION 2 - "drinking" (8 frames at 12fps):
+  - Similar to eating but head stays at a consistent low level
+  - Slight rhythmic head bobbing (lapping motion)
+  - Neck extends downward
+
+ACTION 3 - "running" (12 frames at 16fps):
+  - Full gallop/trot cycle
+  - Front and back legs alternate in pairs
+  - Body bobs up and down slightly
+  - ${analysis.hasTail ? "Tail follows body motion with slight delay" : ""}
+
+ACTION 4 - "playing" (10 frames at 14fps):
+  - Playful bounce/jump
+  - Front paws lift up, then spring up
+  - ${analysis.hasTail ? "Tail wags rapidly" : ""}
+  - Energetic, joyful motion
+
+ACTION 5 - "sleeping" (6 frames at 6fps):
+  - Body lowered to ground (legs tucked)
+  - Slow breathing cycle (chest/spine gentle rise/fall)
+  - Head resting on or near front paws
+  - Very subtle, calm motion
+
+ACTION 6 - "photo" (4 frames at 8fps):
+  - Alert sitting/standing pose
+  - Head tilts slightly to one side
+  - Ears perk up (via head bone rotation)
+  - Hold the pose for most frames
+
+4. After creating all animations, renders a SPRITE SHEET:
+  - Set up an orthographic camera facing the model from the side
+  - Set render resolution to 128x128 per frame
+  - For each action, render all frames in sequence
+  - Arrange frames in a grid: each row = one animation, columns = frames
+  - Total sheet: 12 columns wide × 6 rows tall (max frames across all animations × 6 actions)
+  - Save as a single transparent PNG at the output path
+  - Also save a JSON metadata file next to it with frame counts and FPS per animation
+
+5. The output path variable should be called "output_path" and will be overridden by the server
+6. The metadata JSON path should be "output_path" with extension changed to ".json"
+7. Use transparent background (RGBA)
+8. Print "SPRITE_BAKE_COMPLETE" when done
+
+IMPORTANT: Return ONLY the Python code. Start with "import bpy".`;
+
+  const response = await callOllama(prompt);
+
+  // Extract the Python code
+  let script = response;
+  const fenceMatch = script.match(/```(?:python)?\s*\n?([\s\S]*?)\n?```/);
+  if (fenceMatch) {
+    script = fenceMatch[1];
+  }
+
+  if (!script.trim().startsWith("import")) {
+    const importIdx = script.indexOf("import bpy");
+    if (importIdx >= 0) {
+      script = script.slice(importIdx);
+    }
+  }
+
+  if (!script.includes("SPRITE_BAKE_COMPLETE")) {
+    script += '\nprint("SPRITE_BAKE_COMPLETE")\n';
+  }
+
+  console.log(`[Ollama] ✅ Animation/sprite script generated (${script.length} chars)`);
+  return script;
+}
+
+/**
+ * Convenience: run the full Ollama analysis + script generation pipeline.
+ * Returns both scripts ready for the Blender worker.
+ */
+export async function generateAvatarScripts(imageBase64: string): Promise<{
+  analysis: PetAnalysis;
+  riggingScript: string;
+  spriteScript: string;
+}> {
+  const analysis = await analyzePetImage(imageBase64);
+  const riggingScript = await generateRiggingScript(analysis);
+  const spriteScript = await generateSpriteAnimationScript(analysis);
+  return { analysis, riggingScript, spriteScript };
+}

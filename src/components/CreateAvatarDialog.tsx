@@ -1,135 +1,207 @@
-import React, { useState } from "react";
-import { Terminal, X, Check, Code } from "lucide-react";
+import React, { useState, useRef } from "react";
+import { Camera, X, Check, Upload, Sparkles, RefreshCw } from "lucide-react";
 
 interface CreateAvatarDialogProps {
   onClose: () => void;
-  onSubmit: (name: string, python_script: string) => void;
+  onSubmit: (name: string, photo: string) => void;
   isDarkMode: boolean;
 }
 
-const DEFAULT_SCRIPT = `import bpy
-import math
-import os
-import mathutils
-
-# --- 1. Setup Camera ---
-scene = bpy.context.scene
-cam_data = bpy.data.cameras.new("AnimalCam")
-cam_obj = bpy.data.objects.new("AnimalCam", cam_data)
-scene.collection.objects.link(cam_obj)
-scene.camera = cam_obj
-
-# Position and point camera at the origin (0,0,0)
-cam_obj.location = (0, -8, 3)
-look_at = (0, 0, 0)
-direction = mathutils.Vector(look_at) - cam_obj.location
-rot_quat = direction.to_track_quat('-Z', 'Y')
-cam_obj.rotation_euler = rot_quat.to_euler()
-
-# --- 2. Setup Lighting ---
-# Add a Sun Lamp
-light_data = bpy.data.lights.new(name="StudioSun", type='SUN')
-light_obj = bpy.data.objects.new(name="StudioSun", object_data=light_data)
-scene.collection.objects.link(light_obj)
-light_obj.location = (5, -5, 10)
-light_data.energy = 5.0
-
-# --- 3. Render Settings ---
-scene.render.image_settings.file_format = 'PNG'
-scene.render.resolution_x = 1024
-scene.render.resolution_y = 1024
-scene.render.resolution_percentage = 100
-
-# output_path will be automatically overridden by the server for safe temp storage
-output_path = os.path.join(os.path.expanduser('~'), 'Desktop', 'planet_zoo_render.png')
-scene.render.filepath = output_path
-
-# --- 4. Execute Render ---
-print("Rendering... please wait.")
-bpy.ops.render.render(write_still=True)
-print(f"Render saved to: {output_path}")
-`;
-
 export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: CreateAvatarDialogProps) {
   const [name, setName] = useState("");
-  const [script, setScript] = useState(DEFAULT_SCRIPT);
+  const [photo, setPhoto] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileSelect = (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      alert("Please select an image file (jpg, png, webp).");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      alert("Image must be under 10MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setPhoto(e.target?.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleFileSelect(file);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => setIsDragging(false);
 
   const handleSave = () => {
     if (!name.trim()) {
       alert("Please enter a name for your avatar.");
       return;
     }
-    if (!script.trim()) {
-      alert("Please enter a valid python script.");
+    if (!photo) {
+      alert("Please upload a photo of your pet.");
       return;
     }
-    onSubmit(name.trim(), script);
+    onSubmit(name.trim(), photo);
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
-      <div className={`bg-[#1E1E1E] rounded-3xl p-6 max-w-3xl w-full shadow-2xl border border-outline-variant/30 flex flex-col h-[85vh] text-slate-200`}>
+      <div className="bg-surface-container rounded-3xl p-6 max-w-lg w-full shadow-2xl border border-outline-variant/30 flex flex-col max-h-[90vh] overflow-y-auto">
         
+        {/* Header */}
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-extrabold flex items-center gap-2 text-white">
-            <Terminal className="text-primary" size={24} /> Avatar Configuration Console
+          <h2 className="text-xl font-extrabold flex items-center gap-2 text-on-surface">
+            <Sparkles className="text-primary" size={24} /> Create 3D Avatar
           </h2>
-          <button onClick={onClose} className="p-2 rounded-full hover:bg-white/10 transition-colors text-slate-400 hover:text-white">
+          <button onClick={onClose} className="p-2 rounded-full hover:bg-outline-variant/20 transition-colors text-on-surface-variant hover:text-on-surface">
             <X size={20} />
           </button>
         </div>
 
-        <div className="flex flex-col gap-4 flex-grow overflow-hidden">
+        {/* Info Banner */}
+        <div className="bg-primary/10 border border-primary/20 text-on-surface rounded-xl p-4 text-sm flex gap-3 items-start mb-6">
+          <Camera size={18} className="shrink-0 mt-0.5 text-primary" />
+          <div>
+            <p className="font-bold mb-1">AI-Powered 3D Generation</p>
+            <p className="opacity-70 text-xs">
+              Upload a clear photo of your pet. Our AI will analyze the photo, generate a 3D model, 
+              rig it with proper anatomy, and create animations — all automatically!
+            </p>
+          </div>
+        </div>
+
+        {/* Name Input */}
+        <div className="mb-4">
+          <label className="block text-xs font-bold mb-1.5 opacity-60 uppercase tracking-wider text-on-surface-variant">
+            Avatar Name
+          </label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Buddy, Luna, Max..."
+            className="w-full bg-surface border border-outline-variant/30 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all text-on-surface"
+          />
+        </div>
+
+        {/* Photo Upload Area */}
+        <div className="mb-6">
+          <label className="block text-xs font-bold mb-1.5 opacity-60 uppercase tracking-wider text-on-surface-variant">
+            Pet Photo
+          </label>
           
-          {/* Info Banner */}
-          <div className="bg-blue-500/10 border border-blue-500/20 text-blue-200 rounded-xl p-4 text-sm flex gap-3 items-start">
-            <Code size={18} className="shrink-0 mt-0.5" />
-            <div>
-              <p className="font-bold mb-1">Advanced 3D Avatar Generation</p>
-              <p className="opacity-80 text-xs">
-                Write a Blender Python script (<code>bpy</code>) to procedurally generate your avatar. 
-                The server will execute this script via Blender CLI. The `output_path` will be safely overridden.
+          {photo ? (
+            // Preview uploaded photo
+            <div className="relative rounded-2xl overflow-hidden border border-outline-variant/30 bg-surface">
+              <img
+                src={photo}
+                alt="Pet preview"
+                className="w-full aspect-square object-cover"
+              />
+              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-4 flex justify-between items-end">
+                <span className="text-white text-xs font-bold">📸 Photo uploaded</span>
+                <button
+                  onClick={() => setPhoto(null)}
+                  className="bg-white/20 backdrop-blur-sm text-white px-3 py-1.5 rounded-full text-xs font-bold hover:bg-white/30 transition-colors"
+                >
+                  Replace
+                </button>
+              </div>
+              {/* Success checkmark */}
+              <div className="absolute top-3 right-3 bg-green-500 text-white w-8 h-8 rounded-full flex items-center justify-center shadow-lg">
+                <Check size={16} />
+              </div>
+            </div>
+          ) : (
+            // Upload zone
+            <div
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onClick={() => fileInputRef.current?.click()}
+              className={`
+                cursor-pointer rounded-2xl border-2 border-dashed transition-all duration-200
+                flex flex-col items-center justify-center p-8 aspect-[4/3]
+                ${isDragging
+                  ? "border-primary bg-primary/10 scale-[1.02]"
+                  : "border-outline-variant/40 bg-surface hover:border-primary/50 hover:bg-primary/5"
+                }
+              `}
+            >
+              <div className={`
+                w-16 h-16 rounded-full flex items-center justify-center mb-4 transition-colors
+                ${isDragging ? "bg-primary/20" : "bg-outline-variant/20"}
+              `}>
+                <Upload size={28} className={isDragging ? "text-primary" : "text-on-surface-variant"} />
+              </div>
+              <p className="text-sm font-bold text-on-surface mb-1">
+                {isDragging ? "Drop your photo here!" : "Upload a pet photo"}
+              </p>
+              <p className="text-xs text-on-surface-variant opacity-60">
+                Drag & drop or click to browse • JPG, PNG, WebP • Max 10MB
               </p>
             </div>
-          </div>
-
-          {/* Name Input */}
-          <div>
-            <label className="block text-xs font-bold mb-1.5 opacity-60 uppercase tracking-wider text-slate-400">Avatar Identifier</label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. planet_zoo_dog_1"
-              className="w-full bg-[#2D2D2D] border border-white/10 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all text-white font-mono"
-            />
-          </div>
-
-          {/* Script Editor */}
-          <div className="flex-grow flex flex-col">
-            <label className="block text-xs font-bold mb-1.5 opacity-60 uppercase tracking-wider text-slate-400">Blender Python Script</label>
-            <textarea
-              value={script}
-              onChange={(e) => setScript(e.target.value)}
-              className="w-full flex-grow bg-[#0D0D0D] border border-white/10 rounded-lg p-4 text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all text-[#D4D4D4] font-mono resize-none"
-              spellCheck="false"
-            />
-          </div>
-
+          )}
+          
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleFileSelect(file);
+            }}
+          />
         </div>
 
-        {/* Action Button */}
-        <div className="mt-6 pt-4 border-t border-white/10">
-          <button
-            onClick={handleSave}
-            disabled={!name.trim() || !script.trim()}
-            className="w-full bg-primary text-white py-3.5 rounded-xl font-black uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg active:scale-95"
-          >
-            <Check size={18} />
-            Execute Script & Build Avatar
-          </button>
+        {/* What happens section */}
+        <div className="bg-surface rounded-xl border border-outline-variant/20 p-4 mb-6">
+          <p className="text-xs font-bold text-on-surface mb-3 uppercase tracking-wider opacity-60">
+            What the AI will do
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { icon: "🧠", label: "Analyze anatomy" },
+              { icon: "🧊", label: "Generate 3D mesh" },
+              { icon: "🦴", label: "Rig skeleton" },
+              { icon: "🎬", label: "Create animations" },
+            ].map((step) => (
+              <div
+                key={step.label}
+                className="flex items-center gap-2 bg-surface-container rounded-lg px-3 py-2"
+              >
+                <span className="text-base">{step.icon}</span>
+                <span className="text-[11px] font-semibold text-on-surface">{step.label}</span>
+              </div>
+            ))}
+          </div>
         </div>
 
+        {/* Submit Button */}
+        <button
+          onClick={handleSave}
+          disabled={!name.trim() || !photo}
+          className="w-full bg-primary text-white py-3.5 rounded-xl font-black uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg active:scale-95"
+        >
+          <Sparkles size={18} />
+          Generate 3D Avatar
+        </button>
+
+        <p className="text-[10px] text-center text-on-surface-variant opacity-50 mt-3">
+          Generation takes 2-5 minutes. You'll see progress in the avatar card.
+        </p>
       </div>
     </div>
   );

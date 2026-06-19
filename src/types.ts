@@ -107,11 +107,32 @@ export interface GenerationJob {
   error?: string | null;
 }
 
+export type AvatarAction = 'eating' | 'drinking' | 'running' | 'playing' | 'sleeping' | 'photo';
+
+export interface AnimationDef {
+  row: number;
+  frames: number;
+  fps: number;
+}
+
+export interface AnimationMetadata {
+  frameWidth: number;
+  frameHeight: number;
+  animations: Record<AvatarAction, AnimationDef>;
+}
+
 export interface Avatar {
   id: number;
   user_phone: string;
   name: string;
   image_url: string;
+  model_url?: string | null;
+  sprite_sheet_url?: string | null;
+  animation_data?: AnimationMetadata | null;
+  animal_type?: string | null;
+  breed?: string | null;
+  generation_status: 'pending' | 'generating_mesh' | 'rigging' | 'baking_sprites' | 'done' | 'failed';
+  generation_error?: string | null;
   food_level: number;
   water_level: number;
   last_fed: string;

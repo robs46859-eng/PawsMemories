@@ -204,13 +204,26 @@ export async function fetchAvatars(): Promise<Avatar[]> {
   }
 }
 
-export async function createNewAvatar(name: string, python_script: string): Promise<{ success: boolean; id?: number; imageUrl?: string }> {
+/** Create a new 3D avatar from a pet photo. Returns immediately with avatarId; generation is async. */
+export async function generate3DAvatar(name: string, photo: string): Promise<{ avatarId: number; status: string }> {
   const res = await authedFetch("/api/avatars", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, python_script }),
+    body: JSON.stringify({ name, photo }),
   });
   if (!res.ok) throw new Error(await parseError(res, "Failed to create avatar."));
+  return await res.json();
+}
+
+/** Poll the generation status of a 3D avatar. */
+export async function pollAvatarStatus(avatarId: number): Promise<{
+  status: string;
+  error?: string | null;
+  model_url?: string | null;
+  sprite_sheet_url?: string | null;
+}> {
+  const res = await authedFetch(`/api/avatars/${avatarId}/status`);
+  if (!res.ok) throw new Error(await parseError(res, "Failed to get avatar status."));
   return await res.json();
 }
 

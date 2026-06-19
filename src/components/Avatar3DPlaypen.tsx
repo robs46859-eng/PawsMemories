@@ -1,0 +1,376 @@
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { motion, useMotionValue, useTransform, AnimatePresence } from "motion/react";
+import { Avatar, AvatarAction, AnimationMetadata } from "../types";
+
+interface Avatar3DPlaypenProps {
+  avatar: Avatar;
+  activeAction: AvatarAction | null;
+  onActionAnimationComplete: () => void;
+  isDarkMode: boolean;
+}
+
+interface FloatingEmoji {
+  id: number;
+  char: string;
+  x: number;
+  y: number;
+}
+
+const ACTION_EMOJIS: Record<AvatarAction, string[]> = {
+  eating: ["🍖", "😋", "❤️"],
+  drinking: ["💧", "💦", "😊"],
+  running: ["💨", "🏃", "⚡"],
+  playing: ["🎾", "⭐", "🎉"],
+  sleeping: ["💤", "😴", "🌙"],
+  photo: ["📸", "✨", "📷"],
+};
+
+/**
+ * 3D-aware Avatar Playpen using sprite sheet animations.
+ * Renders the pet in a grassy 3D-parallax yard and cycles through
+ * sprite sheet frames when an action is triggered.
+ */
+export default function Avatar3DPlaypen({
+  avatar,
+  activeAction,
+  onActionAnimationComplete,
+  isDarkMode,
+}: Avatar3DPlaypenProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const spriteImgRef = useRef<HTMLImageElement | null>(null);
+  const [spriteLoaded, setSpriteLoaded] = useState(false);
+  const [currentFrame, setCurrentFrame] = useState(0);
+  const [emojis, setEmojis] = useState<FloatingEmoji[]>([]);
+  const animFrameRef = useRef<number>(0);
+  const lastFrameTimeRef = useRef<number>(0);
+
+  // 3D Parallax Hover Effect
+  const mouseX = useMotionValue(0);
+  const mouseY = useMotionValue(0);
+  const rotateX = useTransform(mouseY, [-0.5, 0.5], [12, -12]);
+  const rotateY = useTransform(mouseX, [-0.5, 0.5], [-12, 12]);
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    mouseX.set((e.clientX - rect.left - rect.width / 2) / rect.width);
+    mouseY.set((e.clientY - rect.top - rect.height / 2) / rect.height);
+  };
+
+  const handleMouseLeave = () => {
+    mouseX.set(0);
+    mouseY.set(0);
+  };
+
+  // Load sprite sheet image
+  useEffect(() => {
+    if (!avatar.sprite_sheet_url) return;
+
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      spriteImgRef.current = img;
+      setSpriteLoaded(true);
+    };
+    img.onerror = () => {
+      console.warn("Failed to load sprite sheet for avatar:", avatar.name);
+      setSpriteLoaded(false);
+    };
+    img.src = avatar.sprite_sheet_url;
+  }, [avatar.sprite_sheet_url]);
+
+  // Get animation metadata with defaults
+  const getAnimMeta = useCallback((): AnimationMetadata => {
+    if (avatar.animation_data) {
+      return avatar.animation_data as AnimationMetadata;
+    }
+    // Default metadata
+    return {
+      frameWidth: 128,
+      frameHeight: 128,
+      animations: {
+        eating: { row: 0, frames: 8, fps: 12 },
+        drinking: { row: 1, frames: 8, fps: 12 },
+        running: { row: 2, frames: 12, fps: 16 },
+        playing: { row: 3, frames: 10, fps: 14 },
+        sleeping: { row: 4, frames: 6, fps: 6 },
+        photo: { row: 5, frames: 4, fps: 8 },
+      },
+    };
+  }, [avatar.animation_data]);
+
+  // Spawn floating emojis
+  const spawnEmoji = useCallback((action: AvatarAction) => {
+    const chars = ACTION_EMOJIS[action];
+    const char = chars[Math.floor(Math.random() * chars.length)];
+    const id = Date.now() + Math.random();
+    const x = 40 + Math.random() * 20;
+    const y = 35 + Math.random() * 15;
+
+    setEmojis((prev) => [...prev, { id, char, x, y }]);
+    setTimeout(() => {
+      setEmojis((prev) => prev.filter((e) => e.id !== id));
+    }, 2000);
+  }, []);
+
+  // Render sprite frame to canvas
+  const renderFrame = useCallback(
+    (action: AvatarAction, frame: number) => {
+      const canvas = canvasRef.current;
+      const img = spriteImgRef.current;
+      if (!canvas || !img || !spriteLoaded) return;
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      const meta = getAnimMeta();
+      const anim = meta.animations[action];
+      if (!anim) return;
+
+      const fw = meta.frameWidth;
+      const fh = meta.frameHeight;
+      const sx = frame * fw;
+      const sy = anim.row * fh;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Only draw if source coords are within image bounds
+      if (sx + fw <= img.width && sy + fh <= img.height) {
+        ctx.drawImage(img, sx, sy, fw, fh, 0, 0, canvas.width, canvas.height);
+      }
+    },
+    [spriteLoaded, getAnimMeta]
+  );
+
+  // Animation loop when an action is active
+  useEffect(() => {
+    if (!activeAction || !spriteLoaded) return;
+
+    const meta = getAnimMeta();
+    const anim = meta.animations[activeAction];
+    if (!anim) {
+      onActionAnimationComplete();
+      return;
+    }
+
+    let frame = 0;
+    let loopCount = 0;
+    const maxLoops = activeAction === "sleeping" ? 3 : 2; // How many times to play the animation
+    const interval = 1000 / anim.fps;
+    let lastTime = performance.now();
+
+    // Spawn initial emoji
+    spawnEmoji(activeAction);
+
+    const tick = (time: number) => {
+      if (time - lastTime >= interval) {
+        lastTime = time;
+        frame++;
+
+        if (frame >= anim.frames) {
+          loopCount++;
+          if (loopCount >= maxLoops) {
+            // Animation complete
+            setCurrentFrame(0);
+            renderFrame(activeAction, 0);
+            spawnEmoji(activeAction);
+            onActionAnimationComplete();
+            return;
+          }
+          frame = 0;
+          spawnEmoji(activeAction);
+        }
+
+        setCurrentFrame(frame);
+        renderFrame(activeAction, frame);
+      }
+
+      animFrameRef.current = requestAnimationFrame(tick);
+    };
+
+    animFrameRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      if (animFrameRef.current) {
+        cancelAnimationFrame(animFrameRef.current);
+      }
+    };
+  }, [activeAction, spriteLoaded, getAnimMeta, renderFrame, spawnEmoji, onActionAnimationComplete]);
+
+  // Idle animation: gentle bob when no action is playing
+  useEffect(() => {
+    if (activeAction || !spriteLoaded) return;
+
+    // Show idle frame (first frame of "photo" action as idle pose)
+    renderFrame("photo", 0);
+  }, [activeAction, spriteLoaded, renderFrame]);
+
+  // Determine display mode
+  const hasSpriteSheet = !!avatar.sprite_sheet_url && spriteLoaded;
+  const isGenerating = avatar.generation_status !== "done" && avatar.generation_status !== "failed";
+
+  return (
+    <div
+      className="relative w-full aspect-square overflow-hidden rounded-t-3xl select-none"
+      style={{ perspective: 1000 }}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
+    >
+      {/* 3D Tilting Yard */}
+      <motion.div
+        style={{
+          rotateX,
+          rotateY,
+          transformStyle: "preserve-3d",
+        }}
+        className="w-full h-full bg-gradient-to-b from-emerald-100 to-emerald-200 dark:from-emerald-950/40 dark:to-emerald-900/30 flex flex-col justify-end relative transition-all duration-300 ease-out border-b border-outline-variant/10"
+      >
+        {/* Backyard fence */}
+        <div className="absolute inset-x-0 top-0 h-10 border-b-2 border-emerald-900/10 dark:border-emerald-100/5 bg-emerald-800/10 dark:bg-emerald-950/20 flex justify-between px-6 items-center">
+          <span className="text-[10px] opacity-40 font-bold tracking-widest text-emerald-900 dark:text-emerald-300">
+            3D PLAYPEN
+          </span>
+          <div className="flex gap-1">
+            <span className="text-xs">🪵</span>
+            <span className="text-xs">🪵</span>
+            <span className="text-xs">🪵</span>
+          </div>
+        </div>
+
+        {/* Scattered grass/flowers */}
+        <div className="absolute top-[40%] left-[20%] text-[10px] opacity-30">🌼</div>
+        <div className="absolute top-[65%] left-[80%] text-[10px] opacity-35">🌸</div>
+        <div className="absolute top-[55%] left-[45%] text-[10px] opacity-20">🌱</div>
+        <div className="absolute top-[75%] left-[15%] text-[10px] opacity-25">🌼</div>
+
+        {/* Generation Progress Overlay */}
+        {isGenerating && (
+          <div className="absolute inset-0 z-30 bg-black/40 backdrop-blur-sm flex flex-col items-center justify-center text-white">
+            <div className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full animate-spin mb-3" />
+            <p className="text-xs font-bold mb-1">
+              {avatar.generation_status === "pending" && "⏳ Analyzing photo..."}
+              {avatar.generation_status === "generating_mesh" && "🧊 Generating 3D mesh..."}
+              {avatar.generation_status === "rigging" && "🦴 Rigging skeleton..."}
+              {avatar.generation_status === "baking_sprites" && "🎬 Baking animations..."}
+            </p>
+            <div className="flex gap-1 mt-2">
+              {["pending", "generating_mesh", "rigging", "baking_sprites"].map((step, i) => (
+                <div
+                  key={step}
+                  className={`w-2 h-2 rounded-full transition-all ${
+                    getStepIndex(avatar.generation_status) >= i
+                      ? "bg-green-400 scale-110"
+                      : "bg-white/30"
+                  }`}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Failed Overlay */}
+        {avatar.generation_status === "failed" && (
+          <div className="absolute inset-0 z-30 bg-red-900/40 backdrop-blur-sm flex flex-col items-center justify-center text-white px-4">
+            <span className="text-2xl mb-2">⚠️</span>
+            <p className="text-xs font-bold text-center">Generation Failed</p>
+            <p className="text-[10px] opacity-70 text-center mt-1 max-w-[80%]">
+              {avatar.generation_error || "Unknown error occurred"}
+            </p>
+          </div>
+        )}
+
+        {/* Pet Avatar — Canvas for sprite sheet OR fallback image */}
+        <div className="absolute inset-0 flex items-center justify-center">
+          {hasSpriteSheet ? (
+            <motion.div
+              animate={{
+                y: activeAction ? [0, -8, 0] : [0, -3, 0],
+                scale: activeAction === "playing" ? [1, 1.1, 1] : 1,
+              }}
+              transition={{
+                y: {
+                  repeat: activeAction ? 0 : Infinity,
+                  duration: activeAction ? 0.3 : 2,
+                  ease: "easeInOut",
+                },
+              }}
+              className="relative"
+            >
+              <canvas
+                ref={canvasRef}
+                width={192}
+                height={192}
+                className="w-32 h-32 sm:w-40 sm:h-40 drop-shadow-xl"
+                style={{ imageRendering: "auto" }}
+              />
+              {/* Shadow under pet */}
+              <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-20 h-3 bg-black/15 dark:bg-black/30 rounded-full blur-[2px]" />
+            </motion.div>
+          ) : (
+            // Fallback: show the 2D avatar image
+            <motion.div
+              animate={{
+                y: [0, -3, 0],
+              }}
+              transition={{
+                repeat: Infinity,
+                duration: 2,
+                ease: "easeInOut",
+              }}
+              className="relative"
+            >
+              <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-full border-[3px] border-white dark:border-slate-800 shadow-xl overflow-hidden bg-slate-200">
+                <img
+                  src={avatar.image_url}
+                  alt={avatar.name}
+                  className="w-full h-full object-cover"
+                />
+              </div>
+              <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-16 h-3 bg-black/15 dark:bg-black/30 rounded-full blur-[2px]" />
+            </motion.div>
+          )}
+        </div>
+
+        {/* Floating Emojis */}
+        <AnimatePresence>
+          {emojis.map((e) => (
+            <motion.div
+              key={e.id}
+              initial={{ opacity: 0, y: 0, scale: 0.5 }}
+              animate={{ opacity: 1, y: -50, scale: 1.3 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              transition={{ duration: 1.8, ease: "easeOut" }}
+              className="absolute text-xl font-bold select-none z-30 pointer-events-none drop-shadow-sm"
+              style={{ left: `${e.x}%`, top: `${e.y}%` }}
+            >
+              {e.char}
+            </motion.div>
+          ))}
+        </AnimatePresence>
+
+        {/* Action indicator badge */}
+        <AnimatePresence>
+          {activeAction && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.5, y: -10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.5 }}
+              className="absolute top-14 left-1/2 -translate-x-1/2 bg-black/60 text-white px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider z-30 backdrop-blur-sm"
+            >
+              {activeAction === "eating" && "🍖 Eating"}
+              {activeAction === "drinking" && "💧 Drinking"}
+              {activeAction === "running" && "🏃 Running"}
+              {activeAction === "playing" && "🎾 Playing"}
+              {activeAction === "sleeping" && "😴 Sleeping"}
+              {activeAction === "photo" && "📸 Say Cheese!"}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
+    </div>
+  );
+}
+
+function getStepIndex(status: string): number {
+  const steps = ["pending", "generating_mesh", "rigging", "baking_sprites"];
+  return steps.indexOf(status);
+}
