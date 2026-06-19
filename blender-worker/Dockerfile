@@ -3,7 +3,7 @@ FROM node:20-slim
 
 # Update package list and install Blender (along with its dependencies)
 RUN apt-get update && \
-    apt-get install -y blender libegl1 && \
+    apt-get install -y blender libegl1 python3-numpy && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
