@@ -115,7 +115,7 @@ Return ONLY the JSON object.`;
     }
 
     const response = await ai.models.generateContent({
-      model: 'gemini-1.5-pro',
+      model: 'gemini-2.5-flash',
       contents: [
         {
           role: 'user',
@@ -198,7 +198,7 @@ IMPORTANT: Return ONLY the Python code, no markdown fences, no explanations. Sta
 
   const ai = getAiClient();
   const response = await ai.models.generateContent({
-    model: 'gemini-1.5-pro', // Using pro for better coding
+    model: 'gemini-2.5-flash', // Using 2.5-flash for compatibility
     contents: prompt,
     config: { temperature: 0.1 }
   });
@@ -295,7 +295,7 @@ IMPORTANT: Return ONLY the Python code. Start with "import bpy".`;
 
   const ai = getAiClient();
   const response = await ai.models.generateContent({
-    model: 'gemini-1.5-pro',
+    model: 'gemini-2.5-flash',
     contents: prompt,
     config: { temperature: 0.1 }
   });

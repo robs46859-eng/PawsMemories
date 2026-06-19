@@ -4,7 +4,6 @@
  */
 
 import { client, handle_file } from "@gradio/client";
-import fetch from "node-fetch"; // Assuming global fetch is available in Node 18+, but we can use global fetch.
 
 const DEFAULT_SPACE = "tencent/Hunyuan3D-2";
 
