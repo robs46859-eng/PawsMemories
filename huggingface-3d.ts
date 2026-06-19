@@ -30,12 +30,18 @@ export async function generateMeshFromImage(imageBase64: string): Promise<Buffer
     dataUri = `data:${mime};base64,${dataUri}`;
   }
 
+  // Convert base64 to Blob so @gradio/client uploads it instead of treating it as a local path
+  const mimeType = dataUri.match(/^data:(image\/\w+);base64,/)?.[1] || "image/png";
+  const base64Data = dataUri.replace(/^data:image\/\w+;base64,/, "");
+  const imageBuffer = Buffer.from(base64Data, "base64");
+  const imageBlob = new Blob([imageBuffer], { type: mimeType });
+
   console.log("[HF-3D] Submitting prediction job to /shape_generation...");
 
   // The Hunyuan3D-2 endpoint `/shape_generation` expects 13 arguments.
   const result = await app.predict("/shape_generation", [
     "",                // caption
-    handle_file(dataUri), // image
+    handle_file(imageBlob as any), // image
     null,              // mv_image_front
     null,              // mv_image_back
     null,              // mv_image_left
