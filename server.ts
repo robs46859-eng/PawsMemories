@@ -486,24 +486,62 @@ async function startServer() {
             return;
           }
 
-          // --- Step 4: Send to Blender worker for rigging ---
-          console.log(`[3D Avatar #${avatarId}] Step 4: Sending to Blender worker for rigging...`);
+          // Worker base URL for Blender calls
           const workerBaseUrl = (process.env.BLENDER_WORKER_URL || 'http://localhost:10000/render').replace('/render', '');
-          let riggedGlbBase64: string;
-          try {
-            const rigRes = await fetch(`${workerBaseUrl}/rig-model`, {
+
+          // --- Helper: submit job to worker and poll for result ---
+          const pollWorkerJob = async (endpoint: string, payload: any, label: string, maxWaitMs = 300000): Promise<any> => {
+            // Submit job
+            const submitRes = await fetch(`${workerBaseUrl}${endpoint}`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                glb_base64: glbBuffer.toString('base64'),
-                rigging_script: riggingScript,
-              }),
+              body: JSON.stringify(payload),
             });
-            if (!rigRes.ok) {
-              const errData = await rigRes.json().catch(() => ({}));
-              throw new Error(errData.error || `Worker returned ${rigRes.status}`);
+            if (!submitRes.ok) {
+              const errData = await submitRes.json().catch(() => ({}));
+              throw new Error(errData.error || `Worker returned ${submitRes.status}`);
             }
-            const rigData = await rigRes.json();
+            const submitData = await submitRes.json() as { jobId?: string; success?: boolean; [key: string]: any };
+
+            // If the worker returned a jobId (async mode), poll for completion
+            if (submitData.jobId) {
+              const jobId = submitData.jobId;
+              console.log(`[3D Avatar #${avatarId}] ${label}: Got jobId=${jobId}, polling...`);
+              const pollInterval = 5000; // 5 seconds
+              const deadline = Date.now() + maxWaitMs;
+
+              while (Date.now() < deadline) {
+                await new Promise(r => setTimeout(r, pollInterval));
+                const pollRes = await fetch(`${workerBaseUrl}/jobs/${jobId}`);
+                if (!pollRes.ok) {
+                  throw new Error(`Polling failed with status ${pollRes.status}`);
+                }
+                const pollData = await pollRes.json() as { status: string; result?: any; error?: string };
+
+                if (pollData.status === 'complete') {
+                  console.log(`[3D Avatar #${avatarId}] ${label}: Job complete!`);
+                  return pollData.result;
+                } else if (pollData.status === 'failed') {
+                  throw new Error(pollData.error || `${label} job failed`);
+                }
+                // still processing, continue polling
+                console.log(`[3D Avatar #${avatarId}] ${label}: Still processing...`);
+              }
+              throw new Error(`${label} timed out after ${maxWaitMs / 1000}s`);
+            }
+
+            // Synchronous response (backwards compatibility)
+            return submitData;
+          };
+
+          // --- Step 4: Send to Blender worker for rigging ---
+          console.log(`[3D Avatar #${avatarId}] Step 4: Sending to Blender worker for rigging...`);
+          let riggedGlbBase64: string;
+          try {
+            const rigData = await pollWorkerJob('/rig-model', {
+              glb_base64: glbBuffer.toString('base64'),
+              rigging_script: riggingScript,
+            }, 'Rigging');
             if (!rigData.success || !rigData.rigged_glb_base64) {
               throw new Error('Worker returned invalid rigging result');
             }
@@ -531,19 +569,10 @@ async function startServer() {
           let spriteSheetBase64: string;
           let animationMetadata: any;
           try {
-            const spriteRes = await fetch(`${workerBaseUrl}/bake-sprites`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                rigged_glb_base64: riggedGlbBase64,
-                animation_script: spriteScript,
-              }),
-            });
-            if (!spriteRes.ok) {
-              const errData = await spriteRes.json().catch(() => ({}));
-              throw new Error(errData.error || `Worker returned ${spriteRes.status}`);
-            }
-            const spriteData = await spriteRes.json();
+            const spriteData = await pollWorkerJob('/bake-sprites', {
+              rigged_glb_base64: riggedGlbBase64,
+              animation_script: spriteScript,
+            }, 'Sprite baking');
             if (!spriteData.success) {
               throw new Error('Worker returned invalid sprite result');
             }

@@ -3,7 +3,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import crypto from "crypto";
-import { execSync } from "child_process";
+import { execSync, exec } from "child_process";
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -11,9 +11,53 @@ const PORT = process.env.PORT || 10000;
 // Increase limit for GLB model data and large scripts
 app.use(express.json({ limit: "100mb" }));
 
-// Health check endpoint for Render
+// =============================================================================
+// In-memory job store for async processing
+// =============================================================================
+const jobs = new Map();
+
+// Auto-cleanup jobs older than 15 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, job] of jobs) {
+    if (now - job.createdAt > 15 * 60 * 1000) {
+      // Cleanup temp dir if still around
+      if (job.tempDir) {
+        try { fs.rmSync(job.tempDir, { recursive: true, force: true }); } catch {}
+      }
+      jobs.delete(id);
+    }
+  }
+}, 60000);
+
+// Health check endpoint
 app.get("/health", (req, res) => {
-  res.status(200).json({ status: "ok" });
+  res.status(200).json({ status: "ok", activeJobs: jobs.size });
+});
+
+// =============================================================================
+// GET /jobs/:jobId — Poll for job status and results
+// =============================================================================
+app.get("/jobs/:jobId", (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job) {
+    return res.status(404).json({ error: "Job not found" });
+  }
+
+  const response = {
+    jobId: req.params.jobId,
+    status: job.status,
+    type: job.type,
+    createdAt: job.createdAt,
+  };
+
+  if (job.status === "complete") {
+    response.result = job.result;
+  } else if (job.status === "failed") {
+    response.error = job.error;
+  }
+
+  res.json(response);
 });
 
 // =============================================================================
@@ -84,13 +128,13 @@ app.post("/render", async (req, res) => {
 });
 
 // =============================================================================
-// POST /rig-model — Import GLB + apply AI-generated rigging armature
+// POST /rig-model — ASYNC: Import GLB + apply AI-generated rigging armature
 // Receives: { glb_base64, rigging_script }
-// Returns:  { success, rigged_glb_base64 }
+// Returns:  { jobId } immediately, poll /jobs/:jobId for results
 // =============================================================================
 app.post("/rig-model", async (req, res) => {
-  const tempId = crypto.randomUUID();
-  const tempDir = path.join(os.tmpdir(), `rig_${tempId}`);
+  const jobId = crypto.randomUUID();
+  const tempDir = path.join(os.tmpdir(), `rig_${jobId}`);
   
   try {
     const { glb_base64, rigging_script } = req.body;
@@ -99,7 +143,7 @@ app.post("/rig-model", async (req, res) => {
       return res.status(400).json({ error: "Missing glb_base64 or rigging_script" });
     }
 
-    console.log(`[Rig ${tempId}] Starting rigging job...`);
+    console.log(`[Rig ${jobId}] Starting async rigging job...`);
 
     // Create temp directory
     fs.mkdirSync(tempDir, { recursive: true });
@@ -114,13 +158,9 @@ app.post("/rig-model", async (req, res) => {
       rawGlb = rawGlb.split(",")[1] || rawGlb;
     }
     fs.writeFileSync(inputGlbPath, Buffer.from(rawGlb, "base64"));
-    console.log(`[Rig ${tempId}] Input GLB written: ${fs.statSync(inputGlbPath).size} bytes`);
+    console.log(`[Rig ${jobId}] Input GLB written: ${fs.statSync(inputGlbPath).size} bytes`);
 
-    // Build the full Blender script:
-    // 1. Clear the scene
-    // 2. Import the GLB
-    // 3. Execute the AI-generated rigging script
-    // 4. Export the rigged model as GLB
+    // Build the full Blender script
     const fullScript = `
 import bpy
 import sys
@@ -167,54 +207,82 @@ print("[Rig] RIGGING_EXPORT_COMPLETE")
 
     fs.writeFileSync(scriptPath, fullScript, "utf8");
 
-    // Execute Blender
-    console.log(`[Rig ${tempId}] Running Blender CLI for rigging...`);
-    try {
-      const stdout = execSync(`blender --background --python-exit-code 1 --python "${scriptPath}"`, {
-        stdio: 'pipe',
-        timeout: 120000, // 2 minute timeout
-      });
-      console.log(`[Rig ${tempId}] Blender stdout (last 500 chars):`, stdout.toString().slice(-500));
-    } catch (blenderErr) {
-      console.error(`[Rig ${tempId}] Blender rigging failed:`, blenderErr.message);
-      if (blenderErr.stdout) console.error("Stdout:", blenderErr.stdout.toString().slice(-1000));
-      if (blenderErr.stderr) console.error("Stderr:", blenderErr.stderr.toString().slice(-1000));
-      const stderrStr = blenderErr.stderr ? blenderErr.stderr.toString().slice(-1000) : "";
-      return res.status(500).json({ error: `Blender rigging failed. Script error: ${stderrStr}` });
-    }
-
-    // Check output
-    if (!fs.existsSync(outputGlbPath)) {
-      console.error(`[Rig ${tempId}] Rigged GLB not found at ${outputGlbPath}`);
-      return res.status(500).json({ error: "Blender completed but no rigged GLB was generated." });
-    }
-
-    const riggedBuffer = fs.readFileSync(outputGlbPath);
-    const riggedBase64 = riggedBuffer.toString("base64");
-    console.log(`[Rig ${tempId}] ✅ Rigging successful (${riggedBuffer.length} bytes)`);
-
-    res.json({
-      success: true,
-      rigged_glb_base64: riggedBase64
+    // Register the job as processing
+    jobs.set(jobId, {
+      type: "rig-model",
+      status: "processing",
+      createdAt: Date.now(),
+      tempDir,
     });
 
+    // Return immediately with jobId
+    res.status(202).json({ jobId, status: "processing" });
+
+    // Run Blender asynchronously
+    console.log(`[Rig ${jobId}] Running Blender CLI for rigging (async)...`);
+    const child = exec(
+      `blender --background --python-exit-code 1 --python "${scriptPath}"`,
+      { timeout: 300000, maxBuffer: 50 * 1024 * 1024 },
+      (error, stdout, stderr) => {
+        const job = jobs.get(jobId);
+        if (!job) return;
+
+        if (error) {
+          console.error(`[Rig ${jobId}] Blender rigging failed:`, error.message);
+          if (stdout) console.error("Stdout:", stdout.slice(-1000));
+          if (stderr) console.error("Stderr:", stderr.slice(-1000));
+          job.status = "failed";
+          job.error = `Blender rigging failed. Script error: ${(stderr || "").slice(-1000)}`;
+          try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+          return;
+        }
+
+        console.log(`[Rig ${jobId}] Blender stdout (last 500 chars):`, (stdout || "").slice(-500));
+
+        // Check output
+        if (!fs.existsSync(outputGlbPath)) {
+          console.error(`[Rig ${jobId}] Rigged GLB not found at ${outputGlbPath}`);
+          job.status = "failed";
+          job.error = "Blender completed but no rigged GLB was generated.";
+          try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+          return;
+        }
+
+        const riggedBuffer = fs.readFileSync(outputGlbPath);
+        const riggedBase64 = riggedBuffer.toString("base64");
+        console.log(`[Rig ${jobId}] ✅ Rigging successful (${riggedBuffer.length} bytes)`);
+
+        job.status = "complete";
+        job.result = { success: true, rigged_glb_base64: riggedBase64 };
+
+        // Cleanup temp files
+        try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+      }
+    );
+
   } catch (err) {
-    console.error(`[Rig ${tempId}] Unexpected error:`, err);
-    res.status(500).json({ error: "Internal server error during rigging" });
-  } finally {
-    // Cleanup
+    console.error(`[Rig ${jobId}] Unexpected error:`, err);
+    const job = jobs.get(jobId);
+    if (job) {
+      job.status = "failed";
+      job.error = "Internal server error during rigging";
+    }
     try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+    // Only send error response if we haven't already sent the 202
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Internal server error during rigging" });
+    }
   }
 });
 
 // =============================================================================
-// POST /bake-sprites — Take rigged GLB + animation script → sprite sheet PNG
+// POST /bake-sprites — ASYNC: Take rigged GLB + animation script → sprite sheet
 // Receives: { rigged_glb_base64, animation_script }
-// Returns:  { success, sprite_sheet_base64, animation_metadata }
+// Returns:  { jobId } immediately, poll /jobs/:jobId for results
 // =============================================================================
 app.post("/bake-sprites", async (req, res) => {
-  const tempId = crypto.randomUUID();
-  const tempDir = path.join(os.tmpdir(), `sprites_${tempId}`);
+  const jobId = crypto.randomUUID();
+  const tempDir = path.join(os.tmpdir(), `sprites_${jobId}`);
 
   try {
     const { rigged_glb_base64, animation_script } = req.body;
@@ -223,7 +291,7 @@ app.post("/bake-sprites", async (req, res) => {
       return res.status(400).json({ error: "Missing rigged_glb_base64 or animation_script" });
     }
 
-    console.log(`[Sprites ${tempId}] Starting sprite bake job...`);
+    console.log(`[Sprites ${jobId}] Starting async sprite bake job...`);
 
     // Create temp directory
     fs.mkdirSync(tempDir, { recursive: true });
@@ -239,10 +307,9 @@ app.post("/bake-sprites", async (req, res) => {
       rawGlb = rawGlb.split(",")[1] || rawGlb;
     }
     fs.writeFileSync(inputGlbPath, Buffer.from(rawGlb, "base64"));
-    console.log(`[Sprites ${tempId}] Rigged GLB written: ${fs.statSync(inputGlbPath).size} bytes`);
+    console.log(`[Sprites ${jobId}] Rigged GLB written: ${fs.statSync(inputGlbPath).size} bytes`);
 
     // Build the full script
-    // Override the output_path variable to point to our temp location
     let modifiedAnimScript = animation_script;
     modifiedAnimScript = modifiedAnimScript.replace(
       /output_path\s*=\s*.+/g,
@@ -364,71 +431,101 @@ print("[Sprites] SPRITE_BAKE_COMPLETE")
 
     fs.writeFileSync(scriptPath, fullScript, "utf8");
 
-    // Execute Blender
-    console.log(`[Sprites ${tempId}] Running Blender CLI for sprite baking...`);
-    try {
-      const stdout = execSync(`blender --background --python-exit-code 1 --python "${scriptPath}"`, {
-        stdio: 'pipe',
-        timeout: 180000, // 3 minute timeout
-      });
-      console.log(`[Sprites ${tempId}] Blender stdout (last 500 chars):`, stdout.toString().slice(-500));
-    } catch (blenderErr) {
-      console.error(`[Sprites ${tempId}] Blender sprite bake failed:`, blenderErr.message);
-      if (blenderErr.stdout) console.error("Stdout:", blenderErr.stdout.toString().slice(-1000));
-      if (blenderErr.stderr) console.error("Stderr:", blenderErr.stderr.toString().slice(-1000));
-      const stderrStr = blenderErr.stderr ? blenderErr.stderr.toString().slice(-1000) : "";
-      return res.status(500).json({ error: `Blender sprite baking failed. Script error: ${stderrStr}` });
-    }
-
-    // Read sprite sheet
-    if (!fs.existsSync(outputPngPath)) {
-      console.error(`[Sprites ${tempId}] Sprite sheet PNG not found`);
-      return res.status(500).json({ error: "Blender completed but no sprite sheet was generated." });
-    }
-
-    const spritePng = fs.readFileSync(outputPngPath);
-    const spriteBase64 = spritePng.toString("base64");
-
-    // Read animation metadata
-    let animationMetadata = {
-      frameWidth: 128,
-      frameHeight: 128,
-      animations: {
-        eating:   { row: 0, frames: 8,  fps: 12 },
-        drinking: { row: 1, frames: 8,  fps: 12 },
-        running:  { row: 2, frames: 12, fps: 16 },
-        playing:  { row: 3, frames: 10, fps: 14 },
-        sleeping: { row: 4, frames: 6,  fps: 6  },
-        photo:    { row: 5, frames: 4,  fps: 8  },
-      }
-    };
-
-    if (fs.existsSync(outputJsonPath)) {
-      try {
-        animationMetadata = JSON.parse(fs.readFileSync(outputJsonPath, "utf8"));
-      } catch (e) {
-        console.warn(`[Sprites ${tempId}] Could not parse metadata JSON, using defaults`);
-      }
-    }
-
-    console.log(`[Sprites ${tempId}] ✅ Sprite bake successful (${spritePng.length} bytes)`);
-
-    res.json({
-      success: true,
-      sprite_sheet_base64: `data:image/png;base64,${spriteBase64}`,
-      animation_metadata: animationMetadata
+    // Register the job as processing
+    jobs.set(jobId, {
+      type: "bake-sprites",
+      status: "processing",
+      createdAt: Date.now(),
+      tempDir,
     });
 
+    // Return immediately with jobId
+    res.status(202).json({ jobId, status: "processing" });
+
+    // Run Blender asynchronously
+    console.log(`[Sprites ${jobId}] Running Blender CLI for sprite baking (async)...`);
+    const child = exec(
+      `blender --background --python-exit-code 1 --python "${scriptPath}"`,
+      { timeout: 300000, maxBuffer: 50 * 1024 * 1024 },
+      (error, stdout, stderr) => {
+        const job = jobs.get(jobId);
+        if (!job) return;
+
+        if (error) {
+          console.error(`[Sprites ${jobId}] Blender sprite bake failed:`, error.message);
+          if (stdout) console.error("Stdout:", stdout.slice(-1000));
+          if (stderr) console.error("Stderr:", stderr.slice(-1000));
+          job.status = "failed";
+          job.error = `Blender sprite baking failed. Script error: ${(stderr || "").slice(-1000)}`;
+          try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+          return;
+        }
+
+        console.log(`[Sprites ${jobId}] Blender stdout (last 500 chars):`, (stdout || "").slice(-500));
+
+        // Read sprite sheet
+        if (!fs.existsSync(outputPngPath)) {
+          console.error(`[Sprites ${jobId}] Sprite sheet PNG not found`);
+          job.status = "failed";
+          job.error = "Blender completed but no sprite sheet was generated.";
+          try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+          return;
+        }
+
+        const spritePng = fs.readFileSync(outputPngPath);
+        const spriteBase64 = spritePng.toString("base64");
+
+        // Read animation metadata
+        let animationMetadata = {
+          frameWidth: 128,
+          frameHeight: 128,
+          animations: {
+            eating:   { row: 0, frames: 8,  fps: 12 },
+            drinking: { row: 1, frames: 8,  fps: 12 },
+            running:  { row: 2, frames: 12, fps: 16 },
+            playing:  { row: 3, frames: 10, fps: 14 },
+            sleeping: { row: 4, frames: 6,  fps: 6  },
+            photo:    { row: 5, frames: 4,  fps: 8  },
+          }
+        };
+
+        if (fs.existsSync(outputJsonPath)) {
+          try {
+            animationMetadata = JSON.parse(fs.readFileSync(outputJsonPath, "utf8"));
+          } catch (e) {
+            console.warn(`[Sprites ${jobId}] Could not parse metadata JSON, using defaults`);
+          }
+        }
+
+        console.log(`[Sprites ${jobId}] ✅ Sprite bake successful (${spritePng.length} bytes)`);
+
+        job.status = "complete";
+        job.result = {
+          success: true,
+          sprite_sheet_base64: `data:image/png;base64,${spriteBase64}`,
+          animation_metadata: animationMetadata,
+        };
+
+        // Cleanup temp files
+        try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+      }
+    );
+
   } catch (err) {
-    console.error(`[Sprites ${tempId}] Unexpected error:`, err);
-    res.status(500).json({ error: "Internal server error during sprite baking" });
-  } finally {
-    // Cleanup
+    console.error(`[Sprites ${jobId}] Unexpected error:`, err);
+    const job = jobs.get(jobId);
+    if (job) {
+      job.status = "failed";
+      job.error = "Internal server error during sprite baking";
+    }
     try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Internal server error during sprite baking" });
+    }
   }
 });
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Blender microservice listening on port ${PORT}`);
-  console.log(`Endpoints: /render, /rig-model, /bake-sprites, /health`);
+  console.log(`Endpoints: /render, /rig-model, /bake-sprites, /jobs/:jobId, /health`);
 });
