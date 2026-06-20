@@ -16,6 +16,8 @@ export async function generateMeshFromImage(imageBase64: string): Promise<Buffer
 
   const space = process.env.HUGGINGFACE_SPACE || DEFAULT_SPACE;
   
+  console.log(`[HF-3D] Token present: ${!!process.env.HUGGINGFACE_TOKEN}`);
+
   // Initialize the Gradio client
   const app = await client(space, {
     hf_token: process.env.HUGGINGFACE_TOKEN as any, // Works whether token is set or undefined
