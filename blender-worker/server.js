@@ -5,6 +5,28 @@ import path from "path";
 import crypto from "crypto";
 import { execSync, exec } from "child_process";
 
+// Extract the meaningful Python error from Blender's combined output
+function extractBlenderError(stdout, stderr) {
+  const combined = (stdout || "") + "\n" + (stderr || "");
+  // Look for Python traceback in the output
+  const tracebackMatch = combined.match(/Traceback \(most recent call last\)[\s\S]*?(?:Error|Exception):.*/m);
+  if (tracebackMatch) {
+    // Return last 1500 chars of traceback to get the full chain
+    return tracebackMatch[0].slice(-1500);
+  }
+  // Look for lines containing ERROR or Error
+  const errorLines = combined.split("\n").filter(l =>
+    l.includes("ERROR") || l.includes("Error:") || l.includes("Exception:")
+  ).filter(l =>
+    !l.includes("mounted file-systems") && !l.includes("libEGL")
+  );
+  if (errorLines.length > 0) {
+    return errorLines.join("\n").slice(-1500);
+  }
+  // Fallback: return tail of stdout (more useful than stderr for Blender)
+  return (stdout || stderr || "Unknown error").slice(-1500);
+}
+
 const app = express();
 const PORT = process.env.PORT || 10000;
 
@@ -228,11 +250,10 @@ print("[Rig] RIGGING_EXPORT_COMPLETE")
         if (!job) return;
 
         if (error) {
-          console.error(`[Rig ${jobId}] Blender rigging failed:`, error.message);
-          if (stdout) console.error("Stdout:", stdout.slice(-1000));
-          if (stderr) console.error("Stderr:", stderr.slice(-1000));
+          const errorDetail = extractBlenderError(stdout, stderr);
+          console.error(`[Rig ${jobId}] Blender rigging failed:`, errorDetail);
           job.status = "failed";
-          job.error = `Blender rigging failed. Script error: ${(stderr || "").slice(-1000)}`;
+          job.error = `Blender rigging failed: ${errorDetail}`;
           try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
           return;
         }
@@ -452,11 +473,10 @@ print("[Sprites] SPRITE_BAKE_COMPLETE")
         if (!job) return;
 
         if (error) {
-          console.error(`[Sprites ${jobId}] Blender sprite bake failed:`, error.message);
-          if (stdout) console.error("Stdout:", stdout.slice(-1000));
-          if (stderr) console.error("Stderr:", stderr.slice(-1000));
+          const errorDetail = extractBlenderError(stdout, stderr);
+          console.error(`[Sprites ${jobId}] Blender sprite bake failed:`, errorDetail);
           job.status = "failed";
-          job.error = `Blender sprite baking failed. Script error: ${(stderr || "").slice(-1000)}`;
+          job.error = `Blender sprite baking failed: ${errorDetail}`;
           try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
           return;
         }
