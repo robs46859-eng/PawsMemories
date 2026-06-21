@@ -221,7 +221,8 @@ bpy.ops.export_scene.gltf(
     filepath=r"${outputGlbPath}",
     export_format='GLB',
     export_animations=True,
-    export_skins=True
+    export_skins=True,
+    export_def_bones=True
 )
 
 print("[Rig] RIGGING_EXPORT_COMPLETE")
