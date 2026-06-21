@@ -212,6 +212,7 @@ The script must:
 - Parent the mesh to the armature with automatic weights (Armature Deform With Automatic Weights)
 - Set the armature as the active object when done
 - If using show_in_front, apply it to the armature object (e.g., armature_obj.show_in_front = True), NEVER to the armature data.
+- If you need to calculate radians, use the standard Python "math" module (e.g., import math; math.radians(90)), NOT mathutils.radians().
 - NOT render anything
 - NOT save the file
 - Print "RIGGING_COMPLETE" when done
