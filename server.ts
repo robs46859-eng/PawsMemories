@@ -497,91 +497,118 @@ async function startServer() {
           const workerBaseUrl = (process.env.BLENDER_WORKER_URL || 'http://localhost:10000/render').replace('/render', '');
 
           // --- Helper: submit job to worker and poll for result ---
+          // --- Helper: submit job to worker and poll for result ---
           const pollWorkerJob = async (endpoint: string, payload: any, label: string, maxWaitMs = 300000): Promise<any> => {
-            // Submit job (with retry for transient Render.com cold-start errors)
-            let submitRes: Response | null = null;
-            for (let submitAttempt = 0; submitAttempt < 3; submitAttempt++) {
+            const MAX_FULL_RETRIES = 3;
+            let lastError: Error | null = null;
+
+            for (let fullAttempt = 1; fullAttempt <= MAX_FULL_RETRIES; fullAttempt++) {
               try {
-                submitRes = await fetch(`${workerBaseUrl}${endpoint}`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(payload),
-                });
-                if (submitRes.ok) break;
-                // Retry on 502/503/504 (Render cold-start)
-                if ([502, 503, 504].includes(submitRes.status) && submitAttempt < 2) {
-                  console.warn(`[3D Avatar #${avatarId}] ${label}: Worker returned ${submitRes.status} on submit, retrying in 10s...`);
-                  await new Promise(r => setTimeout(r, 10000));
-                  continue;
-                }
-              } catch (fetchErr: any) {
-                if (submitAttempt < 2) {
-                  console.warn(`[3D Avatar #${avatarId}] ${label}: Submit fetch error: ${fetchErr.message}, retrying in 10s...`);
-                  await new Promise(r => setTimeout(r, 10000));
-                  continue;
-                }
-                throw fetchErr;
-              }
-            }
-            if (!submitRes || !submitRes.ok) {
-              const errData = submitRes ? await submitRes.json().catch(() => ({})) : {};
-              throw new Error((errData as any).error || `Worker returned ${submitRes?.status || 'no response'}`);
-            }
-            const submitData = await submitRes.json() as { jobId?: string; success?: boolean; [key: string]: any };
-
-            // If the worker returned a jobId (async mode), poll for completion
-            if (submitData.jobId) {
-              const jobId = submitData.jobId;
-              console.log(`[3D Avatar #${avatarId}] ${label}: Got jobId=${jobId}, polling...`);
-              const pollInterval = 5000; // 5 seconds
-              const deadline = Date.now() + maxWaitMs;
-              let consecutiveErrors = 0;
-              const MAX_CONSECUTIVE_POLL_ERRORS = 5;
-
-              while (Date.now() < deadline) {
-                await new Promise(r => setTimeout(r, pollInterval));
-                try {
-                  const pollRes = await fetch(`${workerBaseUrl}/jobs/${jobId}`);
-                  if (!pollRes.ok) {
-                    // Tolerate transient 502/503/504 from Render.com
-                    if ([502, 503, 504].includes(pollRes.status)) {
-                      consecutiveErrors++;
-                      console.warn(`[3D Avatar #${avatarId}] ${label}: Poll got ${pollRes.status} (transient ${consecutiveErrors}/${MAX_CONSECUTIVE_POLL_ERRORS})`);
-                      if (consecutiveErrors >= MAX_CONSECUTIVE_POLL_ERRORS) {
-                        throw new Error(`Polling failed: ${MAX_CONSECUTIVE_POLL_ERRORS} consecutive ${pollRes.status} errors from worker`);
-                      }
+                // Submit job (with retry for transient Render.com cold-start errors)
+                let submitRes: Response | null = null;
+                for (let submitAttempt = 0; submitAttempt < 3; submitAttempt++) {
+                  try {
+                    submitRes = await fetch(`${workerBaseUrl}${endpoint}`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(payload),
+                    });
+                    if (submitRes.ok) break;
+                    // Retry on 502/503/504 (Render cold-start)
+                    if ([502, 503, 504].includes(submitRes.status) && submitAttempt < 2) {
+                      console.warn(`[3D Avatar #${avatarId}] ${label}: Worker returned ${submitRes.status} on submit, retrying in 10s...`);
+                      await new Promise(r => setTimeout(r, 10000));
                       continue;
                     }
-                    throw new Error(`Polling failed with status ${pollRes.status}`);
-                  }
-                  consecutiveErrors = 0; // Reset on success
-                  const pollData = await pollRes.json() as { status: string; result?: any; error?: string };
-
-                  if (pollData.status === 'complete') {
-                    console.log(`[3D Avatar #${avatarId}] ${label}: Job complete!`);
-                    return pollData.result;
-                  } else if (pollData.status === 'failed') {
-                    throw new Error(pollData.error || `${label} job failed`);
-                  }
-                  // still processing, continue polling
-                  console.log(`[3D Avatar #${avatarId}] ${label}: Still processing...`);
-                } catch (pollErr: any) {
-                  // Network-level errors (ECONNRESET, fetch failures) are also transient
-                  if (pollErr.message?.includes('Polling failed with status') || pollErr.message?.includes('consecutive')) {
-                    throw pollErr; // Re-throw non-transient or exhausted errors
-                  }
-                  consecutiveErrors++;
-                  console.warn(`[3D Avatar #${avatarId}] ${label}: Poll network error: ${pollErr.message} (transient ${consecutiveErrors}/${MAX_CONSECUTIVE_POLL_ERRORS})`);
-                  if (consecutiveErrors >= MAX_CONSECUTIVE_POLL_ERRORS) {
-                    throw new Error(`Polling failed: ${MAX_CONSECUTIVE_POLL_ERRORS} consecutive network errors`);
+                  } catch (fetchErr: any) {
+                    if (submitAttempt < 2) {
+                      console.warn(`[3D Avatar #${avatarId}] ${label}: Submit fetch error: ${fetchErr.message}, retrying in 10s...`);
+                      await new Promise(r => setTimeout(r, 10000));
+                      continue;
+                    }
+                    throw fetchErr;
                   }
                 }
-              }
-              throw new Error(`${label} timed out after ${maxWaitMs / 1000}s`);
-            }
+                if (!submitRes || !submitRes.ok) {
+                  const errData = submitRes ? await submitRes.json().catch(() => ({})) : {};
+                  throw new Error((errData as any).error || `Worker returned ${submitRes?.status || 'no response'}`);
+                }
+                const submitData = await submitRes.json() as { jobId?: string; success?: boolean; [key: string]: any };
 
-            // Synchronous response (backwards compatibility)
-            return submitData;
+                // If the worker returned a jobId (async mode), poll for completion
+                if (submitData.jobId) {
+                  const jobId = submitData.jobId;
+                  console.log(`[3D Avatar #${avatarId}] ${label} (Attempt ${fullAttempt}/${MAX_FULL_RETRIES}): Got jobId=${jobId}, polling...`);
+                  const pollInterval = 5000; // 5 seconds
+                  const deadline = Date.now() + maxWaitMs;
+                  let consecutiveErrors = 0;
+                  const MAX_CONSECUTIVE_POLL_ERRORS = 5;
+
+                  while (Date.now() < deadline) {
+                    await new Promise(r => setTimeout(r, pollInterval));
+                    try {
+                      const pollRes = await fetch(`${workerBaseUrl}/jobs/${jobId}`);
+                      if (!pollRes.ok) {
+                        // Tolerate transient 502/503/504 from Render.com
+                        if ([502, 503, 504].includes(pollRes.status)) {
+                          consecutiveErrors++;
+                          console.warn(`[3D Avatar #${avatarId}] ${label}: Poll got ${pollRes.status} (transient ${consecutiveErrors}/${MAX_CONSECUTIVE_POLL_ERRORS})`);
+                          if (consecutiveErrors >= MAX_CONSECUTIVE_POLL_ERRORS) {
+                            const err = new Error(`Worker crashed: ${MAX_CONSECUTIVE_POLL_ERRORS} consecutive ${pollRes.status} errors`);
+                            (err as any).isWorkerCrash = true;
+                            throw err;
+                          }
+                          continue;
+                        } else if (pollRes.status === 404) {
+                          const err = new Error(`Worker reset: job ${jobId} not found (404)`);
+                          (err as any).isWorkerCrash = true;
+                          throw err;
+                        }
+                        throw new Error(`Polling failed with status ${pollRes.status}`);
+                      }
+                      consecutiveErrors = 0; // Reset on success
+                      const pollData = await pollRes.json() as { status: string; result?: any; error?: string };
+
+                      if (pollData.status === 'complete') {
+                        console.log(`[3D Avatar #${avatarId}] ${label}: Job complete!`);
+                        return pollData.result;
+                      } else if (pollData.status === 'failed') {
+                        throw new Error(pollData.error || `${label} job failed`);
+                      }
+                      // still processing, continue polling
+                      console.log(`[3D Avatar #${avatarId}] ${label}: Still processing...`);
+                    } catch (pollErr: any) {
+                      if (pollErr.isWorkerCrash) throw pollErr;
+
+                      // Network-level errors (ECONNRESET, fetch failures) are also transient
+                      if (pollErr.message?.includes('Polling failed with status') || pollErr.message?.includes('consecutive')) {
+                        throw pollErr; // Re-throw non-transient or exhausted errors
+                      }
+                      consecutiveErrors++;
+                      console.warn(`[3D Avatar #${avatarId}] ${label}: Poll network error: ${pollErr.message} (transient ${consecutiveErrors}/${MAX_CONSECUTIVE_POLL_ERRORS})`);
+                      if (consecutiveErrors >= MAX_CONSECUTIVE_POLL_ERRORS) {
+                        const err = new Error(`Worker crashed: ${MAX_CONSECUTIVE_POLL_ERRORS} consecutive network errors`);
+                        (err as any).isWorkerCrash = true;
+                        throw err;
+                      }
+                    }
+                  }
+                  throw new Error(`${label} timed out after ${maxWaitMs / 1000}s`);
+                }
+
+                // Synchronous response (backwards compatibility)
+                return submitData;
+              } catch (err: any) {
+                lastError = err;
+                if (err.isWorkerCrash && fullAttempt < MAX_FULL_RETRIES) {
+                  console.warn(`[3D Avatar #${avatarId}] ${label}: Worker crashed/reset (${err.message}). Retrying full job submission (${fullAttempt}/${MAX_FULL_RETRIES}) in 15s...`);
+                  await new Promise(r => setTimeout(r, 15000));
+                  continue;
+                }
+                throw err; // Non-crash error or out of retries
+              }
+            }
+            throw lastError;
           };
 
           // --- Step 4: Send to Blender worker for rigging ---

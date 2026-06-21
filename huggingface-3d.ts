@@ -75,7 +75,7 @@ export async function generateMeshFromImage(imageBase64: string): Promise<Buffer
           30,                // steps (lowered slightly from default 50 for speed)
           5,                 // guidance_scale
           1234,              // seed
-          256,               // octree_resolution
+          128,               // octree_resolution (lowered from 256 to reduce GLB size and prevent worker OOM)
           true,              // check_box_rembg (remove background)
           8000,              // num_chunks
           true,              // randomize_seed
