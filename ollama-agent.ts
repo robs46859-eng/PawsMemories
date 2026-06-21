@@ -211,6 +211,7 @@ The script must:
 - Position bones approximately based on the mesh bounding box
 - Parent the mesh to the armature with automatic weights (Armature Deform With Automatic Weights)
 - Set the armature as the active object when done
+- If using show_in_front, apply it to the armature object (e.g., armature_obj.show_in_front = True), NEVER to the armature data.
 - NOT render anything
 - NOT save the file
 - Print "RIGGING_COMPLETE" when done
