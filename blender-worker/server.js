@@ -215,6 +215,24 @@ print("[Rig] Applying rigging armature...")
 
 ${rigging_script}
 
+# --- Step 3.5: Safety cleanup to prevent glTF export crashes ---
+print("[Rig] Verifying vertex weights to prevent export crashes...")
+for obj in bpy.context.scene.objects:
+    if obj.type == 'MESH':
+        armature_mod = next((mod for mod in obj.modifiers if mod.type == 'ARMATURE'), None)
+        if armature_mod and armature_mod.object:
+            arm_obj = armature_mod.object
+            if arm_obj.data.bones:
+                bone_name = arm_obj.data.bones[0].name
+                if bone_name not in obj.vertex_groups:
+                    vg = obj.vertex_groups.new(name=bone_name)
+                else:
+                    vg = obj.vertex_groups[bone_name]
+                # Guarantee at least one vertex is assigned to force a valid skin object
+                # This bypasses the AttributeError: 'NoneType' has no attribute 'joints' in io_scene_gltf2
+                if len(obj.data.vertices) > 0:
+                    vg.add([0], 0.01, 'ADD')
+
 # --- Step 4: Export the rigged model as GLB ---
 print("[Rig] Exporting rigged GLB...")
 bpy.ops.export_scene.gltf(
