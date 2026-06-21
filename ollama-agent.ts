@@ -209,6 +209,7 @@ ${analysis.hasTail ? '- Tail chain: "tail_01" → "tail_02" → "tail_03"' : ""}
 The script must:
 - Create the armature in edit mode
 - Position bones approximately based on the mesh bounding box
+- If calculating world bounding box corners, MUST use: "from mathutils import Vector; world_bbox_corners = [mesh_obj.matrix_world @ Vector(v) for v in mesh_obj.bound_box]"
 - To parent with automatic weights, you MUST use exactly this code:
   bpy.context.view_layer.objects.active = armature_obj
   mesh_obj.select_set(True)
