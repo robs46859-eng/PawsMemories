@@ -284,6 +284,16 @@ export async function initDb(): Promise<void> {
       }
     }
 
+    // Ensure large data URIs can be saved if object storage is not configured (MySQL TEXT is only 64KB)
+    try {
+      await getPool().query(`ALTER TABLE avatars MODIFY COLUMN image_url LONGTEXT NOT NULL`);
+      await getPool().query(`ALTER TABLE avatars MODIFY COLUMN model_url LONGTEXT NULL`);
+      await getPool().query(`ALTER TABLE avatars MODIFY COLUMN sprite_sheet_url LONGTEXT NULL`);
+      await getPool().query(`ALTER TABLE avatars MODIFY COLUMN generation_error LONGTEXT NULL`);
+    } catch (alterErr) {
+      console.warn("⚠️ Could not modify avatar columns to LONGTEXT:", alterErr);
+    }
+
     await getPool().query(`
       CREATE TABLE IF NOT EXISTS photo_requests (
         id                INT AUTO_INCREMENT PRIMARY KEY,
@@ -326,6 +336,14 @@ export async function initDb(): Promise<void> {
           console.warn(`⚠️ Could not add column ${col.name} to creations:`, colErr);
         }
       }
+    }
+
+    // Ensure large data URIs can be saved if object storage is not configured
+    try {
+      await getPool().query(`ALTER TABLE creations MODIFY COLUMN image_url LONGTEXT NULL`);
+      await getPool().query(`ALTER TABLE creations MODIFY COLUMN video_url LONGTEXT NULL`);
+    } catch (alterErr) {
+      console.warn("⚠️ Could not modify creation columns to LONGTEXT:", alterErr);
     }
 
     console.log("✅ Users, creations, generation_jobs, pets, avatars, and photo_requests tables ready.");
