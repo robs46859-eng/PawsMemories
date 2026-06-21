@@ -385,9 +385,10 @@ if not mesh_obj:
     print("[Sprites] ERROR: No mesh found after import!")
     sys.exit(1)
 
+if mesh_obj:
+    bpy.context.view_layer.objects.active = mesh_obj
+    mesh_obj.select_set(True)
 if armature_obj:
-    bpy.context.view_layer.objects.active = armature_obj
-    armature_obj.select_set(True)
     print(f"[Sprites] Armature found: {armature_obj.name}")
 print(f"[Sprites] Mesh found: {mesh_obj.name}")
 
