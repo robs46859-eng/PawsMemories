@@ -219,6 +219,7 @@ The script must:
 - If using show_in_front, apply it to the armature object (e.g., armature_obj.show_in_front = True), NEVER to the armature data.
 - If you need to calculate radians, use the standard Python "math" module (e.g., import math; math.radians(90)), NOT mathutils.radians().
 - DO NOT use "return" outside of a function (use sys.exit(1) if you need to abort early).
+- DO NOT use "edit_bones.clear()". To remove bones, use a loop: "for b in list(armature.edit_bones): armature.edit_bones.remove(b)"
 - NOT render anything
 - NOT save the file
 - Print "RIGGING_COMPLETE" when done
