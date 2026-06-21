@@ -485,7 +485,20 @@ print("[Sprites] SPRITE_BAKE_COMPLETE")
 
         // Read sprite sheet
         if (!fs.existsSync(outputPngPath)) {
-          console.error(`[Sprites ${jobId}] Sprite sheet PNG not found`);
+          // AI might have saved it under a different name or appended frame numbers
+          const files = fs.readdirSync(tempDir);
+          const pngFiles = files.filter(f => f.endsWith(".png") && f !== "sprite_sheet.png");
+          if (pngFiles.length > 0) {
+            // Sort to find the most likely final sheet (largest size or last modified)
+            pngFiles.sort((a, b) => fs.statSync(path.join(tempDir, b)).size - fs.statSync(path.join(tempDir, a)).size);
+            const foundPng = path.join(tempDir, pngFiles[0]);
+            console.log(`[Sprites ${jobId}] Found alternative PNG: ${foundPng}, renaming to outputPngPath`);
+            fs.renameSync(foundPng, outputPngPath);
+          }
+        }
+
+        if (!fs.existsSync(outputPngPath)) {
+          console.error(`[Sprites ${jobId}] Sprite sheet PNG not found (checked all PNGs)`);
           job.status = "failed";
           job.error = "Blender completed but no sprite sheet was generated.";
           try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
