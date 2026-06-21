@@ -27,6 +27,13 @@ import {
 
 dotenv.config();
 
+// Global safety net: prevent unhandled promise rejections from crashing the
+// server process. On Hostinger, a crashed process causes the reverse proxy
+// to return 502 for all requests until the process restarts.
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("⚠️ Unhandled Promise Rejection (server kept alive):", reason);
+});
+
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
@@ -605,9 +612,17 @@ async function startServer() {
 
         } catch (pipelineErr: any) {
           console.error(`[3D Avatar #${avatarId}] Pipeline error:`, pipelineErr);
-          await updateAvatarGenerationStatus(avatarId, 'failed', pipelineErr.message || 'Unknown pipeline error');
+          try {
+            await updateAvatarGenerationStatus(avatarId, 'failed', pipelineErr.message || 'Unknown pipeline error');
+          } catch (dbErr) {
+            console.error(`[3D Avatar #${avatarId}] Failed to update avatar status after pipeline error:`, dbErr);
+          }
         }
-      })();
+      })().catch((fatalErr) => {
+        // Safety net: catch any unhandled rejection from the background IIFE
+        // to prevent crashing the entire server process (which causes 502).
+        console.error(`[3D Avatar #${avatarId}] FATAL unhandled error in background pipeline:`, fatalErr);
+      });
     } catch (err: any) {
       console.error("Failed to create avatar:", err);
       res.status(500).json({ error: "Failed to create avatar." });

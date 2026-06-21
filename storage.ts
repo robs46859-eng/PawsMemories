@@ -36,6 +36,7 @@ function getExtensionFromMime(mimeType: string): string {
     "image/webp": "webp",
     "video/mp4": "mp4",
     "video/webm": "webm",
+    "model/gltf-binary": "glb",
   };
   return map[mimeType] || "bin";
 }
@@ -45,6 +46,7 @@ function getExtensionFromMime(mimeType: string): string {
  */
 function getFolderFromMime(mimeType: string): string {
   if (mimeType.startsWith("video/")) return "videos";
+  if (mimeType.startsWith("model/")) return "avatars";
   return "creations";
 }
 
