@@ -43,6 +43,7 @@ export async function generateMeshFromImage(imageBase64: string): Promise<Buffer
       const app = await Promise.race([
         Client.connect(space, {
           hf_token: hfToken,
+          token: hfToken, // @gradio/client v2.x expects `token` internally
         } as any),
         new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error("HuggingFace Space connection timed out after 60s")), 60000)
