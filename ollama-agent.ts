@@ -325,6 +325,20 @@ ACTION 6 - "photo" (4 frames at 8fps):
 10. IMPORTANT: If assigning an action, ALWAYS check if animation_data exists first! (e.g., "if not obj.animation_data: obj.animation_data_create()")
 11. EXTREMELY IMPORTANT: Keep the code concise by using loops, helper functions, and math for keyframes. DO NOT hardcode every single frame manually, or the script will be truncated and crash with a SyntaxError. Maximum length: 400 lines.
 12. DO NOT use bpy.ops.object.select_all() as it fails in headless mode context. To deselect, use: "for o in bpy.context.selected_objects: o.select_set(False)"
+13. CRITICAL: Do NOT copy pixels using Python lists or read from 'Render Result' directly (it will crash with IndexError). You MUST:
+    a) Render each frame to disk first (e.g. filepath = f"/tmp/frame_{i}.png", then ops.render.render(write_still=True))
+    b) Load it: img = bpy.data.images.load(f"/tmp/frame_{i}.png")
+    c) Create the sheet: sheet = bpy.data.images.new("Sheet", sheet_width, sheet_height, alpha=True)
+    d) Use numpy for fast copying:
+       import numpy as np
+       sheet_pixels = np.zeros((sheet_height, sheet_width, 4), dtype=np.float32)
+       for ... # load img
+           src = np.empty((h, w, 4), dtype=np.float32)
+           img.pixels.foreach_get(src.ravel())
+           sheet_pixels[dest_y:dest_y+h, dest_x:dest_x+w] = src
+       sheet.pixels.foreach_set(sheet_pixels.ravel())
+       sheet.filepath_raw = output_path
+       sheet.save()
 
 IMPORTANT: Return ONLY the Python code. Start with "import bpy".`;
 
