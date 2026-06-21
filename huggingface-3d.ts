@@ -3,7 +3,7 @@
  * Uses the Hunyuan3D-2 Space (tencent/Hunyuan3D-2) via the official @gradio/client.
  */
 
-import { client, handle_file } from "@gradio/client";
+import { client, Client, handle_file } from "@gradio/client";
 
 const DEFAULT_SPACE = "tencent/Hunyuan3D-2";
 
@@ -37,10 +37,12 @@ export async function generateMeshFromImage(imageBase64: string): Promise<Buffer
     }
 
     try {
+      const hfToken = process.env.HUGGINGFACE_TOKEN?.replace(/['"]/g, '').trim();
+      
       // Initialize the Gradio client with a connection timeout
       const app = await Promise.race([
-        client(space, {
-          hf_token: process.env.HUGGINGFACE_TOKEN,
+        Client.connect(space, {
+          hf_token: hfToken,
         } as any),
         new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error("HuggingFace Space connection timed out after 60s")), 60000)
