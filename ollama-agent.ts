@@ -323,6 +323,7 @@ ACTION 6 - "photo" (4 frames at 8fps):
 8. DO NOT use "return" outside of a function (use sys.exit(1) if you need to abort early).
 9. Print "SPRITE_BAKE_COMPLETE" when done
 10. IMPORTANT: If assigning an action, ALWAYS check if animation_data exists first! (e.g., "if not obj.animation_data: obj.animation_data_create()")
+11. EXTREMELY IMPORTANT: Keep the code concise by using loops, helper functions, and math for keyframes. DO NOT hardcode every single frame manually, or the script will be truncated and crash with a SyntaxError. Maximum length: 400 lines.
 
 IMPORTANT: Return ONLY the Python code. Start with "import bpy".`;
 
