@@ -8,8 +8,8 @@ import { execSync, exec } from "child_process";
 // Extract the meaningful Python error from Blender's combined output
 function extractBlenderError(stdout, stderr) {
   const combined = (stdout || "") + "\n" + (stderr || "");
-  // Look for Python traceback in the output
-  const tracebackMatch = combined.match(/Traceback \(most recent call last\)[\s\S]*?(?:Error|Exception):.*/m);
+  // Look for Python traceback in the output and capture everything after it
+  const tracebackMatch = combined.match(/Traceback \(most recent call last\)[\s\S]+/m);
   if (tracebackMatch) {
     // Return last 1500 chars of traceback to get the full chain
     return tracebackMatch[0].slice(-1500);
