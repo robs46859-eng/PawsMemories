@@ -3,6 +3,8 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
+dotenv.config();
+
 import Stripe from "stripe";
 import fs from "fs";
 import os from "os";
@@ -24,8 +26,6 @@ import {
   verifyPassword,
   type AuthedRequest,
 } from "./auth";
-
-dotenv.config();
 
 // Global safety net: prevent unhandled promise rejections from crashing the
 // server process. On Hostinger, a crashed process causes the reverse proxy
