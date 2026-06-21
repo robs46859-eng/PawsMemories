@@ -214,6 +214,7 @@ The script must:
 - Set the armature as the active object when done
 - If using show_in_front, apply it to the armature object (e.g., armature_obj.show_in_front = True), NEVER to the armature data.
 - If you need to calculate radians, use the standard Python "math" module (e.g., import math; math.radians(90)), NOT mathutils.radians().
+- DO NOT use "return" outside of a function (use sys.exit(1) if you need to abort early).
 - NOT render anything
 - NOT save the file
 - Print "RIGGING_COMPLETE" when done
@@ -313,7 +314,8 @@ ACTION 6 - "photo" (4 frames at 8fps):
 5. The output path variable should be called "output_path" and will be overridden by the server
 6. The metadata JSON path should be "output_path" with extension changed to ".json"
 7. Use transparent background (RGBA)
-8. Print "SPRITE_BAKE_COMPLETE" when done
+8. DO NOT use "return" outside of a function (use sys.exit(1) if you need to abort early).
+9. Print "SPRITE_BAKE_COMPLETE" when done
 
 IMPORTANT: Return ONLY the Python code. Start with "import bpy".`;
 
