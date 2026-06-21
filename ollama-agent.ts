@@ -270,7 +270,7 @@ export async function generateSpriteAnimationScript(analysis: PetAnalysis): Prom
   const prompt = `You are an expert Blender Python (bpy) scripter specializing in character animation and sprite sheet rendering.
 
 Generate a complete Blender Python script that:
-1. Assumes a rigged ${analysis.species} mesh is the active object with an armature
+1. Assumes a rigged ${analysis.species} ARMATURE is the active object (and the mesh is its child)
 2. The armature has these bone names: hips, spine, chest, neck, head, front_leg_upper.L/R, front_leg_lower.L/R, front_paw.L/R, back_leg_upper.L/R, back_leg_lower.L/R, back_paw.L/R${analysis.hasTail ? ", tail_01, tail_02, tail_03" : ""}
 3. Creates 6 separate NLA actions with keyframe animations:
 
