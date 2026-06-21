@@ -210,6 +210,7 @@ The script must:
 - Create the armature in edit mode
 - Position bones approximately based on the mesh bounding box
 - Parent the mesh to the armature with automatic weights (Armature Deform With Automatic Weights)
+- ALWAYS switch back to OBJECT mode before finishing (e.g., bpy.ops.object.mode_set(mode='OBJECT'))
 - Set the armature as the active object when done
 - If using show_in_front, apply it to the armature object (e.g., armature_obj.show_in_front = True), NEVER to the armature data.
 - If you need to calculate radians, use the standard Python "math" module (e.g., import math; math.radians(90)), NOT mathutils.radians().
