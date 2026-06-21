@@ -209,7 +209,11 @@ ${analysis.hasTail ? '- Tail chain: "tail_01" → "tail_02" → "tail_03"' : ""}
 The script must:
 - Create the armature in edit mode
 - Position bones approximately based on the mesh bounding box
-- Parent the mesh to the armature with automatic weights (Armature Deform With Automatic Weights)
+- To parent with automatic weights, you MUST use exactly this code:
+  bpy.context.view_layer.objects.active = armature_obj
+  mesh_obj.select_set(True)
+  armature_obj.select_set(True)
+  bpy.ops.object.parent_set(type='ARMATURE_AUTO')
 - ALWAYS switch back to OBJECT mode before finishing (e.g., bpy.ops.object.mode_set(mode='OBJECT'))
 - Set the armature as the active object when done
 - If using show_in_front, apply it to the armature object (e.g., armature_obj.show_in_front = True), NEVER to the armature data.
