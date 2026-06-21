@@ -498,15 +498,34 @@ async function startServer() {
 
           // --- Helper: submit job to worker and poll for result ---
           const pollWorkerJob = async (endpoint: string, payload: any, label: string, maxWaitMs = 300000): Promise<any> => {
-            // Submit job
-            const submitRes = await fetch(`${workerBaseUrl}${endpoint}`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload),
-            });
-            if (!submitRes.ok) {
-              const errData = await submitRes.json().catch(() => ({}));
-              throw new Error(errData.error || `Worker returned ${submitRes.status}`);
+            // Submit job (with retry for transient Render.com cold-start errors)
+            let submitRes: Response | null = null;
+            for (let submitAttempt = 0; submitAttempt < 3; submitAttempt++) {
+              try {
+                submitRes = await fetch(`${workerBaseUrl}${endpoint}`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(payload),
+                });
+                if (submitRes.ok) break;
+                // Retry on 502/503/504 (Render cold-start)
+                if ([502, 503, 504].includes(submitRes.status) && submitAttempt < 2) {
+                  console.warn(`[3D Avatar #${avatarId}] ${label}: Worker returned ${submitRes.status} on submit, retrying in 10s...`);
+                  await new Promise(r => setTimeout(r, 10000));
+                  continue;
+                }
+              } catch (fetchErr: any) {
+                if (submitAttempt < 2) {
+                  console.warn(`[3D Avatar #${avatarId}] ${label}: Submit fetch error: ${fetchErr.message}, retrying in 10s...`);
+                  await new Promise(r => setTimeout(r, 10000));
+                  continue;
+                }
+                throw fetchErr;
+              }
+            }
+            if (!submitRes || !submitRes.ok) {
+              const errData = submitRes ? await submitRes.json().catch(() => ({})) : {};
+              throw new Error((errData as any).error || `Worker returned ${submitRes?.status || 'no response'}`);
             }
             const submitData = await submitRes.json() as { jobId?: string; success?: boolean; [key: string]: any };
 
@@ -516,23 +535,47 @@ async function startServer() {
               console.log(`[3D Avatar #${avatarId}] ${label}: Got jobId=${jobId}, polling...`);
               const pollInterval = 5000; // 5 seconds
               const deadline = Date.now() + maxWaitMs;
+              let consecutiveErrors = 0;
+              const MAX_CONSECUTIVE_POLL_ERRORS = 5;
 
               while (Date.now() < deadline) {
                 await new Promise(r => setTimeout(r, pollInterval));
-                const pollRes = await fetch(`${workerBaseUrl}/jobs/${jobId}`);
-                if (!pollRes.ok) {
-                  throw new Error(`Polling failed with status ${pollRes.status}`);
-                }
-                const pollData = await pollRes.json() as { status: string; result?: any; error?: string };
+                try {
+                  const pollRes = await fetch(`${workerBaseUrl}/jobs/${jobId}`);
+                  if (!pollRes.ok) {
+                    // Tolerate transient 502/503/504 from Render.com
+                    if ([502, 503, 504].includes(pollRes.status)) {
+                      consecutiveErrors++;
+                      console.warn(`[3D Avatar #${avatarId}] ${label}: Poll got ${pollRes.status} (transient ${consecutiveErrors}/${MAX_CONSECUTIVE_POLL_ERRORS})`);
+                      if (consecutiveErrors >= MAX_CONSECUTIVE_POLL_ERRORS) {
+                        throw new Error(`Polling failed: ${MAX_CONSECUTIVE_POLL_ERRORS} consecutive ${pollRes.status} errors from worker`);
+                      }
+                      continue;
+                    }
+                    throw new Error(`Polling failed with status ${pollRes.status}`);
+                  }
+                  consecutiveErrors = 0; // Reset on success
+                  const pollData = await pollRes.json() as { status: string; result?: any; error?: string };
 
-                if (pollData.status === 'complete') {
-                  console.log(`[3D Avatar #${avatarId}] ${label}: Job complete!`);
-                  return pollData.result;
-                } else if (pollData.status === 'failed') {
-                  throw new Error(pollData.error || `${label} job failed`);
+                  if (pollData.status === 'complete') {
+                    console.log(`[3D Avatar #${avatarId}] ${label}: Job complete!`);
+                    return pollData.result;
+                  } else if (pollData.status === 'failed') {
+                    throw new Error(pollData.error || `${label} job failed`);
+                  }
+                  // still processing, continue polling
+                  console.log(`[3D Avatar #${avatarId}] ${label}: Still processing...`);
+                } catch (pollErr: any) {
+                  // Network-level errors (ECONNRESET, fetch failures) are also transient
+                  if (pollErr.message?.includes('Polling failed with status') || pollErr.message?.includes('consecutive')) {
+                    throw pollErr; // Re-throw non-transient or exhausted errors
+                  }
+                  consecutiveErrors++;
+                  console.warn(`[3D Avatar #${avatarId}] ${label}: Poll network error: ${pollErr.message} (transient ${consecutiveErrors}/${MAX_CONSECUTIVE_POLL_ERRORS})`);
+                  if (consecutiveErrors >= MAX_CONSECUTIVE_POLL_ERRORS) {
+                    throw new Error(`Polling failed: ${MAX_CONSECUTIVE_POLL_ERRORS} consecutive network errors`);
+                  }
                 }
-                // still processing, continue polling
-                console.log(`[3D Avatar #${avatarId}] ${label}: Still processing...`);
               }
               throw new Error(`${label} timed out after ${maxWaitMs / 1000}s`);
             }
