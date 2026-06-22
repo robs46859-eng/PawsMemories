@@ -399,6 +399,13 @@ print("[Sprites] Executing animation and sprite bake...")
 
 ${modifiedAnimScript}
 
+# --- Force EEVEE for performance (defense-in-depth, overrides AI script) ---
+bpy.context.scene.render.engine = 'BLENDER_EEVEE_NEXT'
+try:
+    bpy.context.scene.eevee.taa_render_samples = 16
+except Exception:
+    pass  # Blender < 4.0 compat
+
 # --- Step 4: Verify outputs ---
 if os.path.exists(r"${outputPngPath}"):
     print("[Sprites] Sprite sheet generated successfully!")
@@ -486,7 +493,7 @@ print("[Sprites] SPRITE_BAKE_COMPLETE")
     console.log(`[Sprites ${jobId}] Running Blender CLI for sprite baking (async)...`);
     const child = exec(
       `blender --background --python-exit-code 1 --python "${scriptPath}"`,
-      { timeout: 300000, maxBuffer: 50 * 1024 * 1024 },
+      { timeout: 600000, maxBuffer: 50 * 1024 * 1024 },
       (error, stdout, stderr) => {
         const job = jobs.get(jobId);
         if (!job) return;

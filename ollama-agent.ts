@@ -340,6 +340,13 @@ ACTION 6 - "photo" (4 frames at 8fps):
        sheet.filepath_raw = output_path
        sheet.save()
 
+14. CRITICAL RENDER SETTINGS — you MUST use these exact render settings to ensure fast rendering:
+    scene.render.engine = 'BLENDER_EEVEE_NEXT'
+    scene.render.resolution_x = 128
+    scene.render.resolution_y = 128
+    scene.eevee.taa_render_samples = 16
+    DO NOT use Cycles. EEVEE is mandatory for performance on the render server.
+
 IMPORTANT: Return ONLY the Python code. Start with "import bpy".`;
 
   const ai = getAiClient();
