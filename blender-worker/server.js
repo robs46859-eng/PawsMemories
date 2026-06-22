@@ -408,7 +408,7 @@ bpy.context.scene.render.engine = 'BLENDER_EEVEE'
 try:
     bpy.context.scene.eevee.taa_render_samples = 16
 except Exception:
-    pass  # Blender < 4.0 compat
+    pass  # Handle Blender 5 EEVEE-Next API differences safely
 
 # --- Step 4: Verify outputs ---
 if os.path.exists(r"${outputPngPath}"):

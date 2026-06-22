@@ -364,9 +364,9 @@ function sanitizeBlenderScript(script: string): string {
 export async function generateSpriteAnimationScript(analysis: PetAnalysis): Promise<string> {
   console.log(`[AI Agent] Generating sprite animation script for ${analysis.species} using Gemini...`);
 
-  const prompt = `You are an expert Blender 3.4 Python (bpy) scripter specializing in character animation and sprite sheet rendering for a headless server environment.
+  const prompt = `You are an expert Blender 5.1 Python (bpy) scripter specializing in character animation and sprite sheet rendering for a headless server environment.
 
-TARGET: Blender 3.4.1 running headless (blender --background). No GPU, no UI context. All APIs must be compatible with Blender 3.4.x — do NOT use Blender 4.0+ APIs.
+TARGET: Blender 5.1.2 running headless (blender --background). No GPU, no UI context. All APIs must be compatible with Blender 5.1.x.
 
 Generate a complete Blender Python script. The script will be injected into a wrapper that has already imported the rigged model, set the armature as active, and entered Pose Mode.
 
@@ -470,7 +470,7 @@ SECTION 6: LIGHTING & ENVIRONMENT
 - Key light: SUN type, energy ~2.0, positioned above-front
 - Fill light: POINT or AREA, energy ~0.5, opposite side
 - Rim light: SPOT or SUN, energy ~1.0, behind model
-- Enable contact shadows if available (Blender 3.4 EEVEE supports this)
+- Enable contact shadows if available (Blender 5 EEVEE-Next supports this)
 - World background: keep transparent (scene.render.film_transparent = True)
 
 ═══════════════════════════════════════════════════════════
@@ -528,7 +528,6 @@ SECTION 8: FORBIDDEN PATTERNS (WILL CRASH)
 - ❌ "return" outside a function → use: sys.exit(1) if needed
 - ❌ Full-path keyframe_insert data_path → use relative path only
 - ❌ Reading pixels from 'Render Result' image → render to disk first
-- ❌ Any Blender 4.0+ API (color_management.use_curve_mapping, etc.)
 - ❌ bpy.ops.pose.select_all() without ensuring POSE mode and active armature first
 
 ═══════════════════════════════════════════════════════════
