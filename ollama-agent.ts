@@ -287,115 +287,262 @@ IMPORTANT: Return ONLY the Python code, no markdown fences, no explanations. Sta
 }
 
 /**
+ * Post-process AI-generated Blender scripts to fix known hallucination patterns.
+ * This is a code-level safety net that catches bad patterns AFTER generation.
+ */
+function sanitizeBlenderScript(script: string): string {
+  let s = script;
+
+  // Fix 1: strip.is_active → strip.mute (is_active doesn't exist on NlaStrip)
+  s = s.replace(/\.is_active\s*=\s*False/g, '.mute = True');
+  s = s.replace(/\.is_active\s*=\s*True/g, '.mute = False');
+
+  // Fix 2: BLENDER_EEVEE_NEXT → BLENDER_EEVEE (3.4 compat)
+  s = s.replace(/BLENDER_EEVEE_NEXT/g, 'BLENDER_EEVEE');
+
+  // Fix 3: Fix full-path keyframe_insert on pose bones
+  // e.g. bone.keyframe_insert(data_path=f'pose.bones["{bone.name}"].rotation_euler'...)
+  // → bone.keyframe_insert(data_path="rotation_euler"...)
+  s = s.replace(
+    /keyframe_insert\s*\(\s*data_path\s*=\s*f?['"]\s*pose\.bones\[.*?\]\.(rotation_euler|location|scale|rotation_quaternion)['"]/g,
+    (match, prop) => `keyframe_insert(data_path="${prop}"`
+  );
+
+  // Fix 4: mathutils.radians → math.radians
+  s = s.replace(/mathutils\.radians\s*\(/g, 'math.radians(');
+
+  // Fix 5: Remove bare 'return' outside functions (causes SyntaxError)
+  // Only remove top-level returns, not returns inside def blocks
+  s = s.replace(/^return\b.*$/gm, '# return removed (top-level)');
+
+  // Fix 6: bpy.ops.object.select_all() → safe loop
+  s = s.replace(
+    /bpy\.ops\.object\.select_all\s*\(\s*action\s*=\s*['"](?:SELECT|DESELECT)['"]\s*\)/g,
+    'for _o in list(bpy.context.selected_objects): _o.select_set(False)'
+  );
+
+  // Fix 7: edit_bones.clear() → safe loop
+  s = s.replace(
+    /(\w+)\.edit_bones\.clear\(\)/g,
+    'for _b in list($1.edit_bones): $1.edit_bones.remove(_b)'
+  );
+
+  // Fix 8: Ensure math import exists if math.radians is used
+  if (s.includes('math.radians') && !s.includes('import math')) {
+    s = 'import math\n' + s;
+  }
+
+  // Fix 9: Ensure the script has a top-level try/except to never crash silently
+  if (!s.includes('except Exception') && !s.includes('except:')) {
+    // Wrap the main execution in try/except for better error reporting
+    const lines = s.split('\n');
+    const importLines: string[] = [];
+    const bodyLines: string[] = [];
+    let pastImports = false;
+
+    for (const line of lines) {
+      if (!pastImports && (line.startsWith('import ') || line.startsWith('from ') || line.trim() === '')) {
+        importLines.push(line);
+      } else {
+        pastImports = true;
+        bodyLines.push(line);
+      }
+    }
+
+    s = importLines.join('\n') + '\nimport traceback\n\ntry:\n' +
+      bodyLines.map(l => '    ' + l).join('\n') +
+      '\nexcept Exception as _e:\n    traceback.print_exc()\n    print(f"SCRIPT_ERROR: {_e}")\n    import sys; sys.exit(1)\n';
+  }
+
+  return s;
+}
+
+/**
  * Generate a Blender Python script that creates 6 action animations
  * and bakes them into a sprite sheet PNG.
  */
 export async function generateSpriteAnimationScript(analysis: PetAnalysis): Promise<string> {
   console.log(`[AI Agent] Generating sprite animation script for ${analysis.species} using Gemini...`);
 
-  const prompt = `You are an expert Blender Python (bpy) scripter specializing in character animation and sprite sheet rendering.
+  const prompt = `You are an expert Blender 3.4 Python (bpy) scripter specializing in character animation and sprite sheet rendering for a headless server environment.
 
-Generate a complete Blender Python script that:
-1. Assumes a rigged ${analysis.species} ARMATURE is the active object (and the mesh is its child)
-2. The armature has these bone names: hips, spine, chest, neck, head, front_leg_upper.L/R, front_leg_lower.L/R, front_paw.L/R, back_leg_upper.L/R, back_leg_lower.L/R, back_paw.L/R${analysis.hasTail ? ", tail_01, tail_02, tail_03" : ""}
-3. Creates 6 separate NLA actions with keyframe animations:
+TARGET: Blender 3.4.1 running headless (blender --background). No GPU, no UI context. All APIs must be compatible with Blender 3.4.x — do NOT use Blender 4.0+ APIs.
 
-ACTION 1 - "eating" (8 frames at 12fps):
-  - Head and neck dip down toward the ground
-  - Small jaw-like bobbing motion on the head bone
-  - Body stays mostly still, slight lean forward
+Generate a complete Blender Python script. The script will be injected into a wrapper that has already imported the rigged model, set the armature as active, and entered Pose Mode.
 
-ACTION 2 - "drinking" (8 frames at 12fps):
-  - Similar to eating but head stays at a consistent low level
-  - Slight rhythmic head bobbing (lapping motion)
-  - Neck extends downward
+═══════════════════════════════════════════════════════════
+SECTION 1: INPUT ASSUMPTIONS
+═══════════════════════════════════════════════════════════
 
-ACTION 3 - "running" (12 frames at 16fps):
-  - Full gallop/trot cycle
-  - Front and back legs alternate in pairs
-  - Body bobs up and down slightly
-  - ${analysis.hasTail ? "Tail follows body motion with slight delay" : ""}
+- The active object is an ARMATURE (the rigged ${analysis.species}).
+- The mesh is the armature's child.
+- Bone names: hips, spine, chest, neck, head, front_leg_upper.L/R, front_leg_lower.L/R, front_paw.L/R, back_leg_upper.L/R, back_leg_lower.L/R, back_paw.L/R${analysis.hasTail ? ", tail_01, tail_02, tail_03" : ""}
+- An "output_path" variable is already defined and points to the PNG output location.
 
-ACTION 4 - "playing" (10 frames at 14fps):
-  - Playful bounce/jump
-  - Front paws lift up, then spring up
-  - ${analysis.hasTail ? "Tail wags rapidly" : ""}
-  - Energetic, joyful motion
+═══════════════════════════════════════════════════════════
+SECTION 2: GEOMETRY & MESH CONSTRAINTS
+═══════════════════════════════════════════════════════════
 
-ACTION 5 - "sleeping" (6 frames at 6fps):
-  - Body lowered to ground (legs tucked)
-  - Slow breathing cycle (chest/spine gentle rise/fall)
-  - Head resting on or near front paws
-  - Very subtle, calm motion
+- Origin point: assume paws rest at approximately Y=0 (ground plane).
+- When calculating bounding box, use: from mathutils import Vector; corners = [obj.matrix_world @ Vector(v) for v in obj.bound_box]
+- Do NOT modify the mesh geometry, only animate via pose bones.
 
-ACTION 6 - "photo" (4 frames at 8fps):
-  - Alert sitting/standing pose
-  - Head tilts slightly to one side
-  - Ears perk up (via head bone rotation)
-  - Hold the pose for most frames
+═══════════════════════════════════════════════════════════
+SECTION 3: RIGGING & POSE CONSTRAINTS
+═══════════════════════════════════════════════════════════
 
-4. After creating all animations, renders a SPRITE SHEET:
-  - Set up an orthographic camera facing the model from the side
-  - Set render resolution to 128x128 per frame
-  - For each action, render all frames in sequence
-  - Arrange frames in a grid: each row = one animation, columns = frames
-  - Total sheet: 12 columns wide × 6 rows tall (max frames across all animations × 6 actions)
-  - Save as a single transparent PNG at the output path
-  - Also save a JSON metadata file next to it with frame counts and FPS per animation
+BONE ACCESS — MANDATORY PATTERN:
+  bone = armature_obj.pose.bones.get("bone_name")
+  if bone is None:
+      print(f"WARNING: bone 'bone_name' not found, skipping")
+  else:
+      bone.rotation_euler = (x, y, z)
+  NEVER use armature_obj.pose.bones["name"] (crashes if missing). ALWAYS use .get() with None check.
 
-5. The output path variable should be called "output_path" and will be overridden by the server
-6. The metadata JSON path should be "output_path" with extension changed to ".json"
-7. Use transparent background (RGBA)
-8. DO NOT use "return" outside of a function (use sys.exit(1) if you need to abort early).
-9. Print "SPRITE_BAKE_COMPLETE" when done
-10. IMPORTANT: If assigning an action, ALWAYS check if animation_data exists first! (e.g., "if not obj.animation_data: obj.animation_data_create()")
-11. EXTREMELY IMPORTANT: Keep the code concise by using loops, helper functions, and math for keyframes. DO NOT hardcode every single frame manually, or the script will be truncated and crash with a SyntaxError. Maximum length: 400 lines.
-12. DO NOT use bpy.ops.object.select_all() as it fails in headless mode context. To deselect, use: "for o in bpy.context.selected_objects: o.select_set(False)"
-13. CRITICAL: Do NOT copy pixels using Python lists or read from 'Render Result' directly (it will crash with IndexError). You MUST:
-    a) Render each frame to disk first (e.g. filepath = f"/tmp/frame_{i}.png", then ops.render.render(write_still=True))
-    b) Load it: img = bpy.data.images.load(f"/tmp/frame_{i}.png")
-    c) Create the sheet: sheet = bpy.data.images.new("Sheet", sheet_width, sheet_height, alpha=True)
-    d) Use numpy for fast copying:
-       import numpy as np
-       sheet_pixels = np.zeros((sheet_height, sheet_width, 4), dtype=np.float32)
-       for ... # load img
-           src = np.empty((h, w, 4), dtype=np.float32)
-           img.pixels.foreach_get(src.ravel())
-           sheet_pixels[dest_y:dest_y+h, dest_x:dest_x+w] = src
-       sheet.pixels.foreach_set(sheet_pixels.ravel())
-       sheet.filepath_raw = output_path
-       sheet.save()
+At script start, print available bones:
+  print(f"Available bones: {[b.name for b in armature_obj.pose.bones]}")
 
-14. CRITICAL RENDER SETTINGS — you MUST use these exact render settings to ensure fast rendering:
-    scene.render.engine = 'BLENDER_EEVEE'
-    scene.render.resolution_x = 128
-    scene.render.resolution_y = 128
-    scene.eevee.taa_render_samples = 16
-    DO NOT use Cycles. EEVEE is mandatory for performance on the render server.
+ROTATION MODE: Before setting rotation_euler, ensure: bone.rotation_mode = 'XYZ'
 
-15. NLA STRIPS: Do NOT use "strip.is_active" — it does not exist and will crash with AttributeError. To deactivate an NLA strip, use "strip.mute = True". To unmute, use "strip.mute = False".
+KEYFRAME_INSERT — MANDATORY PATTERN:
+  bone.keyframe_insert(data_path="rotation_euler", index=0, frame=1)
+  bone.keyframe_insert(data_path="location", index=1, frame=5)
+  The data_path is RELATIVE to the bone. Do NOT use the full armature path.
+  WRONG: bone.keyframe_insert(data_path=f'pose.bones["{bone.name}"].rotation_euler', ...)
+  This WRONG pattern causes: TypeError: property "pose.bones[...].rotation_euler" not found
 
-16. TARGET BLENDER VERSION is 3.4. Do NOT use APIs introduced in Blender 4.0+. Stick to stable bpy APIs available in Blender 3.4.x.
+IK/FK LIMITS: Keep rotation values within anatomically plausible ranges:
+  - Leg joints: max ±45° per axis
+  - Spine/neck: max ±30° per axis
+  - Head: max ±40° per axis
+  - Tail: max ±25° per segment
 
-17. POSE BONE SAFETY: When accessing pose bones, ALWAYS use .get() and check for None before using them. Bones may not exist in the imported armature. Example:
-    pbone = armature_obj.pose.bones.get("spine")
-    if pbone is None:
-        print(f"WARNING: bone 'spine' not found, skipping")
-    else:
-        pbone.rotation_euler = (0, 0, 0)
-    NEVER assume a bone name exists. If a bone is missing, skip it gracefully — do NOT crash.
+═══════════════════════════════════════════════════════════
+SECTION 4: ANIMATION REQUIREMENTS
+═══════════════════════════════════════════════════════════
 
-18. At the start of the script, print all available pose bone names for debugging:
-    if armature_obj:
-        print(f"Available bones: {[b.name for b in armature_obj.pose.bones]}")
+Create 6 separate bpy.data.actions:
 
-19. KEYFRAME_INSERT: When calling keyframe_insert() on a POSE BONE, the data_path must be RELATIVE to the bone (NOT the full path from the armature). Example:
-    CORRECT:   bone.keyframe_insert(data_path="rotation_euler", index=0, frame=1)
-    CORRECT:   bone.keyframe_insert(data_path="location", index=1, frame=1)
-    WRONG:     bone.keyframe_insert(data_path=f'pose.bones["{bone.name}"].rotation_euler', ...)
-    The WRONG version causes: TypeError: property "pose.bones[...].rotation_euler" not found
+ACTION 1 - "eating" (8 frames, 12fps):
+  Head/neck dip down, jaw-like bobbing on head bone, body mostly still with slight forward lean.
 
-IMPORTANT: Return ONLY the Python code. Start with "import bpy".`;
+ACTION 2 - "drinking" (8 frames, 12fps):
+  Head stays at consistent low level, rhythmic head bobbing (lapping), neck extends down.
+
+ACTION 3 - "running" (12 frames, 16fps):
+  Full gallop/trot cycle, front and back legs alternate in pairs, body bobs slightly.
+  ${analysis.hasTail ? "Tail follows body motion with slight delay." : ""}
+
+ACTION 4 - "playing" (10 frames, 14fps):
+  Playful bounce/jump, front paws lift, then spring up. Energetic, joyful.
+  ${analysis.hasTail ? "Tail wags rapidly." : ""}
+
+ACTION 5 - "sleeping" (6 frames, 6fps):
+  Body lowered (legs tucked), slow breathing (chest/spine gentle rise/fall), head resting near front paws.
+
+ACTION 6 - "photo" (4 frames, 8fps):
+  Alert sitting/standing, head tilts slightly to one side, ears perk up (head bone rotation). Hold pose.
+
+ANIMATION_DATA: Before assigning an action, ALWAYS check:
+  if not armature_obj.animation_data:
+      armature_obj.animation_data_create()
+  armature_obj.animation_data.action = action
+
+NLA STRIPS: If pushing actions to NLA tracks:
+  - Use strip.mute = True to deactivate. Do NOT use strip.is_active (it does not exist).
+  - Use nla_tracks.new() and track.strips.new(name, start_frame, action)
+
+═══════════════════════════════════════════════════════════
+SECTION 5: CAMERA & COMPOSITION
+═══════════════════════════════════════════════════════════
+
+- Camera type: ORTHOGRAPHIC (cam_data.type = 'ORTHO')
+- Position camera to the side of the model, facing it
+- Set ortho_scale to fit the model with ~15% margin so ears/tail aren't clipped
+- Use Damped Track or manual rotation to point at model center
+- Frame the model consistently regardless of breed size
+
+═══════════════════════════════════════════════════════════
+SECTION 6: LIGHTING & ENVIRONMENT
+═══════════════════════════════════════════════════════════
+
+- Add a simple 3-point lighting rig (key, fill, rim) using bpy.data.lights
+- Key light: SUN type, energy ~2.0, positioned above-front
+- Fill light: POINT or AREA, energy ~0.5, opposite side
+- Rim light: SPOT or SUN, energy ~1.0, behind model
+- Enable contact shadows if available (Blender 3.4 EEVEE supports this)
+- World background: keep transparent (scene.render.film_transparent = True)
+
+═══════════════════════════════════════════════════════════
+SECTION 7: RENDER & OUTPUT
+═══════════════════════════════════════════════════════════
+
+RENDER ENGINE — MANDATORY:
+  scene.render.engine = 'BLENDER_EEVEE'
+  scene.render.resolution_x = 128
+  scene.render.resolution_y = 128
+  scene.eevee.taa_render_samples = 16
+  DO NOT use Cycles. DO NOT use BLENDER_EEVEE_NEXT.
+
+TRANSPARENCY:
+  scene.render.film_transparent = True
+  scene.render.image_settings.file_format = 'PNG'
+  scene.render.image_settings.color_mode = 'RGBA'
+
+SPRITE SHEET ASSEMBLY — MANDATORY APPROACH:
+  a) Render each frame to a temp file: scene.render.filepath = f"/tmp/frame_{i}.png"; bpy.ops.render.render(write_still=True)
+  b) Load it: img = bpy.data.images.load(filepath)
+  c) Create sheet image: sheet = bpy.data.images.new("Sheet", width, height, alpha=True)
+  d) Use numpy for compositing:
+     import numpy as np
+     sheet_arr = np.zeros((sheet_h, sheet_w, 4), dtype=np.float32)
+     # For each frame:
+     src = np.empty((128, 128, 4), dtype=np.float32)
+     img.pixels.foreach_get(src.ravel())
+     src = np.flipud(src)  # Blender stores pixels bottom-up
+     sheet_arr[row_y:row_y+128, col_x:col_x+128] = src
+     # Final:
+     sheet_arr = np.flipud(sheet_arr)
+     sheet.pixels.foreach_set(sheet_arr.ravel())
+     sheet.filepath_raw = output_path
+     sheet.save()
+  Do NOT read from 'Render Result' — it crashes with IndexError.
+
+SPRITE SHEET LAYOUT:
+  12 columns wide × 6 rows tall (128×128 per cell)
+  Each row = one animation action. Columns = frames.
+  Total image: 1536 × 768 pixels.
+
+METADATA JSON:
+  Save alongside the sprite sheet (output_path with .json extension).
+  Format: { "frameWidth": 128, "frameHeight": 128, "animations": { "eating": { "row": 0, "frames": 8, "fps": 12 }, ... } }
+
+═══════════════════════════════════════════════════════════
+SECTION 8: FORBIDDEN PATTERNS (WILL CRASH)
+═══════════════════════════════════════════════════════════
+
+- ❌ bpy.ops.object.select_all() → use: for o in list(bpy.context.selected_objects): o.select_set(False)
+- ❌ edit_bones.clear() → use: for b in list(arm.edit_bones): arm.edit_bones.remove(b)
+- ❌ strip.is_active → use: strip.mute = True/False
+- ❌ mathutils.radians() → use: import math; math.radians()
+- ❌ "return" outside a function → use: sys.exit(1) if needed
+- ❌ Full-path keyframe_insert data_path → use relative path only
+- ❌ Reading pixels from 'Render Result' image → render to disk first
+- ❌ Any Blender 4.0+ API (color_management.use_curve_mapping, etc.)
+- ❌ bpy.ops.pose.select_all() without ensuring POSE mode and active armature first
+
+═══════════════════════════════════════════════════════════
+SECTION 9: CODE STYLE
+═══════════════════════════════════════════════════════════
+
+- Maximum 400 lines. Use loops, helper functions, and math for keyframes.
+- DO NOT hardcode every single frame manually — the script will be truncated.
+- Wrap the main logic in a function (e.g., def main():) and call it at the bottom.
+- Print "SPRITE_BAKE_COMPLETE" as the very last line when done.
+- Use import math for radians/sin/cos. Do NOT use mathutils for math functions.
+- Use print() liberally for progress logging.
+
+IMPORTANT: Return ONLY the Python code. Start with "import bpy". No markdown fences, no explanations.`;
 
   const ai = getAiClient();
   const response = await generateContentWithRetry(ai, {
@@ -418,11 +565,15 @@ IMPORTANT: Return ONLY the Python code. Start with "import bpy".`;
     }
   }
 
+  // Apply post-generation sanitization to catch any remaining hallucinations
+  console.log(`[AI Agent] Sanitizing generated script...`);
+  script = sanitizeBlenderScript(script);
+
   if (!script.includes("SPRITE_BAKE_COMPLETE")) {
     script += '\nprint("SPRITE_BAKE_COMPLETE")\n';
   }
 
-  console.log(`[AI Agent] ✅ Animation/sprite script generated (${script.length} chars)`);
+  console.log(`[AI Agent] ✅ Animation/sprite script generated and sanitized (${script.length} chars)`);
   return script;
 }
 
