@@ -4,6 +4,11 @@ import os from "os";
 import path from "path";
 import crypto from "crypto";
 import { execSync, exec } from "child_process";
+import { promisify } from "util";
+import Jimp from "jimp";
+import * as templates from "./animation-templates.js";
+
+const execPromise = promisify(exec);
 
 // Extract the meaningful Python error from Blender's combined output
 function extractBlenderError(stdout, stderr) {
@@ -325,8 +330,8 @@ print("[Rig] RIGGING_EXPORT_COMPLETE")
 });
 
 // =============================================================================
-// POST /bake-sprites — ASYNC: Take rigged GLB + animation script → sprite sheet
-// Receives: { rigged_glb_base64, animation_script }
+// POST /bake-sprites — ASYNC: Take rigged GLB, run modular templates → sprite sheet
+// Receives: { rigged_glb_base64 }
 // Returns:  { jobId } immediately, poll /jobs/:jobId for results
 // =============================================================================
 app.post("/bake-sprites", async (req, res) => {
@@ -334,265 +339,123 @@ app.post("/bake-sprites", async (req, res) => {
   const tempDir = path.join(os.tmpdir(), `sprites_${jobId}`);
 
   try {
-    const { rigged_glb_base64, animation_script } = req.body;
+    const { rigged_glb_base64 } = req.body;
 
-    if (!rigged_glb_base64 || !animation_script) {
-      return res.status(400).json({ error: "Missing rigged_glb_base64 or animation_script" });
+    if (!rigged_glb_base64) {
+      return res.status(400).json({ error: "Missing rigged_glb_base64" });
     }
 
-    console.log(`[Sprites ${jobId}] Starting async sprite bake job...`);
-
-    // Create temp directory
+    console.log(`[Sprites ${jobId}] Starting modular sprite bake job...`);
     fs.mkdirSync(tempDir, { recursive: true });
 
     const inputGlbPath = path.join(tempDir, "rigged_model.glb");
     const outputPngPath = path.join(tempDir, "sprite_sheet.png");
     const outputJsonPath = path.join(tempDir, "sprite_sheet.json");
-    const scriptPath = path.join(tempDir, "sprite_script.py");
 
-    // Write the rigged GLB
     let rawGlb = rigged_glb_base64;
     if (rawGlb.startsWith("data:")) {
       rawGlb = rawGlb.split(",")[1] || rawGlb;
     }
     fs.writeFileSync(inputGlbPath, Buffer.from(rawGlb, "base64"));
-    console.log(`[Sprites ${jobId}] Rigged GLB written: ${fs.statSync(inputGlbPath).size} bytes`);
 
-    // Build the full script
-    let modifiedAnimScript = animation_script;
-    modifiedAnimScript = modifiedAnimScript.replace(
-      /output_path\s*=\s*.+/g,
-      `output_path = r"${outputPngPath}"`
-    );
-
-    const fullScript = `
-import bpy
-import sys
-import json
-import os
-
-# --- Step 1: Clear default scene ---
-bpy.ops.object.select_all(action='SELECT')
-bpy.ops.object.delete()
-
-# --- Step 2: Import the rigged GLB ---
-print("[Sprites] Importing rigged GLB...")
-bpy.ops.import_scene.gltf(filepath=r"${inputGlbPath}")
-
-# Find armature and mesh
-armature_obj = None
-mesh_obj = None
-for obj in bpy.context.scene.objects:
-    if obj.type == 'ARMATURE':
-        armature_obj = obj
-    elif obj.type == 'MESH':
-        mesh_obj = obj
-
-if not armature_obj:
-    print("[Sprites] WARNING: No armature found, proceeding with mesh only")
-if not mesh_obj:
-    print("[Sprites] ERROR: No mesh found after import!")
-    sys.exit(1)
-
-if armature_obj:
-    bpy.context.view_layer.objects.active = armature_obj
-    armature_obj.select_set(True)
-    bpy.ops.object.mode_set(mode='POSE')
-    bpy.ops.pose.select_all(action='SELECT')
-    print(f"[Sprites] Armature found: {armature_obj.name} (Pose Mode set, all bones selected)")
-else:
-    raise RuntimeError("Armature 'DogRig' object context could not be established.")
-print(f"[Sprites] Mesh found: {mesh_obj.name}")
-
-# Set output path for the animation script
-output_path = r"${outputPngPath}"
-
-# --- Step 3: Execute AI-generated animation + sprite bake script ---
-print("[Sprites] Executing animation and sprite bake...")
-
-${modifiedAnimScript}
-
-# --- Force WORKBENCH for performance (defense-in-depth, overrides AI script) ---
-bpy.context.scene.render.engine = 'BLENDER_WORKBENCH'
-try:
-    bpy.context.scene.display.shading.light = 'STUDIO'
-except Exception:
-    pass  # Handle Blender version differences safely
-
-# --- Step 4: Verify outputs ---
-if os.path.exists(r"${outputPngPath}"):
-    print("[Sprites] Sprite sheet generated successfully!")
-else:
-    # Fallback: if the animation script didn't produce a sprite sheet,
-    # render a simple turntable sequence as fallback
-    print("[Sprites] WARNING: Animation script didn't produce sprite sheet. Generating fallback...")
-    
-    # Setup orthographic camera
-    cam_data = bpy.data.cameras.new("SpriteCam")
-    cam_data.type = 'ORTHO'
-    cam_obj = bpy.data.objects.new("SpriteCam", cam_data)
-    bpy.context.scene.collection.objects.link(cam_obj)
-    bpy.context.scene.camera = cam_obj
-    cam_obj.location = (0, -5, 1)
-    
-    import mathutils
-    direction = mathutils.Vector((0, 0, 0.5)) - cam_obj.location
-    rot_quat = direction.to_track_quat('-Z', 'Y')
-    cam_obj.rotation_euler = rot_quat.to_euler()
-    
-    # Render settings
-    scene = bpy.context.scene
-    scene.render.resolution_x = 128
-    scene.render.resolution_y = 128
-    scene.render.film_transparent = True
-    scene.render.image_settings.file_format = 'PNG'
-    scene.render.image_settings.color_mode = 'RGBA'
-    
-    # Render a few frames for each "action" (simple rotation for fallback)
-    frame_size = 128
-    actions = ['eating', 'drinking', 'running', 'playing', 'sleeping', 'photo']
-    frames_per_action = [4, 4, 6, 4, 3, 3]
-    max_frames = max(frames_per_action)
-    
-    # Create the sprite sheet image
-    sheet_width = max_frames * frame_size
-    sheet_height = len(actions) * frame_size
-    
-    try:
-        import numpy as np
-        sheet = np.zeros((sheet_height, sheet_width, 4), dtype=np.uint8)
-    except ImportError:
-        # numpy not available, just render individual frames
-        pass
-    
-    scene.render.filepath = r"${outputPngPath}"
-    bpy.ops.render.render(write_still=True)
-    
-    # Write fallback metadata
-    fallback_metadata = {
-        "frameWidth": frame_size,
-        "frameHeight": frame_size,
-        "animations": {}
-    }
-    for i, action_name in enumerate(actions):
-        fallback_metadata["animations"][action_name] = {
-            "row": i,
-            "frames": frames_per_action[i],
-            "fps": 12
-        }
-    
-    with open(r"${outputJsonPath}", 'w') as f:
-        json.dump(fallback_metadata, f)
-    
-    print("[Sprites] Fallback sprite sheet generated.")
-
-print("[Sprites] SPRITE_BAKE_COMPLETE")
-`;
-
-    fs.writeFileSync(scriptPath, fullScript, "utf8");
-
-    // Register the job as processing
     jobs.set(jobId, {
       type: "bake-sprites",
       status: "processing",
       createdAt: Date.now(),
       tempDir,
     });
-
-    // Return immediately with jobId
     res.status(202).json({ jobId, status: "processing" });
 
-    // Run Blender asynchronously
-    console.log(`[Sprites ${jobId}] Running Blender CLI for sprite baking (async)...`);
-    const child = exec(
-      `blender --background --python-exit-code 1 --python "${scriptPath}"`,
-      { timeout: 900000, maxBuffer: 50 * 1024 * 1024 },
-      (error, stdout, stderr) => {
-        const job = jobs.get(jobId);
-        if (!job) return;
+    // ASYNC BACKGROUND PROCESSING
+    (async () => {
+      try {
+        const actions = [
+          { name: "eating", frames: 4, fps: 8, scriptFn: templates.getEatingScript },
+          { name: "drinking", frames: 4, fps: 8, scriptFn: templates.getDrinkingScript },
+          { name: "running", frames: 6, fps: 12, scriptFn: templates.getRunningScript },
+          { name: "playing", frames: 4, fps: 10, scriptFn: templates.getPlayingScript },
+          { name: "sleeping", frames: 3, fps: 4, scriptFn: templates.getSleepingScript },
+          { name: "photo", frames: 3, fps: 6, scriptFn: templates.getPhotoScript },
+        ];
 
-        if (error) {
-          const errorDetail = extractBlenderError(stdout, stderr);
-          console.error(`[Sprites ${jobId}] Blender sprite bake failed:`, errorDetail);
-          job.status = "failed";
-          job.error = `Blender sprite baking failed: ${errorDetail}`;
-          try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
-          return;
-        }
+        let animationMetadata = {
+          frameWidth: 128,
+          frameHeight: 128,
+          animations: {}
+        };
 
-        console.log(`[Sprites ${jobId}] Blender stdout (last 500 chars):`, (stdout || "").slice(-500));
+        const frameSize = 128;
+        const maxFrames = Math.max(...actions.map(a => a.frames));
+        const sheetWidth = maxFrames * frameSize;
+        const sheetHeight = actions.length * frameSize;
 
-        // Read sprite sheet
-        if (!fs.existsSync(outputPngPath)) {
-          // AI might have saved it under a different name or appended frame numbers
-          const files = fs.readdirSync(tempDir);
-          const pngFiles = files.filter(f => f.endsWith(".png") && f !== "sprite_sheet.png");
-          if (pngFiles.length > 0) {
-            // Sort to find the most likely final sheet (largest size or last modified)
-            pngFiles.sort((a, b) => fs.statSync(path.join(tempDir, b)).size - fs.statSync(path.join(tempDir, a)).size);
-            const foundPng = path.join(tempDir, pngFiles[0]);
-            console.log(`[Sprites ${jobId}] Found alternative PNG: ${foundPng}, renaming to outputPngPath`);
-            fs.renameSync(foundPng, outputPngPath);
+        // Initialize empty sprite sheet canvas
+        const spriteSheet = new Jimp(sheetWidth, sheetHeight, 0x00000000);
+
+        for (let i = 0; i < actions.length; i++) {
+          const action = actions[i];
+          const scriptStr = action.scriptFn(inputGlbPath, tempDir, action.name);
+          const scriptPath = path.join(tempDir, `${action.name}_script.py`);
+          fs.writeFileSync(scriptPath, scriptStr);
+
+          console.log(`[Sprites ${jobId}] Rendering action: ${action.name}`);
+          try {
+            await execPromise(`blender --background --python-exit-code 1 --python "${scriptPath}"`, { timeout: 300000 });
+            
+            // Stitch frames for this action
+            for (let f = 0; f < action.frames; f++) {
+              const framePath = path.join(tempDir, `${action.name}_${f.toString().padStart(4, '0')}.png`);
+              if (fs.existsSync(framePath)) {
+                const frameImg = await Jimp.read(framePath);
+                spriteSheet.composite(frameImg, f * frameSize, i * frameSize);
+              } else {
+                console.warn(`[Sprites ${jobId}] Frame missing: ${framePath}`);
+              }
+            }
+          } catch (err) {
+            console.error(`[Sprites ${jobId}] Action ${action.name} failed:`, extractBlenderError(err.stdout, err.stderr));
+            // Failed frames will remain blank (transparent) on the sheet
           }
+
+          animationMetadata.animations[action.name] = {
+            row: i,
+            frames: action.frames,
+            fps: action.fps
+          };
         }
 
-        if (!fs.existsSync(outputPngPath)) {
-          console.error(`[Sprites ${jobId}] Sprite sheet PNG not found (checked all PNGs)`);
-          job.status = "failed";
-          job.error = "Blender completed but no sprite sheet was generated.";
-          try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
-          return;
-        }
+        console.log(`[Sprites ${jobId}] Writing final sprite sheet...`);
+        await spriteSheet.writeAsync(outputPngPath);
+        fs.writeFileSync(outputJsonPath, JSON.stringify(animationMetadata));
 
         const spritePng = fs.readFileSync(outputPngPath);
         const spriteBase64 = spritePng.toString("base64");
 
-        // Read animation metadata
-        let animationMetadata = {
-          frameWidth: 128,
-          frameHeight: 128,
-          animations: {
-            eating:   { row: 0, frames: 4,  fps: 8  },
-            drinking: { row: 1, frames: 4,  fps: 8  },
-            running:  { row: 2, frames: 6,  fps: 12 },
-            playing:  { row: 3, frames: 4,  fps: 10 },
-            sleeping: { row: 4, frames: 3,  fps: 4  },
-            photo:    { row: 5, frames: 3,  fps: 6  },
-          }
-        };
-
-        if (fs.existsSync(outputJsonPath)) {
-          try {
-            animationMetadata = JSON.parse(fs.readFileSync(outputJsonPath, "utf8"));
-          } catch (e) {
-            console.warn(`[Sprites ${jobId}] Could not parse metadata JSON, using defaults`);
-          }
+        const job = jobs.get(jobId);
+        if (job) {
+          job.status = "complete";
+          job.result = {
+            success: true,
+            sprite_sheet_base64: `data:image/png;base64,${spriteBase64}`,
+            animation_metadata: animationMetadata,
+          };
         }
-
-        console.log(`[Sprites ${jobId}] ✅ Sprite bake successful (${spritePng.length} bytes)`);
-
-        job.status = "complete";
-        job.result = {
-          success: true,
-          sprite_sheet_base64: `data:image/png;base64,${spriteBase64}`,
-          animation_metadata: animationMetadata,
-        };
-
-        // Cleanup temp files
+      } catch (err) {
+        console.error(`[Sprites ${jobId}] Unexpected background error:`, err);
+        const job = jobs.get(jobId);
+        if (job) {
+          job.status = "failed";
+          job.error = "Internal server error during sprite baking processing";
+        }
+      } finally {
         try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
       }
-    );
+    })();
 
   } catch (err) {
-    console.error(`[Sprites ${jobId}] Unexpected error:`, err);
-    const job = jobs.get(jobId);
-    if (job) {
-      job.status = "failed";
-      job.error = "Internal server error during sprite baking";
-    }
-    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+    console.error(`[Sprites ${jobId}] Unexpected synchronous error:`, err);
     if (!res.headersSent) {
-      res.status(500).json({ error: "Internal server error during sprite baking" });
+      res.status(500).json({ error: "Internal server error starting sprite baking" });
     }
   }
 });

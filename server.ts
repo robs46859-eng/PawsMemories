@@ -15,7 +15,7 @@ import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTaken
 import { uploadBase64Image } from "./storage";
 import { createAvatar, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById } from "./db";
 import { generateMeshFromImage } from "./huggingface-3d";
-import { analyzePetImage, generateRiggingScript, generateSpriteAnimationScript } from "./ollama-agent";
+import { analyzePetImage, generateRiggingScript } from "./ollama-agent";
 import type { PetAnalysis } from "./ollama-agent";
 import { BACKGROUND_PROMPTS } from "./src/backgrounds";
 import {
@@ -629,26 +629,13 @@ async function startServer() {
             return;
           }
 
-          // --- Step 5: Generate sprite animation script with Ollama ---
-          await updateAvatarGenerationStatus(avatarId, 'baking_sprites');
-          console.log(`[3D Avatar #${avatarId}] Step 5: Generating sprite animation script...`);
-          let spriteScript: string;
-          try {
-            spriteScript = await generateSpriteAnimationScript(analysis);
-          } catch (spriteErr: any) {
-            console.error(`[3D Avatar #${avatarId}] Sprite script generation failed:`, spriteErr.message);
-            await updateAvatarGenerationStatus(avatarId, 'failed', `Animation script failed: ${spriteErr.message}`);
-            return;
-          }
-
-          // --- Step 6: Send to Blender worker for sprite baking ---
-          console.log(`[3D Avatar #${avatarId}] Step 6: Baking sprite sheet...`);
+          // --- Step 5: Send to Blender worker for sprite baking ---
+          console.log(`[3D Avatar #${avatarId}] Step 5: Baking sprite sheet with modular templates...`);
           let spriteSheetBase64: string;
           let animationMetadata: any;
           try {
             const spriteData = await pollWorkerJob('/bake-sprites', {
               rigged_glb_base64: riggedGlbBase64,
-              animation_script: spriteScript,
             }, 'Sprite baking');
             if (!spriteData.success) {
               throw new Error('Worker returned invalid sprite result');
