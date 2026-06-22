@@ -338,6 +338,9 @@ function sanitizeBlenderScript(script: string): string {
   // Fix 9: Remove obsolete .distance on lights (Blender 2.7 legacy API)
   s = s.replace(/(\w+)\.distance\s*=\s*([^#\n]+)/g, '# legacy light distance removed');
 
+  // Fix 10: Remove obsolete contact shadows (Removed in EEVEE-Next / Blender 4.2+)
+  s = s.replace(/(\w+)\.use_contact_shadows?\s*=\s*(True|False)/g, '# contact shadows removed in EEVEE-Next');
+
   // Fix 9: Ensure the script has a top-level try/except to never crash silently
   if (!s.includes('except Exception') && !s.includes('except:')) {
     // Wrap the main execution in try/except for better error reporting
@@ -476,7 +479,6 @@ SECTION 6: LIGHTING & ENVIRONMENT
 - Key light: SUN type, energy ~2.0, positioned above-front
 - Fill light: POINT or AREA, energy ~0.5, opposite side
 - Rim light: SPOT or SUN, energy ~1.0, behind model
-- Enable contact shadows if available (Blender 5 EEVEE-Next supports this)
 - World background: keep transparent (scene.render.film_transparent = True)
 
 ═══════════════════════════════════════════════════════════
@@ -536,6 +538,7 @@ SECTION 8: FORBIDDEN PATTERNS (WILL CRASH)
 - ❌ Reading pixels from 'Render Result' image → render to disk first
 - ❌ bpy.ops.pose.select_all() without ensuring POSE mode and active armature first
 - ❌ light_data.distance = X → Use .energy instead (distance is a legacy 2.7 API and will crash)
+- ❌ use_contact_shadow(s) = True → Do NOT use contact shadows, EEVEE-Next uses raytracing implicitly
 
 ═══════════════════════════════════════════════════════════
 SECTION 9: CODE STYLE
