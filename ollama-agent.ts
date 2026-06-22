@@ -345,6 +345,13 @@ function sanitizeBlenderScript(script: string): string {
   // Instead of risking a crash, we comment out the whole line and rely on animation_data_clear() or safe methods
   s = s.replace(/^.*\.fcurves.*$/gm, '# fcurves access removed in Blender 5 Animation 2.0');
 
+  // Fix 12: Neutralize bpy.data.lights.remove() calls — these crash with StructRNA ReferenceError
+  // when the light object has already been deleted. Orphan data blocks are harmless in headless scripts.
+  s = s.replace(/bpy\.data\.lights\.remove\s*\([^)]*\)/g, 'pass  # light data removal skipped (StructRNA safety)');
+
+  // Fix 13: Neutralize bpy.data.cameras.remove() for the same StructRNA reason
+  s = s.replace(/bpy\.data\.cameras\.remove\s*\([^)]*\)/g, 'pass  # camera data removal skipped (StructRNA safety)');
+
   // Fix 9: Ensure the script has a top-level try/except to never crash silently
   if (!s.includes('except Exception') && !s.includes('except:')) {
     // Wrap the main execution in try/except for better error reporting
@@ -548,6 +555,7 @@ SECTION 8: FORBIDDEN PATTERNS (WILL CRASH)
 - ❌ action.fcurves → DO NOT access fcurves directly (Blender 5 removed action.fcurves in Animation 2.0). To clear animation, use obj.animation_data_clear() or create a new action.
 - ❌ scene.render.engine = 'BLENDER_EEVEE' → Use 'BLENDER_WORKBENCH' (EEVEE is 10× slower headless on CPU)
 - ❌ scene.eevee.taa_render_samples → Workbench does not use this setting
+- ❌ bpy.data.lights.remove() / bpy.data.cameras.remove() → Do NOT manually remove light or camera data blocks. Deleting the object first invalidates the .data reference, causing StructRNA ReferenceError. Orphan data blocks are harmless in headless scripts.
 
 ═══════════════════════════════════════════════════════════
 SECTION 9: CODE STYLE
