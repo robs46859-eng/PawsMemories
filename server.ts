@@ -498,7 +498,7 @@ async function startServer() {
 
           // --- Helper: submit job to worker and poll for result ---
           // --- Helper: submit job to worker and poll for result ---
-          const pollWorkerJob = async (endpoint: string, payload: any, label: string, maxWaitMs = 600000): Promise<any> => {
+          const pollWorkerJob = async (endpoint: string, payload: any, label: string, maxWaitMs = 900000): Promise<any> => {
             const MAX_FULL_RETRIES = 3;
             let lastError: Error | null = null;
 

@@ -436,24 +436,24 @@ SECTION 4: ANIMATION REQUIREMENTS
 
 Create 6 separate bpy.data.actions:
 
-ACTION 1 - "eating" (8 frames, 12fps):
+ACTION 1 - "eating" (4 frames, 8fps):
   Head/neck dip down, jaw-like bobbing on head bone, body mostly still with slight forward lean.
 
-ACTION 2 - "drinking" (8 frames, 12fps):
+ACTION 2 - "drinking" (4 frames, 8fps):
   Head stays at consistent low level, rhythmic head bobbing (lapping), neck extends down.
 
-ACTION 3 - "running" (12 frames, 16fps):
+ACTION 3 - "running" (6 frames, 12fps):
   Full gallop/trot cycle, front and back legs alternate in pairs, body bobs slightly.
   ${analysis.hasTail ? "Tail follows body motion with slight delay." : ""}
 
-ACTION 4 - "playing" (10 frames, 14fps):
+ACTION 4 - "playing" (4 frames, 10fps):
   Playful bounce/jump, front paws lift, then spring up. Energetic, joyful.
   ${analysis.hasTail ? "Tail wags rapidly." : ""}
 
-ACTION 5 - "sleeping" (6 frames, 6fps):
+ACTION 5 - "sleeping" (3 frames, 4fps):
   Body lowered (legs tucked), slow breathing (chest/spine gentle rise/fall), head resting near front paws.
 
-ACTION 6 - "photo" (4 frames, 8fps):
+ACTION 6 - "photo" (3 frames, 6fps):
   Alert sitting/standing, head tilts slightly to one side, ears perk up (head bone rotation). Hold pose.
 
 ANIMATION_DATA: Before assigning an action, ALWAYS check:
@@ -490,11 +490,13 @@ SECTION 7: RENDER & OUTPUT
 ═══════════════════════════════════════════════════════════
 
 RENDER ENGINE — MANDATORY:
-  scene.render.engine = 'BLENDER_EEVEE'
+  scene.render.engine = 'BLENDER_WORKBENCH'
   scene.render.resolution_x = 128
   scene.render.resolution_y = 128
-  scene.eevee.taa_render_samples = 16
-  DO NOT use Cycles. DO NOT use BLENDER_EEVEE_NEXT.
+  DO NOT use Cycles. DO NOT use BLENDER_EEVEE or BLENDER_EEVEE_NEXT.
+  Workbench is the fastest engine for headless CPU rendering (no ray computation).
+  For Workbench lighting, use: scene.display.shading.light = 'STUDIO'
+  and scene.display.shading.studio_light = 'Default' (or any .exr studio light name).
 
 TRANSPARENCY:
   scene.render.film_transparent = True
@@ -521,9 +523,9 @@ SPRITE SHEET ASSEMBLY — MANDATORY APPROACH:
   Do NOT read from 'Render Result' — it crashes with IndexError.
 
 SPRITE SHEET LAYOUT:
-  12 columns wide × 6 rows tall (128×128 per cell)
+  6 columns wide × 6 rows tall (128×128 per cell)
   Each row = one animation action. Columns = frames.
-  Total image: 1536 × 768 pixels.
+  Total image: 768 × 768 pixels.
 
 METADATA JSON:
   Save alongside the sprite sheet (output_path with .json extension).
@@ -544,6 +546,8 @@ SECTION 8: FORBIDDEN PATTERNS (WILL CRASH)
 - ❌ light_data.distance = X → Use .energy instead (distance is a legacy 2.7 API and will crash)
 - ❌ use_contact_shadow(s) = True → Do NOT use contact shadows, EEVEE-Next uses raytracing implicitly
 - ❌ action.fcurves → DO NOT access fcurves directly (Blender 5 removed action.fcurves in Animation 2.0). To clear animation, use obj.animation_data_clear() or create a new action.
+- ❌ scene.render.engine = 'BLENDER_EEVEE' → Use 'BLENDER_WORKBENCH' (EEVEE is 10× slower headless on CPU)
+- ❌ scene.eevee.taa_render_samples → Workbench does not use this setting
 
 ═══════════════════════════════════════════════════════════
 SECTION 9: CODE STYLE

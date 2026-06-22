@@ -412,12 +412,12 @@ print("[Sprites] Executing animation and sprite bake...")
 
 ${modifiedAnimScript}
 
-# --- Force EEVEE for performance (defense-in-depth, overrides AI script) ---
-bpy.context.scene.render.engine = 'BLENDER_EEVEE'
+# --- Force WORKBENCH for performance (defense-in-depth, overrides AI script) ---
+bpy.context.scene.render.engine = 'BLENDER_WORKBENCH'
 try:
-    bpy.context.scene.eevee.taa_render_samples = 16
+    bpy.context.scene.display.shading.light = 'STUDIO'
 except Exception:
-    pass  # Handle Blender 5 EEVEE-Next API differences safely
+    pass  # Handle Blender version differences safely
 
 # --- Step 4: Verify outputs ---
 if os.path.exists(r"${outputPngPath}"):
@@ -451,7 +451,7 @@ else:
     # Render a few frames for each "action" (simple rotation for fallback)
     frame_size = 128
     actions = ['eating', 'drinking', 'running', 'playing', 'sleeping', 'photo']
-    frames_per_action = [8, 8, 12, 10, 6, 4]
+    frames_per_action = [4, 4, 6, 4, 3, 3]
     max_frames = max(frames_per_action)
     
     # Create the sprite sheet image
@@ -506,7 +506,7 @@ print("[Sprites] SPRITE_BAKE_COMPLETE")
     console.log(`[Sprites ${jobId}] Running Blender CLI for sprite baking (async)...`);
     const child = exec(
       `blender --background --python-exit-code 1 --python "${scriptPath}"`,
-      { timeout: 600000, maxBuffer: 50 * 1024 * 1024 },
+      { timeout: 900000, maxBuffer: 50 * 1024 * 1024 },
       (error, stdout, stderr) => {
         const job = jobs.get(jobId);
         if (!job) return;
@@ -552,12 +552,12 @@ print("[Sprites] SPRITE_BAKE_COMPLETE")
           frameWidth: 128,
           frameHeight: 128,
           animations: {
-            eating:   { row: 0, frames: 8,  fps: 12 },
-            drinking: { row: 1, frames: 8,  fps: 12 },
-            running:  { row: 2, frames: 12, fps: 16 },
-            playing:  { row: 3, frames: 10, fps: 14 },
-            sleeping: { row: 4, frames: 6,  fps: 6  },
-            photo:    { row: 5, frames: 4,  fps: 8  },
+            eating:   { row: 0, frames: 4,  fps: 8  },
+            drinking: { row: 1, frames: 4,  fps: 8  },
+            running:  { row: 2, frames: 6,  fps: 12 },
+            playing:  { row: 3, frames: 4,  fps: 10 },
+            sleeping: { row: 4, frames: 3,  fps: 4  },
+            photo:    { row: 5, frames: 3,  fps: 6  },
           }
         };
 
