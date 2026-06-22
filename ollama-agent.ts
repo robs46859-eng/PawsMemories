@@ -64,23 +64,49 @@ function extractJson<T>(text: string): T {
 
 /**
  * Wraps Gemini API calls with exponential backoff to handle 503 "High Demand" errors.
+ * Strategy: retry up to 8 times on the primary model (gemini-2.5-flash) with exponential
+ * backoff capped at 30s (~2 min total window). If all retries fail, falls back to
+ * gemini-2.0-flash for one final attempt to avoid total pipeline failure.
  */
-async function generateContentWithRetry(ai: any, request: any, maxRetries = 5) {
+const FALLBACK_MODEL = 'gemini-2.0-flash';
+
+async function generateContentWithRetry(ai: any, request: any, maxRetries = 8) {
+  let lastError: any;
+
   for (let i = 0; i < maxRetries; i++) {
     try {
       return await ai.models.generateContent(request);
     } catch (err: any) {
+      lastError = err;
       const isRetryable = err.status === 503 || err.status === 429 || (err.message && (err.message.includes("503") || err.message.includes("429") || err.message.includes("UNAVAILABLE") || err.message.includes("high demand")));
-      
+
       if (isRetryable && i < maxRetries - 1) {
-        const waitTime = Math.pow(2, i) * 2000;
-        console.warn(`[AI Agent] Gemini High Demand Error (Attempt ${i + 1}/${maxRetries}). Retrying in ${waitTime}ms...`);
+        const waitTime = Math.min(Math.pow(2, i) * 2000, 30000);
+        console.warn(`[AI Agent] Gemini High Demand Error (Attempt ${i + 1}/${maxRetries}). Retrying in ${waitTime / 1000}s...`);
         await new Promise(r => setTimeout(r, waitTime));
-      } else {
+      } else if (!isRetryable) {
+        // Non-retryable error (auth, bad request, etc.) — fail immediately
         throw err;
       }
+      // If retryable and last attempt, fall through to fallback below
     }
   }
+
+  // All retries exhausted on primary model — try fallback
+  const primaryModel = request.model || 'unknown';
+  if (primaryModel !== FALLBACK_MODEL) {
+    console.warn(`[AI Agent] ⚠️ All ${maxRetries} retries on ${primaryModel} exhausted. Falling back to ${FALLBACK_MODEL}...`);
+    try {
+      const result = await ai.models.generateContent({ ...request, model: FALLBACK_MODEL });
+      console.warn(`[AI Agent] ✅ Fallback to ${FALLBACK_MODEL} succeeded (quality may differ from ${primaryModel}).`);
+      return result;
+    } catch (fallbackErr: any) {
+      console.error(`[AI Agent] ❌ Fallback model ${FALLBACK_MODEL} also failed:`, fallbackErr.message || fallbackErr);
+      throw fallbackErr;
+    }
+  }
+
+  throw lastError;
 }
 
 // =============================================================================
