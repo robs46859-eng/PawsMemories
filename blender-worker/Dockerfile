@@ -3,7 +3,7 @@ FROM node:20-slim
 
 # Update package list and install dependencies for headless Blender
 RUN apt-get update && \
-    apt-get install -y wget xz-utils libx11-6 libxi6 libxxf86vm1 libxrender1 libgl1 libegl1 libxkbcommon0 libsm6 libxext6 && \
+    apt-get install -y wget xz-utils libx11-6 libxi6 libxxf86vm1 libxrender1 libgl1 libegl1 libxkbcommon0 libsm6 libxext6 libwayland-client0 libwayland-cursor0 libwayland-egl1 libxfixes3 && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 

@@ -213,7 +213,7 @@ Return ONLY the JSON object.`;
 export async function generateRiggingScript(analysis: PetAnalysis): Promise<string> {
   console.log(`[AI Agent] Generating rigging script for ${analysis.species} (${analysis.breed}) using Gemini...`);
 
-  const prompt = `You are an expert Blender Python (bpy) scripter specializing in 3D character rigging.
+  const prompt = `You are an expert Blender 5.1 Python (bpy) scripter specializing in 3D character rigging.
 
 Generate a complete Blender Python script that:
 1. Assumes a GLB mesh is already imported and is the active object
@@ -282,7 +282,10 @@ IMPORTANT: Return ONLY the Python code, no markdown fences, no explanations. Sta
     script += '\nprint("RIGGING_COMPLETE")\n';
   }
 
-  console.log(`[AI Agent] ✅ Rigging script generated (${script.length} chars)`);
+  console.log(`[AI Agent] Sanitizing generated rigging script...`);
+  script = sanitizeBlenderScript(script);
+
+  console.log(`[AI Agent] ✅ Rigging script generated and sanitized (${script.length} chars)`);
   return script;
 }
 

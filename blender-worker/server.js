@@ -235,13 +235,22 @@ for obj in bpy.context.scene.objects:
 
 # --- Step 4: Export the rigged model as GLB ---
 print("[Rig] Exporting rigged GLB...")
-bpy.ops.export_scene.gltf(
-    filepath=r"${outputGlbPath}",
-    export_format='GLB',
-    export_animations=True,
-    export_skins=True,
-    export_def_bones=True
-)
+try:
+    bpy.ops.export_scene.gltf(
+        filepath=r"${outputGlbPath}",
+        export_format='GLB',
+        export_animation=True, # Modern Blender 4+ / 5 API
+        export_skins=True,
+        export_def_bones=True
+    )
+except TypeError:
+    bpy.ops.export_scene.gltf(
+        filepath=r"${outputGlbPath}",
+        export_format='GLB',
+        export_animations=True, # Legacy Blender 3.4 API
+        export_skins=True,
+        export_def_bones=True
+    )
 
 print("[Rig] RIGGING_EXPORT_COMPLETE")
 `;
