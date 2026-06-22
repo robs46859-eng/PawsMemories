@@ -341,7 +341,7 @@ ACTION 6 - "photo" (4 frames at 8fps):
        sheet.save()
 
 14. CRITICAL RENDER SETTINGS — you MUST use these exact render settings to ensure fast rendering:
-    scene.render.engine = 'BLENDER_EEVEE_NEXT'
+    scene.render.engine = 'BLENDER_EEVEE'
     scene.render.resolution_x = 128
     scene.render.resolution_y = 128
     scene.eevee.taa_render_samples = 16

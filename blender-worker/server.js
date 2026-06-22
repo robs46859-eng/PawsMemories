@@ -388,7 +388,11 @@ if not mesh_obj:
 if armature_obj:
     bpy.context.view_layer.objects.active = armature_obj
     armature_obj.select_set(True)
-    print(f"[Sprites] Armature found: {armature_obj.name}")
+    bpy.ops.object.mode_set(mode='POSE')
+    bpy.ops.pose.select_all(action='SELECT')
+    print(f"[Sprites] Armature found: {armature_obj.name} (Pose Mode set, all bones selected)")
+else:
+    raise RuntimeError("Armature 'DogRig' object context could not be established.")
 print(f"[Sprites] Mesh found: {mesh_obj.name}")
 
 # Set output path for the animation script
@@ -400,7 +404,7 @@ print("[Sprites] Executing animation and sprite bake...")
 ${modifiedAnimScript}
 
 # --- Force EEVEE for performance (defense-in-depth, overrides AI script) ---
-bpy.context.scene.render.engine = 'BLENDER_EEVEE_NEXT'
+bpy.context.scene.render.engine = 'BLENDER_EEVEE'
 try:
     bpy.context.scene.eevee.taa_render_samples = 16
 except Exception:
