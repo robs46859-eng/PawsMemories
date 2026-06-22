@@ -389,6 +389,12 @@ ACTION 6 - "photo" (4 frames at 8fps):
     if armature_obj:
         print(f"Available bones: {[b.name for b in armature_obj.pose.bones]}")
 
+19. KEYFRAME_INSERT: When calling keyframe_insert() on a POSE BONE, the data_path must be RELATIVE to the bone (NOT the full path from the armature). Example:
+    CORRECT:   bone.keyframe_insert(data_path="rotation_euler", index=0, frame=1)
+    CORRECT:   bone.keyframe_insert(data_path="location", index=1, frame=1)
+    WRONG:     bone.keyframe_insert(data_path=f'pose.bones["{bone.name}"].rotation_euler', ...)
+    The WRONG version causes: TypeError: property "pose.bones[...].rotation_euler" not found
+
 IMPORTANT: Return ONLY the Python code. Start with "import bpy".`;
 
   const ai = getAiClient();
