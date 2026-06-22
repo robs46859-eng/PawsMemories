@@ -377,6 +377,18 @@ ACTION 6 - "photo" (4 frames at 8fps):
 
 16. TARGET BLENDER VERSION is 3.4. Do NOT use APIs introduced in Blender 4.0+. Stick to stable bpy APIs available in Blender 3.4.x.
 
+17. POSE BONE SAFETY: When accessing pose bones, ALWAYS use .get() and check for None before using them. Bones may not exist in the imported armature. Example:
+    pbone = armature_obj.pose.bones.get("spine")
+    if pbone is None:
+        print(f"WARNING: bone 'spine' not found, skipping")
+    else:
+        pbone.rotation_euler = (0, 0, 0)
+    NEVER assume a bone name exists. If a bone is missing, skip it gracefully — do NOT crash.
+
+18. At the start of the script, print all available pose bone names for debugging:
+    if armature_obj:
+        print(f"Available bones: {[b.name for b in armature_obj.pose.bones]}")
+
 IMPORTANT: Return ONLY the Python code. Start with "import bpy".`;
 
   const ai = getAiClient();

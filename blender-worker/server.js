@@ -588,6 +588,45 @@ print("[Sprites] SPRITE_BAKE_COMPLETE")
   }
 });
 
+// =============================================================================
+// Global error handler — catches request aborted, body-parser errors, etc.
+// Prevents unhandled exceptions from crashing the process.
+// =============================================================================
+app.use((err, req, res, next) => {
+  // Client disconnected before we finished reading the request body
+  if (err.type === 'request.aborted' || err.message === 'request aborted') {
+    console.warn(`[Server] Request aborted by client: ${req.method} ${req.url} (this is normal for slow uploads)`);
+    if (!res.headersSent) {
+      res.status(400).json({ error: "Request aborted by client" });
+    }
+    return;
+  }
+
+  // Body too large
+  if (err.type === 'entity.too.large') {
+    console.warn(`[Server] Request body too large: ${req.method} ${req.url}`);
+    if (!res.headersSent) {
+      res.status(413).json({ error: "Request body too large" });
+    }
+    return;
+  }
+
+  // JSON parse error
+  if (err.type === 'entity.parse.failed') {
+    console.warn(`[Server] Invalid JSON in request: ${req.method} ${req.url}`);
+    if (!res.headersSent) {
+      res.status(400).json({ error: "Invalid JSON in request body" });
+    }
+    return;
+  }
+
+  // Unknown error
+  console.error(`[Server] Unhandled error on ${req.method} ${req.url}:`, err.message || err);
+  if (!res.headersSent) {
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Blender microservice listening on port ${PORT}`);
   console.log(`Endpoints: /render, /rig-model, /bake-sprites, /jobs/:jobId, /health`);
