@@ -3,12 +3,116 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import crypto from "crypto";
+import net from "net";
 import { execSync, exec } from "child_process";
 import { promisify } from "util";
 import Jimp from "jimp";
 import * as templates from "./animation-templates.js";
 
 const execPromise = promisify(exec);
+
+// =============================================================================
+// Blender TCP Bridge Client
+// =============================================================================
+
+const BRIDGE_HOST = process.env.BLENDER_BRIDGE_HOST || "127.0.0.1";
+const BRIDGE_PORT = parseInt(process.env.BLENDER_BRIDGE_PORT || "9876", 10);
+
+class BlenderBridgeClient {
+  constructor(host = BRIDGE_HOST, port = BRIDGE_PORT) {
+    this.host = host;
+    this.port = port;
+    this._requestId = 0;
+  }
+
+  /**
+   * Send a JSON-RPC request to the Blender TCP bridge and wait for the response.
+   * Creates a fresh TCP connection per request (simple, reliable for async work).
+   */
+  async send(method, params = {}) {
+    return new Promise((resolve, reject) => {
+      const id = ++this._requestId;
+      const socket = new net.Socket();
+      let buffer = "";
+      const timeout = setTimeout(() => {
+        socket.destroy();
+        reject(new Error(`Bridge request timed out after 120s: ${method}`));
+      }, 120000);
+
+      socket.connect(this.port, this.host, () => {
+        const request = JSON.stringify({ id, method, params }) + "\n";
+        socket.write(request);
+      });
+
+      socket.on("data", (chunk) => {
+        buffer += chunk.toString();
+        const newlineIndex = buffer.indexOf("\n");
+        if (newlineIndex !== -1) {
+          clearTimeout(timeout);
+          const line = buffer.slice(0, newlineIndex);
+          try {
+            const response = JSON.parse(line);
+            if (response.error) {
+              reject(new Error(response.error.message || JSON.stringify(response.error)));
+            } else {
+              resolve(response.result);
+            }
+          } catch (e) {
+            reject(new Error(`Invalid JSON from bridge: ${line.slice(0, 200)}`));
+          }
+          socket.end();
+        }
+      });
+
+      socket.on("error", (err) => {
+        clearTimeout(timeout);
+        reject(new Error(`Bridge connection error: ${err.message}`));
+      });
+
+      socket.on("close", () => {
+        clearTimeout(timeout);
+      });
+    });
+  }
+
+  async executeCode(code) {
+    return this.send("execute_code", { code });
+  }
+
+  async getViewport(azimuth, elevation) {
+    return this.send("get_viewport", { azimuth, elevation });
+  }
+
+  async readScene() {
+    return this.send("read_scene", {});
+  }
+
+  async setViewportAngle(azimuth, elevation) {
+    return this.send("set_viewport_angle", { azimuth, elevation });
+  }
+
+  async undo() {
+    return this.send("undo", {});
+  }
+
+  async saveCheckpoint(name) {
+    return this.send("save_checkpoint", { name });
+  }
+
+  async restoreCheckpoint(name) {
+    return this.send("restore_checkpoint", { name });
+  }
+
+  async exportGlb(outputPath) {
+    return this.send("export_glb", { output_path: outputPath });
+  }
+
+  async ping() {
+    return this.send("ping", {});
+  }
+}
+
+const bridge = new BlenderBridgeClient();
 
 // Extract the meaningful Python error from Blender's combined output
 function extractBlenderError(stdout, stderr) {
@@ -57,9 +161,251 @@ setInterval(() => {
   }
 }, 60000);
 
-// Health check endpoint
-app.get("/health", (req, res) => {
-  res.status(200).json({ status: "ok", activeJobs: jobs.size });
+// Health check endpoint — also checks bridge connectivity
+app.get("/health", async (req, res) => {
+  try {
+    const bridgeStatus = await bridge.ping().catch(() => null);
+    res.status(200).json({
+      status: "ok",
+      activeJobs: jobs.size,
+      bridge: bridgeStatus ? "connected" : "disconnected",
+      blenderVersion: bridgeStatus?.blender_version || null,
+    });
+  } catch {
+    res.status(200).json({ status: "ok", activeJobs: jobs.size, bridge: "disconnected" });
+  }
+});
+
+// =============================================================================
+// NEW: Bridge proxy endpoints (for the multi-agent system)
+// =============================================================================
+
+// Read the current Blender scene graph
+app.get("/scene", async (req, res) => {
+  try {
+    const result = await bridge.readScene();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Capture a viewport screenshot
+app.get("/viewport", async (req, res) => {
+  try {
+    const azimuth = req.query.azimuth ? parseFloat(req.query.azimuth) : undefined;
+    const elevation = req.query.elevation ? parseFloat(req.query.elevation) : undefined;
+    const result = await bridge.getViewport(azimuth, elevation);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Execute arbitrary bpy code via the bridge
+app.post("/execute", async (req, res) => {
+  try {
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ error: "Missing 'code' in request body" });
+    const result = await bridge.executeCode(code);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Set viewport camera angle
+app.post("/viewport/angle", async (req, res) => {
+  try {
+    const { azimuth, elevation } = req.body;
+    const result = await bridge.setViewportAngle(azimuth || 45, elevation || 30);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Undo last operation
+app.post("/undo", async (req, res) => {
+  try {
+    const result = await bridge.undo();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Save a named checkpoint
+app.post("/checkpoint/save", async (req, res) => {
+  try {
+    const { name } = req.body;
+    const result = await bridge.saveCheckpoint(name || "default");
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Restore a named checkpoint
+app.post("/checkpoint/restore", async (req, res) => {
+  try {
+    const { name } = req.body;
+    const result = await bridge.restoreCheckpoint(name || "default");
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Export scene as GLB
+app.post("/export-glb", async (req, res) => {
+  try {
+    const result = await bridge.exportGlb();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// =============================================================================
+// POST /agent/build — Full multi-agent avatar build endpoint
+// Receives: { glb_base64, pet_analysis, build_config? }
+// Returns:  { jobId } immediately, poll /jobs/:jobId for results
+// =============================================================================
+app.post("/agent/build", async (req, res) => {
+  const jobId = crypto.randomUUID();
+
+  try {
+    const { glb_base64, pet_analysis, build_config } = req.body;
+
+    if (!glb_base64) {
+      return res.status(400).json({ error: "Missing glb_base64" });
+    }
+
+    console.log(`[Agent Build ${jobId}] Starting multi-agent avatar build...`);
+
+    jobs.set(jobId, {
+      type: "agent-build",
+      status: "processing",
+      stage: "initializing",
+      createdAt: Date.now(),
+      steps: [],
+    });
+
+    res.status(202).json({ jobId, status: "processing" });
+
+    // Background: Import the GLB into the persistent Blender scene
+    (async () => {
+      try {
+        const job = jobs.get(jobId);
+
+        // Step 1: Clear scene and import GLB
+        job.stage = "importing_mesh";
+        console.log(`[Agent Build ${jobId}] Importing GLB into Blender...`);
+
+        // Write GLB to temp file (bridge can read it)
+        const tempGlbPath = `/tmp/agent_input_${jobId}.glb`;
+        let rawGlb = glb_base64;
+        if (rawGlb.startsWith("data:")) {
+          rawGlb = rawGlb.split(",")[1] || rawGlb;
+        }
+        // We need to write the file inside the container
+        const importCode = `
+import bpy, sys, base64, os
+
+# Clear scene
+for obj in list(bpy.data.objects):
+    bpy.data.objects.remove(obj, do_unlink=True)
+
+# Write GLB from base64
+glb_data = base64.b64decode("""${rawGlb.slice(0, 100)}""")
+# ... full base64 would be too large for inline code
+
+# Import GLB
+bpy.ops.import_scene.gltf(filepath=r"${tempGlbPath}")
+print("IMPORT_COMPLETE")
+`;
+
+        // For large GLB data, write to file first via a simpler approach
+        const writeResult = await bridge.executeCode(`
+import bpy, base64, os, sys
+
+# Clear scene
+for obj in list(bpy.data.objects):
+    bpy.data.objects.remove(obj, do_unlink=True)
+
+# Write GLB data to temp file
+glb_b64 = """${rawGlb}"""
+glb_bytes = base64.b64decode(glb_b64)
+with open("${tempGlbPath}", "wb") as f:
+    f.write(glb_bytes)
+print(f"Wrote {len(glb_bytes)} bytes to ${tempGlbPath}")
+
+# Import GLB
+bpy.ops.import_scene.gltf(filepath="${tempGlbPath}")
+
+# Clean up temp file
+os.remove("${tempGlbPath}")
+
+# Report what we imported
+mesh_count = sum(1 for o in bpy.context.scene.objects if o.type == 'MESH')
+print(f"Imported {mesh_count} mesh(es)")
+print("IMPORT_COMPLETE")
+`);
+
+        if (!writeResult.success) {
+          throw new Error(`GLB import failed: ${writeResult.error}`);
+        }
+
+        job.steps.push({ step: "import", success: true, output: writeResult.stdout });
+
+        // Step 2: Save initial checkpoint
+        job.stage = "checkpoint_initial";
+        await bridge.saveCheckpoint(`build_${jobId}_initial`);
+        job.steps.push({ step: "checkpoint_initial", success: true });
+
+        // Step 3: Read the scene to get mesh info
+        job.stage = "reading_scene";
+        const sceneData = await bridge.readScene();
+        job.steps.push({ step: "read_scene", success: true, data: {
+          object_count: sceneData.object_count,
+          objects: sceneData.objects?.map(o => ({ name: o.name, type: o.type })),
+        }});
+
+        // Step 4: Take initial viewport screenshot
+        job.stage = "initial_viewport";
+        const viewport = await bridge.getViewport(45, 30);
+        job.steps.push({ step: "initial_viewport", success: viewport.success });
+
+        // Store scene state + viewport for the orchestrator to consume
+        job.sceneState = sceneData;
+        job.viewportImage = viewport.image_base64;
+        job.petAnalysis = pet_analysis;
+        job.stage = "ready_for_orchestrator";
+
+        // The actual multi-agent orchestration will be driven by the main app's
+        // agent/graph/orchestrator.ts — it polls this job status and sends
+        // individual commands via the /execute, /viewport, /scene endpoints.
+        // 
+        // For now, mark as ready. The orchestrator takes over from here.
+        console.log(`[Agent Build ${jobId}] ✅ Scene ready for orchestrator`);
+
+      } catch (err) {
+        console.error(`[Agent Build ${jobId}] Error:`, err.message);
+        const job = jobs.get(jobId);
+        if (job) {
+          job.status = "failed";
+          job.error = err.message;
+        }
+      }
+    })();
+
+  } catch (err) {
+    console.error(`[Agent Build ${jobId}] Sync error:`, err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Internal error starting agent build" });
+    }
+  }
 });
 
 // =============================================================================
@@ -75,6 +421,7 @@ app.get("/jobs/:jobId", (req, res) => {
     jobId: req.params.jobId,
     status: job.status,
     type: job.type,
+    stage: job.stage,
     createdAt: job.createdAt,
   };
 
@@ -82,6 +429,11 @@ app.get("/jobs/:jobId", (req, res) => {
     response.result = job.result;
   } else if (job.status === "failed") {
     response.error = job.error;
+  }
+
+  // Include steps for agent-build jobs
+  if (job.type === "agent-build" && job.steps) {
+    response.steps = job.steps;
   }
 
   res.json(response);
@@ -501,5 +853,7 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Blender microservice listening on port ${PORT}`);
-  console.log(`Endpoints: /render, /rig-model, /bake-sprites, /jobs/:jobId, /health`);
+  console.log(`Legacy endpoints: /render, /rig-model, /bake-sprites, /jobs/:jobId, /health`);
+  console.log(`Bridge endpoints: /scene, /viewport, /execute, /undo, /checkpoint/*, /export-glb`);
+  console.log(`Agent endpoint:   /agent/build`);
 });

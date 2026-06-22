@@ -15,8 +15,8 @@ import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTaken
 import { uploadBase64Image } from "./storage";
 import { createAvatar, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById } from "./db";
 import { generateMeshFromImage } from "./huggingface-3d";
-import { analyzePetImage, generateRiggingScript } from "./ollama-agent";
-import type { PetAnalysis } from "./ollama-agent";
+import { analyzePetImage, buildAvatarWithAgent } from "./avatar-agent";
+import type { PetAnalysis } from "./avatar-agent";
 import { BACKGROUND_PROMPTS } from "./src/backgrounds";
 import {
   normalizeEmail,
@@ -481,170 +481,35 @@ async function startServer() {
             return;
           }
 
-          // --- Step 3: Generate rigging script with Ollama ---
-          await updateAvatarGenerationStatus(avatarId, 'rigging');
-          console.log(`[3D Avatar #${avatarId}] Step 3: Generating rigging script with Ollama...`);
-          let riggingScript: string;
-          try {
-            riggingScript = await generateRiggingScript(analysis);
-          } catch (rigErr: any) {
-            console.error(`[3D Avatar #${avatarId}] Rigging script generation failed:`, rigErr.message);
-            await updateAvatarGenerationStatus(avatarId, 'failed', `Rigging script generation failed: ${rigErr.message}`);
-            return;
-          }
-
-          // Worker base URL for Blender calls
-          const workerBaseUrl = (process.env.BLENDER_WORKER_URL || 'http://localhost:10000/render').replace('/render', '');
-
-          // --- Helper: submit job to worker and poll for result ---
-          // --- Helper: submit job to worker and poll for result ---
-          const pollWorkerJob = async (endpoint: string, payload: any, label: string, maxWaitMs = 900000): Promise<any> => {
-            const MAX_FULL_RETRIES = 3;
-            let lastError: Error | null = null;
-
-            for (let fullAttempt = 1; fullAttempt <= MAX_FULL_RETRIES; fullAttempt++) {
-              try {
-                // Submit job (with retry for transient Render.com cold-start errors)
-                let submitRes: Response | null = null;
-                for (let submitAttempt = 0; submitAttempt < 3; submitAttempt++) {
-                  try {
-                    submitRes = await fetch(`${workerBaseUrl}${endpoint}`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify(payload),
-                    });
-                    if (submitRes.ok) break;
-                    // Retry on 502/503/504 (Render cold-start)
-                    if ([502, 503, 504].includes(submitRes.status) && submitAttempt < 2) {
-                      console.warn(`[3D Avatar #${avatarId}] ${label}: Worker returned ${submitRes.status} on submit, retrying in 10s...`);
-                      await new Promise(r => setTimeout(r, 10000));
-                      continue;
-                    }
-                  } catch (fetchErr: any) {
-                    if (submitAttempt < 2) {
-                      console.warn(`[3D Avatar #${avatarId}] ${label}: Submit fetch error: ${fetchErr.message}, retrying in 10s...`);
-                      await new Promise(r => setTimeout(r, 10000));
-                      continue;
-                    }
-                    throw fetchErr;
-                  }
-                }
-                if (!submitRes || !submitRes.ok) {
-                  const errData = submitRes ? await submitRes.json().catch(() => ({})) : {};
-                  throw new Error((errData as any).error || `Worker returned ${submitRes?.status || 'no response'}`);
-                }
-                const submitData = await submitRes.json() as { jobId?: string; success?: boolean; [key: string]: any };
-
-                // If the worker returned a jobId (async mode), poll for completion
-                if (submitData.jobId) {
-                  const jobId = submitData.jobId;
-                  console.log(`[3D Avatar #${avatarId}] ${label} (Attempt ${fullAttempt}/${MAX_FULL_RETRIES}): Got jobId=${jobId}, polling...`);
-                  const pollInterval = 5000; // 5 seconds
-                  const deadline = Date.now() + maxWaitMs;
-                  let consecutiveErrors = 0;
-                  const MAX_CONSECUTIVE_POLL_ERRORS = 5;
-
-                  while (Date.now() < deadline) {
-                    await new Promise(r => setTimeout(r, pollInterval));
-                    try {
-                      const pollRes = await fetch(`${workerBaseUrl}/jobs/${jobId}`);
-                      if (!pollRes.ok) {
-                        // Tolerate transient 502/503/504 from Render.com
-                        if ([502, 503, 504].includes(pollRes.status)) {
-                          consecutiveErrors++;
-                          console.warn(`[3D Avatar #${avatarId}] ${label}: Poll got ${pollRes.status} (transient ${consecutiveErrors}/${MAX_CONSECUTIVE_POLL_ERRORS})`);
-                          if (consecutiveErrors >= MAX_CONSECUTIVE_POLL_ERRORS) {
-                            const err = new Error(`Worker crashed: ${MAX_CONSECUTIVE_POLL_ERRORS} consecutive ${pollRes.status} errors`);
-                            (err as any).isWorkerCrash = true;
-                            throw err;
-                          }
-                          continue;
-                        } else if (pollRes.status === 404) {
-                          const err = new Error(`Worker reset: job ${jobId} not found (404)`);
-                          (err as any).isWorkerCrash = true;
-                          throw err;
-                        }
-                        throw new Error(`Polling failed with status ${pollRes.status}`);
-                      }
-                      consecutiveErrors = 0; // Reset on success
-                      const pollData = await pollRes.json() as { status: string; result?: any; error?: string };
-
-                      if (pollData.status === 'complete') {
-                        console.log(`[3D Avatar #${avatarId}] ${label}: Job complete!`);
-                        return pollData.result;
-                      } else if (pollData.status === 'failed') {
-                        throw new Error(pollData.error || `${label} job failed`);
-                      }
-                      // still processing, continue polling
-                      console.log(`[3D Avatar #${avatarId}] ${label}: Still processing...`);
-                    } catch (pollErr: any) {
-                      if (pollErr.isWorkerCrash) throw pollErr;
-
-                      // Network-level errors (ECONNRESET, fetch failures) are also transient
-                      if (pollErr.message?.includes('Polling failed with status') || pollErr.message?.includes('consecutive')) {
-                        throw pollErr; // Re-throw non-transient or exhausted errors
-                      }
-                      consecutiveErrors++;
-                      console.warn(`[3D Avatar #${avatarId}] ${label}: Poll network error: ${pollErr.message} (transient ${consecutiveErrors}/${MAX_CONSECUTIVE_POLL_ERRORS})`);
-                      if (consecutiveErrors >= MAX_CONSECUTIVE_POLL_ERRORS) {
-                        const err = new Error(`Worker crashed: ${MAX_CONSECUTIVE_POLL_ERRORS} consecutive network errors`);
-                        (err as any).isWorkerCrash = true;
-                        throw err;
-                      }
-                    }
-                  }
-                  throw new Error(`${label} timed out after ${maxWaitMs / 1000}s`);
-                }
-
-                // Synchronous response (backwards compatibility)
-                return submitData;
-              } catch (err: any) {
-                lastError = err;
-                if (err.isWorkerCrash && fullAttempt < MAX_FULL_RETRIES) {
-                  console.warn(`[3D Avatar #${avatarId}] ${label}: Worker crashed/reset (${err.message}). Retrying full job submission (${fullAttempt}/${MAX_FULL_RETRIES}) in 15s...`);
-                  await new Promise(r => setTimeout(r, 15000));
-                  continue;
-                }
-                throw err; // Non-crash error or out of retries
-              }
-            }
-            throw lastError;
-          };
-
-          // --- Step 4: Send to Blender worker for rigging ---
-          console.log(`[3D Avatar #${avatarId}] Step 4: Sending to Blender worker for rigging...`);
+          // --- Step 3-6: Multi-Agent Blender Pipeline ---
+          console.log(`[3D Avatar #${avatarId}] Steps 3-6: Starting multi-agent Blender pipeline...`);
           let riggedGlbBase64: string;
-          try {
-            const rigData = await pollWorkerJob('/rig-model', {
-              glb_base64: glbBuffer.toString('base64'),
-              rigging_script: riggingScript,
-            }, 'Rigging');
-            if (!rigData.success || !rigData.rigged_glb_base64) {
-              throw new Error('Worker returned invalid rigging result');
-            }
-            riggedGlbBase64 = rigData.rigged_glb_base64;
-          } catch (workerErr: any) {
-            console.error(`[3D Avatar #${avatarId}] Blender rigging failed:`, workerErr.message);
-            await updateAvatarGenerationStatus(avatarId, 'failed', `Rigging failed: ${workerErr.message}`);
-            return;
-          }
-
-          // --- Step 5: Send to Blender worker for sprite baking ---
-          console.log(`[3D Avatar #${avatarId}] Step 5: Baking sprite sheet with modular templates...`);
           let spriteSheetBase64: string;
           let animationMetadata: any;
+
           try {
-            const spriteData = await pollWorkerJob('/bake-sprites', {
-              rigged_glb_base64: riggedGlbBase64,
-            }, 'Sprite baking');
-            if (!spriteData.success) {
-              throw new Error('Worker returned invalid sprite result');
+            const agentResult = await buildAvatarWithAgent(photo, glbBuffer, {
+              onProgress: async (step, pct, detail) => {
+                try {
+                  const safeDetail = detail ? `: ${detail.substring(0, 100)}` : '';
+                  await updateAvatarGenerationStatus(avatarId, step, `Agent ${pct}%${safeDetail}`);
+                } catch (e) { /* ignore */ }
+              }
+            });
+
+            if (!agentResult.success || !agentResult.riggedGlbBase64 || !agentResult.spriteSheetBase64) {
+               throw new Error(agentResult.statusMessage || "Agent build failed to produce assets");
             }
-            spriteSheetBase64 = spriteData.sprite_sheet_base64;
-            animationMetadata = spriteData.animation_metadata;
-          } catch (bakeErr: any) {
-            console.error(`[3D Avatar #${avatarId}] Sprite baking failed:`, bakeErr.message);
-            await updateAvatarGenerationStatus(avatarId, 'failed', `Sprite baking failed: ${bakeErr.message}`);
+
+            riggedGlbBase64 = agentResult.riggedGlbBase64;
+            spriteSheetBase64 = agentResult.spriteSheetBase64;
+            animationMetadata = agentResult.animationMetadata;
+            
+            console.log(`[3D Avatar #${avatarId}] Agent build successful: ${agentResult.statusMessage}`);
+
+          } catch (agentErr: any) {
+            console.error(`[3D Avatar #${avatarId}] Multi-agent pipeline failed:`, agentErr.message);
+            await updateAvatarGenerationStatus(avatarId, 'failed', `Agent build failed: ${agentErr.message}`);
             return;
           }
 

@@ -1,0 +1,22 @@
+{
+  "name": "@pawsmemories/blender-agent",
+  "version": "1.0.0",
+  "description": "Multi-agent Blender avatar builder: perceive → reason → act → verify",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "ingest-docs": "tsx knowledge/ingest_docs.ts",
+    "test-rag": "tsx knowledge/retriever.ts",
+    "optimize-prompts": "tsx dspy/optimize.ts",
+    "test-bridge": "tsx -e \"import { BlenderTCPClient } from './tools/blender_client.js'; const c = new BlenderTCPClient(); c.ping().then(r => console.log('Bridge:', r)).catch(e => console.error('No bridge:', e.message))\""
+  },
+  "dependencies": {
+    "@google/genai": "^2.4.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0"
+  },
+  "peerDependencies": {
+    "@google/genai": "^2.4.0"
+  }
+}

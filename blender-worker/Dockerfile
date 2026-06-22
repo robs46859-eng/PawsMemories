@@ -13,6 +13,9 @@ RUN wget https://download.blender.org/release/Blender5.1/blender-5.1.2-linux-x64
     ln -s /usr/local/blender-5.1.2-linux-x64/blender /usr/bin/blender && \
     rm blender-5.1.2-linux-x64.tar.xz
 
+# Create checkpoint and viewport directories
+RUN mkdir -p /tmp/blender_checkpoints /tmp/blender_viewports
+
 # Set the working directory in the container
 WORKDIR /app
 
@@ -20,11 +23,13 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 
-# Copy the rest of the application code
+# Copy the rest of the application code (includes bridge/)
 COPY . .
 
-# Expose the port Express will run on
+# Expose the Express port and TCP bridge port
 EXPOSE 10000
+EXPOSE 9876
 
-# Start the microservice
-CMD ["npm", "start"]
+# Start Blender with TCP bridge in background, then start Express relay
+# The bridge runs inside Blender's Python env; Express relays HTTP → TCP
+CMD ["sh", "-c", "blender --background --python /app/bridge/tcp_server.py & sleep 5 && npm start"]
