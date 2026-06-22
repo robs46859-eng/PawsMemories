@@ -83,6 +83,11 @@ Paws & Memories features an interactive, Tamagotchi-style pet avatar system with
   - **Action Drop Animations**: Feeding, watering, or giving a treat drops the item into the yard. The pet runs to it, eats it, displays happy emoji bursts, and then updates the database.
   - **Tired & Trick States**: Low-energy pets move slower and show sleepy `💤` bubbles. Tapping a pet makes it perform a spin or jump trick.
 
+### Blender 5.1 Update & AI Safety Engine
+The rendering engine has been upgraded to **Blender 5.1**. Due to significant API deprecations in recent Blender versions, an AI script safety post-processor (`sanitizeBlenderScript()`) acts as a safeguard. This protects the worker from crashing when the LLM hallucinating legacy properties:
+- **EEVEE-Next Migrations:** Deprecated `use_contact_shadows` is stripped (EEVEE-Next relies on implicit raytracing).
+- **Lighting Deprecations:** Legacy `PointLight.distance` falloffs are intercepted and swapped/commented in favor of `energy`.
+- **Animation 2.0 / Slotted Actions:** Blender 4.3+ removed `Action.fcurves`. The agent prompt explicitly bans direct `.fcurves` access, and the safety net neutralizes any hallucinated attempts.
 
 ## Project structure
 
