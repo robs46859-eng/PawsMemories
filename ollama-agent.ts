@@ -335,6 +335,9 @@ function sanitizeBlenderScript(script: string): string {
     s = 'import math\n' + s;
   }
 
+  // Fix 9: Remove obsolete .distance on lights (Blender 2.7 legacy API)
+  s = s.replace(/(\w+)\.distance\s*=\s*([^#\n]+)/g, '# legacy light distance removed');
+
   // Fix 9: Ensure the script has a top-level try/except to never crash silently
   if (!s.includes('except Exception') && !s.includes('except:')) {
     // Wrap the main execution in try/except for better error reporting
@@ -532,6 +535,7 @@ SECTION 8: FORBIDDEN PATTERNS (WILL CRASH)
 - ❌ Full-path keyframe_insert data_path → use relative path only
 - ❌ Reading pixels from 'Render Result' image → render to disk first
 - ❌ bpy.ops.pose.select_all() without ensuring POSE mode and active armature first
+- ❌ light_data.distance = X → Use .energy instead (distance is a legacy 2.7 API and will crash)
 
 ═══════════════════════════════════════════════════════════
 SECTION 9: CODE STYLE
