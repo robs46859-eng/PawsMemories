@@ -280,7 +280,7 @@ export default function Avatar3DPlaypen({
 
         {/* Pet Avatar — Canvas for sprite sheet OR fallback image */}
         <div className="absolute inset-0 flex items-center justify-center">
-          {hasSpriteSheet ? (
+          {hasSpriteSheet && (
             <motion.div
               animate={{
                 y: activeAction ? [0, -8, 0] : [0, -3, 0],
@@ -304,28 +304,6 @@ export default function Avatar3DPlaypen({
               />
               {/* Shadow under pet */}
               <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-20 h-3 bg-black/15 dark:bg-black/30 rounded-full blur-[2px]" />
-            </motion.div>
-          ) : (
-            // Fallback: show the 2D avatar image
-            <motion.div
-              animate={{
-                y: [0, -3, 0],
-              }}
-              transition={{
-                repeat: Infinity,
-                duration: 2,
-                ease: "easeInOut",
-              }}
-              className="relative"
-            >
-              <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-full border-[3px] border-white dark:border-slate-800 shadow-xl overflow-hidden bg-slate-200">
-                <img
-                  src={avatar.image_url}
-                  alt={avatar.name}
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-16 h-3 bg-black/15 dark:bg-black/30 rounded-full blur-[2px]" />
             </motion.div>
           )}
         </div>
