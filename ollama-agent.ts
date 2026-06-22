@@ -373,6 +373,10 @@ ACTION 6 - "photo" (4 frames at 8fps):
     scene.eevee.taa_render_samples = 16
     DO NOT use Cycles. EEVEE is mandatory for performance on the render server.
 
+15. NLA STRIPS: Do NOT use "strip.is_active" — it does not exist and will crash with AttributeError. To deactivate an NLA strip, use "strip.mute = True". To unmute, use "strip.mute = False".
+
+16. TARGET BLENDER VERSION is 3.4. Do NOT use APIs introduced in Blender 4.0+. Stick to stable bpy APIs available in Blender 3.4.x.
+
 IMPORTANT: Return ONLY the Python code. Start with "import bpy".`;
 
   const ai = getAiClient();
