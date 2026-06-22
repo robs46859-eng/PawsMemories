@@ -341,6 +341,10 @@ function sanitizeBlenderScript(script: string): string {
   // Fix 10: Remove obsolete contact shadows (Removed in EEVEE-Next / Blender 4.2+)
   s = s.replace(/(\w+)\.use_contact_shadows?\s*=\s*(True|False)/g, '# contact shadows removed in EEVEE-Next');
 
+  // Fix 11: Remove direct .fcurves access which was removed in Blender 4.3 (Animation 2.0)
+  // Instead of risking a crash, we comment out the whole line and rely on animation_data_clear() or safe methods
+  s = s.replace(/^.*\.fcurves.*$/gm, '# fcurves access removed in Blender 5 Animation 2.0');
+
   // Fix 9: Ensure the script has a top-level try/except to never crash silently
   if (!s.includes('except Exception') && !s.includes('except:')) {
     // Wrap the main execution in try/except for better error reporting
@@ -539,6 +543,7 @@ SECTION 8: FORBIDDEN PATTERNS (WILL CRASH)
 - ❌ bpy.ops.pose.select_all() without ensuring POSE mode and active armature first
 - ❌ light_data.distance = X → Use .energy instead (distance is a legacy 2.7 API and will crash)
 - ❌ use_contact_shadow(s) = True → Do NOT use contact shadows, EEVEE-Next uses raytracing implicitly
+- ❌ action.fcurves → DO NOT access fcurves directly (Blender 5 removed action.fcurves in Animation 2.0). To clear animation, use obj.animation_data_clear() or create a new action.
 
 ═══════════════════════════════════════════════════════════
 SECTION 9: CODE STYLE
