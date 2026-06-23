@@ -160,11 +160,33 @@ export async function runBuildPipeline(
       // If verification fails, assume step was ok if execution succeeded
     }
 
-    // Check verification result and potentially recover
+    // Check verification result and decide: advance, recover, or abort
     const lastResult = state.executionHistory[state.executionHistory.length - 1];
     const verification = lastResult?.verification;
 
-    if (verification && !verification.success) {
+    if (verification && verification.recommendation === "proceed") {
+      // Step verified successfully — advance to the next step
+      state.currentStep = (state.currentStep ?? 0) + 1;
+      state.consecutiveErrors = 0;
+    } else if (verification && !verification.success) {
+      // Per-step retry cap: don't let a single step consume all iterations
+      const currentBuildStep = state.buildPlan[state.currentStep];
+      if (currentBuildStep && currentBuildStep.retryCount >= 3) {
+        if (currentBuildStep.phase === "import" || currentBuildStep.phase === "rigging") {
+          // Critical step failed too many times — abort the build
+          state.status = "failed";
+          state.statusMessage = `Critical step "${currentBuildStep.description}" failed after ${currentBuildStep.retryCount} retries`;
+          break;
+        } else {
+          // Non-critical step — skip it and move on
+          console.warn(`[Orchestrator] Skipping step "${currentBuildStep.description}" after ${currentBuildStep.retryCount} retries`);
+          state.buildPlan[state.currentStep] = { ...currentBuildStep, completed: true };
+          state.currentStep++;
+          state.consecutiveErrors = 0;
+          continue;
+        }
+      }
+
       if (
         verification.recommendation === "undo_and_retry" ||
         verification.recommendation === "undo_and_replan"

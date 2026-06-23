@@ -68,6 +68,25 @@ export async function verifyNode(state: BuildState): Promise<Partial<BuildState>
     return applyVerification(state, verification);
   }
 
+  // Auto-pass deterministic read-only steps (e.g. verify mesh import).
+  // These steps don't mutate the scene, so vision verification adds no value
+  // and frequently produces false-negative drift reports.
+  const descLower = lastResult.description.toLowerCase();
+  if (
+    descLower.includes("verify") &&
+    descLower.includes("mesh") &&
+    descLower.includes("import")
+  ) {
+    const verification: VerificationResult = {
+      success: true,
+      issuesFound: [],
+      driftSeverity: "none",
+      recommendation: "proceed",
+      details: "Deterministic read-only step passed (code execution succeeded).",
+    };
+    return applyVerification(state, verification);
+  }
+
   // Take a viewport screenshot for verification
   let viewportImage: string | null = null;
   try {
@@ -164,6 +183,22 @@ function handleNoVision(state: BuildState): Partial<BuildState> {
 }
 
 function normalizeVerification(state: BuildState, verification: VerificationResult): VerificationResult {
+  // Rule 0: driftSeverity "none" or "minor" MUST map to "proceed".
+  // Gemini sometimes returns contradictory responses like
+  // {driftSeverity: "none", recommendation: "undo_and_replan"} which causes
+  // infinite loops. If the model says drift is none/minor, trust that assessment
+  // and force the recommendation to match.
+  if (
+    verification.driftSeverity === "none" ||
+    verification.driftSeverity === "minor"
+  ) {
+    return {
+      ...verification,
+      success: true,
+      recommendation: "proceed",
+    };
+  }
+
   const lastResult = state.executionHistory[state.executionHistory.length - 1];
   const description = lastResult?.description.toLowerCase() || "";
   const stdout = lastResult?.executeResult.stdout || "";

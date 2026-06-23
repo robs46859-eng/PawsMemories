@@ -242,10 +242,10 @@ export async function reasonNode(state: BuildState): Promise<Partial<BuildState>
 
   // Check for too many consecutive errors
   if (state.consecutiveErrors >= 3) {
-    // Try to adapt: skip the problematic step if possible, or replan
+    // Try to adapt: skip the problematic step if it's non-critical
     const currentStep = state.buildPlan[state.currentStep];
-    if (currentStep && currentStep.phase === "animation") {
-      // Animations are non-critical — skip and continue
+    if (currentStep && !["import", "rigging"].includes(currentStep.phase)) {
+      // Non-critical phases (animation, camera, render, export) can be skipped
       const updatedPlan = [...state.buildPlan];
       updatedPlan[state.currentStep] = { ...currentStep, completed: true };
       return {
@@ -253,7 +253,7 @@ export async function reasonNode(state: BuildState): Promise<Partial<BuildState>
         currentStep: state.currentStep + 1,
         consecutiveErrors: 0,
         currentAction: null,
-        statusMessage: `Skipping failed animation step: ${currentStep.description}`,
+        statusMessage: `Skipping failed step: ${currentStep.description}`,
       };
     }
   }

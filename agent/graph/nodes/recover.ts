@@ -44,18 +44,16 @@ export async function recoverNode(state: BuildState): Promise<Partial<BuildState
           console.log(`[Recover] Restored checkpoint: ${lastCheckpoint}`);
         } catch (err: any) {
           console.warn("[Recover] Checkpoint restore failed:", err.message);
-          // Try undo instead
-          try {
-            await executeBlenderTool("undo_last", {});
-          } catch {}
         }
       } else {
-        try {
-          await executeBlenderTool("undo_last", {});
-        } catch {}
+        // No checkpoint available — don't waste time calling undo_last on
+        // deterministic/read-only steps (it's a no-op that changes nothing).
+        console.warn("[Recover] No checkpoint available, nothing to undo");
       }
       return {
-        statusMessage: `Restored from checkpoint, replanning from step ${state.currentStep + 1}`,
+        errorCount: state.errorCount + 1,
+        consecutiveErrors: state.consecutiveErrors + 1,
+        statusMessage: `Replanning from step ${state.currentStep + 1}`,
       };
     }
 
