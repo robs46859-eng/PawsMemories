@@ -3,7 +3,7 @@
  * ===============================================
  */
 
-import type { SceneGraph } from "../../tools/blender_client.js";
+import type { SceneGraph } from "../../tools/blender_client";
 
 // ---------------------------------------------------------------------------
 // Pet Analysis (from existing ollama-agent)

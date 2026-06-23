@@ -7,8 +7,8 @@
  */
 
 import { GoogleGenAI } from "@google/genai";
-import type { BuildState, SceneUnderstanding } from "./types.js";
-import { executeBlenderTool } from "../tools/blender_mcp.js";
+import type { BuildState, SceneUnderstanding } from "./types";
+import { executeBlenderTool } from "../../tools/blender_mcp";
 
 const PERCEIVE_SYSTEM_PROMPT = `You are a 3D scene analysis expert. You are examining a Blender viewport screenshot and scene graph data.
 

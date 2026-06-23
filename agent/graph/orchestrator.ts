@@ -16,15 +16,15 @@
  *       |←──────── recover ←── undo_and_retry / undo_and_replan ←───|
  */
 
-import { perceiveNode } from "./nodes/perceive.js";
-import { reasonNode } from "./nodes/reason.js";
-import { actNode } from "./nodes/act.js";
-import { verifyNode } from "./nodes/verify.js";
-import { recoverNode } from "./nodes/recover.js";
-import { finalizeNode } from "./nodes/finalize.js";
-import { createInitialState } from "./nodes/types.js";
-import type { BuildState, PetAnalysis } from "./nodes/types.js";
-import { executeBlenderTool } from "../tools/blender_mcp.js";
+import { perceiveNode } from "./nodes/perceive";
+import { reasonNode } from "./nodes/reason";
+import { actNode } from "./nodes/act";
+import { verifyNode } from "./nodes/verify";
+import { recoverNode } from "./nodes/recover";
+import { finalizeNode } from "./nodes/finalize";
+import { createInitialState } from "./nodes/types";
+import type { BuildState, PetAnalysis } from "./nodes/types";
+import { executeBlenderTool } from "../tools/blender_mcp";
 
 // ---------------------------------------------------------------------------
 // Configuration

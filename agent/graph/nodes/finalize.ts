@@ -4,8 +4,8 @@
  * Exports the final GLB and sprite sheet after all build steps complete.
  */
 
-import type { BuildState } from "./types.js";
-import { executeBlenderTool } from "../tools/blender_mcp.js";
+import type { BuildState } from "./types";
+import { executeBlenderTool } from "../../tools/blender_mcp";
 
 export async function finalizeNode(state: BuildState): Promise<Partial<BuildState>> {
   console.log("[Finalize] Exporting final assets...");

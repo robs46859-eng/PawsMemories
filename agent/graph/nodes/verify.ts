@@ -7,8 +7,8 @@
  */
 
 import { GoogleGenAI } from "@google/genai";
-import type { BuildState, VerificationResult } from "./types.js";
-import { executeBlenderTool } from "../tools/blender_mcp.js";
+import type { BuildState, VerificationResult } from "./types";
+import { executeBlenderTool } from "../../tools/blender_mcp";
 
 const VERIFY_SYSTEM_PROMPT = `You are a 3D quality assurance inspector for Blender scenes. Your job is to compare viewport screenshots before and after a code execution step to detect problems.
 

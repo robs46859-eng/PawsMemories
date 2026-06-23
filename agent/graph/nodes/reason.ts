@@ -8,7 +8,7 @@
  * decides build order, and adapts the plan based on verification feedback.
  */
 
-import type { BuildState, NextAction, BuildStep } from "./types.js";
+import type { BuildState, NextAction, BuildStep } from "./types";
 
 const REASON_SYSTEM_PROMPT = `You are an expert 3D artist and Blender pipeline architect. Your role is to plan and orchestrate the construction of rigged, animated 3D pet avatars in Blender 5.1.
 

@@ -8,13 +8,13 @@
  * error handling, and structured responses suitable for LLM consumption.
  */
 
-import { getBlenderClient } from "./blender_client.js";
+import { getBlenderClient } from "./blender_client";
 import type {
   ExecuteResult,
   ViewportResult,
   SceneGraph,
   ExportResult,
-} from "./blender_client.js";
+} from "./blender_client";
 
 // ---------------------------------------------------------------------------
 // Tool Definitions

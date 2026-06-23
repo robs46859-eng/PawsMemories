@@ -19,7 +19,7 @@ import { GoogleGenAI } from "@google/genai";
 // ---------------------------------------------------------------------------
 
 const DOCS_DIR = path.resolve(import.meta.dirname || ".", "../../blender_manual_v510_en.html");
-const INDEX_DIR = path.resolve(import.meta.dirname || ".", "./bpy_api_index");
+const INDEX_DIR = path.resolve(process.cwd(), "agent/knowledge/bpy_api_index");
 const CHUNK_SIZE = 1500; // characters per chunk
 const CHUNK_OVERLAP = 200;
 

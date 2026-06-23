@@ -12,13 +12,13 @@
 import fs from "fs";
 import path from "path";
 import { GoogleGenAI } from "@google/genai";
-import type { DocChunk } from "./ingest_docs.js";
+import type { DocChunk } from "./ingest_docs";
 
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
 
-const INDEX_DIR = path.resolve(import.meta.dirname || ".", "./bpy_api_index");
+const INDEX_DIR = path.resolve(process.cwd(), "agent/knowledge/bpy_api_index");
 
 // ---------------------------------------------------------------------------
 // Index Loading

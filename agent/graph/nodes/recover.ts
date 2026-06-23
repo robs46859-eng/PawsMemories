@@ -4,8 +4,8 @@
  * Handles failures by undoing bad operations and deciding whether to retry or abort.
  */
 
-import type { BuildState } from "./types.js";
-import { executeBlenderTool } from "../tools/blender_mcp.js";
+import type { BuildState } from "./types";
+import { executeBlenderTool } from "../../tools/blender_mcp";
 
 export async function recoverNode(state: BuildState): Promise<Partial<BuildState>> {
   const lastResult = state.executionHistory[state.executionHistory.length - 1];

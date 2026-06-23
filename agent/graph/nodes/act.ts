@@ -8,9 +8,9 @@
  */
 
 import { GoogleGenAI } from "@google/genai";
-import type { BuildState, StepResult } from "./types.js";
-import { executeBlenderTool } from "../tools/blender_mcp.js";
-import { retrieveBlenderContext, formatContextForPrompt } from "../knowledge/retriever.js";
+import type { BuildState, StepResult } from "./types";
+import { executeBlenderTool } from "../../tools/blender_mcp";
+import { retrieveBlenderContext, formatContextForPrompt } from "../../knowledge/retriever";
 
 // ---------------------------------------------------------------------------
 // Forbidden patterns (from the existing sanitizeBlenderScript in ollama-agent.ts)

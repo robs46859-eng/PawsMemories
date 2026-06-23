@@ -10,9 +10,9 @@
  */
 
 import { GoogleGenAI } from "@google/genai";
-import { runBuildPipeline } from "./agent/graph/orchestrator.js";
-import type { PetAnalysis } from "./agent/graph/nodes/types.js";
-import type { ProgressCallback } from "./agent/graph/orchestrator.js";
+import { runBuildPipeline } from "./agent/graph/orchestrator";
+import type { PetAnalysis } from "./agent/graph/nodes/types";
+import type { ProgressCallback } from "./agent/graph/orchestrator";
 
 // Re-export PetAnalysis for backward compatibility
 export type { PetAnalysis };
