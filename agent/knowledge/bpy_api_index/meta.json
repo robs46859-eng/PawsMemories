@@ -1,0 +1,8 @@
+{
+  "created_at": "2026-06-22T18:45:00.000Z",
+  "chunk_count": 1,
+  "embedded_count": 0,
+  "chunk_size": 1500,
+  "chunk_overlap": 200,
+  "docs_source": "manual_override"
+}

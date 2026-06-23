@@ -1,0 +1,9 @@
+[
+  {
+    "id": "chunk_0",
+    "text": "BLENDER 5.1 CRITICAL MIGRATION RULES:\n1. EEVEE-Next: The engine is now completely rewritten. 'scene.render.engine = BLENDER_EEVEE_NEXT' is deprecated, use 'BLENDER_EEVEE' or 'BLENDER_WORKBENCH' for headless headless renders. Contact shadows (.use_contact_shadow) are removed.\n2. Animation 2.0: 'action.fcurves' is removed. Use 'action.curves' or standard 'bone.keyframe_insert' instead.\n3. Python API: 'mathutils.radians' is deprecated. Use standard python 'import math; math.radians()'.\n4. Rigging: Always use 'armature.pose.bones.get(\"name\")' to retrieve bones safely to avoid KeyError on missing bones.\n5. Transforms: Always set 'bone.rotation_mode = \"XYZ\"' before assigning to 'rotation_euler'.\n6. Undo: Avoid 'bpy.ops.ed.undo()', prefer 'bpy.ops.wm.revert_mainfile()' if state is corrupted, though the orchestrator manages state.\n7. UI Context: 'bpy.ops.object.select_all()' crashes headless. Use list comprehensions like 'for o in list(bpy.context.selected_objects): o.select_set(False)'.\n8. Edit Mode Bones: 'edit_bones.clear()' crashes if iterated over. Use 'for b in list(arm.edit_bones): arm.edit_bones.remove(b)'.",
+    "section_path": "blender_5_1_migration",
+    "source_file": "manual/migration/5.1.html",
+    "api_module": "general"
+  }
+]
