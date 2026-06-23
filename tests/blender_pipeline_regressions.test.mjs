@@ -59,3 +59,27 @@ test('blender worker autostarts the TCP bridge for agent routes', () => {
   assert.match(server, /app\.use\(\[[\s\S]*"\/agent\/build"[\s\S]*\], requireBridge\)/);
   assert.match(server, /BLENDER_AUTOSTART_BRIDGE/);
 });
+
+test('Gemini agent nodes prefer Interactions API with generateContent fallback', () => {
+  const gemini = read('agent/gemini.ts');
+  const perceive = read('agent/graph/nodes/perceive.ts');
+  const verify = read('agent/graph/nodes/verify.ts');
+  const act = read('agent/graph/nodes/act.ts');
+  assert.match(gemini, /interactions\?\.create/);
+  assert.match(gemini, /store:\s*false/);
+  assert.match(gemini, /models\.generateContent/);
+  assert.match(perceive, /generateGeminiText/);
+  assert.match(verify, /generateGeminiText/);
+  assert.match(act, /generateGeminiText/);
+});
+
+test('core avatar rigging no longer depends on generated automatic-weight scripts', () => {
+  const act = read('agent/graph/nodes/act.ts');
+  const recover = read('agent/graph/nodes/recover.ts');
+  assert.match(act, /deterministicCodeForAction/);
+  assert.match(act, /Binding mesh to armature with explicit vertex groups/);
+  assert.match(act, /DogArmature created with/);
+  assert.match(act, /Animation '\$\{name\}' created/);
+  assert.match(recover, /Restored checkpoint instead of raw undo/);
+  assert.doesNotMatch(recover, /Undo successful/);
+});

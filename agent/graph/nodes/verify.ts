@@ -6,9 +6,9 @@
  * and you get geometry soup after a few steps.
  */
 
-import { GoogleGenAI } from "@google/genai";
 import type { BuildState, VerificationResult } from "./types";
 import { executeBlenderTool } from "../../tools/blender_mcp";
+import { generateGeminiText, type GeminiInteractionInput } from "../../gemini";
 
 const VERIFY_SYSTEM_PROMPT = `You are a 3D quality assurance inspector for Blender scenes. Your job is to compare viewport screenshots before and after a code execution step to detect problems.
 
@@ -49,8 +49,6 @@ export async function verifyNode(state: BuildState): Promise<Partial<BuildState>
     return handleNoVision(state);
   }
 
-  const ai = new GoogleGenAI({ apiKey });
-
   // Get the latest execution result
   const lastResult = state.executionHistory[state.executionHistory.length - 1];
   if (!lastResult) {
@@ -84,26 +82,30 @@ export async function verifyNode(state: BuildState): Promise<Partial<BuildState>
   const stdout = lastResult.executeResult.stdout.slice(-500);
   const stderr = lastResult.executeResult.stderr.slice(-300);
 
-  const promptParts: any[] = [
-    {
-      text: [
-        `STEP INTENT: ${stepDescription}`,
-        "",
-        `CODE EXECUTION RESULT:`,
-        `- Success: ${lastResult.executeResult.success}`,
-        stdout ? `- Stdout (last 500 chars): ${stdout}` : "",
-        stderr ? `- Stderr (last 300 chars): ${stderr}` : "",
-        "",
-        "Analyze the viewport screenshot and determine if this step succeeded correctly.",
-        "",
-        "Return ONLY the JSON verification object.",
-      ].filter(Boolean).join("\n"),
-    },
-  ];
+  const promptText = [
+    `STEP INTENT: ${stepDescription}`,
+    "",
+    `CODE EXECUTION RESULT:`,
+    `- Success: ${lastResult.executeResult.success}`,
+    stdout ? `- Stdout (last 500 chars): ${stdout}` : "",
+    stderr ? `- Stderr (last 300 chars): ${stderr}` : "",
+    "",
+    "Analyze the viewport screenshot and determine if this step succeeded correctly.",
+    "",
+    "Return ONLY the JSON verification object.",
+  ].filter(Boolean).join("\n");
+
+  const input: GeminiInteractionInput = [{ type: "text", text: promptText }];
+  const fallbackParts: any[] = [{ text: promptText }];
 
   // Add current viewport
   if (viewportImage) {
-    promptParts.push({
+    input.push({
+      type: "image",
+      data: viewportImage,
+      mime_type: "image/png",
+    });
+    fallbackParts.push({
       inlineData: {
         data: viewportImage,
         mimeType: "image/png",
@@ -112,16 +114,15 @@ export async function verifyNode(state: BuildState): Promise<Partial<BuildState>
   }
 
   try {
-    const response = await ai.models.generateContent({
+    const responseText = await generateGeminiText({
+      apiKey,
       model: "gemini-2.5-flash",
-      contents: [{ role: "user", parts: promptParts }],
-      config: {
-        systemInstruction: VERIFY_SYSTEM_PROMPT,
-        temperature: 0.1,
-      },
+      input,
+      fallbackContents: [{ role: "user", parts: fallbackParts }],
+      systemInstruction: VERIFY_SYSTEM_PROMPT,
+      temperature: 0.1,
     });
 
-    const responseText = response.text || "";
     let verification: VerificationResult;
 
     try {
@@ -140,7 +141,7 @@ export async function verifyNode(state: BuildState): Promise<Partial<BuildState>
       };
     }
 
-    return applyVerification(state, verification, viewportImage);
+    return applyVerification(state, normalizeVerification(state, verification), viewportImage);
   } catch (err: any) {
     console.warn("[Verify] Gemini verification failed:", err.message);
     return handleNoVision(state);
@@ -159,7 +160,36 @@ function handleNoVision(state: BuildState): Partial<BuildState> {
     details: "No vision verification available. Decision based on execution result only.",
   };
 
-  return applyVerification(state, verification);
+  return applyVerification(state, normalizeVerification(state, verification));
+}
+
+function normalizeVerification(state: BuildState, verification: VerificationResult): VerificationResult {
+  const lastResult = state.executionHistory[state.executionHistory.length - 1];
+  const description = lastResult?.description.toLowerCase() || "";
+  const stdout = lastResult?.executeResult.stdout || "";
+
+  if (!lastResult?.executeResult.success) return verification;
+
+  const warningOnly =
+    /bone heat weighting|bone .* not found|no animatable bones/i.test(stdout) &&
+    !/traceback|runtimeerror|exception/i.test(stdout);
+
+  const coreStep =
+    (description.includes("create") && description.includes("animation")) ||
+    (description.includes("create") && description.includes("armature")) ||
+    description.includes("parent mesh");
+
+  if (warningOnly && coreStep) {
+    return {
+      success: true,
+      issuesFound: verification.issuesFound.filter((issue) => !/bone heat|not found/i.test(issue)),
+      driftSeverity: "minor",
+      recommendation: "proceed",
+      details: `Proceeding with usable ${lastResult.description}; Blender emitted non-fatal warnings.`,
+    };
+  }
+
+  return verification;
 }
 
 function applyVerification(

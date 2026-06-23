@@ -19,15 +19,19 @@ export async function recoverNode(state: BuildState): Promise<Partial<BuildState
 
   switch (verification.recommendation) {
     case "undo_and_retry": {
-      // Undo the last operation
-      try {
-        await executeBlenderTool("undo_last", {});
-        console.log("[Recover] Undo successful");
-      } catch (err: any) {
-        console.warn("[Recover] Undo failed:", err.message);
+      const lastCheckpoint = state.checkpoints[state.checkpoints.length - 1];
+      if (lastCheckpoint) {
+        try {
+          await executeBlenderTool("restore_checkpoint", { name: lastCheckpoint });
+          console.log(`[Recover] Restored checkpoint instead of raw undo: ${lastCheckpoint}`);
+        } catch (err: any) {
+          console.warn("[Recover] Checkpoint restore failed:", err.message);
+        }
+      } else {
+        console.warn("[Recover] No checkpoint available; leaving scene unchanged for adapted retry");
       }
       return {
-        statusMessage: `Undid last step, will retry: ${verification.details}`,
+        statusMessage: `Prepared retry from stable state: ${verification.details}`,
       };
     }
 

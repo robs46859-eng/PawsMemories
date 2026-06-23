@@ -6,9 +6,9 @@
  * if it can't see enough of the model.
  */
 
-import { GoogleGenAI } from "@google/genai";
 import type { BuildState, SceneUnderstanding } from "./types";
 import { executeBlenderTool } from "../../tools/blender_mcp";
+import { generateGeminiText, type GeminiInteractionInput } from "../../gemini";
 
 const PERCEIVE_SYSTEM_PROMPT = `You are a 3D scene analysis expert. You are examining a Blender viewport screenshot and scene graph data.
 
@@ -26,8 +26,6 @@ IMPORTANT: If key parts of the model are hidden behind other geometry (e.g., the
 export async function perceiveNode(state: BuildState): Promise<Partial<BuildState>> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY required for perceive node");
-
-  const ai = new GoogleGenAI({ apiKey });
 
   // Get current viewport and scene state
   let viewportResult = state.viewportImage;
@@ -56,20 +54,19 @@ export async function perceiveNode(state: BuildState): Promise<Partial<BuildStat
     ? `\nCurrent build step: ${state.currentStep + 1}/${state.buildPlan.length} — "${state.buildPlan[state.currentStep]?.description || "unknown"}"`
     : "";
 
-  const contents: any[] = [
-    {
-      role: "user" as const,
-      parts: [
-        {
-          text: `Analyze this Blender scene.\n\n${sceneDescription}${currentStepInfo}\n\nReturn a JSON object with this structure:\n{\n  "objectsPresent": [{"name": "...", "type": "...", "status": "ok|issues", "issues": "..."}],\n  "overallQuality": "clean|minor_issues|major_issues|geometry_soup",\n  "missingElements": ["..."],\n  "suggestedViewportChange": {"azimuth": 180, "elevation": 10, "reason": "need to inspect tail"} or null,\n  "readyForNextStep": true/false,\n  "notes": "..."\n}\n\nReturn ONLY the JSON.`,
-        },
-      ],
-    },
-  ];
+  const promptText = `Analyze this Blender scene.\n\n${sceneDescription}${currentStepInfo}\n\nReturn a JSON object with this structure:\n{\n  "objectsPresent": [{"name": "...", "type": "...", "status": "ok|issues", "issues": "..."}],\n  "overallQuality": "clean|minor_issues|major_issues|geometry_soup",\n  "missingElements": ["..."],\n  "suggestedViewportChange": {"azimuth": 180, "elevation": 10, "reason": "need to inspect tail"} or null,\n  "readyForNextStep": true/false,\n  "notes": "..."\n}\n\nReturn ONLY the JSON.`;
+
+  const input: GeminiInteractionInput = [{ type: "text", text: promptText }];
+  const fallbackParts: any[] = [{ text: promptText }];
 
   // Add viewport image if available
   if (viewportResult) {
-    contents[0].parts.push({
+    input.push({
+      type: "image",
+      data: viewportResult,
+      mime_type: "image/png",
+    });
+    fallbackParts.push({
       inlineData: {
         data: viewportResult,
         mimeType: "image/png",
@@ -78,16 +75,14 @@ export async function perceiveNode(state: BuildState): Promise<Partial<BuildStat
   }
 
   try {
-    const response = await ai.models.generateContent({
+    const responseText = await generateGeminiText({
+      apiKey,
       model: "gemini-2.5-flash",
-      contents,
-      config: {
-        systemInstruction: PERCEIVE_SYSTEM_PROMPT,
-        temperature: 0.1,
-      },
+      input,
+      fallbackContents: [{ role: "user", parts: fallbackParts }],
+      systemInstruction: PERCEIVE_SYSTEM_PROMPT,
+      temperature: 0.1,
     });
-
-    const responseText = response.text || "";
     let understanding: SceneUnderstanding;
 
     try {
