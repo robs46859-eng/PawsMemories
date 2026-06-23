@@ -274,6 +274,8 @@ async function main() {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+const isDirectCliRun = /(?:^|[/\\])retriever\.[tj]s$/.test(process.argv[1] ?? "");
+
+if (isDirectCliRun) {
   main().catch(console.error);
 }
