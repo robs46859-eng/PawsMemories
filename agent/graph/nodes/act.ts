@@ -92,12 +92,21 @@ async function generateCode(
   // Try OpenAI GPT first
   if (apiKey) {
     try {
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      const baseUrl = process.env.OPENAI_BASE_URL || "https://api.openai.com/v1";
+      const endpoint = baseUrl.endsWith("/") ? `${baseUrl}chat/completions` : `${baseUrl}/chat/completions`;
+      
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      };
+
+      // Add OpenRouter specific headers if configured
+      if (process.env.OPENAI_HTTP_REFERER) headers["HTTP-Referer"] = process.env.OPENAI_HTTP_REFERER;
+      if (process.env.OPENAI_X_TITLE) headers["X-Title"] = process.env.OPENAI_X_TITLE;
+
+      const response = await fetch(endpoint, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
+        headers,
         body: JSON.stringify({
           model: "gpt-4o",
           messages: [
