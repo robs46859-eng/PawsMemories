@@ -14,6 +14,7 @@ import type {
   ViewportResult,
   SceneGraph,
   ExportResult,
+  ImportGlbResult,
 } from "./blender_client";
 
 // ---------------------------------------------------------------------------
@@ -27,6 +28,19 @@ export interface ToolDefinition {
 }
 
 export const BLENDER_TOOLS: ToolDefinition[] = [
+  {
+    name: "import_glb",
+    description:
+      "Import the input base64 GLB into the persistent Blender scene. This is a deterministic " +
+      "pipeline operation; generated bpy code must not attempt to import files from /tmp or C: paths.",
+    parameters: {
+      glb_base64: {
+        type: "string",
+        description: "Base64 GLB payload, optionally with a data URL prefix.",
+        required: true,
+      },
+    },
+  },
   {
     name: "execute_bpy",
     description:
@@ -148,6 +162,13 @@ export async function executeBlenderTool(
 
   try {
     switch (toolName) {
+      case "import_glb": {
+        const glbBase64 = args.glb_base64 as string;
+        if (!glbBase64) return { success: false, data: null, error: "Missing required parameter: glb_base64" };
+        const result: ImportGlbResult = await client.importGlb(glbBase64);
+        return { success: result.success, data: result, error: result.error };
+      }
+
       case "execute_bpy": {
         const code = args.code as string;
         if (!code) return { success: false, data: null, error: "Missing required parameter: code" };

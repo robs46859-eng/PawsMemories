@@ -18,7 +18,11 @@ import { retrieveBlenderContext, formatContextForPrompt } from "../../knowledge/
 
 const FORBIDDEN_PATTERNS = `
 FORBIDDEN PATTERNS (these WILL crash Blender 5.1):
-- ❌ bpy.ops.object.select_all() → use: for o in list(bpy.context.selected_objects): o.select_set(False)
+- ❌ bpy.ops.object.select_all() → use: for o in bpy.context.scene.objects: o.select_set(False)
+- ❌ bpy.context.selected_objects → unavailable in Render/worker background contexts; iterate bpy.context.scene.objects instead
+- ❌ bpy.context.active_object → unavailable in some background contexts; use bpy.context.view_layer.objects.active
+- ❌ bpy.ops.import_scene.gltf(...) in generated code → the pipeline imports the input GLB before code generation
+- ❌ Hard-coded GLB paths such as /tmp/input.glb, /tmp/model.glb, model.glb, or Windows temp paths
 - ❌ edit_bones.clear() → use: for b in list(arm.edit_bones): arm.edit_bones.remove(b)
 - ❌ strip.is_active → use: strip.mute = True/False
 - ❌ mathutils.radians() → use: import math; math.radians()
@@ -33,6 +37,9 @@ FORBIDDEN PATTERNS (these WILL crash Blender 5.1):
 - ❌ BLENDER_EEVEE_NEXT → use BLENDER_EEVEE if needed, but prefer BLENDER_WORKBENCH for headless
 
 MANDATORY PATTERNS:
+- ✅ Work with the existing imported mesh in bpy.context.scene.objects; Do not import GLB files from generated code
+- ✅ active = bpy.context.view_layer.objects.active — use view_layer for active object access
+- ✅ for obj in bpy.context.scene.objects: obj.select_set(False) — safe background deselection
 - ✅ bone = armature.pose.bones.get("name") — ALWAYS use .get(), NEVER direct indexing
 - ✅ bone.rotation_mode = 'XYZ' — set before using rotation_euler
 - ✅ bone.keyframe_insert(data_path="rotation_euler") — RELATIVE path
@@ -55,6 +62,8 @@ ${FORBIDDEN_PATTERNS}
 
 CODE STYLE:
 - Start with "import bpy" and any other needed imports
+- Assume the pet mesh is already imported into the current scene by the pipeline
+- Never load external GLB files or guess filesystem paths
 - Use print() for progress logging
 - Handle errors gracefully — catch exceptions where appropriate
 - Keep code under 200 lines
@@ -183,6 +192,17 @@ function sanitizeCode(script: string): string {
 
   // Fix: BLENDER_EEVEE_NEXT → BLENDER_EEVEE
   s = s.replace(/BLENDER_EEVEE_NEXT/g, "BLENDER_EEVEE");
+
+  // Fix: background-safe object selection/context access
+  s = s.replace(/bpy\.context\.selected_objects/g, "bpy.context.scene.objects");
+  s = s.replace(/bpy\.context\.active_object/g, "bpy.context.view_layer.objects.active");
+  s = s.replace(
+    /bpy\.ops\.object\.select_all\s*\(\s*action\s*=\s*['"](?:SELECT|DESELECT)['"]\s*\)/g,
+    "for _o in bpy.context.scene.objects: _o.select_set(False)"
+  );
+
+  // Fix: generated code must operate on the already-imported scene, not random paths.
+  s = s.replace(/^.*bpy\.ops\.import_scene\.gltf\s*\(.*$/gm, "# import_scene.gltf removed: pipeline already imported the GLB");
 
   // Fix: Full-path keyframe_insert
   s = s.replace(

@@ -31,6 +31,7 @@ import os
 import tempfile
 import base64
 import math
+import queue
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -39,6 +40,7 @@ TCP_HOST = "0.0.0.0"
 TCP_PORT = int(os.environ.get("BLENDER_BRIDGE_PORT", "9876"))
 CHECKPOINT_DIR = "/tmp/blender_checkpoints"
 VIEWPORT_DIR = "/tmp/blender_viewports"
+REQUEST_QUEUE = queue.Queue()
 
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 os.makedirs(VIEWPORT_DIR, exist_ok=True)
@@ -282,23 +284,30 @@ def handle_export_glb(params: dict) -> dict:
         tempfile.gettempdir(), "blender_export.glb"
     )
     try:
-        try:
-            bpy.ops.export_scene.gltf(
-                filepath=output_path,
-                export_format="GLB",
-                export_animation=True,
-                export_skins=True,
-                export_def_bones=True,
-            )
-        except TypeError:
-            # Fallback for older API
-            bpy.ops.export_scene.gltf(
-                filepath=output_path,
-                export_format="GLB",
-                export_animations=True,
-                export_skins=True,
-                export_def_bones=True,
-            )
+        exportable_objects = [
+            obj for obj in bpy.context.scene.objects
+            if obj.type in {"MESH", "ARMATURE", "EMPTY", "CAMERA", "LIGHT"}
+        ]
+        if not exportable_objects:
+            return {"success": False, "error": "No exportable Blender objects found"}
+
+        for obj in bpy.context.scene.objects:
+            obj.select_set(obj in exportable_objects)
+        bpy.context.view_layer.objects.active = exportable_objects[0]
+
+        export_kwargs = filter_operator_kwargs(
+            bpy.ops.export_scene.gltf,
+            {
+                "filepath": output_path,
+                "export_format": "GLB",
+                "use_selection": True,
+                "export_animations": True,
+                "export_skins": True,
+                "export_def_bones": True,
+                "export_apply": False,
+            },
+        )
+        bpy.ops.export_scene.gltf(**export_kwargs)
 
         with open(output_path, "rb") as f:
             glb_base64 = base64.b64encode(f.read()).decode("utf-8")
@@ -309,6 +318,52 @@ def handle_export_glb(params: dict) -> dict:
         return {"success": True, "glb_base64": glb_base64, "size_bytes": size_bytes}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+def handle_import_glb(params: dict) -> dict:
+    """Import a base64 GLB payload into the current scene."""
+    glb_base64 = params.get("glb_base64") or ""
+    if not glb_base64:
+        return {"success": False, "error": "No glb_base64 provided"}
+
+    if glb_base64.startswith("data:"):
+        glb_base64 = glb_base64.split(",", 1)[1]
+
+    input_path = os.path.join(tempfile.gettempdir(), "blender_agent_input.glb")
+    try:
+        with open(input_path, "wb") as f:
+            f.write(base64.b64decode(glb_base64))
+
+        for obj in list(bpy.data.objects):
+            bpy.data.objects.remove(obj, do_unlink=True)
+
+        before = set(bpy.context.scene.objects)
+        import_kwargs = filter_operator_kwargs(
+            bpy.ops.import_scene.gltf,
+            {"filepath": input_path},
+        )
+        bpy.ops.import_scene.gltf(**import_kwargs)
+
+        imported = [obj for obj in bpy.context.scene.objects if obj not in before]
+        mesh_objects = [obj for obj in bpy.context.scene.objects if obj.type == "MESH"]
+        if mesh_objects:
+            for obj in bpy.context.scene.objects:
+                obj.select_set(obj in mesh_objects)
+            bpy.context.view_layer.objects.active = mesh_objects[0]
+
+        return {
+            "success": True,
+            "imported_count": len(imported),
+            "mesh_count": len(mesh_objects),
+            "objects": [{"name": obj.name, "type": obj.type} for obj in imported],
+        }
+    except Exception as e:
+        return {"success": False, "error": f"GLB import failed: {e}"}
+    finally:
+        try:
+            os.remove(input_path)
+        except FileNotFoundError:
+            pass
 
 
 def handle_ping(params: dict) -> dict:
@@ -379,6 +434,15 @@ def _scene_center():
     return (center.x, center.y, center.z)
 
 
+def filter_operator_kwargs(operator, kwargs: dict) -> dict:
+    """Keep only kwargs supported by the active Blender operator API."""
+    try:
+        supported = set(operator.get_rna_type().properties.keys())
+    except Exception:
+        return kwargs
+    return {key: value for key, value in kwargs.items() if key in supported}
+
+
 # ---------------------------------------------------------------------------
 # Method Dispatch
 # ---------------------------------------------------------------------------
@@ -392,11 +456,12 @@ METHODS = {
     "save_checkpoint": handle_save_checkpoint,
     "restore_checkpoint": handle_restore_checkpoint,
     "export_glb": handle_export_glb,
+    "import_glb": handle_import_glb,
     "ping": handle_ping,
 }
 
 
-def handle_request(data: dict) -> dict:
+def dispatch_request(data: dict) -> dict:
     """Route a JSON-RPC request to the appropriate handler."""
     request_id = data.get("id")
     method = data.get("method", "")
@@ -419,6 +484,39 @@ def handle_request(data: dict) -> dict:
             "id": request_id,
             "error": {"message": str(e), "traceback": tb},
         }
+
+
+def handle_request(data: dict) -> dict:
+    """Queue Blender work for execution on Blender's main thread."""
+    response_queue = queue.Queue(maxsize=1)
+    REQUEST_QUEUE.put((data, response_queue))
+    try:
+        return response_queue.get(timeout=240)
+    except queue.Empty:
+        return {
+            "id": data.get("id"),
+            "error": {"message": "Timed out waiting for Blender main-thread dispatch", "code": -32000},
+        }
+
+
+def process_request_queue():
+    """Run all queued JSON-RPC requests on Blender's main thread."""
+    while True:
+        try:
+            data, response_queue = REQUEST_QUEUE.get_nowait()
+        except queue.Empty:
+            break
+
+        try:
+            response_queue.put(dispatch_request(data))
+        except Exception as e:
+            tb = traceback.format_exc()
+            response_queue.put({
+                "id": data.get("id"),
+                "error": {"message": str(e), "traceback": tb},
+            })
+        finally:
+            REQUEST_QUEUE.task_done()
 
 
 # ---------------------------------------------------------------------------
@@ -494,6 +592,7 @@ print("[Bridge] Blender bridge is running. Waiting for connections...")
 import time
 try:
     while True:
-        time.sleep(1)
+        process_request_queue()
+        time.sleep(0.01)
 except KeyboardInterrupt:
     print("[Bridge] Shutting down...")

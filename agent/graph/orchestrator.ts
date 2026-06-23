@@ -65,27 +65,24 @@ export async function runBuildPipeline(
   console.log("[Orchestrator] Starting multi-agent build pipeline");
   console.log(`[Orchestrator] Pet: ${petAnalysis.species} (${petAnalysis.breed}), ${petAnalysis.bodyType}`);
 
-  // Step 0: Import the GLB into Blender
+  // Step 0: Deterministically import the GLB before any LLM-generated bpy runs.
   await reportProgress(onProgress, "importing_mesh", 0, "Importing 3D mesh into Blender...");
 
   try {
-    const importResult = await executeBlenderTool("execute_bpy", {
-      code: `
-import bpy, base64, os, sys
+    const importResult = await executeBlenderTool("import_glb", { glb_base64: glbBase64 });
 
-# Clear scene
-for obj in list(bpy.data.objects):
-    bpy.data.objects.remove(obj, do_unlink=True)
-
-print("Scene cleared, ready for import")
-`,
-    });
-
-    if (!importResult.success) {
+    if (!importResult.success || !importResult.data?.success || importResult.data?.mesh_count < 1) {
       state.status = "failed";
-      state.statusMessage = `Scene clear failed: ${importResult.error}`;
+      state.statusMessage = `GLB import failed: ${importResult.error || importResult.data?.error || "no mesh imported"}`;
       return state;
     }
+
+    const scene = await executeBlenderTool("read_scene", {});
+    state = {
+      ...state,
+      sceneState: scene.success ? scene.data : null,
+      statusMessage: `Imported ${importResult.data.mesh_count} mesh object(s)`,
+    };
   } catch (err: any) {
     state.status = "failed";
     state.statusMessage = `Bridge connection failed: ${err.message}`;

@@ -75,6 +75,15 @@ export interface ExportResult {
   success: boolean;
   glb_base64: string;
   size_bytes: number;
+  error?: string;
+}
+
+export interface ImportGlbResult {
+  success: boolean;
+  imported_count: number;
+  mesh_count: number;
+  objects: { name: string; type: string }[];
+  error?: string;
 }
 
 export interface CheckpointResult {
@@ -151,6 +160,11 @@ export class BlenderClient {
   /** Execute arbitrary Python code in Blender's context. */
   async executeCode(code: string): Promise<ExecuteResult> {
     return this.send<ExecuteResult>("/execute", "POST", { code });
+  }
+
+  /** Import a base64 GLB into the persistent Blender scene. */
+  async importGlb(glbBase64: string): Promise<ImportGlbResult> {
+    return this.send<ImportGlbResult>("/import-glb", "POST", { glb_base64: glbBase64 });
   }
 
   /** Capture a viewport screenshot from a given camera angle. */

@@ -267,6 +267,18 @@ app.post("/export-glb", async (req, res) => {
   }
 });
 
+// Import a base64 GLB into the persistent Blender scene
+app.post("/import-glb", async (req, res) => {
+  try {
+    const { glb_base64 } = req.body;
+    if (!glb_base64) return res.status(400).json({ error: "Missing 'glb_base64' in request body" });
+    const result = await bridge.send("import_glb", { glb_base64 });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // =============================================================================
 // POST /agent/build — Full multi-agent avatar build endpoint
 // Receives: { glb_base64, pet_analysis, build_config? }
