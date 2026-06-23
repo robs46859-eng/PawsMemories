@@ -30,6 +30,6 @@ COPY . .
 EXPOSE 10000
 EXPOSE 9876
 
-# Start Blender with TCP bridge in background, then start Express relay
-# The bridge runs inside Blender's Python env; Express relays HTTP → TCP
-CMD ["sh", "-c", "blender --background --python /app/bridge/tcp_server.py & sleep 5 && npm start"]
+# Start Express relay. server.js owns the Blender TCP bridge lifecycle and
+# autostarts Blender if the bridge is not already reachable.
+CMD ["npm", "start"]

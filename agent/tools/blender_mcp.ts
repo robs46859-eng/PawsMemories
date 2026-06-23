@@ -176,6 +176,7 @@ export async function executeBlenderTool(
         return {
           success: result.success,
           data: {
+            success: result.success,
             stdout: result.stdout,
             stderr: result.stderr,
             error: result.error,
@@ -241,9 +242,12 @@ export async function executeBlenderTool(
         return {
           success: result.success,
           data: {
+            success: result.success,
             glb_base64: result.glb_base64,
             size_bytes: result.size_bytes,
+            error: result.error,
           },
+          error: result.error || undefined,
         };
       }
 

@@ -4,12 +4,14 @@ import os from "os";
 import path from "path";
 import crypto from "crypto";
 import net from "net";
-import { execSync, exec } from "child_process";
+import { execSync, exec, spawn } from "child_process";
 import { promisify } from "util";
+import { fileURLToPath } from "url";
 import Jimp from "jimp";
 import * as templates from "./animation-templates.js";
 
 const execPromise = promisify(exec);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // =============================================================================
 // Blender TCP Bridge Client
@@ -17,6 +19,9 @@ const execPromise = promisify(exec);
 
 const BRIDGE_HOST = process.env.BLENDER_BRIDGE_HOST || "127.0.0.1";
 const BRIDGE_PORT = parseInt(process.env.BLENDER_BRIDGE_PORT || "9876", 10);
+const BRIDGE_SCRIPT_PATH = process.env.BLENDER_BRIDGE_SCRIPT || path.join(__dirname, "bridge", "tcp_server.py");
+const SHOULD_AUTOSTART_BRIDGE = process.env.BLENDER_AUTOSTART_BRIDGE !== "false";
+let bridgeProcess = null;
 
 class BlenderBridgeClient {
   constructor(host = BRIDGE_HOST, port = BRIDGE_PORT) {
@@ -114,6 +119,90 @@ class BlenderBridgeClient {
 
 const bridge = new BlenderBridgeClient();
 
+function isLoopbackBridgeHost() {
+  return BRIDGE_HOST === "127.0.0.1" || BRIDGE_HOST === "localhost" || BRIDGE_HOST === "::1";
+}
+
+function resolveBlenderCommand() {
+  const candidates = [
+    process.env.BLENDER_BIN,
+    "blender",
+    "/Applications/Blender.app/Contents/MacOS/Blender",
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    try {
+      execSync(`command -v "${candidate}"`, { stdio: "ignore", shell: "/bin/sh" });
+      return candidate;
+    } catch {}
+    if (path.isAbsolute(candidate) && fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+async function waitForBridgeReady(timeoutMs = 30000) {
+  const startedAt = Date.now();
+  let lastError = null;
+
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const result = await bridge.ping();
+      if (result?.success) return result;
+    } catch (err) {
+      lastError = err;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  throw new Error(lastError?.message || `Blender bridge did not become ready within ${timeoutMs}ms`);
+}
+
+async function ensureBridgeReady() {
+  try {
+    return await bridge.ping();
+  } catch (err) {
+    if (!SHOULD_AUTOSTART_BRIDGE || !isLoopbackBridgeHost()) {
+      throw err;
+    }
+
+    if (bridgeProcess && bridgeProcess.exitCode === null) {
+      return waitForBridgeReady(30000);
+    }
+
+    const blenderCommand = resolveBlenderCommand();
+    if (!blenderCommand) {
+      throw new Error("Blender bridge is not running and no Blender executable was found. Set BLENDER_BIN or start blender --background --python bridge/tcp_server.py.");
+    }
+
+    console.log(`[Bridge] Autostarting Blender TCP bridge with ${blenderCommand}`);
+    bridgeProcess = spawn(blenderCommand, ["--background", "--python", BRIDGE_SCRIPT_PATH], {
+      cwd: __dirname,
+      env: { ...process.env, BLENDER_BRIDGE_PORT: String(BRIDGE_PORT) },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    bridgeProcess.stdout.on("data", (chunk) => {
+      const text = chunk.toString().trim();
+      if (text) console.log(`[Bridge/blender] ${text}`);
+    });
+    bridgeProcess.stderr.on("data", (chunk) => {
+      const text = chunk.toString().trim();
+      if (text) console.error(`[Bridge/blender] ${text}`);
+    });
+    bridgeProcess.on("exit", (code, signal) => {
+      console.warn(`[Bridge] Blender TCP bridge exited: code=${code} signal=${signal}`);
+    });
+    bridgeProcess.on("error", (spawnErr) => {
+      console.error(`[Bridge] Failed to start Blender TCP bridge: ${spawnErr.message}`);
+    });
+
+    return waitForBridgeReady(45000);
+  }
+}
+
 // Extract the meaningful Python error from Blender's combined output
 function extractBlenderError(stdout, stderr) {
   const combined = (stdout || "") + "\n" + (stderr || "");
@@ -179,6 +268,26 @@ app.get("/health", async (req, res) => {
 // =============================================================================
 // NEW: Bridge proxy endpoints (for the multi-agent system)
 // =============================================================================
+
+async function requireBridge(req, res, next) {
+  try {
+    await ensureBridgeReady();
+    next();
+  } catch (err) {
+    res.status(503).json({ error: `Blender TCP bridge unavailable: ${err.message}` });
+  }
+}
+
+app.use([
+  "/scene",
+  "/viewport",
+  "/execute",
+  "/undo",
+  "/checkpoint",
+  "/export-glb",
+  "/import-glb",
+  "/agent/build",
+], requireBridge);
 
 // Read the current Blender scene graph
 app.get("/scene", async (req, res) => {
@@ -863,9 +972,28 @@ app.use((err, req, res, next) => {
   }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+const httpServer = app.listen(PORT, '0.0.0.0', () => {
   console.log(`Blender microservice listening on port ${PORT}`);
   console.log(`Legacy endpoints: /render, /rig-model, /bake-sprites, /jobs/:jobId, /health`);
   console.log(`Bridge endpoints: /scene, /viewport, /execute, /undo, /checkpoint/*, /export-glb`);
   console.log(`Agent endpoint:   /agent/build`);
+
+  if (SHOULD_AUTOSTART_BRIDGE && isLoopbackBridgeHost()) {
+    ensureBridgeReady()
+      .then((status) => console.log(`[Bridge] Ready: Blender ${status.blender_version || "unknown"}`))
+      .catch((err) => console.warn(`[Bridge] Startup check failed: ${err.message}`));
+  }
 });
+
+async function shutdown(signal) {
+  console.log(`[Server] ${signal} received, shutting down...`);
+  httpServer.close(() => {
+    if (bridgeProcess && bridgeProcess.exitCode === null) {
+      bridgeProcess.kill("SIGTERM");
+    }
+    process.exit(0);
+  });
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));

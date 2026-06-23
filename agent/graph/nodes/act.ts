@@ -362,7 +362,7 @@ export async function actNode(state: BuildState): Promise<Partial<BuildState>> {
     description: action.stepDescription,
     code,
     executeResult: {
-      success: execResult.success && execResult.data?.success,
+      success: execResult.success && (execResult.data?.success ?? true),
       stdout: execResult.data?.stdout || "",
       stderr: execResult.data?.stderr || "",
       error: execResult.data?.error || execResult.error || null,

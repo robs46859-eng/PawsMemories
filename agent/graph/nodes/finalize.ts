@@ -18,6 +18,11 @@ export async function finalizeNode(state: BuildState): Promise<Partial<BuildStat
       if (result.success && result.data?.glb_base64) {
         riggedGlb = result.data.glb_base64;
         console.log(`[Finalize] GLB exported: ${result.data.size_bytes} bytes`);
+      } else {
+        console.error(
+          "[Finalize] GLB export failed:",
+          result.error || result.data?.error || "worker returned no GLB data"
+        );
       }
     } catch (err: any) {
       console.error("[Finalize] GLB export failed:", err.message);
