@@ -7,7 +7,7 @@
  * Used by the MCP tool interface and the LangGraph orchestrator.
  */
 
-import net from "net";
+
 
 // ---------------------------------------------------------------------------
 // Types
@@ -93,125 +93,120 @@ export interface PingResult {
 // Client
 // ---------------------------------------------------------------------------
 
-export class BlenderTCPClient {
-  private host: string;
-  private port: number;
-  private requestId: number = 0;
+export class BlenderClient {
+  private baseUrl: string;
   private timeoutMs: number;
 
   constructor(
-    host: string = process.env.BLENDER_BRIDGE_HOST || "127.0.0.1",
-    port: number = parseInt(process.env.BLENDER_BRIDGE_PORT || "9876", 10),
+    workerUrl: string = process.env.BLENDER_WORKER_URL || "http://localhost:10000",
     timeoutMs: number = 120000
   ) {
-    this.host = host;
-    this.port = port;
+    this.baseUrl = workerUrl.replace(/\/render$/, "");
     this.timeoutMs = timeoutMs;
   }
 
   /**
-   * Send a JSON-RPC request to the Blender TCP bridge.
-   * Creates a fresh TCP connection per request for simplicity.
+   * Send an HTTP request to the Blender worker proxy.
    */
-  private async send<T = any>(method: string, params: Record<string, any> = {}): Promise<T> {
-    return new Promise((resolve, reject) => {
-      const id = ++this.requestId;
-      const socket = new net.Socket();
-      let buffer = "";
+  private async send<T = any>(endpoint: string, method: string = "GET", body?: any): Promise<T> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
 
-      const timeout = setTimeout(() => {
-        socket.destroy();
-        reject(new Error(`Bridge request timed out after ${this.timeoutMs / 1000}s: ${method}`));
-      }, this.timeoutMs);
+    try {
+      let url = `${this.baseUrl}${endpoint}`;
+      
+      const options: RequestInit = {
+        method,
+        signal: controller.signal,
+        headers: { "Content-Type": "application/json" }
+      };
 
-      socket.connect(this.port, this.host, () => {
-        const request = JSON.stringify({ id, method, params }) + "\n";
-        socket.write(request);
-      });
+      if (body && method !== "GET") {
+        options.body = JSON.stringify(body);
+      }
 
-      socket.on("data", (chunk) => {
-        buffer += chunk.toString();
-        const newlineIndex = buffer.indexOf("\n");
-        if (newlineIndex !== -1) {
-          clearTimeout(timeout);
-          const line = buffer.slice(0, newlineIndex);
-          try {
-            const response = JSON.parse(line);
-            if (response.error) {
-              reject(new Error(response.error.message || JSON.stringify(response.error)));
-            } else {
-              resolve(response.result as T);
-            }
-          } catch (e) {
-            reject(new Error(`Invalid JSON from bridge: ${line.slice(0, 200)}`));
-          }
-          socket.end();
-        }
-      });
+      const res = await fetch(url, options);
+      const data = await res.json().catch(() => ({}));
+      
+      if (!res.ok || data.error) {
+        throw new Error(data.error || `Worker returned HTTP ${res.status}`);
+      }
 
-      socket.on("error", (err) => {
-        clearTimeout(timeout);
-        reject(new Error(`Bridge connection error: ${err.message}`));
-      });
+      // The python bridge wraps success responses in { success: true, ... }
+      // The express server passes it through.
+      return data as T;
 
-      socket.on("close", () => {
-        clearTimeout(timeout);
-      });
-    });
+    } catch (err: any) {
+      if (err.name === "AbortError") {
+        throw new Error(`Bridge request timed out after ${this.timeoutMs / 1000}s: ${endpoint}`);
+      }
+      throw new Error(`Bridge connection error: ${err.message}`);
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   // ---- Public API ----
 
   /** Execute arbitrary Python code in Blender's context. */
   async executeCode(code: string): Promise<ExecuteResult> {
-    return this.send<ExecuteResult>("execute_code", { code });
+    return this.send<ExecuteResult>("/execute", "POST", { code });
   }
 
   /** Capture a viewport screenshot from a given camera angle. */
   async getViewport(azimuth?: number, elevation?: number): Promise<ViewportResult> {
-    return this.send<ViewportResult>("get_viewport", { azimuth, elevation });
+    const params = new URLSearchParams();
+    if (azimuth !== undefined) params.append("azimuth", azimuth.toString());
+    if (elevation !== undefined) params.append("elevation", elevation.toString());
+    const query = params.toString() ? `?${params.toString()}` : "";
+    return this.send<ViewportResult>(`/viewport${query}`, "GET");
   }
 
   /** Get the current scene graph (all objects, transforms, bones, etc). */
   async readScene(): Promise<SceneGraph> {
-    return this.send<SceneGraph>("read_scene");
+    return this.send<SceneGraph>("/scene", "GET");
   }
 
   /** Rotate the viewport camera to see from a different angle. */
   async setViewportAngle(azimuth: number, elevation: number): Promise<{ success: boolean }> {
-    return this.send("set_viewport_angle", { azimuth, elevation });
+    return this.send("/viewport/angle", "POST", { azimuth, elevation });
   }
 
   /** Undo the last Blender operation. */
   async undo(): Promise<{ success: boolean; error?: string }> {
-    return this.send("undo");
+    return this.send("/undo", "POST");
   }
 
   /** Save the current scene as a named checkpoint. */
   async saveCheckpoint(name: string): Promise<CheckpointResult> {
-    return this.send<CheckpointResult>("save_checkpoint", { name });
+    return this.send<CheckpointResult>("/checkpoint/save", "POST", { name });
   }
 
   /** Restore the scene from a named checkpoint. */
   async restoreCheckpoint(name: string): Promise<CheckpointResult> {
-    return this.send<CheckpointResult>("restore_checkpoint", { name });
+    return this.send<CheckpointResult>("/checkpoint/restore", "POST", { name });
   }
 
   /** Export the scene as GLB and return base64. */
   async exportGlb(): Promise<ExportResult> {
-    return this.send<ExportResult>("export_glb");
+    return this.send<ExportResult>("/export-glb", "POST");
   }
 
   /** Health check — verify the bridge is responsive. */
   async ping(): Promise<PingResult> {
-    return this.send<PingResult>("ping");
+    const health = await this.send<any>("/health", "GET");
+    return {
+      success: health.bridge === "connected",
+      blender_version: health.blenderVersion || "unknown",
+      scene_objects: 0 // /health doesn't return scene_objects
+    };
   }
 
   /** Test connectivity — returns true if bridge is reachable. */
   async isConnected(): Promise<boolean> {
     try {
-      await this.ping();
-      return true;
+      const res = await this.ping();
+      return res.success;
     } catch {
       return false;
     }
@@ -219,11 +214,11 @@ export class BlenderTCPClient {
 }
 
 // Singleton for convenience
-let _defaultClient: BlenderTCPClient | null = null;
+let _defaultClient: BlenderClient | null = null;
 
-export function getBlenderClient(): BlenderTCPClient {
+export function getBlenderClient(): BlenderClient {
   if (!_defaultClient) {
-    _defaultClient = new BlenderTCPClient();
+    _defaultClient = new BlenderClient();
   }
   return _defaultClient;
 }
