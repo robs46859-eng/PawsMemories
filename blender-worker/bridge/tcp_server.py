@@ -427,7 +427,6 @@ def handle_request(data: dict) -> dict:
 
 def handle_client(conn, addr):
     """Handle a single TCP client connection."""
-    print(f"[Bridge] Client connected from {addr}")
     buffer = b""
     try:
         while True:
@@ -453,18 +452,20 @@ def handle_client(conn, addr):
                     conn.sendall((json.dumps(response) + "\n").encode("utf-8"))
                     continue
 
-                print(f"[Bridge] Request: method={request.get('method')} id={request.get('id')}")
+                method = request.get("method")
+                if method != "ping":
+                    print(f"[Bridge] Request: method={method} id={request.get('id')}")
+                    
                 response = handle_request(request)
                 response_json = json.dumps(response) + "\n"
                 conn.sendall(response_json.encode("utf-8"))
 
     except (ConnectionResetError, BrokenPipeError):
-        print(f"[Bridge] Client {addr} disconnected")
+        pass  # Ignore abrupt disconnects (likely health checks)
     except Exception as e:
         print(f"[Bridge] Client error: {e}")
     finally:
         conn.close()
-        print(f"[Bridge] Client {addr} closed")
 
 
 def start_server():
