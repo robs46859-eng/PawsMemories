@@ -138,9 +138,11 @@ async function generateCode(
   const ai = new GoogleGenAI({ apiKey: geminiKey });
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash",
-    systemInstruction: CODE_GEN_SYSTEM_PROMPT,
     contents: userPrompt,
-    config: { temperature: 0.1 },
+    config: {
+      systemInstruction: CODE_GEN_SYSTEM_PROMPT,
+      temperature: 0.1,
+    },
   });
 
   let code = response.text || "";

@@ -114,9 +114,11 @@ export async function verifyNode(state: BuildState): Promise<Partial<BuildState>
   try {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
-      systemInstruction: VERIFY_SYSTEM_PROMPT,
       contents: [{ role: "user", parts: promptParts }],
-      config: { temperature: 0.1 },
+      config: {
+        systemInstruction: VERIFY_SYSTEM_PROMPT,
+        temperature: 0.1,
+      },
     });
 
     const responseText = response.text || "";

@@ -27,6 +27,28 @@ import {
   type AuthedRequest,
 } from "./auth";
 
+type AvatarGenerationStatus = 'pending' | 'generating_mesh' | 'rigging' | 'baking_sprites' | 'done' | 'failed';
+
+function mapAgentProgressToAvatarStatus(step: string): AvatarGenerationStatus {
+  switch (step) {
+    case 'importing_mesh':
+    case 'perceiving':
+    case 'reasoning':
+    case 'executing':
+    case 'verifying':
+    case 'recovering':
+      return 'rigging';
+    case 'finalizing':
+      return 'baking_sprites';
+    case 'completed':
+      return 'done';
+    case 'failed':
+      return 'failed';
+    default:
+      return 'rigging';
+  }
+}
+
 // Global safety net: prevent unhandled promise rejections from crashing the
 // server process. On Hostinger, a crashed process causes the reverse proxy
 // to return 502 for all requests until the process restarts.
@@ -492,7 +514,11 @@ async function startServer() {
               onProgress: async (step, pct, detail) => {
                 try {
                   const safeDetail = detail ? `: ${detail.substring(0, 100)}` : '';
-                  await updateAvatarGenerationStatus(avatarId, step, `Agent ${pct}%${safeDetail}`);
+                  await updateAvatarGenerationStatus(
+                    avatarId,
+                    mapAgentProgressToAvatarStatus(step),
+                    `Agent ${pct}%${safeDetail}`
+                  );
                 } catch (e) { /* ignore */ }
               }
             });

@@ -80,9 +80,11 @@ export async function perceiveNode(state: BuildState): Promise<Partial<BuildStat
   try {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
-      systemInstruction: PERCEIVE_SYSTEM_PROMPT,
       contents,
-      config: { temperature: 0.1 },
+      config: {
+        systemInstruction: PERCEIVE_SYSTEM_PROMPT,
+        temperature: 0.1,
+      },
     });
 
     const responseText = response.text || "";
