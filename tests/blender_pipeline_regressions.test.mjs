@@ -83,3 +83,11 @@ test('core avatar rigging no longer depends on generated automatic-weight script
   assert.match(recover, /Restored checkpoint instead of raw undo/);
   assert.doesNotMatch(recover, /Undo successful/);
 });
+
+test('avatar playpen does not go blank when sprite preview cannot load', () => {
+  const playpen = read('src/components/Avatar3DPlaypen.tsx');
+  assert.doesNotMatch(playpen, /\.crossOrigin\s*=/);
+  assert.match(playpen, /setSpriteLoadFailed\(true\)/);
+  assert.match(playpen, /showFallbackImage/);
+  assert.match(playpen, /src=\{avatar\.image_url\}/);
+});

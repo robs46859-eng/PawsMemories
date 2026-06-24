@@ -39,6 +39,7 @@ export default function Avatar3DPlaypen({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const spriteImgRef = useRef<HTMLImageElement | null>(null);
   const [spriteLoaded, setSpriteLoaded] = useState(false);
+  const [spriteLoadFailed, setSpriteLoadFailed] = useState(false);
   const [currentFrame, setCurrentFrame] = useState(0);
   const [emojis, setEmojis] = useState<FloatingEmoji[]>([]);
   const animFrameRef = useRef<number>(0);
@@ -63,17 +64,26 @@ export default function Avatar3DPlaypen({
 
   // Load sprite sheet image
   useEffect(() => {
+    spriteImgRef.current = null;
+    setSpriteLoaded(false);
+    setSpriteLoadFailed(false);
+
     if (!avatar.sprite_sheet_url) return;
 
     const img = new Image();
-    img.crossOrigin = "anonymous";
+    // Do not set crossOrigin here. Backblaze/public object storage may not send
+    // Access-Control-Allow-Origin, and `crossOrigin = "anonymous"` turns that
+    // into an image load failure. We only draw the sprite into the canvas; we do
+    // not read pixels back from it, so a tainted canvas is acceptable.
     img.onload = () => {
       spriteImgRef.current = img;
       setSpriteLoaded(true);
+      setSpriteLoadFailed(false);
     };
     img.onerror = () => {
-      console.warn("Failed to load sprite sheet for avatar:", avatar.name);
+      console.warn("Failed to load sprite sheet for avatar:", avatar.name, avatar.sprite_sheet_url);
       setSpriteLoaded(false);
+      setSpriteLoadFailed(true);
     };
     img.src = avatar.sprite_sheet_url;
   }, [avatar.sprite_sheet_url]);
@@ -207,6 +217,7 @@ export default function Avatar3DPlaypen({
   // Determine display mode
   const hasSpriteSheet = !!avatar.sprite_sheet_url && spriteLoaded;
   const isGenerating = avatar.generation_status !== "done" && avatar.generation_status !== "failed";
+  const showFallbackImage = !hasSpriteSheet && !!avatar.image_url && !isGenerating;
 
   return (
     <div
@@ -304,6 +315,25 @@ export default function Avatar3DPlaypen({
               />
               {/* Shadow under pet */}
               <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-20 h-3 bg-black/15 dark:bg-black/30 rounded-full blur-[2px]" />
+            </motion.div>
+          )}
+          {showFallbackImage && (
+            <motion.div
+              animate={{ y: [0, -3, 0] }}
+              transition={{ y: { repeat: Infinity, duration: 2, ease: "easeInOut" } }}
+              className="relative flex flex-col items-center"
+            >
+              <img
+                src={avatar.image_url}
+                alt={avatar.name}
+                className="w-32 h-32 sm:w-40 sm:h-40 object-cover rounded-3xl drop-shadow-xl border-4 border-white/60 dark:border-white/10"
+              />
+              <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-20 h-3 bg-black/15 dark:bg-black/30 rounded-full blur-[2px]" />
+              {avatar.generation_status === "done" && spriteLoadFailed && (
+                <div className="mt-3 px-3 py-1 rounded-full bg-black/45 text-white text-[10px] font-bold backdrop-blur-sm">
+                  Avatar ready · preview loading fallback
+                </div>
+              )}
             </motion.div>
           )}
         </div>
