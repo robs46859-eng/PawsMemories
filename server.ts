@@ -523,12 +523,16 @@ async function startServer() {
               }
             });
 
-            if (!agentResult.success || !agentResult.riggedGlbBase64 || !agentResult.spriteSheetBase64) {
-               throw new Error(agentResult.statusMessage || "Agent build failed to produce assets");
+            if (!agentResult.success || !agentResult.riggedGlbBase64) {
+               throw new Error(agentResult.statusMessage || "Agent build failed to produce GLB model");
+            }
+
+            if (!agentResult.spriteSheetBase64) {
+              console.warn(`[3D Avatar #${avatarId}] Sprite sheet not generated — build completed with GLB only`);
             }
 
             riggedGlbBase64 = agentResult.riggedGlbBase64;
-            spriteSheetBase64 = agentResult.spriteSheetBase64;
+            spriteSheetBase64 = agentResult.spriteSheetBase64 || "";
             animationMetadata = agentResult.animationMetadata;
             
             console.log(`[3D Avatar #${avatarId}] Agent build successful: ${agentResult.statusMessage}`);
