@@ -76,15 +76,6 @@ export const MOTION_PRESETS: MotionPreset[] = [
     prompt:
       "The animal lowers its head, hackles subtly rising, and emits a deep protective growl — lips peeling back just slightly to reveal teeth, weight shifting forward onto its front paws. Intense and dramatic low-angle camera. Then it relaxes and wags its tail, revealing the playful guardian personality. Moody cinematic lighting.",
   },
-  {
-    value: "chatty_whine",
-    label: "Chatty & Whining",
-    emoji: "💬",
-    description: "Talking back with wiggles",
-    prompt:
-      "The animal is being extra communicative — whining, yipping, tilting its head side to side with one ear up and one down, tail wagging, front paws dancing. It seems to be trying to say something important. Warm, funny, endearing close-up with a slight dolly push-in. Soft natural lighting, cozy tone.",
-  },
-
   // ── Calm / Signature ─────────────────────────────────────────────────────
   {
     value: "nose_sniff",
