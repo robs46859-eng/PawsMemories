@@ -6,6 +6,7 @@ import { BACKGROUNDS, BACKGROUND_CATEGORIES, BackgroundCategory, getBackground }
 import { MOTION_PRESETS, DEFAULT_MOTION_PRESET } from "../motionPresets";
 import { authedFetch, createVideo, pollJob } from "../api";
 import LocationPicker from "./LocationPicker";
+import PetModelViewer from "./PetModelViewer";
 
 interface EditMemoryProps {
   credits: number;
@@ -293,6 +294,7 @@ export default function EditMemory({
         place_label: customLocation?.placeLabel || null,
         image_url: data.imageUrl,
         video_url: null,
+        model_url: null,
         sort_order: 0,
         created_at: new Date().toISOString(),
         name: petName ? `${petName} in ${customLocation ? customLocation.placeLabel : selectedBackground}` : `My Pet in ${customLocation ? customLocation.placeLabel : selectedBackground}`,
@@ -373,6 +375,14 @@ export default function EditMemory({
         <p className="text-sm font-semibold text-on-surface-variant text-center px-4">
           {generatedResult.name}
         </p>
+
+        {generatedResult.model_url && (
+          <PetModelViewer
+            src={generatedResult.model_url}
+            alt={`3D model of ${generatedResult.name}`}
+            className="w-full h-96 mt-4"
+          />
+        )}
 
         <div className="w-full space-y-3 mt-4">
           {!generatedResult.video_url && isAdmin && (

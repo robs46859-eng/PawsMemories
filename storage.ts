@@ -37,6 +37,8 @@ function getExtensionFromMime(mimeType: string): string {
     "video/mp4": "mp4",
     "video/webm": "webm",
     "model/gltf-binary": "glb",
+    "model/gltf+json": "gltf",
+    "application/octet-stream": "glb",
   };
   return map[mimeType] || "bin";
 }
@@ -46,7 +48,7 @@ function getExtensionFromMime(mimeType: string): string {
  */
 function getFolderFromMime(mimeType: string): string {
   if (mimeType.startsWith("video/")) return "videos";
-  if (mimeType.startsWith("model/")) return "avatars";
+  if (mimeType.startsWith("model/")) return "models";
   return "creations";
 }
 
@@ -61,10 +63,8 @@ export async function uploadBase64Image(base64String: string): Promise<string> {
     throw new Error("Object storage is not configured. Please check MEDIA_BUCKET_* environment variables.");
   }
 
-  // Parse the base64 string. The MIME type can contain digits, dots, "+" and
-  // "-" (e.g. "video/mp4", "image/svg+xml"), so the type/subtype char class must
-  // allow them — otherwise "video/mp4" fails to match and videos can't upload.
-  const matches = base64String.match(/^data:([\w.+-]+\/[\w.+-]+);base64,(.+)$/s);
+  // Parse the base64 string
+  const matches = base64String.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
   if (!matches || matches.length !== 3) {
     throw new Error("Invalid base64 data string provided to uploadBase64Image");
   }
@@ -98,6 +98,54 @@ export async function uploadBase64Image(base64String: string): Promise<string> {
     return publicUrl;
   } catch (error: any) {
     console.error("❌ Failed to upload media to object storage:", error);
+    throw new Error(`Object storage upload failed: ${error.message}`);
+  }
+}
+
+/**
+ * Downloads a remote binary (e.g. a Meshy GLB model) and uploads it to the
+ * configured bucket. Streams bytes directly without a base64 round-trip, which
+ * matters for larger 3D model files.
+ * @param sourceUrl Public URL of the remote asset to mirror.
+ * @param mimeType  MIME type to store it under (default model/gltf-binary).
+ * @returns The public URL of the uploaded object.
+ */
+export async function uploadBinaryFromUrl(
+  sourceUrl: string,
+  mimeType: string = "model/gltf-binary"
+): Promise<string> {
+  if (!bucketName || !bucketEndpoint) {
+    throw new Error("Object storage is not configured. Please check MEDIA_BUCKET_* environment variables.");
+  }
+
+  const res = await fetch(sourceUrl);
+  if (!res.ok) {
+    throw new Error(`Failed to download remote asset (${res.status}) from ${sourceUrl}`);
+  }
+  const buffer = Buffer.from(await res.arrayBuffer());
+
+  const extension = getExtensionFromMime(mimeType);
+  const folder = getFolderFromMime(mimeType);
+  const fileName = `${folder}/${Date.now()}-${uuidv4()}.${extension}`;
+
+  try {
+    await s3Client.send(
+      new PutObjectCommand({
+        Bucket: bucketName,
+        Key: fileName,
+        Body: buffer,
+        ContentType: mimeType,
+        ACL: "public-read",
+      })
+    );
+
+    const url = new URL(bucketEndpoint);
+    const publicUrl = `${url.protocol}//${bucketName}.${url.host}/${fileName}`;
+
+    console.log(`✅ Successfully uploaded ${fileName} (${mimeType}) to object storage.`);
+    return publicUrl;
+  } catch (error: any) {
+    console.error("❌ Failed to upload remote asset to object storage:", error);
     throw new Error(`Object storage upload failed: ${error.message}`);
   }
 }

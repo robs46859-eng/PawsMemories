@@ -29,7 +29,7 @@ export interface Creation {
   id: number;
   user_phone: string;
   album_id: number | null;
-  media_type: 'still' | 'video';
+  media_type: 'still' | 'video' | 'model';
   style: StyleType;
   backdrop_kind: 'preset' | 'streetview';
   preset_name: string | null;
@@ -41,6 +41,7 @@ export interface Creation {
   place_label: string | null;
   image_url: string | null;
   video_url: string | null;
+  model_url: string | null;
   sort_order: number;
   created_at: string;
   // Legacy / frontend-only fields
@@ -104,6 +105,7 @@ export interface GenerationJob {
   id: number;
   status: "queued" | "running" | "done" | "failed";
   video_url?: string | null;
+  model_url?: string | null;
   error?: string | null;
 }
 

@@ -183,7 +183,7 @@ export async function initDb(): Promise<void> {
         id            INT AUTO_INCREMENT PRIMARY KEY,
         user_phone    VARCHAR(32) NOT NULL,
         album_id      INT NULL,
-        media_type    ENUM('still','video') NOT NULL DEFAULT 'still',
+        media_type    ENUM('still','video','model') NOT NULL DEFAULT 'still',
         style         VARCHAR(32) NOT NULL,
         backdrop_kind ENUM('preset','streetview') NOT NULL DEFAULT 'preset',
         preset_name   VARCHAR(32) NULL,
@@ -195,6 +195,7 @@ export async function initDb(): Promise<void> {
         place_label   VARCHAR(190) NULL,
         image_url     TEXT NULL,
         video_url     TEXT NULL,
+        model_url     TEXT NULL,
         sort_order    INT NOT NULL DEFAULT 0,
         pet_name      VARCHAR(120) NULL,
         pet_breed     VARCHAR(120) NULL,
@@ -210,7 +211,7 @@ export async function initDb(): Promise<void> {
         id              INT AUTO_INCREMENT PRIMARY KEY,
         user_phone      VARCHAR(32) NOT NULL,
         creation_id     INT NULL,
-        kind            ENUM('still','video') NOT NULL,
+        kind            ENUM('still','video','model') NOT NULL,
         status          ENUM('queued','running','done','failed') NOT NULL DEFAULT 'queued',
         operation_name  VARCHAR(255) NULL,
         credits_reserved INT NOT NULL DEFAULT 0,
@@ -263,6 +264,29 @@ export async function initDb(): Promise<void> {
       [dbName]
     ) as any;
     const avatarColumnNames = avatarCols.map((c: any) => c.COLUMN_NAME);
+
+    // --- Idempotent migrations for existing databases ---
+    // CREATE TABLE IF NOT EXISTS won't alter pre-existing tables, so explicitly
+    // add the 3D-model column + extend enums. Each guarded so reruns are safe.
+    try {
+      const [cols] = await getPool().query(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'creations' AND COLUMN_NAME = 'model_url'`
+      );
+      if ((cols as any[]).length === 0) {
+        await getPool().query(`ALTER TABLE creations ADD COLUMN model_url TEXT NULL AFTER video_url`);
+        console.log("✅ Migration: added creations.model_url");
+      }
+      // Extend enums to include 'model' (safe to run repeatedly).
+      await getPool().query(
+        `ALTER TABLE creations MODIFY COLUMN media_type ENUM('still','video','model') NOT NULL DEFAULT 'still'`
+      );
+      await getPool().query(
+        `ALTER TABLE generation_jobs MODIFY COLUMN kind ENUM('still','video','model') NOT NULL`
+      );
+    } catch (migErr) {
+      console.warn("⚠️ Schema migration warning (model support):", migErr);
+    }
 
     const requiredAvatarColumns: { name: string; ddl: string }[] = [
       { name: "model_url",          ddl: "ADD COLUMN model_url TEXT NULL" },
@@ -530,7 +554,7 @@ export interface CreationRow {
   id: number;
   user_phone: string;
   album_id: number | null;
-  media_type: 'still' | 'video';
+  media_type: 'still' | 'video' | 'model';
   style: string;
   backdrop_kind: 'preset' | 'streetview';
   preset_name: string | null;
@@ -542,6 +566,7 @@ export interface CreationRow {
   place_label: string | null;
   image_url: string | null;
   video_url: string | null;
+  model_url: string | null;
   sort_order: number;
   created_at: string;
   pet_name?: string | null;
@@ -551,7 +576,7 @@ export interface CreationRow {
 export async function saveCreation(data: {
   user_phone: string;
   album_id?: number | null;
-  media_type: 'still' | 'video';
+  media_type: 'still' | 'video' | 'model';
   style: string;
   backdrop_kind: 'preset' | 'streetview';
   preset_name?: string | null;
@@ -656,7 +681,7 @@ export interface JobRow {
   id: number;
   user_phone: string;
   creation_id: number | null;
-  kind: 'still' | 'video';
+  kind: 'still' | 'video' | 'model';
   status: 'queued' | 'running' | 'done' | 'failed';
   operation_name: string | null;
   credits_reserved: number;
@@ -668,7 +693,7 @@ export interface JobRow {
 export async function createJob(data: {
   user_phone: string;
   creation_id?: number | null;
-  kind: 'still' | 'video';
+  kind: 'still' | 'video' | 'model';
   credits_reserved: number;
   operation_name?: string | null;
 }): Promise<number> {
@@ -720,6 +745,14 @@ export async function setCreationVideoUrl(creationId: number, phone: string, vid
   const [result] = await getPool().query(
     `UPDATE creations SET video_url = ?, media_type = 'video' WHERE id = ? AND user_phone = ?`,
     [videoUrl, creationId, phone]
+  ) as any;
+  return result.affectedRows === 1;
+}
+
+export async function setCreationModelUrl(creationId: number, phone: string, modelUrl: string): Promise<boolean> {
+  const [result] = await getPool().query(
+    `UPDATE creations SET model_url = ?, media_type = 'model' WHERE id = ? AND user_phone = ?`,
+    [modelUrl, creationId, phone]
   ) as any;
   return result.affectedRows === 1;
 }

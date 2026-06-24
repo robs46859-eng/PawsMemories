@@ -184,7 +184,27 @@ export async function createVideo(
   return await res.json();
 }
 
-export async function pollJob(jobId: number): Promise<{ status: string; video_url?: string | null; error?: string | null }> {
+export async function createTalkingVideo(creationId: number, script: string, voiceId?: string): Promise<{ jobId: number }> {
+  const res = await authedFetch("/api/create-talking-video", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ creationId, script, voiceId }),
+  });
+  if (!res.ok) throw new Error(await parseError(res, "Failed to start talking video generation."));
+  return await res.json();
+}
+
+export async function create3DModel(creationId: number): Promise<{ jobId: number }> {
+  const res = await authedFetch("/api/create-3d-model", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ creationId }),
+  });
+  if (!res.ok) throw new Error(await parseError(res, "Failed to start 3D model generation."));
+  return await res.json();
+}
+
+export async function pollJob(jobId: number): Promise<{ status: string; video_url?: string | null; model_url?: string | null; error?: string | null }> {
   const res = await authedFetch(`/api/jobs/${jobId}`);
   if (!res.ok) throw new Error(await parseError(res, "Failed to poll job status."));
   return await res.json();
