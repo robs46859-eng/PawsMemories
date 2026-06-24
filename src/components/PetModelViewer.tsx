@@ -21,6 +21,7 @@ const PetModelViewer: React.FC<PetModelViewerProps> = ({
   className = "",
 }) => {
   return (
+    // @ts-expect-error - Custom web component loaded via CDN
     <model-viewer
       src={src}
       poster={poster}
