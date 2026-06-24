@@ -434,6 +434,112 @@ bpy.context.scene.frame_end = max(frames)
 print(f"[Deterministic] Animation '${name}' created with {len(frames)} keyframes")`;
   }
 
+  if (description.includes("camera") && description.includes("lighting")) {
+    return `import bpy
+import math
+from mathutils import Vector
+print("[Deterministic] Setting up orthographic camera and 3-point lighting")
+for obj in list(bpy.context.scene.objects):
+    if obj.type in {'CAMERA', 'LIGHT'}:
+        bpy.data.objects.remove(obj, do_unlink=True)
+meshes = [o for o in bpy.context.scene.objects if o.type == 'MESH']
+if not meshes:
+    raise RuntimeError("No mesh found to frame camera")
+mesh = max(meshes, key=lambda o: len(o.data.vertices))
+points = [mesh.matrix_world @ Vector(corner) for corner in mesh.bound_box]
+min_v = Vector((min(p.x for p in points), min(p.y for p in points), min(p.z for p in points)))
+max_v = Vector((max(p.x for p in points), max(p.y for p in points), max(p.z for p in points)))
+center = (min_v + max_v) * 0.5
+dims = max_v - min_v
+cam_data = bpy.data.cameras.new("RenderCamera")
+cam_data.type = 'ORTHO'
+cam_data.ortho_scale = max(dims.x, dims.y, dims.z) * 1.5
+cam_obj = bpy.data.objects.new("RenderCamera", cam_data)
+bpy.context.collection.objects.link(cam_obj)
+bpy.context.scene.camera = cam_obj
+cam_obj.location = center + Vector((5.0, 0, 0))
+cam_obj.rotation_euler = (math.radians(90), 0, math.radians(90))
+def add_light(name, ltype, energy, loc, rot=None):
+    ldata = bpy.data.lights.new(name=name, type=ltype)
+    ldata.energy = energy
+    lobj = bpy.data.objects.new(name=name, object_data=ldata)
+    bpy.context.collection.objects.link(lobj)
+    lobj.location = loc
+    if rot:
+        lobj.rotation_euler = rot
+    return lobj
+add_light("KeyLight", 'SUN', 2.0, center + Vector((5, -5, 5)), (math.radians(45), 0, math.radians(45)))
+add_light("FillLight", 'POINT', 0.5, center + Vector((-2, -5, 1)))
+add_light("RimLight", 'SUN', 1.5, center + Vector((-5, 5, 2)), (math.radians(45), 0, math.radians(-135)))
+bpy.context.scene.render.film_transparent = True
+bpy.context.scene.render.engine = 'BLENDER_WORKBENCH'
+bpy.context.scene.display.shading.color_type = 'TEXTURE'
+bpy.context.scene.display.shading.light = 'FLAT'
+print("[Deterministic] Camera and lighting setup complete")`;
+  }
+
+  if (description.includes("render sprite sheet")) {
+    return `import bpy
+import os
+import base64
+import numpy as np
+print("[Deterministic] Rendering sprite sheet")
+anim_names = ["eating", "drinking", "running", "playing", "sleeping", "photo"]
+anim_frames = [4, 4, 6, 4, 3, 3]
+rows = 6
+cols = 6
+frame_size = 128
+bpy.context.scene.render.resolution_x = frame_size
+bpy.context.scene.render.resolution_y = frame_size
+bpy.context.scene.render.image_settings.file_format = 'PNG'
+bpy.context.scene.render.image_settings.color_mode = 'RGBA'
+
+armatures = [o for o in bpy.context.scene.objects if o.type == 'ARMATURE']
+armature = armatures[0] if armatures else None
+
+temp_dir = "/tmp/sprites_render"
+os.makedirs(temp_dir, exist_ok=True)
+
+for row, anim_name in enumerate(anim_names):
+    num_frames = anim_frames[row]
+    if armature and armature.animation_data and anim_name in bpy.data.actions:
+        armature.animation_data.action = bpy.data.actions[anim_name]
+    for frame_idx in range(num_frames):
+        bpy.context.scene.frame_set(frame_idx)
+        filepath = os.path.join(temp_dir, f"r{row}_c{frame_idx}.png")
+        bpy.context.scene.render.filepath = filepath
+        bpy.ops.render.render(write_still=True)
+
+sheet_width = cols * frame_size
+sheet_height = rows * frame_size
+sheet_img = bpy.data.images.new("SpriteSheet", width=sheet_width, height=sheet_height, alpha=True)
+sheet_pixels = np.zeros((sheet_height, sheet_width, 4), dtype=np.float32)
+
+for row in range(rows):
+    for col in range(anim_frames[row]):
+        filepath = os.path.join(temp_dir, f"r{row}_c{col}.png")
+        if os.path.exists(filepath):
+            frame_img = bpy.data.images.load(filepath)
+            if frame_img.size[0] == frame_size and frame_img.size[1] == frame_size:
+                fp = np.array(frame_img.pixels[:]).reshape((frame_size, frame_size, 4))
+                base_y = sheet_height - (row + 1) * frame_size
+                base_x = col * frame_size
+                sheet_pixels[base_y:base_y+frame_size, base_x:base_x+frame_size] = fp
+            bpy.data.images.remove(frame_img)
+
+sheet_img.pixels = sheet_pixels.flatten()
+out_path = os.path.join(temp_dir, "sheet_final.png")
+sheet_img.filepath_raw = out_path
+sheet_img.file_format = 'PNG'
+sheet_img.save()
+
+with open(out_path, "rb") as f:
+    b64 = base64.b64encode(f.read()).decode("utf-8")
+    print(f"\\nSPRITE_SHEET_BASE64:{b64}\\n")
+
+print("[Deterministic] Sprite sheet generated and encoded")`;
+  }
+
   return null;
 }
 
@@ -564,10 +670,20 @@ export async function actNode(state: BuildState): Promise<Partial<BuildState>> {
     timestamp: Date.now(),
   };
 
+  let extractedSpriteSheet: string | undefined;
+  if (execResult.success && execResult.data?.stdout) {
+    const match = execResult.data.stdout.match(/SPRITE_SHEET_BASE64:([A-Za-z0-9+/=]+)/);
+    if (match && match[1]) {
+      extractedSpriteSheet = match[1];
+      // Remove it from stdout so we don't pollute the logs
+      stepResult.executeResult.stdout = execResult.data.stdout.replace(match[0], "[SPRITE_SHEET_EXTRACTED]");
+    }
+  }
+
   const newErrorCount = stepResult.executeResult.success ? state.errorCount : state.errorCount + 1;
   const newConsecutiveErrors = stepResult.executeResult.success ? 0 : state.consecutiveErrors + 1;
 
-  return {
+  const returnState: Partial<BuildState> = {
     executionHistory: [...state.executionHistory, stepResult],
     errorCount: newErrorCount,
     consecutiveErrors: newConsecutiveErrors,
@@ -575,4 +691,10 @@ export async function actNode(state: BuildState): Promise<Partial<BuildState>> {
       ? `Executed: ${action.stepDescription}`
       : `Execution failed: ${stepResult.executeResult.error?.slice(0, 200)}`,
   };
+
+  if (extractedSpriteSheet) {
+    returnState.spriteSheetBase64 = `data:image/png;base64,${extractedSpriteSheet}`;
+  }
+
+  return returnState;
 }

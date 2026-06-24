@@ -184,6 +184,12 @@ function isDeterministicStep(description: string): boolean {
   // "Create eating/drinking/running/playing/sleeping/photo animation"
   if (/create\s+(eating|drinking|running|playing|sleeping|photo)\s+animation/i.test(description)) return true;
 
+  // "Setup orthographic camera and 3-point lighting"
+  if (desc.includes("camera") && desc.includes("lighting")) return true;
+
+  // "Render sprite sheet (6 animations × max frames)"
+  if (desc.includes("render sprite sheet")) return true;
+
   // "Save checkpoint" — handled directly by act.ts, but guard anyway
   if (desc.includes("checkpoint")) return true;
 
