@@ -90,11 +90,7 @@ export default function Avatar3DPlaypen({
 
   // Get animation metadata with defaults
   const getAnimMeta = useCallback((): AnimationMetadata => {
-    if (avatar.animation_data) {
-      return avatar.animation_data as AnimationMetadata;
-    }
-    // Default metadata
-    return {
+    const defaults: AnimationMetadata = {
       frameWidth: 128,
       frameHeight: 128,
       animations: {
@@ -106,6 +102,24 @@ export default function Avatar3DPlaypen({
         photo: { row: 5, frames: 3, fps: 6 },
       },
     };
+
+    if (avatar.animation_data) {
+      const data = avatar.animation_data as AnimationMetadata;
+      // Guard: if the server data is missing the animations map or individual
+      // actions, merge with defaults so downstream code never indexes into
+      // undefined (which caused the "Cannot read properties of undefined
+      // (reading 'photo')" crash).
+      return {
+        frameWidth: data.frameWidth || defaults.frameWidth,
+        frameHeight: data.frameHeight || defaults.frameHeight,
+        animations: {
+          ...defaults.animations,
+          ...(data.animations || {}),
+        },
+      };
+    }
+
+    return defaults;
   }, [avatar.animation_data]);
 
   // Spawn floating emojis

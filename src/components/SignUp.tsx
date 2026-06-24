@@ -4,6 +4,12 @@ import { PublicUser } from "../types";
 import { signup, completeProfile, login } from "../api";
 import { useJsApiLoader } from "@react-google-maps/api";
 
+// IMPORTANT: keep this list identical to the one used in LocationPicker.tsx.
+// @react-google-maps/api shares a single loader, and passing a new array
+// reference on every render causes the "LoadScript reloaded unintentionally"
+// performance warning and corrupts downstream maps state.
+const LIBRARIES: "places"[] = ["places"];
+
 interface SignUpProps {
   /** Called once the user is logged in AND has a complete profile. */
   onAuthenticated: (user: PublicUser, isNew: boolean) => void;
@@ -28,7 +34,7 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY_BROWSER;
   const { isLoaded } = useJsApiLoader({
     googleMapsApiKey: apiKey || "",
-    libraries: ["places"],
+    libraries: LIBRARIES,
   });
 
   const cityInputRef = useRef<HTMLInputElement>(null);
@@ -191,6 +197,7 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
                   <span className={iconWrap}><Lock size={16} /></span>
                   <input
                     id="login-password" type="password" required
+                    autoComplete="current-password"
                     placeholder="••••••••"
                     value={password} onChange={(e) => setPassword(e.target.value)}
                     className={inputClass}
