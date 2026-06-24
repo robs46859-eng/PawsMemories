@@ -68,21 +68,18 @@ export async function verifyNode(state: BuildState): Promise<Partial<BuildState>
     return applyVerification(state, verification);
   }
 
-  // Auto-pass deterministic read-only steps (e.g. verify mesh import).
-  // These steps don't mutate the scene, so vision verification adds no value
-  // and frequently produces false-negative drift reports.
-  const descLower = lastResult.description.toLowerCase();
-  if (
-    descLower.includes("verify") &&
-    descLower.includes("mesh") &&
-    descLower.includes("import")
-  ) {
+  // Auto-pass steps that use deterministic, pre-tested code templates.
+  // These steps run hardcoded Python from act.ts's deterministicCodeForAction()
+  // — vision verification adds no value and frequently produces false-positive
+  // "critical drift" reports (e.g., adding an armature changes the visual
+  // appearance dramatically, but that's the intended effect, not drift).
+  if (isDeterministicStep(lastResult.description)) {
     const verification: VerificationResult = {
       success: true,
       issuesFound: [],
       driftSeverity: "none",
       recommendation: "proceed",
-      details: "Deterministic read-only step passed (code execution succeeded).",
+      details: `Deterministic step passed (code execution succeeded): ${lastResult.description}`,
     };
     return applyVerification(state, verification);
   }
@@ -165,6 +162,32 @@ export async function verifyNode(state: BuildState): Promise<Partial<BuildState>
     console.warn("[Verify] Gemini verification failed:", err.message);
     return handleNoVision(state);
   }
+}
+
+/**
+ * Check if a step description matches one of the deterministic code templates
+ * in act.ts's deterministicCodeForAction(). These steps use hardcoded, pre-tested
+ * Python scripts and should not be sent to Gemini Vision for verification.
+ */
+function isDeterministicStep(description: string): boolean {
+  const desc = description.toLowerCase();
+
+  // "Verify mesh import and inspect geometry"
+  if (desc.includes("verify") && desc.includes("mesh") && desc.includes("import")) return true;
+
+  // "Create dog armature with proper bone hierarchy"
+  if (desc.includes("create") && desc.includes("armature")) return true;
+
+  // "Parent mesh to armature with automatic weights"
+  if (desc.includes("parent mesh") || desc.includes("automatic weights")) return true;
+
+  // "Create eating/drinking/running/playing/sleeping/photo animation"
+  if (/create\s+(eating|drinking|running|playing|sleeping|photo)\s+animation/i.test(description)) return true;
+
+  // "Save checkpoint" — handled directly by act.ts, but guard anyway
+  if (desc.includes("checkpoint")) return true;
+
+  return false;
 }
 
 function handleNoVision(state: BuildState): Partial<BuildState> {
