@@ -6,7 +6,7 @@ import dotenv from "dotenv";
 import Stripe from "stripe";
 import fs from "fs";
 import twilio from "twilio";
-import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums } from "./db";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar } from "./db";
 import { uploadBase64Image, uploadBinaryFromUrl } from "./storage";
 import { startTalkingVideo, pollTalkingVideo, fetchMp4AsDataUrl, isHeyGenHandle } from "./heygen";
 import { startImageTo3D, pollImageTo3D, isMeshyHandle } from "./meshy";
@@ -323,6 +323,93 @@ async function startServer() {
       res.json({ success });
     } catch (err: any) {
       res.status(500).json({ error: "Failed to delete pet." });
+    }
+  });
+
+  // --- Avatar Endpoints ---
+  app.get("/api/avatars", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const avatars = await getAvatars(req.user!.phone);
+      res.json({ avatars });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to fetch avatars." });
+    }
+  });
+
+  app.post("/api/avatars", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { name, photo } = req.body;
+      if (!name || !photo) return res.status(400).json({ error: "Name and photo required." });
+
+      // Start meshy generation
+      const handle = await startImageTo3D({ imageUrl: photo });
+      const avatarId = await createAvatar(req.user!.phone, name, handle, photo);
+      
+      res.json({ avatarId, status: "pending" });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to create avatar." });
+    }
+  });
+
+  app.get("/api/avatars/:id/status", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const avatarId = Number(req.params.id);
+      const avatar = await getAvatarById(avatarId, req.user!.phone);
+      if (!avatar) return res.status(404).json({ error: "Avatar not found" });
+
+      if (avatar.generation_status === "done" || avatar.generation_status === "failed") {
+        return res.json({ 
+          status: avatar.generation_status,
+          model_url: avatar.model_url,
+          sprite_sheet_url: avatar.sprite_sheet_url
+        });
+      }
+
+      // Check meshy for status
+      if (avatar.meshy_handle) {
+        const poll = await pollImageTo3D(avatar.meshy_handle);
+        if (poll.status === "done") {
+          await updateAvatarModel(avatarId, req.user!.phone, poll.model_url!);
+          await updateAvatarGenerationStatus(avatarId, req.user!.phone, "done");
+          return res.json({ status: "done", model_url: poll.model_url });
+        } else if (poll.status === "failed") {
+          await updateAvatarGenerationStatus(avatarId, req.user!.phone, "failed");
+          return res.json({ status: "failed", error: "Generation failed" });
+        } else {
+          return res.json({ status: "pending" });
+        }
+      }
+
+      res.json({ status: avatar.generation_status });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to poll avatar status." });
+    }
+  });
+
+  app.post("/api/avatars/:id/feed", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const success = await feedAvatar(Number(req.params.id), req.user!.phone);
+      res.json({ success });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to feed avatar." });
+    }
+  });
+
+  app.post("/api/avatars/:id/water", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const success = await waterAvatar(Number(req.params.id), req.user!.phone);
+      res.json({ success });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to water avatar." });
+    }
+  });
+
+  app.post("/api/avatars/:id/treat", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const success = await giveTreatToAvatar(Number(req.params.id), req.user!.phone);
+      res.json({ success });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to give treat." });
     }
   });
 
