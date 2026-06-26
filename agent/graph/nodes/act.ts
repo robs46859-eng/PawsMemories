@@ -11,6 +11,7 @@ import type { BuildState, StepResult } from "./types";
 import { executeBlenderTool } from "../../tools/blender_mcp";
 import { retrieveBlenderContext, formatContextForPrompt } from "../../knowledge/retriever";
 import { generateGeminiText } from "../../gemini";
+import { lookupBreedAnatomy, generateVertexGroupCode, getBoneProportions } from "../../knowledge/breed-anatomy";
 
 // ---------------------------------------------------------------------------
 // Forbidden patterns (from the existing sanitizeBlenderScript in ollama-agent.ts)
@@ -249,6 +250,11 @@ function deterministicCodeForAction(state: BuildState): string | null {
   const description = action.stepDescription.toLowerCase();
   const hasTail = state.petAnalysis.hasTail ? "True" : "False";
 
+  // Look up breed-specific anatomy for proportions and animation modifiers
+  const anatomy = lookupBreedAnatomy(state.petAnalysis.species, state.petAnalysis.breed);
+  const boneProps = getBoneProportions(anatomy);
+  const animMods = anatomy.animationModifiers;
+
   if (description.includes("verify mesh import")) {
     return `import bpy
 print("[Deterministic] Inspecting imported mesh")
@@ -261,9 +267,19 @@ print("[Deterministic] Mesh import verified")`;
   }
 
   if (description.includes("create") && description.includes("armature")) {
+    // Breed-specific bone proportion multipliers
+    const headFwd = (boneProps.headForwardExtent * 0.18).toFixed(2);
+    const neckLen = (boneProps.neckLength * 0.10).toFixed(2);
+    const legFront = (boneProps.legHeightFront * 0.45).toFixed(2);
+    const legRear = (boneProps.legHeightRear * 0.45).toFixed(2);
+    const torsoLen = (boneProps.torsoLength * 0.45).toFixed(2);
+    const tailLen = (boneProps.tailLength * 0.20).toFixed(2);
+    const hipH = boneProps.hipHeight.toFixed(2);
+
     return `import bpy
 from mathutils import Vector
-print("[Deterministic] Creating pet armature with stable bone names")
+print("[Deterministic] Creating breed-aware armature for ${anatomy.breed} (${anatomy.species})")
+# Breed-specific proportions: head=${headFwd}, neck=${neckLen}, legs_f=${legFront}, legs_r=${legRear}, torso=${torsoLen}, tail=${tailLen}
 meshes = [o for o in bpy.context.scene.objects if o.type == 'MESH']
 if not meshes:
     raise RuntimeError("No mesh object available for armature creation")
@@ -279,15 +295,16 @@ right = Vector((0, 1, 0)) if length_axis == 0 else Vector((1, 0, 0))
 half_len = max(dims[length_axis] * 0.5, 0.2)
 half_w = max((dims.y if length_axis == 0 else dims.x) * 0.5, 0.08)
 low = min_v.z
-mid_z = low + max(dims.z * 0.45, 0.12)
+# Breed-aware height proportions
+mid_z = low + max(dims.z * ${hipH}, 0.12)
 top_z = low + max(dims.z * 0.78, 0.2)
 for obj in bpy.context.scene.objects:
     obj.select_set(False)
 for obj in list(bpy.context.scene.objects):
     if obj.type == 'ARMATURE':
         bpy.data.objects.remove(obj, do_unlink=True)
-arm_data = bpy.data.armatures.new("DogArmatureData")
-arm_obj = bpy.data.objects.new("DogArmature", arm_data)
+arm_data = bpy.data.armatures.new("PetArmatureData")
+arm_obj = bpy.data.objects.new("PetArmature", arm_data)
 bpy.context.collection.objects.link(arm_obj)
 bpy.context.view_layer.objects.active = arm_obj
 arm_obj.select_set(True)
@@ -301,41 +318,56 @@ def add_bone(name, head, tail, parent=None):
     bone.parent = parent
     bone.use_connect = False
     return bone
-hips_h = center - forward * (half_len * 0.35); hips_h.z = mid_z
+# Breed-aware spine chain with torso length multiplier
+hips_h = center - forward * (half_len * ${(0.35 * boneProps.torsoLength).toFixed(2)}); hips_h.z = mid_z
 spine_t = center + forward * (half_len * 0.05); spine_t.z = mid_z + dims.z * 0.05
-chest_t = center + forward * (half_len * 0.35); chest_t.z = mid_z + dims.z * 0.08
-neck_t = center + forward * (half_len * 0.48); neck_t.z = top_z
-head_t = center + forward * (half_len * 0.68); head_t.z = top_z + dims.z * 0.04
+chest_t = center + forward * (half_len * ${(0.35 * boneProps.torsoLength).toFixed(2)}); chest_t.z = mid_z + dims.z * 0.08
+neck_t = center + forward * (half_len * ${(0.48 * boneProps.neckLength).toFixed(2)}); neck_t.z = top_z
+head_t = center + forward * (half_len * ${(0.68 * boneProps.headForwardExtent).toFixed(2)}); head_t.z = top_z + dims.z * 0.04
 hips = add_bone("hips", hips_h, spine_t)
 spine = add_bone("spine", spine_t, chest_t, hips)
 chest = add_bone("chest", chest_t, neck_t, spine)
 neck = add_bone("neck", neck_t, head_t, chest)
-head = add_bone("head", head_t, head_t + forward * max(half_len * 0.18, 0.08), neck)
+head = add_bone("head", head_t, head_t + forward * max(half_len * ${headFwd}, 0.08), neck)
+# Breed-aware leg proportions
+front_knee_h = ${(0.22 * boneProps.legHeightFront).toFixed(3)}
+rear_knee_h = ${(0.22 * boneProps.legHeightRear).toFixed(3)}
 for side, sign in (("L", 1), ("R", -1)):
     x_front = center + forward * (half_len * 0.28) + right * (half_w * sign)
     x_back = center - forward * (half_len * 0.28) + right * (half_w * sign)
-    for prefix, base, parent in (("front", x_front, chest), ("back", x_back, hips)):
-        shoulder = Vector((base.x, base.y, mid_z))
-        knee = Vector((base.x, base.y, low + dims.z * 0.22))
-        paw = Vector((base.x + forward.x * half_len * 0.04, base.y + forward.y * half_len * 0.04, low + dims.z * 0.03))
-        upper = add_bone(f"{prefix}_leg_upper.{side}", shoulder, knee, parent)
-        lower = add_bone(f"{prefix}_leg_lower.{side}", knee, paw, upper)
-        add_bone(f"{prefix}_paw.{side}", paw, paw + forward * max(half_len * 0.08, 0.04), lower)
+    # Front legs
+    shoulder = Vector((x_front.x, x_front.y, mid_z))
+    knee = Vector((x_front.x, x_front.y, low + dims.z * front_knee_h))
+    paw = Vector((x_front.x + forward.x * half_len * 0.04, x_front.y + forward.y * half_len * 0.04, low + dims.z * 0.03))
+    upper = add_bone(f"front_leg_upper.{side}", shoulder, knee, chest)
+    lower = add_bone(f"front_leg_lower.{side}", knee, paw, upper)
+    add_bone(f"front_paw.{side}", paw, paw + forward * max(half_len * 0.08, 0.04), lower)
+    # Rear legs
+    shoulder = Vector((x_back.x, x_back.y, mid_z))
+    knee = Vector((x_back.x, x_back.y, low + dims.z * rear_knee_h))
+    paw = Vector((x_back.x + forward.x * half_len * 0.04, x_back.y + forward.y * half_len * 0.04, low + dims.z * 0.03))
+    upper = add_bone(f"back_leg_upper.{side}", shoulder, knee, hips)
+    lower = add_bone(f"back_leg_lower.{side}", knee, paw, upper)
+    add_bone(f"back_paw.{side}", paw, paw + forward * max(half_len * 0.08, 0.04), lower)
 if ${hasTail}:
-    t0 = hips_h - forward * max(half_len * 0.12, 0.05); t0.z = mid_z
+    tail_len_mult = ${boneProps.tailLength.toFixed(2)}
+    t0 = hips_h - forward * max(half_len * 0.12 * tail_len_mult, 0.05); t0.z = mid_z
     b1 = add_bone("tail_01", hips_h, t0, hips)
-    b2 = add_bone("tail_02", t0, t0 - forward * max(half_len * 0.15, 0.06), b1)
-    add_bone("tail_03", b2.tail, b2.tail - forward * max(half_len * 0.12, 0.05), b2)
+    b2 = add_bone("tail_02", t0, t0 - forward * max(half_len * 0.15 * tail_len_mult, 0.06), b1)
+    add_bone("tail_03", b2.tail, b2.tail - forward * max(half_len * 0.12 * tail_len_mult, 0.05), b2)
 bpy.ops.object.mode_set(mode='OBJECT')
 arm_obj.show_in_front = True
 bpy.context.view_layer.objects.active = arm_obj
-print(f"[Deterministic] DogArmature created with {len(arm_obj.data.bones)} bones")`;
+print(f"[Deterministic] PetArmature created for ${anatomy.breed} with {len(arm_obj.data.bones)} bones")`;
   }
 
   if (description.includes("parent mesh") || description.includes("automatic weights")) {
+    // Generate breed-specific vertex group assignment code
+    const vgCode = generateVertexGroupCode(anatomy);
+
     return `import bpy
 from mathutils import Vector
-print("[Deterministic] Binding mesh to armature with explicit vertex groups")
+print("[Deterministic] Binding mesh to armature with breed-aware vertex groups for ${anatomy.breed}")
 meshes = [o for o in bpy.context.scene.objects if o.type == 'MESH']
 armatures = [o for o in bpy.context.scene.objects if o.type == 'ARMATURE']
 if not meshes:
@@ -353,18 +385,7 @@ min_v = Vector((min(p.x for p in points), min(p.y for p in points), min(p.z for 
 max_v = Vector((max(p.x for p in points), max(p.y for p in points), max(p.z for p in points)))
 span = max_v - min_v
 length_axis = 0 if span.x >= span.y else 1
-def choose_group(world):
-    rel_len = ((world.x - min_v.x) / span.x) if length_axis == 0 and span.x else ((world.y - min_v.y) / span.y) if span.y else 0.5
-    rel_z = (world.z - min_v.z) / span.z if span.z else 0.5
-    if rel_z < 0.28:
-        return "front_leg_lower.L" if rel_len > 0.5 else "back_leg_lower.L"
-    if rel_len < 0.30:
-        return "hips"
-    if rel_len < 0.55:
-        return "spine"
-    if rel_len < 0.78:
-        return "chest"
-    return "neck" if rel_z < 0.75 else "head"
+${vgCode}
 for vg in mesh.vertex_groups:
     try:
         vg.remove([v.index for v in mesh.data.vertices])
@@ -378,7 +399,7 @@ for v in mesh.data.vertices:
     mesh.vertex_groups[group_name].add([v.index], 1.0, 'REPLACE')
 mod = next((m for m in mesh.modifiers if m.type == 'ARMATURE'), None)
 if mod is None:
-    mod = mesh.modifiers.new("DogArmature", 'ARMATURE')
+    mod = mesh.modifiers.new("PetArmature", 'ARMATURE')
 mod.object = armature
 mesh.parent = armature
 bpy.context.view_layer.objects.active = armature
@@ -386,15 +407,26 @@ for obj in bpy.context.scene.objects:
     obj.select_set(False)
 mesh.select_set(True)
 armature.select_set(True)
-print(f"[Deterministic] Bound {mesh.name} to {armature.name} with {len(bone_names)} vertex groups")`;
+print(f"[Deterministic] Bound {mesh.name} to {armature.name} with {len(bone_names)} breed-aware vertex groups")`;
   }
 
   const animationMatch = description.match(/create (eating|drinking|running|playing|sleeping|photo) animation/);
   if (animationMatch) {
     const name = animationMatch[1];
+    // Breed-specific animation parameters
+    const legAngleMax = anatomy.sections.frontLegs.jointAngleMax;
+    const tailAngle = anatomy.sections.tail?.jointAngleMax ?? 12;
+    const eatingReach = animMods.eatingReach;
+    const playBounce = animMods.playBounce;
+    const spineFlex = animMods.spineFlexMultiplier;
+    const tailWag = animMods.tailWagAmplitude;
+    // Use breed gait for running
+    const isWaddle = animMods.runGaitType === "waddle";
+    const isHop = animMods.runGaitType === "hop";
+
     return `import bpy
 import math
-print("[Deterministic] Creating ${name} animation")
+print("[Deterministic] Creating ${name} animation for ${anatomy.breed} (${anatomy.species})")
 armatures = [o for o in bpy.context.scene.objects if o.type == 'ARMATURE']
 if not armatures:
     raise RuntimeError("No armature object found for animation")
@@ -405,6 +437,13 @@ if not armature.animation_data:
 action = bpy.data.actions.new("${name}") if "${name}" not in bpy.data.actions else bpy.data.actions["${name}"]
 armature.animation_data.action = action
 frames = [0, 1, 2, 3] if "${name}" in ("eating", "drinking", "playing") else ([0, 1, 2, 3, 4, 5] if "${name}" == "running" else [0, 1, 2])
+# Breed-specific animation parameters
+leg_angle_max = ${legAngleMax}
+tail_angle_max = ${tailAngle}
+eating_reach = ${eatingReach}
+play_bounce = ${playBounce}
+spine_flex = ${spineFlex}
+tail_wag = ${tailWag}
 for frame in frames:
     bpy.context.scene.frame_set(frame)
     phase = (frame / max(len(frames) - 1, 1)) * math.tau
@@ -415,23 +454,30 @@ for frame in frames:
         bone.rotation_mode = 'XYZ'
         bone.rotation_euler = (0, 0, 0)
         if "${name}" == "eating" and bone_name in ("neck", "head"):
-            bone.rotation_euler.x = math.radians(10 + 12 * math.sin(phase))
+            bone.rotation_euler.x = math.radians((10 + 12 * math.sin(phase)) * eating_reach)
         elif "${name}" == "drinking" and bone_name in ("neck", "head"):
-            bone.rotation_euler.x = math.radians(18 + 5 * math.sin(phase * 2))
+            bone.rotation_euler.x = math.radians((18 + 5 * math.sin(phase * 2)) * eating_reach)
         elif "${name}" == "running" and "leg_upper" in bone_name:
-            bone.rotation_euler.x = math.radians(22 * math.sin(phase + (math.pi if bone_name.endswith(".R") else 0)))
+            leg_amp = min(leg_angle_max, ${isWaddle ? 14 : isHop ? 30 : 22})
+            ${isWaddle
+              ? 'bone.rotation_euler.x = math.radians(leg_amp * 0.6 * math.sin(phase + (math.pi if bone_name.endswith(".R") else 0)))\n            bone.rotation_euler.z = math.radians(5 * math.sin(phase))  # waddle side-to-side'
+              : isHop
+                ? 'bone.rotation_euler.x = math.radians(leg_amp * math.sin(phase))  # synchronous hop'
+                : 'bone.rotation_euler.x = math.radians(leg_amp * math.sin(phase + (math.pi if bone_name.endswith(".R") else 0)))'}
+        elif "${name}" == "running" and bone_name in ("spine", "chest"):
+            bone.rotation_euler.x = math.radians(${(4 * spineFlex).toFixed(1)} * math.sin(phase))
         elif "${name}" == "playing" and bone_name in ("hips", "spine", "chest"):
-            bone.rotation_euler.x = math.radians(8 * math.sin(phase))
+            bone.rotation_euler.x = math.radians(${(8 * playBounce).toFixed(1)} * math.sin(phase))
         elif "${name}" == "sleeping" and bone_name in ("spine", "neck", "head"):
             bone.rotation_euler.z = math.radians(6)
         elif "${name}" == "photo" and bone_name == "head":
             bone.rotation_euler.z = math.radians(8 * math.sin(phase))
         elif bone_name.startswith("tail_"):
-            bone.rotation_euler.z = math.radians(12 * math.sin(phase))
+            bone.rotation_euler.z = math.radians(${(12 * tailWag).toFixed(1)} * math.sin(phase))
         bone.keyframe_insert(data_path="rotation_euler", frame=frame)
 bpy.context.scene.frame_start = min(frames)
 bpy.context.scene.frame_end = max(frames)
-print(f"[Deterministic] Animation '${name}' created with {len(frames)} keyframes")`;
+print(f"[Deterministic] Animation '${name}' created for ${anatomy.breed} with {len(frames)} keyframes")`;
   }
 
   if (description.includes("camera") && description.includes("lighting")) {

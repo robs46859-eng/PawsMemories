@@ -9,6 +9,7 @@
  */
 
 import type { BuildState, NextAction, BuildStep } from "./types";
+import { lookupBreedAnatomy } from "../../knowledge/breed-anatomy";
 
 const REASON_SYSTEM_PROMPT = `You are an expert 3D artist and Blender pipeline architect. Your role is to plan and orchestrate the construction of rigged, animated 3D pet avatars in Blender 5.1.
 
@@ -65,6 +66,11 @@ Return ONLY the JSON object.`;
 export function generateBuildPlan(state: BuildState): BuildStep[] {
   const { petAnalysis } = state;
 
+  // Look up breed-specific anatomy for constraint context
+  const anatomy = lookupBreedAnatomy(petAnalysis.species, petAnalysis.breed);
+  const boneProps = anatomy.sections;
+  const animMods = anatomy.animationModifiers;
+
   const steps: BuildStep[] = [
     {
       id: 1,
@@ -83,6 +89,9 @@ export function generateBuildPlan(state: BuildState): BuildStep[] {
         `It is a ${petAnalysis.bodyType} with ${petAnalysis.legCount} legs. ` +
         `Body proportions: head=${petAnalysis.bodyProportions.headSize}, legs=${petAnalysis.bodyProportions.legLength}, ` +
         `body=${petAnalysis.bodyProportions.bodyLength}, neck=${petAnalysis.bodyProportions.neckLength}. ` +
+        `Breed anatomy: head length ratio=${boneProps.head.lengthRatio}, ` +
+        `front leg ratio=${boneProps.frontLegs.lengthRatio}, rear leg ratio=${boneProps.rearLegs.lengthRatio}, ` +
+        `torso ratio=${boneProps.torso.lengthRatio}. ` +
         `Has tail: ${petAnalysis.hasTail}. ` +
         "Use the exact bone naming convention: hips → spine → chest → neck → head, " +
         "front_leg_upper.L/R → front_leg_lower.L/R → front_paw.L/R, " +
@@ -93,6 +102,7 @@ export function generateBuildPlan(state: BuildState): BuildStep[] {
         "Position bones based on mesh bounding box",
         "Use Vector from mathutils for world-space bbox calculation",
         "Return to OBJECT mode when done",
+        `Breed-specific: front leg joint max ${boneProps.frontLegs.jointAngleMax}°, rear leg joint max ${boneProps.rearLegs.jointAngleMax}°`,
       ],
       completed: false,
       retryCount: 0,
@@ -121,12 +131,19 @@ export function generateBuildPlan(state: BuildState): BuildStep[] {
     },
   ];
 
-  // Add animation steps
+  // Add animation steps with breed-specific gait info
+  const gaitDesc: Record<string, string> = {
+    gallop: "full gallop cycle, alternating diagonal leg pairs",
+    trot: "smooth trot cycle, alternating diagonal leg pairs",
+    waddle: "short waddle cycle, body sways side-to-side with short leg strides",
+    hop: "hopping cycle, legs move synchronously",
+  };
+
   const animations = [
-    { name: "eating", frames: 4, desc: "Head/neck dip down, jaw bobbing, slight forward lean" },
-    { name: "drinking", frames: 4, desc: "Head at consistent low level, rhythmic lapping" },
-    { name: "running", frames: 6, desc: "Full gallop cycle, alternating leg pairs, body bob" },
-    { name: "playing", frames: 4, desc: "Playful bounce/jump, front paws lift, energetic" },
+    { name: "eating", frames: 4, desc: `Head/neck dip down (reach multiplier: ${animMods.eatingReach.toFixed(1)}x), jaw bobbing, slight forward lean` },
+    { name: "drinking", frames: 4, desc: `Head at consistent low level (reach: ${animMods.eatingReach.toFixed(1)}x), rhythmic lapping` },
+    { name: "running", frames: 6, desc: `${gaitDesc[animMods.runGaitType] || "trot cycle"}, body bob (spine flex: ${animMods.spineFlexMultiplier.toFixed(1)}x), max leg angle: ${boneProps.frontLegs.jointAngleMax}°` },
+    { name: "playing", frames: 4, desc: `Playful bounce/jump (bounce: ${animMods.playBounce.toFixed(1)}x), front paws lift, energetic` },
     { name: "sleeping", frames: 3, desc: "Body lowered, slow breathing, head resting" },
     { name: "photo", frames: 3, desc: "Alert sitting, head tilts, ears perk up" },
   ];
@@ -137,16 +154,16 @@ export function generateBuildPlan(state: BuildState): BuildStep[] {
       phase: "animation",
       description: `Create ${anim.name} animation (${anim.frames} frames)`,
       bpyIntent: `Create a bpy.data.actions entry named "${anim.name}" with ${anim.frames} keyframes. ` +
-        `Animation: ${anim.desc}. ` +
+        `Animation for ${petAnalysis.breed}: ${anim.desc}. ` +
         (petAnalysis.hasTail && (anim.name === "running" || anim.name === "playing")
-          ? "Include tail wagging."
+          ? `Include tail wagging (amplitude: ${animMods.tailWagAmplitude.toFixed(1)}x).`
           : "") +
         " Use pose.bones.get() for safe bone access. Use relative data_path for keyframe_insert.",
       constraints: [
         "Use armature_obj.pose.bones.get('name') — NEVER direct indexing",
         "Set bone.rotation_mode = 'XYZ' before setting rotation_euler",
         "Use keyframe_insert(data_path='rotation_euler') — relative path only",
-        "Keep rotations within anatomical limits",
+        `Keep rotations within breed-specific limits (legs: ±${boneProps.frontLegs.jointAngleMax}°, tail: ±${boneProps.tail?.jointAngleMax ?? 30}°)`,
         "Create animation_data if not exists",
       ],
       completed: false,

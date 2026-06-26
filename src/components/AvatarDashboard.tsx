@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Avatar, PublicUser, UserProfile, AvatarAction } from "../types";
-import { fetchAvatars, generate3DAvatar, pollAvatarStatus, feedAvatarReq, waterAvatarReq, giveTreatReq } from "../api";
+import { fetchAvatars, generate3DAvatar, retryAvatarGeneration, pollAvatarStatus, feedAvatarReq, waterAvatarReq, giveTreatReq } from "../api";
 import CreateAvatarDialog from "./CreateAvatarDialog";
 import Avatar3DPlaypen from "./Avatar3DPlaypen";
 import {
@@ -146,8 +146,19 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode 
       // Reload avatar data to get updated food/water levels
       await loadAvatars();
     },
-    []
+    [],
   );
+
+  // Retry a failed avatar generation
+  const handleRetryGeneration = useCallback(async (avatarId: number) => {
+    try {
+      await retryAvatarGeneration(avatarId);
+      // Reload avatars to pick up the reset status
+      await loadAvatars();
+    } catch (err: any) {
+      alert(err.message || "Failed to retry generation.");
+    }
+  }, []);
 
   const calculateDecay = (timestamp: string, currentLevel: number) => {
     const lastTime = new Date(timestamp).getTime();
@@ -229,6 +240,7 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode 
                       if (action) handleActionAnimationComplete(action, avatar.id);
                     }}
                     isDarkMode={isDarkMode}
+                    onRetry={handleRetryGeneration}
                   />
                   <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/60 to-transparent pointer-events-none z-10" />
                   <h3 className="absolute bottom-4 left-4 text-white text-2xl font-black drop-shadow-md z-20">

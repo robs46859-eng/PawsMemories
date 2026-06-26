@@ -6,7 +6,7 @@ import dotenv from "dotenv";
 import Stripe from "stripe";
 import fs from "fs";
 import twilio from "twilio";
-import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar } from "./db";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, getPool } from "./db";
 import { uploadBase64Image, uploadBinaryFromUrl } from "./storage";
 import { startTalkingVideo, pollTalkingVideo, fetchMp4AsDataUrl, isHeyGenHandle } from "./heygen";
 import { startImageTo3D, pollImageTo3D, isMeshyHandle } from "./meshy";
@@ -343,7 +343,7 @@ async function startServer() {
 
       // Start meshy generation
       const handle = await startImageTo3D({ imageUrl: photo });
-      const avatarId = await createAvatar(req.user!.phone, name, handle, photo);
+      const avatarId = await createAvatar(req.user!.phone, name, photo, handle);
       
       res.json({ avatarId, status: "pending" });
     } catch (err: any) {
@@ -368,12 +368,12 @@ async function startServer() {
       // Check meshy for status
       if (avatar.meshy_handle) {
         const poll = await pollImageTo3D(avatar.meshy_handle);
-        if (poll.status === "done") {
-          await updateAvatarModel(avatarId, req.user!.phone, poll.model_url!);
-          await updateAvatarGenerationStatus(avatarId, req.user!.phone, "done");
-          return res.json({ status: "done", model_url: poll.model_url });
-        } else if (poll.status === "failed") {
-          await updateAvatarGenerationStatus(avatarId, req.user!.phone, "failed");
+        if (poll.done && !poll.error) {
+          await updateAvatarModel(avatarId, req.user!.phone, poll.glbUrl!, "", {});
+          await updateAvatarGenerationStatus(avatarId, "done");
+          return res.json({ status: "done", model_url: poll.glbUrl });
+        } else if (poll.done && poll.error) {
+          await updateAvatarGenerationStatus(avatarId, "failed", poll.error);
           return res.json({ status: "failed", error: "Generation failed" });
         } else {
           return res.json({ status: "pending" });
@@ -383,6 +383,33 @@ async function startServer() {
       res.json({ status: avatar.generation_status });
     } catch (err: any) {
       res.status(500).json({ error: "Failed to poll avatar status." });
+    }
+  });
+
+  app.post("/api/avatars/:id/retry", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const avatarId = Number(req.params.id);
+      const avatar = await getAvatarById(avatarId, req.user!.phone);
+      if (!avatar) return res.status(404).json({ error: "Avatar not found" });
+
+      if (avatar.generation_status !== "failed" && avatar.generation_status !== "done") {
+         return res.status(400).json({ error: "Avatar is currently generating" });
+      }
+
+      // Reset status and error
+      await updateAvatarGenerationStatus(avatarId, "pending", null);
+
+      // Re-trigger the background generation job with Meshy
+      if (avatar.image_url) {
+        const handle = await startImageTo3D({ imageUrl: avatar.image_url });
+        await getPool().query(`UPDATE avatars SET meshy_handle = ? WHERE id = ?`, [handle, avatarId]);
+      } else {
+        return res.status(400).json({ error: "Original photo not available for retry" });
+      }
+
+      res.json({ success: true, status: "pending" });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to retry avatar generation." });
     }
   });
 

@@ -73,8 +73,12 @@ Direct AI generation of photos and videos is restricted to **Admins**. Regular u
 
 Paws & Memories features an interactive, Tamagotchi-style pet avatar system with the following mechanics:
 
-- **Blender Scripting Engine**: Instead of simple image uploads, users configure their avatars by writing **Blender Python scripts (`bpy`)** in a dedicated code editor UI. 
-- **Microservice Architecture**: Because the main app runs on Hostinger shared hosting, the `bpy` scripts are sent securely via HTTP to a dedicated Docker microservice (`blender-worker`) running on Render, which safely executes the render and returns the 3D Avatar.
+- **Multi-Agent 3D Avatar Stack**: Instead of fallback 2D images, pet photos are processed by an autonomous multi-agent pipeline (built on LangGraph). The pipeline includes:
+  - *Perceive*: Analyzes the uploaded photo to determine species, breed, body type, and proportions.
+  - *Reason*: Formulates a step-by-step Blender build plan incorporating breed-specific anatomy data.
+  - *Act & Verify*: Generates and executes Blender Python (`bpy`) scripts iteratively, verifying geometry and bone hierarchies.
+  - *Visual-Verify*: Uses Gemini Vision to compare the final 3D viewport render against the original photo, automatically recovering from anatomical anomalies.
+- **Microservice Architecture**: Because the main app runs on Hostinger shared hosting, the generated `bpy` scripts are sent securely via HTTP to a dedicated Docker microservice (`blender-worker`) running on Render, which safely executes the render and returns the 3D Avatar.
 - **Life-like Biological Economy**: Avatars track their **Food** and **Water** levels. Both levels decay naturally over time (5% per hour). Users must feed and water their pets to keep them healthy.
 - **Daily Treats**: Claiming the daily login streak rewards users with virtual **Treats** in addition to credits. Treats can be fed to avatars for bonus food.
 - **3D Playpen Yard**: Displays pets in a grassy yard featuring:

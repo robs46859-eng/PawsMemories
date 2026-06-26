@@ -7,6 +7,8 @@ interface Avatar3DPlaypenProps {
   activeAction: AvatarAction | null;
   onActionAnimationComplete: () => void;
   isDarkMode: boolean;
+  /** Called when the user clicks "Retry" after a generation failure. */
+  onRetry?: (avatarId: number) => void;
 }
 
 interface FloatingEmoji {
@@ -35,6 +37,7 @@ export default function Avatar3DPlaypen({
   activeAction,
   onActionAnimationComplete,
   isDarkMode,
+  onRetry,
 }: Avatar3DPlaypenProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const spriteImgRef = useRef<HTMLImageElement | null>(null);
@@ -228,10 +231,10 @@ export default function Avatar3DPlaypen({
     renderFrame("photo", 0);
   }, [activeAction, spriteLoaded, renderFrame]);
 
-  // Determine display mode
+  // Determine display mode — NO 2D photo fallback
   const hasSpriteSheet = !!avatar.sprite_sheet_url && spriteLoaded;
   const isGenerating = avatar.generation_status !== "done" && avatar.generation_status !== "failed";
-  const showFallbackImage = !hasSpriteSheet && !!avatar.image_url && !isGenerating;
+  const showSpriteError = avatar.generation_status === "done" && !hasSpriteSheet && !isGenerating;
 
   return (
     <div
@@ -297,13 +300,21 @@ export default function Avatar3DPlaypen({
           <div className="absolute inset-0 z-30 bg-red-900/40 backdrop-blur-sm flex flex-col items-center justify-center text-white px-4">
             <span className="text-2xl mb-2">⚠️</span>
             <p className="text-xs font-bold text-center">Generation Failed</p>
-            <p className="text-[10px] opacity-70 text-center mt-1 max-w-[80%]">
-              {avatar.generation_error || "Unknown error occurred"}
+            <p className="text-[10px] opacity-70 text-center mt-1 max-w-[80%] mb-3">
+              {avatar.generation_error || "Unknown error occurred during 3D generation."}
             </p>
+            {onRetry && (
+              <button
+                onClick={() => onRetry(avatar.id)}
+                className="px-4 py-2 bg-white/20 backdrop-blur-sm text-white text-[11px] font-bold rounded-full hover:bg-white/30 transition-all active:scale-95"
+              >
+                🔄 Retry Generation
+              </button>
+            )}
           </div>
         )}
 
-        {/* Pet Avatar — Canvas for sprite sheet OR fallback image */}
+        {/* Pet Avatar — Canvas for sprite sheet OR error state (NO 2D fallback) */}
         <div className="absolute inset-0 flex items-center justify-center">
           {hasSpriteSheet && (
             <motion.div
@@ -331,22 +342,28 @@ export default function Avatar3DPlaypen({
               <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-20 h-3 bg-black/15 dark:bg-black/30 rounded-full blur-[2px]" />
             </motion.div>
           )}
-          {showFallbackImage && (
+
+          {/* Sprite load error — generation done but sprite sheet failed to load */}
+          {showSpriteError && (
             <motion.div
-              animate={{ y: [0, -3, 0] }}
-              transition={{ y: { repeat: Infinity, duration: 2, ease: "easeInOut" } }}
-              className="relative flex flex-col items-center"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="flex flex-col items-center text-center px-6"
             >
-              <img
-                src={avatar.image_url}
-                alt={avatar.name}
-                className="w-32 h-32 sm:w-40 sm:h-40 object-cover rounded-3xl drop-shadow-xl border-4 border-white/60 dark:border-white/10"
-              />
-              <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-20 h-3 bg-black/15 dark:bg-black/30 rounded-full blur-[2px]" />
-              {avatar.generation_status === "done" && spriteLoadFailed && (
-                <div className="mt-3 px-3 py-1 rounded-full bg-black/45 text-white text-[10px] font-bold backdrop-blur-sm">
-                  Avatar ready · preview loading fallback
-                </div>
+              <span className="text-3xl mb-3">🔧</span>
+              <p className="text-xs font-bold text-on-surface mb-1">Avatar Render Issue</p>
+              <p className="text-[10px] text-on-surface-variant opacity-70 mb-3 max-w-[80%]">
+                {spriteLoadFailed
+                  ? "The sprite sheet failed to load. The avatar may need to be regenerated."
+                  : "No sprite sheet was generated for this avatar."}
+              </p>
+              {onRetry && (
+                <button
+                  onClick={() => onRetry(avatar.id)}
+                  className="px-4 py-2 bg-primary text-white text-[11px] font-bold rounded-full hover:bg-primary/90 transition-all active:scale-95 shadow-md"
+                >
+                  🔄 Regenerate Avatar
+                </button>
               )}
             </motion.div>
           )}

@@ -22,6 +22,7 @@ import { actNode } from "./nodes/act";
 import { verifyNode } from "./nodes/verify";
 import { recoverNode } from "./nodes/recover";
 import { finalizeNode } from "./nodes/finalize";
+import { visualVerifyNode } from "./nodes/visual-verify";
 import { createInitialState } from "./nodes/types";
 import type { BuildState, PetAnalysis } from "./nodes/types";
 import { executeBlenderTool } from "../tools/blender_mcp";
@@ -53,14 +54,16 @@ export type ProgressCallback = (
  * @param petAnalysis - Analyzed pet anatomy data
  * @param glbBase64 - Base64-encoded GLB mesh to rig and animate
  * @param onProgress - Optional callback for progress updates
+ * @param originalImageBase64 - Original pet photo for visual verification
  * @returns Final build state with GLB, sprite sheet, and metadata
  */
 export async function runBuildPipeline(
   petAnalysis: PetAnalysis,
   glbBase64: string,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  originalImageBase64?: string | null,
 ): Promise<BuildState> {
-  let state = createInitialState(petAnalysis, glbBase64);
+  let state = createInitialState(petAnalysis, glbBase64, originalImageBase64);
 
   console.log("[Orchestrator] Starting multi-agent build pipeline");
   console.log(`[Orchestrator] Pet: ${petAnalysis.species} (${petAnalysis.breed}), ${petAnalysis.bodyType}`);
@@ -234,6 +237,36 @@ export async function runBuildPipeline(
   }
 
   await reportProgress(onProgress, state.status, 100, state.statusMessage);
+
+  // ---- Visual Verification ----
+  // After the build loop completes (successfully or partially), run a visual
+  // comparison of the 3D model against the original pet photo.
+  if (state.status !== "failed" && state.originalImageBase64) {
+    await reportProgress(onProgress, "visual_verification", 96, "Comparing 3D model against pet photo...");
+    try {
+      const vvUpdates = await visualVerifyNode(state);
+      state = { ...state, ...vvUpdates };
+
+      if (state.visualVerification) {
+        const vv = state.visualVerification;
+        if (vv.recommendation === "fail") {
+          state.status = "failed";
+          state.statusMessage = `Visual verification failed: ${vv.overallMatch} match — ` +
+            [...vv.proportionIssues, ...vv.anatomyIssues].join(", ");
+        } else if (vv.recommendation === "retry_mesh" || vv.recommendation === "retry_rigging") {
+          // Mark as failed with a descriptive message so the user can retry
+          state.status = "failed";
+          state.statusMessage = `3D model quality insufficient (${vv.overallMatch}): ` +
+            `${vv.recommendation === "retry_mesh" ? "mesh needs regeneration" : "rigging needs adjustment"} — ` +
+            [...vv.proportionIssues, ...vv.anatomyIssues].join(", ");
+        }
+        // "accept" → leave status as-is (completed)
+      }
+    } catch (err: any) {
+      console.warn("[Orchestrator] Visual verification failed:", err.message);
+      // Non-fatal: continue without visual verification
+    }
+  }
 
   // Summary
   const completedSteps = state.buildPlan.filter((s) => s.completed).length;

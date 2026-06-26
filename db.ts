@@ -825,6 +825,7 @@ export interface AvatarRow {
   model_url: string | null;
   sprite_sheet_url: string | null;
   animation_data: any | null;
+  meshy_handle: string | null;
   animal_type: string | null;
   breed: string | null;
   generation_status: 'pending' | 'generating_mesh' | 'rigging' | 'baking_sprites' | 'done' | 'failed';
@@ -840,6 +841,7 @@ export async function createAvatar(
   phone: string,
   name: string,
   image_url: string,
+  meshy_handle: string | null,
   opts?: {
     animal_type?: string;
     breed?: string;
@@ -847,15 +849,8 @@ export async function createAvatar(
   }
 ): Promise<number> {
   const [result] = await getPool().query(
-    `INSERT INTO avatars (user_phone, name, image_url, animal_type, breed, generation_status) VALUES (?, ?, ?, ?, ?, ?)`,
-    [
-      phone,
-      name,
-      image_url,
-      opts?.animal_type || null,
-      opts?.breed || null,
-      opts?.generation_status || 'done',
-    ]
+    `INSERT INTO avatars (user_phone, name, image_url, meshy_handle, animal_type, breed, generation_status) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [phone, name, image_url, meshy_handle, opts?.animal_type || null, opts?.breed || null, opts?.generation_status || 'pending']
   ) as any;
   return result.insertId;
 }

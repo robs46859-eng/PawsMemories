@@ -247,6 +247,15 @@ export async function pollAvatarStatus(avatarId: number): Promise<{
   return await res.json();
 }
 
+/** Retry a failed avatar generation. Resets status and re-triggers the 3D pipeline. */
+export async function retryAvatarGeneration(avatarId: number): Promise<{ success: boolean; status: string }> {
+  const res = await authedFetch(`/api/avatars/${avatarId}/retry`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(await parseError(res, "Failed to retry avatar generation."));
+  return await res.json();
+}
+
 export async function feedAvatarReq(id: number): Promise<boolean> {
   const res = await authedFetch(`/api/avatars/${id}/feed`, { method: "POST" });
   if (!res.ok) throw new Error(await parseError(res, "Failed to feed avatar."));
