@@ -7,7 +7,9 @@ import Stripe from "stripe";
 import fs from "fs";
 import twilio from "twilio";
 import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, getPool } from "./db";
-import { uploadBase64Image, uploadBinaryFromUrl } from "./storage";
+import { uploadBase64Image, uploadBinaryFromUrl, fetchUrlAsBase64 } from "./storage";
+import { runBuildPipeline } from "./agent/graph/orchestrator";
+import { analyzePetImage } from "./ollama-agent";
 import { startTalkingVideo, pollTalkingVideo, fetchMp4AsDataUrl, isHeyGenHandle } from "./heygen";
 import { startImageTo3D, pollImageTo3D, isMeshyHandle } from "./meshy";
 import {
@@ -375,9 +377,53 @@ async function startServer() {
       if (avatar.meshy_handle) {
         const poll = await pollImageTo3D(avatar.meshy_handle);
         if (poll.done && !poll.error) {
-          await updateAvatarModel(avatarId, req.user!.phone, poll.glbUrl!, "", {});
-          await updateAvatarGenerationStatus(avatarId, "done");
-          return res.json({ status: "done", model_url: poll.glbUrl });
+          await getPool().query(`UPDATE avatars SET meshy_handle = NULL WHERE id = ?`, [avatarId]);
+          await updateAvatarGenerationStatus(avatarId, "rigging");
+          
+          const avatarPhone = req.user!.phone;
+          const originalImageUrl = avatar.image_url;
+          const glbUrl = poll.glbUrl!;
+          
+          // Spawn background agent pipeline
+          (async () => {
+             try {
+                const originalImageBase64 = await fetchUrlAsBase64(originalImageUrl);
+                const glbBase64 = await fetchUrlAsBase64(glbUrl);
+                
+                const petAnalysis = await analyzePetImage(originalImageBase64);
+                
+                const buildState = await runBuildPipeline(
+                   petAnalysis,
+                   glbBase64,
+                   async (step, pct, detail) => {
+                      // Fire-and-forget progress log
+                      console.log(`[Avatar ${avatarId}] ${step}: ${detail} (${pct}%)`);
+                   },
+                   originalImageBase64
+                );
+                
+                if (buildState.status === "failed") {
+                   await updateAvatarGenerationStatus(avatarId, "failed", buildState.statusMessage);
+                } else if (buildState.status === "completed") {
+                   let finalModelUrl = glbUrl;
+                   let finalSpriteSheetUrl = "";
+                   if (buildState.riggedGlbBase64) {
+                      finalModelUrl = await uploadBase64Image(buildState.riggedGlbBase64);
+                   }
+                   if (buildState.spriteSheetBase64) {
+                      finalSpriteSheetUrl = await uploadBase64Image(buildState.spriteSheetBase64);
+                   }
+                   
+                   await updateAvatarModel(avatarId, avatarPhone, finalModelUrl, finalSpriteSheetUrl, buildState.animationMetadata || {});
+                   await updateAvatarGenerationStatus(avatarId, "done");
+                }
+             } catch (err: any) {
+                console.error(`[Avatar ${avatarId} Agent Error]`, err);
+                await updateAvatarGenerationStatus(avatarId, "failed", err.message);
+             }
+          })();
+
+          return res.json({ status: "rigging" });
         } else if (poll.done && poll.error) {
           await updateAvatarGenerationStatus(avatarId, "failed", poll.error);
           return res.json({ status: "failed", error: "Generation failed" });

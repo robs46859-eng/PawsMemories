@@ -149,3 +149,15 @@ export async function uploadBinaryFromUrl(
     throw new Error(`Object storage upload failed: ${error.message}`);
   }
 }
+
+/**
+ * Fetches a public URL and converts it to a data URI base64 string.
+ */
+export async function fetchUrlAsBase64(url: string): Promise<string> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch ${url} for base64 conversion: ${res.status}`);
+  const arrayBuffer = await res.arrayBuffer();
+  const base64 = Buffer.from(arrayBuffer).toString("base64");
+  const mime = res.headers.get("content-type") || "application/octet-stream";
+  return `data:${mime};base64,${base64}`;
+}
