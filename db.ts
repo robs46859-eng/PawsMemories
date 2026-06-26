@@ -241,6 +241,7 @@ export async function initDb(): Promise<void> {
         user_phone VARCHAR(32) NOT NULL,
         name VARCHAR(120) NOT NULL,
         image_url TEXT NOT NULL,
+        meshy_handle VARCHAR(255) NULL,
         model_url TEXT NULL,
         sprite_sheet_url TEXT NULL,
         animation_data JSON NULL,
@@ -257,6 +258,21 @@ export async function initDb(): Promise<void> {
         FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
+
+    // Migration for avatars table
+    try {
+      const [avatarCols] = await getPool().query(
+        `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'avatars'`,
+        [dbName]
+      ) as any;
+      const avatarColumnNames = avatarCols.map((c: any) => c.COLUMN_NAME);
+      if (!avatarColumnNames.includes("meshy_handle")) {
+        await getPool().query(`ALTER TABLE avatars ADD COLUMN meshy_handle VARCHAR(255) NULL AFTER image_url`);
+        console.log(`✅ Migrated avatars: added column meshy_handle.`);
+      }
+    } catch (migErr) {
+      console.warn(`⚠️ Could not migrate avatars table:`, migErr);
+    }
 
     // Migration: add 3D columns to existing avatars table
     const [avatarCols] = await getPool().query(

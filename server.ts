@@ -353,7 +353,7 @@ async function startServer() {
       res.json({ avatarId, status: "pending" });
     } catch (err: any) {
       console.error("[POST /api/avatars] Error creating avatar:", err);
-      res.status(500).json({ error: "Failed to create avatar." });
+      res.status(500).json({ error: err.message || "Failed to create avatar." });
     }
   });
 
@@ -422,7 +422,7 @@ async function startServer() {
       res.json({ success: true, status: "pending" });
     } catch (err: any) {
       console.error("[POST /api/avatars/:id/retry] Error retrying avatar:", err);
-      res.status(500).json({ error: "Failed to retry avatar generation." });
+      res.status(500).json({ error: err.message || "Failed to retry avatar generation." });
     }
   });
 
