@@ -122,7 +122,7 @@ export class BlenderClient {
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
 
     try {
-      let url = `${this.baseUrl}${endpoint}`;
+      const url = `${this.baseUrl}${endpoint}`;
       
       const options: RequestInit = {
         method,
