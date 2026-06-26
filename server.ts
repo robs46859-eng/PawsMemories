@@ -341,12 +341,18 @@ async function startServer() {
       const { name, photo } = req.body;
       if (!name || !photo) return res.status(400).json({ error: "Name and photo required." });
 
+      let finalImageUrl = photo;
+      if (photo.startsWith("data:image")) {
+        finalImageUrl = await uploadBase64Image(photo);
+      }
+
       // Start meshy generation
-      const handle = await startImageTo3D({ imageUrl: photo });
-      const avatarId = await createAvatar(req.user!.phone, name, photo, handle);
+      const handle = await startImageTo3D({ imageUrl: finalImageUrl });
+      const avatarId = await createAvatar(req.user!.phone, name, finalImageUrl, handle);
       
       res.json({ avatarId, status: "pending" });
     } catch (err: any) {
+      console.error("[POST /api/avatars] Error creating avatar:", err);
       res.status(500).json({ error: "Failed to create avatar." });
     }
   });
@@ -401,7 +407,13 @@ async function startServer() {
 
       // Re-trigger the background generation job with Meshy
       if (avatar.image_url) {
-        const handle = await startImageTo3D({ imageUrl: avatar.image_url });
+        let finalImageUrl = avatar.image_url;
+        if (finalImageUrl.startsWith("data:image")) {
+           finalImageUrl = await uploadBase64Image(finalImageUrl);
+           // Also update the avatar image_url in DB if it was base64
+           await getPool().query(`UPDATE avatars SET image_url = ? WHERE id = ?`, [finalImageUrl, avatarId]);
+        }
+        const handle = await startImageTo3D({ imageUrl: finalImageUrl });
         await getPool().query(`UPDATE avatars SET meshy_handle = ? WHERE id = ?`, [handle, avatarId]);
       } else {
         return res.status(400).json({ error: "Original photo not available for retry" });
@@ -409,6 +421,7 @@ async function startServer() {
 
       res.json({ success: true, status: "pending" });
     } catch (err: any) {
+      console.error("[POST /api/avatars/:id/retry] Error retrying avatar:", err);
       res.status(500).json({ error: "Failed to retry avatar generation." });
     }
   });
