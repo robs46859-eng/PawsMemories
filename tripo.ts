@@ -1,5 +1,3 @@
-import FormData from "form-data";
-
 const TRIPO_BASE = "https://api.tripo3d.ai/v2/openapi";
 export const TRIPO_PREFIX = "tripo:";
 
@@ -26,20 +24,20 @@ export async function startImageTo3D(input: TripoJobInput): Promise<string> {
   const imgRes = await fetch(input.imageUrl);
   if (!imgRes.ok) throw new Error(`Failed to download image for Tripo: ${imgRes.statusText}`);
   const arrayBuffer = await imgRes.arrayBuffer();
-  const imgBuffer = Buffer.from(arrayBuffer);
   const mimeType = imgRes.headers.get("content-type") || "image/jpeg";
   let ext = "jpg";
   if (mimeType.includes("png")) ext = "png";
 
-  // 2. Upload to Tripo
+  // 2. Upload to Tripo using native FormData and Blob (Node 18+)
+  const blob = new Blob([arrayBuffer], { type: mimeType });
   const formData = new FormData();
-  formData.append("file", imgBuffer, { filename: `upload.${ext}`, contentType: mimeType });
+  formData.append("file", blob, `upload.${ext}`);
 
   const uploadRes = await fetch(`${TRIPO_BASE}/upload`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey()}`,
-      // FormData automatically sets Content-Type with boundary
+      // Native fetch automatically sets Content-Type boundary for native FormData
     },
     body: formData,
   });
@@ -48,6 +46,8 @@ export async function startImageTo3D(input: TripoJobInput): Promise<string> {
   if (!uploadRes.ok) {
     throw new Error(`Tripo upload failed (${uploadRes.status}): ${JSON.stringify(uploadJson)}`);
   }
+  
+  // Tripo v2 upload endpoint returns data.image_token
   const fileToken = uploadJson?.data?.image_token;
   if (!fileToken) {
     throw new Error(`Tripo upload returned no image_token: ${JSON.stringify(uploadJson)}`);
