@@ -63,10 +63,12 @@ export async function uploadBase64Image(base64String: string): Promise<string> {
     throw new Error("Object storage is not configured. Please check MEDIA_BUCKET_* environment variables.");
   }
 
-  // Parse the base64 string
-  const matches = base64String.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+  // Parse the base64 string. Use [\s\S]+ to tolerate newlines in the base64 payload.
+  const cleanBase64 = base64String.trim();
+  const matches = cleanBase64.match(/^data:([A-Za-z0-9-+\/.]+);base64,([\s\S]+)$/);
   if (!matches || matches.length !== 3) {
-    throw new Error("Invalid base64 data string provided to uploadBase64Image");
+    const prefix = base64String.substring(0, 100);
+    throw new Error(`Invalid base64 data string provided to uploadBase64Image. Prefix: ${prefix}`);
   }
 
   const mimeType = matches[1];
