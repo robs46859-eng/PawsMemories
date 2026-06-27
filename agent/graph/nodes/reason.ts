@@ -33,21 +33,22 @@ Your job is to decide the NEXT ACTION. You must return a JSON object:
 BUILD ORDER for pet avatars:
 1. Verify mesh import — check the GLB loaded correctly, count vertices/faces
 2. Create armature — bone hierarchy matching the pet anatomy
-3. Position bones — align to mesh bounding box using world coordinates
+3. Position bones — calculate actual vertex centroids for each body part (e.g., head is top 20% Z, legs are bottom 30% Z, tail is rear 20% Y) to ensure precise alignment
 4. Parent mesh to armature — use automatic weights (ARMATURE_AUTO)
 5. Test deformations — rotate key bones slightly, verify no distortion
-6. Create eat animation — head/neck dip cycle (4 frames)
-7. Create drink animation — head stays low, bob cycle (4 frames)
-8. Create run animation — gallop/trot leg cycle (6 frames)
-9. Create play animation — bounce/jump cycle (4 frames)
-10. Create sleep animation — curled up, breathing (3 frames)
-11. Create photo animation — alert pose, head tilt (3 frames)
+6. Create eat animation — head/neck dip cycle (24 frames)
+7. Create drink animation — head stays low, bob cycle (24 frames)
+8. Create run animation — gallop/trot leg cycle (24 frames)
+9. Create play animation — bounce/jump cycle (24 frames)
+10. Create sleep animation — curled up, breathing (24 frames)
+11. Create photo animation — alert pose, head tilt (12 frames)
 12. Setup camera + lighting — orthographic side view, 3-point light rig
 13. Render sprite sheet — 128×128 per frame, 6 rows
 
 CONSTRAINTS:
 - ALWAYS use .get() for bone access, NEVER direct indexing
-- Keep rotations within anatomical limits (±45° legs, ±30° spine, ±25° tail)
+- Keep rotations within anatomical limits (±60° legs, ±45° spine, ±60° tail)
+- Use Bezier interpolation for all animation keyframes to ensure smooth, realistic movement
 - Use BLENDER_WORKBENCH engine for fast headless rendering
 - Film transparent = True for sprite sheets
 - Bone names: hips, spine, chest, neck, head, front_leg_upper.L/R, front_leg_lower.L/R, front_paw.L/R, back_leg_upper.L/R, back_leg_lower.L/R, back_paw.L/R, tail_01/02/03
@@ -99,8 +100,8 @@ export function generateBuildPlan(state: BuildState): BuildStep[] {
         (petAnalysis.hasTail ? ", tail_01 → tail_02 → tail_03" : ""),
       constraints: [
         "Use edit mode to create bones",
-        "Position bones based on mesh bounding box",
-        "Use Vector from mathutils for world-space bbox calculation",
+        "Position bones by calculating actual vertex centroids for each body part (e.g., head is top 20% Z, legs are bottom 30% Z) to ensure precise alignment",
+        "Use Vector from mathutils for world-space coordinates",
         "Return to OBJECT mode when done",
         `Breed-specific: front leg joint max ${boneProps.frontLegs.jointAngleMax}°, rear leg joint max ${boneProps.rearLegs.jointAngleMax}°`,
       ],
@@ -140,12 +141,12 @@ export function generateBuildPlan(state: BuildState): BuildStep[] {
   };
 
   const animations = [
-    { name: "eating", frames: 4, desc: `Head/neck dip down (reach multiplier: ${animMods.eatingReach.toFixed(1)}x), jaw bobbing, slight forward lean` },
-    { name: "drinking", frames: 4, desc: `Head at consistent low level (reach: ${animMods.eatingReach.toFixed(1)}x), rhythmic lapping` },
-    { name: "running", frames: 6, desc: `${gaitDesc[animMods.runGaitType] || "trot cycle"}, body bob (spine flex: ${animMods.spineFlexMultiplier.toFixed(1)}x), max leg angle: ${boneProps.frontLegs.jointAngleMax}°` },
-    { name: "playing", frames: 4, desc: `Playful bounce/jump (bounce: ${animMods.playBounce.toFixed(1)}x), front paws lift, energetic` },
-    { name: "sleeping", frames: 3, desc: "Body lowered, slow breathing, head resting" },
-    { name: "photo", frames: 3, desc: "Alert sitting, head tilts, ears perk up" },
+    { name: "eating", frames: 24, desc: `Head/neck dip down (reach multiplier: ${animMods.eatingReach.toFixed(1)}x), jaw bobbing, slight forward lean, smooth transitions` },
+    { name: "drinking", frames: 24, desc: `Head at consistent low level (reach: ${animMods.eatingReach.toFixed(1)}x), rhythmic lapping, continuous looping` },
+    { name: "running", frames: 24, desc: `${gaitDesc[animMods.runGaitType] || "trot cycle"}, body bob (spine flex: ${animMods.spineFlexMultiplier.toFixed(1)}x), max leg angle: ${boneProps.frontLegs.jointAngleMax}°, large expressive leg arcs` },
+    { name: "playing", frames: 24, desc: `Playful bounce/jump (bounce: ${animMods.playBounce.toFixed(1)}x), front paws lift, energetic full-body movement` },
+    { name: "sleeping", frames: 24, desc: "Body lowered, slow continuous breathing, head resting, very subtle smooth motion" },
+    { name: "photo", frames: 12, desc: "Alert sitting, head tilts, ears perk up, natural idle" },
   ];
 
   for (const anim of animations) {

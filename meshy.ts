@@ -50,6 +50,8 @@ export async function startImageTo3D(input: MeshyJobInput): Promise<string> {
     target_polycount: 30000,
     should_texture: true,
     enable_pbr: true,
+    art_style: "realistic",
+    texture_resolution: "2048",
   };
 
   const res = await fetch(`${MESHY_BASE}/openapi/v1/image-to-3d`, {

@@ -42,8 +42,8 @@ export async function finalizeNode(state: BuildState): Promise<Partial<BuildStat
 
   const animSteps = state.buildPlan.filter((s) => s.phase === "animation" && s.completed);
   const animNames = ["eating", "drinking", "running", "playing", "sleeping", "photo"];
-  const animFrames = [4, 4, 6, 4, 3, 3];
-  const animFps = [8, 8, 12, 10, 4, 6];
+  const animFrames = [24, 24, 24, 24, 24, 12];
+  const animFps = [24, 24, 24, 24, 12, 12];
 
   for (let i = 0; i < animNames.length; i++) {
     animationMeta.animations[animNames[i]] = {
@@ -60,6 +60,10 @@ export async function finalizeNode(state: BuildState): Promise<Partial<BuildStat
 
   console.log(`[Finalize] ✅ Build complete: ${completedSteps}/${totalSteps} steps (${successRate}%)`);
   console.log(`[Finalize]    Errors: ${state.errorCount}, Checkpoints: ${state.checkpoints.length}`);
+
+  if (riggedGlb && !riggedGlb.startsWith("data:")) {
+    riggedGlb = `data:model/gltf-binary;base64,${riggedGlb}`;
+  }
 
   return {
     riggedGlbBase64: riggedGlb,
