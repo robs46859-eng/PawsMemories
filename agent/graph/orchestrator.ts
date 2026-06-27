@@ -250,13 +250,14 @@ export async function runBuildPipeline(
       if (state.visualVerification) {
         const vv = state.visualVerification;
         if (vv.recommendation === "fail") {
-          state.status = "failed";
-          state.statusMessage = `Visual verification failed: ${vv.overallMatch} match — ` +
+          // Instead of failing the build, we just set a warning message so the user can still see the result
+          console.warn(`[Orchestrator] Visual verification warning: ${vv.overallMatch} match`);
+          state.statusMessage = `⚠️ Visual verification warning: ${vv.overallMatch} match — ` +
             [...vv.proportionIssues, ...vv.anatomyIssues].join(", ");
         } else if (vv.recommendation === "retry_mesh" || vv.recommendation === "retry_rigging") {
-          // Mark as failed with a descriptive message so the user can retry
-          state.status = "failed";
-          state.statusMessage = `3D model quality insufficient (${vv.overallMatch}): ` +
+          // Mark as warning with a descriptive message
+          console.warn(`[Orchestrator] 3D model quality warning (${vv.overallMatch})`);
+          state.statusMessage = `⚠️ 3D model quality warning (${vv.overallMatch}): ` +
             `${vv.recommendation === "retry_mesh" ? "mesh needs regeneration" : "rigging needs adjustment"} — ` +
             [...vv.proportionIssues, ...vv.anatomyIssues].join(", ");
         }
