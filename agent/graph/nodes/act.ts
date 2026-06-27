@@ -328,7 +328,12 @@ hips = add_bone("hips", hips_h, spine_t)
 spine = add_bone("spine", spine_t, chest_t, hips)
 chest = add_bone("chest", chest_t, neck_t, spine)
 neck = add_bone("neck", neck_t, head_t, chest)
-head = add_bone("head", head_t, head_t + forward * max(half_len * ${headFwd}, 0.08), neck)
+head_fwd = forward * max(half_len * ${headFwd}, 0.08)
+head = add_bone("head", head_t, head_t + head_fwd, neck)
+jaw = add_bone("jaw", head_t + head_fwd * 0.2, head_t + head_fwd * 0.8 - Vector((0,0,0.05)), head)
+for side, sign in (("L", 1), ("R", -1)):
+    add_bone(f"ear.{side}", head_t + Vector((0, sign * half_w * 0.5, dims.z * 0.05)), head_t + Vector((0, sign * half_w * 0.8, dims.z * 0.15)), head)
+    add_bone(f"eye.{side}", head_t + head_fwd * 0.5 + Vector((0, sign * half_w * 0.3, dims.z * 0.05)), head_t + head_fwd * 0.55 + Vector((0, sign * half_w * 0.3, dims.z * 0.05)), head)
 # Breed-aware leg proportions
 front_knee_h = ${(0.22 * boneProps.legHeightFront).toFixed(3)}
 rear_knee_h = ${(0.22 * boneProps.legHeightRear).toFixed(3)}
@@ -391,22 +396,27 @@ for vg in mesh.vertex_groups:
         vg.remove([v.index for v in mesh.data.vertices])
     except Exception:
         pass
-for v in mesh.data.vertices:
-    world = mesh.matrix_world @ v.co
-    group_name = choose_group(world)
-    if group_name not in bone_names:
-        group_name = bone_names[0]
-    mesh.vertex_groups[group_name].add([v.index], 1.0, 'REPLACE')
-mod = next((m for m in mesh.modifiers if m.type == 'ARMATURE'), None)
-if mod is None:
-    mod = mesh.modifiers.new("PetArmature", 'ARMATURE')
-mod.object = armature
-mesh.parent = armature
 bpy.context.view_layer.objects.active = armature
 for obj in bpy.context.scene.objects:
     obj.select_set(False)
 mesh.select_set(True)
 armature.select_set(True)
+try:
+    print("[Deterministic] Attempting automatic bone weights...")
+    bpy.ops.object.parent_set(type='ARMATURE_AUTO')
+except Exception as e:
+    print(f"[Deterministic] Auto weights failed ({e}), falling back to box binding...")
+    for v in mesh.data.vertices:
+        world = mesh.matrix_world @ v.co
+        group_name = choose_group(world)
+        if group_name not in bone_names:
+            group_name = bone_names[0]
+        mesh.vertex_groups[group_name].add([v.index], 1.0, 'REPLACE')
+    mod = next((m for m in mesh.modifiers if m.type == 'ARMATURE'), None)
+    if mod is None:
+        mod = mesh.modifiers.new("PetArmature", 'ARMATURE')
+    mod.object = armature
+    mesh.parent = armature
 print(f"[Deterministic] Bound {mesh.name} to {armature.name} with {len(bone_names)} breed-aware vertex groups")`;
   }
 
@@ -436,7 +446,7 @@ if not armature.animation_data:
     armature.animation_data_create()
 action = bpy.data.actions.new("${name}") if "${name}" not in bpy.data.actions else bpy.data.actions["${name}"]
 armature.animation_data.action = action
-frames = [0, 1, 2, 3] if "${name}" in ("eating", "drinking", "playing") else ([0, 1, 2, 3, 4, 5] if "${name}" == "running" else [0, 1, 2])
+frames = list(range(24)) if "${name}" in ("eating", "drinking", "running", "playing", "sleeping") else list(range(12))
 # Breed-specific animation parameters
 leg_angle_max = ${legAngleMax}
 tail_angle_max = ${tailAngle}
@@ -447,7 +457,7 @@ tail_wag = ${tailWag}
 for frame in frames:
     bpy.context.scene.frame_set(frame)
     phase = (frame / max(len(frames) - 1, 1)) * math.tau
-    for bone_name in ("hips", "spine", "chest", "neck", "head", "tail_01", "tail_02", "front_leg_upper.L", "front_leg_upper.R", "back_leg_upper.L", "back_leg_upper.R"):
+    for bone_name in ("hips", "spine", "chest", "neck", "head", "jaw", "ear.L", "ear.R", "eye.L", "eye.R", "tail_01", "tail_02", "front_leg_upper.L", "front_leg_upper.R", "back_leg_upper.L", "back_leg_upper.R"):
         bone = armature.pose.bones.get(bone_name)
         if not bone:
             continue
@@ -455,8 +465,12 @@ for frame in frames:
         bone.rotation_euler = (0, 0, 0)
         if "${name}" == "eating" and bone_name in ("neck", "head"):
             bone.rotation_euler.x = math.radians((10 + 12 * math.sin(phase)) * eating_reach)
+        elif "${name}" == "eating" and bone_name == "jaw":
+            bone.rotation_euler.x = math.radians(15 + 15 * math.sin(phase * 2))
         elif "${name}" == "drinking" and bone_name in ("neck", "head"):
             bone.rotation_euler.x = math.radians((18 + 5 * math.sin(phase * 2)) * eating_reach)
+        elif "${name}" == "drinking" and bone_name == "jaw":
+            bone.rotation_euler.x = math.radians(10 + 10 * math.sin(phase * 4))
         elif "${name}" == "running" and "leg_upper" in bone_name:
             leg_amp = min(leg_angle_max, ${isWaddle ? 14 : isHop ? 30 : 22})
             ${isWaddle
@@ -468,8 +482,13 @@ for frame in frames:
             bone.rotation_euler.x = math.radians(${(4 * spineFlex).toFixed(1)} * math.sin(phase))
         elif "${name}" == "playing" and bone_name in ("hips", "spine", "chest"):
             bone.rotation_euler.x = math.radians(${(8 * playBounce).toFixed(1)} * math.sin(phase))
+        elif "${name}" == "playing" and bone_name.startswith("ear."):
+            bone.rotation_euler.y = math.radians(15 * math.sin(phase * 2))
+            bone.rotation_euler.z = math.radians(10 * math.sin(phase * 2))
         elif "${name}" == "sleeping" and bone_name in ("spine", "neck", "head"):
             bone.rotation_euler.z = math.radians(6)
+        elif "${name}" == "sleeping" and bone_name.startswith("eye."):
+            bone.rotation_euler.x = math.radians(10) # close eyes
         elif "${name}" == "photo" and bone_name == "head":
             bone.rotation_euler.z = math.radians(8 * math.sin(phase))
         elif bone_name.startswith("tail_"):
@@ -518,9 +537,29 @@ add_light("KeyLight", 'SUN', 2.0, center + Vector((5, -5, 5)), (math.radians(45)
 add_light("FillLight", 'POINT', 0.5, center + Vector((-2, -5, 1)))
 add_light("RimLight", 'SUN', 1.5, center + Vector((-5, 5, 2)), (math.radians(45), 0, math.radians(-135)))
 bpy.context.scene.render.film_transparent = True
-bpy.context.scene.render.engine = 'BLENDER_WORKBENCH'
-bpy.context.scene.display.shading.color_type = 'TEXTURE'
-bpy.context.scene.display.shading.light = 'FLAT'
+bpy.context.scene.render.engine = 'BLENDER_EEVEE'
+try:
+    bpy.context.scene.eevee.use_gtao = True
+    bpy.context.scene.eevee.use_bloom = True
+except Exception:
+    pass
+
+# Apply Procedural Fur Bump Map
+if mesh.data.materials:
+    mat = mesh.data.materials[0]
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    bsdf = nodes.get("Principled BSDF")
+    if bsdf:
+        noise = nodes.new(type='ShaderNodeTexNoise')
+        noise.inputs['Scale'].default_value = 150.0
+        noise.inputs['Detail'].default_value = 10.0
+        bump = nodes.new(type='ShaderNodeBump')
+        bump.inputs['Distance'].default_value = 0.05
+        bump.inputs['Strength'].default_value = 0.4
+        links.new(noise.outputs['Color'], bump.inputs['Height'])
+        links.new(bump.outputs['Normal'], bsdf.inputs['Normal'])
 print("[Deterministic] Camera and lighting setup complete")`;
   }
 
@@ -531,9 +570,9 @@ import base64
 import numpy as np
 print("[Deterministic] Rendering sprite sheet")
 anim_names = ["eating", "drinking", "running", "playing", "sleeping", "photo"]
-anim_frames = [4, 4, 6, 4, 3, 3]
+anim_frames = [24, 24, 24, 24, 24, 12]
 rows = 6
-cols = 6
+cols = 24
 frame_size = 128
 bpy.context.scene.render.resolution_x = frame_size
 bpy.context.scene.render.resolution_y = frame_size
