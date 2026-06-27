@@ -1,4 +1,3 @@
-import fetch from "node-fetch";
 import FormData from "form-data";
 
 const TRIPO_BASE = "https://api.tripo3d.ai/v2/openapi";
@@ -26,7 +25,8 @@ export async function startImageTo3D(input: TripoJobInput): Promise<string> {
   // 1. Download image
   const imgRes = await fetch(input.imageUrl);
   if (!imgRes.ok) throw new Error(`Failed to download image for Tripo: ${imgRes.statusText}`);
-  const imgBuffer = await imgRes.buffer();
+  const arrayBuffer = await imgRes.arrayBuffer();
+  const imgBuffer = Buffer.from(arrayBuffer);
   const mimeType = imgRes.headers.get("content-type") || "image/jpeg";
   let ext = "jpg";
   if (mimeType.includes("png")) ext = "png";

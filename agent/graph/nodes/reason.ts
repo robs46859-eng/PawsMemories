@@ -31,7 +31,7 @@ Your job is to decide the NEXT ACTION. You must return a JSON object:
 }
 
 BUILD ORDER for pet avatars:
-1. Verify mesh import — check the GLB loaded correctly, count vertices/faces
+1. Verify mesh import — check the GLB loaded correctly, rotate mesh to face -Y (forward) and apply rotation
 2. Create armature — bone hierarchy matching the pet anatomy
 3. Position bones — calculate actual vertex centroids for each body part (e.g., head is top 20% Z, legs are bottom 30% Z, tail is rear 20% Y, jaw is bottom-front 10% of head, ears are top-rear 20% of head) to ensure precise alignment
 4. Parent mesh to armature — use automatic weights (ARMATURE_AUTO)
