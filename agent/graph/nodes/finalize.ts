@@ -16,7 +16,11 @@ export async function finalizeNode(state: BuildState): Promise<Partial<BuildStat
     try {
       const result = await executeBlenderTool("export_glb", {});
       if (result.success && result.data?.glb_base64) {
-        riggedGlb = result.data.glb_base64;
+        let b64 = result.data.glb_base64;
+        if (!b64.startsWith("data:")) {
+          b64 = `data:model/gltf-binary;base64,${b64}`;
+        }
+        riggedGlb = b64;
         console.log(`[Finalize] GLB exported: ${result.data.size_bytes} bytes`);
       } else {
         console.error(
