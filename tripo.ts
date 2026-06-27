@@ -56,7 +56,6 @@ export async function startImageTo3D(input: TripoJobInput): Promise<string> {
   // 3. Start task
   const body = {
     type: "image_to_model",
-    model_version: "v2.5",
     file: {
       type: ext,
       file_token: fileToken
