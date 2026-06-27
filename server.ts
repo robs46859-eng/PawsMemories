@@ -11,7 +11,7 @@ import { uploadBase64Image, uploadBinaryFromUrl, fetchUrlAsBase64 } from "./stor
 import { runBuildPipeline } from "./agent/graph/orchestrator";
 import { analyzePetImage } from "./ollama-agent";
 import { startTalkingVideo, pollTalkingVideo, fetchMp4AsDataUrl, isHeyGenHandle } from "./heygen";
-import { startImageTo3D, pollImageTo3D, isMeshyHandle } from "./meshy";
+import { startImageTo3D, pollImageTo3D, isTripoHandle } from "./tripo";
 import {
   signToken,
   requireAuth,
@@ -1494,7 +1494,7 @@ async function startServer() {
           return res.json({ success: true, status: job.status, video_url: null, error: job.error });
         }
         // --- Meshy 3D-model branch ---
-        if (job.operation_name && isMeshyHandle(job.operation_name)) {
+        if (job.operation_name && isTripoHandle(job.operation_name)) {
           try {
             const result = await pollImageTo3D(job.operation_name);
             if (result.done) {
@@ -1632,7 +1632,7 @@ async function startServer() {
           continue;
         }
         // --- Meshy 3D-model branch ---
-        if (isMeshyHandle(job.operation_name)) {
+        if (isTripoHandle(job.operation_name)) {
           try {
             const result = await pollImageTo3D(job.operation_name);
             if (result.done) {
