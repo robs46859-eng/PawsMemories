@@ -104,7 +104,14 @@ export async function pollImageTo3D(operationName: string): Promise<TripoPollRes
   const progress = typeof json?.data?.progress === "number" ? json.data.progress : undefined;
 
   if (status === "success") {
-    return { done: true, glbUrl: json.data.output.model, progress: 100 };
+    const output = json?.data?.output || {};
+    // Try multiple possible field names for the GLB download URL
+    const glbUrl = output.model || output.model_url || output.pbr_model || output.base_model;
+    console.log(`[Tripo] Task ${taskId} succeeded. Output keys: ${Object.keys(output).join(", ")}. glbUrl: ${glbUrl}`);
+    if (!glbUrl) {
+      throw new Error(`Tripo task succeeded but no model URL found in output: ${JSON.stringify(output)}`);
+    }
+    return { done: true, glbUrl, progress: 100 };
   } else if (status === "failed" || status === "cancelled") {
     return { done: true, error: `Tripo generation failed: ${status}`, progress };
   } else {

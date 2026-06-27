@@ -348,7 +348,7 @@ async function startServer() {
         finalImageUrl = await uploadBase64Image(photo);
       }
 
-      // Start meshy generation
+      // Start Tripo3D generation
       const handle = await startImageTo3D({ imageUrl: finalImageUrl });
       const avatarId = await createAvatar(req.user!.phone, name, finalImageUrl, handle);
       
@@ -373,7 +373,7 @@ async function startServer() {
         });
       }
 
-      // Check meshy for status
+      // Check Tripo3D for status
       if (avatar.meshy_handle) {
         const poll = await pollImageTo3D(avatar.meshy_handle);
         if (poll.done && !poll.error) {
@@ -451,7 +451,7 @@ async function startServer() {
       // Reset status and error
       await updateAvatarGenerationStatus(avatarId, "pending", null);
 
-      // Re-trigger the background generation job with Meshy
+      // Re-trigger the background generation job with Tripo3D
       if (avatar.image_url) {
         let finalImageUrl = avatar.image_url;
         if (finalImageUrl.startsWith("data:image")) {
