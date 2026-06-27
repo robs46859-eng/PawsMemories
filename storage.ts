@@ -64,7 +64,10 @@ export async function uploadBase64Image(base64String: string): Promise<string> {
   }
 
   // Parse the base64 string. Use [\s\S]+ to tolerate newlines in the base64 payload.
-  const cleanBase64 = base64String.trim();
+  let cleanBase64 = base64String.trim();
+  if (cleanBase64.startsWith("Z2xURg")) {
+    cleanBase64 = `data:model/gltf-binary;base64,${cleanBase64}`;
+  }
   const matches = cleanBase64.match(/^data:([A-Za-z0-9-+\/.]+);base64,([\s\S]+)$/);
   if (!matches || matches.length !== 3) {
     const prefix = base64String.substring(0, 100);
