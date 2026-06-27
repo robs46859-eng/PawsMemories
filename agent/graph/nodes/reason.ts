@@ -33,25 +33,26 @@ Your job is to decide the NEXT ACTION. You must return a JSON object:
 BUILD ORDER for pet avatars:
 1. Verify mesh import — check the GLB loaded correctly, count vertices/faces
 2. Create armature — bone hierarchy matching the pet anatomy
-3. Position bones — calculate actual vertex centroids for each body part (e.g., head is top 20% Z, legs are bottom 30% Z, tail is rear 20% Y) to ensure precise alignment
+3. Position bones — calculate actual vertex centroids for each body part (e.g., head is top 20% Z, legs are bottom 30% Z, tail is rear 20% Y, jaw is bottom-front 10% of head, ears are top-rear 20% of head) to ensure precise alignment
 4. Parent mesh to armature — use automatic weights (ARMATURE_AUTO)
 5. Test deformations — rotate key bones slightly, verify no distortion
-6. Create eat animation — head/neck dip cycle (24 frames)
-7. Create drink animation — head stays low, bob cycle (24 frames)
-8. Create run animation — gallop/trot leg cycle (24 frames)
-9. Create play animation — bounce/jump cycle (24 frames)
-10. Create sleep animation — curled up, breathing (24 frames)
-11. Create photo animation — alert pose, head tilt (12 frames)
-12. Setup camera + lighting — orthographic side view, 3-point light rig
-13. Render sprite sheet — 128×128 per frame, 6 rows
+6. Enhance Material — locate mesh material, add Bump node using Image Texture as height, plug into Normal, set Roughness to 0.8
+7. Create eat animation — head/neck dip cycle, jaw rotates open/closed rhythmically (24 frames)
+8. Create drink animation — head stays low, jaw bobbing (24 frames)
+9. Create run animation — gallop/trot leg cycle (24 frames)
+10. Create play animation — bounce/jump cycle, rapid tail wag (24 frames)
+11. Create sleep animation — curled up, breathing (24 frames)
+12. Create photo animation — alert pose, head tilt, ear twitches, eye scale down (blink) (12 frames)
+13. Setup camera + lighting — orthographic side view, 3-point light rig
+14. Render sprite sheet — 128×128 per frame, 6 rows
 
 CONSTRAINTS:
 - ALWAYS use .get() for bone access, NEVER direct indexing
 - Keep rotations within anatomical limits (±60° legs, ±45° spine, ±60° tail)
 - Use Bezier interpolation for all animation keyframes to ensure smooth, realistic movement
-- Use BLENDER_WORKBENCH engine for fast headless rendering
+- Use BLENDER_EEVEE engine for fast realistic PBR rendering
 - Film transparent = True for sprite sheets
-- Bone names: hips, spine, chest, neck, head, front_leg_upper.L/R, front_leg_lower.L/R, front_paw.L/R, back_leg_upper.L/R, back_leg_lower.L/R, back_paw.L/R, tail_01/02/03
+- Bone names: hips, spine, chest, neck, head, jaw, ear.L, ear.R, eye.L, eye.R, front_leg_upper.L/R, front_leg_lower.L/R, front_paw.L/R, back_leg_upper.L/R, back_leg_lower.L/R, back_paw.L/R, tail_01/02/03
 
 ADAPTATION:
 - If a step failed, analyze WHY and adjust the approach (don't just retry the same thing)
@@ -95,6 +96,7 @@ export function generateBuildPlan(state: BuildState): BuildStep[] {
         `torso ratio=${boneProps.torso.lengthRatio}. ` +
         `Has tail: ${petAnalysis.hasTail}. ` +
         "Use the exact bone naming convention: hips → spine → chest → neck → head, " +
+        "jaw, ear.L, ear.R, eye.L, eye.R attached to head, " +
         "front_leg_upper.L/R → front_leg_lower.L/R → front_paw.L/R, " +
         "back_leg_upper.L/R → back_leg_lower.L/R → back_paw.L/R" +
         (petAnalysis.hasTail ? ", tail_01 → tail_02 → tail_03" : ""),
@@ -141,12 +143,12 @@ export function generateBuildPlan(state: BuildState): BuildStep[] {
   };
 
   const animations = [
-    { name: "eating", frames: 24, desc: `Head/neck dip down (reach multiplier: ${animMods.eatingReach.toFixed(1)}x), jaw bobbing, slight forward lean, smooth transitions` },
-    { name: "drinking", frames: 24, desc: `Head at consistent low level (reach: ${animMods.eatingReach.toFixed(1)}x), rhythmic lapping, continuous looping` },
+    { name: "eating", frames: 24, desc: `Head/neck dip down (reach multiplier: ${animMods.eatingReach.toFixed(1)}x), jaw bone opens and closes rhythmically, slight forward lean, smooth transitions` },
+    { name: "drinking", frames: 24, desc: `Head at consistent low level (reach: ${animMods.eatingReach.toFixed(1)}x), jaw bobbing, rhythmic continuous looping` },
     { name: "running", frames: 24, desc: `${gaitDesc[animMods.runGaitType] || "trot cycle"}, body bob (spine flex: ${animMods.spineFlexMultiplier.toFixed(1)}x), max leg angle: ${boneProps.frontLegs.jointAngleMax}°, large expressive leg arcs` },
-    { name: "playing", frames: 24, desc: `Playful bounce/jump (bounce: ${animMods.playBounce.toFixed(1)}x), front paws lift, energetic full-body movement` },
-    { name: "sleeping", frames: 24, desc: "Body lowered, slow continuous breathing, head resting, very subtle smooth motion" },
-    { name: "photo", frames: 12, desc: "Alert sitting, head tilts, ears perk up, natural idle" },
+    { name: "playing", frames: 24, desc: `Playful bounce/jump (bounce: ${animMods.playBounce.toFixed(1)}x), front paws lift, energetic full-body movement, rapid tail wag` },
+    { name: "sleeping", frames: 24, desc: "Body lowered, slow continuous breathing (scale chest), head resting, very subtle smooth motion" },
+    { name: "photo", frames: 12, desc: "Alert sitting, head tilts, ear twitches, eye blinks (scale Z to 0.1 briefly), natural idle" },
   ];
 
   for (const anim of animations) {
