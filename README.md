@@ -10,7 +10,7 @@ Live site: https://mypets.cc
 - **Backend:** Node 22 + Express 4 (single `server.ts`, bundled to `dist/server.cjs` with esbuild)
 - **Auth:** Email + password with JWT session tokens (passwords hashed with scrypt)
 - **Database:** MySQL (via `mysql2`) for the user store
-- **AI / 3D:** Google Gemini for chat, Imagen for stills, Veo for video. **Tripo3D** for Image-to-3D mesh generation. Blender 3D via dedicated `bpy` microservice with EEVEE PBR rendering.
+- **AI / 3D:** Google Gemini for chat, Imagen for stills, Veo for video. **Tripo3D** for Image-to-3D mesh generation (replaced Meshy for higher quality and reliability). Blender 3D via dedicated `bpy` microservice with EEVEE PBR rendering and 24-frame cycles.
 - **Payments:** Stripe Checkout (memory requests, physical album orders, credit packs) with webhook verification
 - **Notifications:** Twilio SMS for notifying users when their memory requests are fulfilled
 - **Hosting:** Hostinger for main app. Render.com for the Blender microservice.
@@ -75,7 +75,7 @@ Paws & Memories features an interactive, Tamagotchi-style pet avatar system with
 
 - **Multi-Agent 3D Avatar Stack**: Pet photos are converted to 3D meshes via **Tripo3D** (Image-to-3D), then processed by an autonomous multi-agent pipeline (built on LangGraph). The pipeline includes:
   - *Perceive*: Analyzes the uploaded photo to determine species, breed, body type, and proportions.
-  - *Reason*: Formulates a step-by-step Blender build plan with breed-specific anatomy, facial rigging (jaw, ears, eyes), and bump-mapped fur shaders.
+  - *Reason*: Formulates a step-by-step Blender build plan with breed-specific anatomy, facial rigging (jaw, ears, eyes), and 24-frame cycles.
   - *Act & Verify*: Generates and executes Blender Python (`bpy`) scripts iteratively, verifying geometry and bone hierarchies.
   - *Visual-Verify*: Uses Gemini Vision to compare the final 3D viewport render against the original photo, automatically recovering from anatomical anomalies.
 - **Microservice Architecture**: Because the main app runs on Hostinger shared hosting, the generated `bpy` scripts are sent securely via HTTP to a dedicated Docker microservice (`blender-worker`) running on Render, which safely executes the render and returns the 3D Avatar.
@@ -123,8 +123,8 @@ Set these in Hostinger (Website → Environment variables) for production, or in
 | `VITE_GOOGLE_MAPS_API_KEY_BROWSER` | Browser Maps/Places (HTTP‑referrer‑restricted key) |
 | `MEDIA_BUCKET_NAME` / `MEDIA_BUCKET_URL` / `MEDIA_BUCKET_KEY` / `MEDIA_BUCKET_SECRET` | Object storage for generated media |
 | `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_PHONE_NUMBER` | Twilio SMS API for request fulfillment notifications |
-| `TRIPO_API_KEY` | Tripo3D API key for Image-to-3D mesh generation |
-| `MESHY_API_KEY` | *(Legacy, optional)* Meshy API key — no longer used by default |
+| `TRIPO_API_KEY` | Tripo3D API key for Image-to-3D mesh generation (Primary 3D engine) |
+| `MESHY_API_KEY` | *(Legacy, deprecated)* Meshy API key — fully replaced by Tripo3D |
 | `BLENDER_WORKER_URL` | URL to the separate blender microservice (e.g. `https://pawsmemories.onrender.com/render`) |
 
 > **Hostinger note:** set `DB_HOST` to `127.0.0.1`, not `localhost`. On Node 18+, `mysql2` resolves `localhost` to IPv6 (`::1`), which the Hostinger MySQL user grant does not cover — causing `Access denied … @'::1'`. Forcing IPv4 with `127.0.0.1` resolves it.

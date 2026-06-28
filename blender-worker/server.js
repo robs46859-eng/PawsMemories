@@ -41,8 +41,8 @@ class BlenderBridgeClient {
       let buffer = "";
       const timeout = setTimeout(() => {
         socket.destroy();
-        reject(new Error(`Bridge request timed out after 120s: ${method}`));
-      }, 120000);
+        reject(new Error(`Bridge request timed out after 600s: ${method}`));
+      }, 600000);
 
       socket.connect(this.port, this.host, () => {
         const request = JSON.stringify({ id, method, params }) + "\n";

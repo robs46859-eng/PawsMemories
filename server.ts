@@ -387,8 +387,15 @@ async function startServer() {
           // Spawn background agent pipeline
           (async () => {
              try {
-                const originalImageBase64 = await fetchUrlAsBase64(originalImageUrl);
-                const glbBase64 = await fetchUrlAsBase64(glbUrl);
+                 if (!originalImageUrl) {
+                    throw new Error("Missing original image URL for this avatar.");
+                 }
+                 if (!glbUrl) {
+                    throw new Error("Missing GLB URL from 3D generation API.");
+                 }
+                 
+                 const originalImageBase64 = await fetchUrlAsBase64(originalImageUrl);
+                 const glbBase64 = await fetchUrlAsBase64(glbUrl);
                 
                 const petAnalysis = await analyzePetImage(originalImageBase64);
                 
@@ -419,7 +426,7 @@ async function startServer() {
                 }
              } catch (err: any) {
                 console.error(`[Avatar ${avatarId} Agent Error]`, err);
-                await updateAvatarGenerationStatus(avatarId, "failed", err.message);
+                await updateAvatarGenerationStatus(avatarId, "failed", err.message || "Unknown error in background agent");
              }
           })();
 
