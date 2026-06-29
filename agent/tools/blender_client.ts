@@ -108,7 +108,7 @@ export class BlenderClient {
 
   constructor(
     workerUrl: string = process.env.BLENDER_WORKER_URL || "http://localhost:10000",
-    timeoutMs: number = 120000
+    timeoutMs: number = 600000
   ) {
     this.baseUrl = workerUrl.replace(/\/render$/, "");
     this.timeoutMs = timeoutMs;

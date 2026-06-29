@@ -42,8 +42,8 @@ export async function finalizeNode(state: BuildState): Promise<Partial<BuildStat
 
   const animSteps = state.buildPlan.filter((s) => s.phase === "animation" && s.completed);
   const animNames = ["eating", "drinking", "running", "playing", "sleeping", "photo"];
-  const animFrames = [24, 24, 24, 24, 24, 12];
-  const animFps = [24, 24, 24, 24, 12, 12];
+  const animFrames = [8, 8, 8, 8, 8, 6];
+  const animFps = [12, 12, 12, 12, 6, 6];
 
   for (let i = 0; i < animNames.length; i++) {
     animationMeta.animations[animNames[i]] = {

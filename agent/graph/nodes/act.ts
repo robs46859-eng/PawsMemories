@@ -570,14 +570,20 @@ import base64
 import numpy as np
 print("[Deterministic] Rendering sprite sheet")
 anim_names = ["eating", "drinking", "running", "playing", "sleeping", "photo"]
-anim_frames = [24, 24, 24, 24, 24, 12]
+anim_frames = [8, 8, 8, 8, 8, 6]
 rows = 6
-cols = 24
+cols = 8
 frame_size = 128
 bpy.context.scene.render.resolution_x = frame_size
 bpy.context.scene.render.resolution_y = frame_size
 bpy.context.scene.render.image_settings.file_format = 'PNG'
 bpy.context.scene.render.image_settings.color_mode = 'RGBA'
+
+# Switch to Workbench for fast headless rendering (EEVEE materials are preserved in the .blend for GLB export)
+prev_engine = bpy.context.scene.render.engine
+bpy.context.scene.render.engine = 'BLENDER_WORKBENCH'
+bpy.context.scene.display.shading.light = 'STUDIO'
+bpy.context.scene.display.shading.color_type = 'TEXTURE'
 
 armatures = [o for o in bpy.context.scene.objects if o.type == 'ARMATURE']
 armature = armatures[0] if armatures else None
@@ -587,10 +593,15 @@ os.makedirs(temp_dir, exist_ok=True)
 
 for row, anim_name in enumerate(anim_names):
     num_frames = anim_frames[row]
+    # Map sprite frames onto the 24-keyframe animation range
     if armature and armature.animation_data and anim_name in bpy.data.actions:
         armature.animation_data.action = bpy.data.actions[anim_name]
+    anim_action = bpy.data.actions.get(anim_name)
+    anim_length = 24 if anim_name != "photo" else 12
     for frame_idx in range(num_frames):
-        bpy.context.scene.frame_set(frame_idx)
+        # Sample evenly across the full keyframe range
+        mapped_frame = int(frame_idx * (anim_length - 1) / max(num_frames - 1, 1))
+        bpy.context.scene.frame_set(mapped_frame)
         filepath = os.path.join(temp_dir, f"r{row}_c{frame_idx}.png")
         bpy.context.scene.render.filepath = filepath
         bpy.ops.render.render(write_still=True)
@@ -617,6 +628,9 @@ out_path = os.path.join(temp_dir, "sheet_final.png")
 sheet_img.filepath_raw = out_path
 sheet_img.file_format = 'PNG'
 sheet_img.save()
+
+# Restore EEVEE for the GLB export step
+bpy.context.scene.render.engine = prev_engine
 
 with open(out_path, "rb") as f:
     b64 = base64.b64encode(f.read()).decode("utf-8")

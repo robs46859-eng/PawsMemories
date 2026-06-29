@@ -97,12 +97,12 @@ export default function Avatar3DPlaypen({
       frameWidth: 128,
       frameHeight: 128,
       animations: {
-        eating: { row: 0, frames: 4, fps: 8 },
-        drinking: { row: 1, frames: 4, fps: 8 },
-        running: { row: 2, frames: 6, fps: 12 },
-        playing: { row: 3, frames: 4, fps: 10 },
-        sleeping: { row: 4, frames: 3, fps: 4 },
-        photo: { row: 5, frames: 3, fps: 6 },
+        eating: { row: 0, frames: 8, fps: 12 },
+        drinking: { row: 1, frames: 8, fps: 12 },
+        running: { row: 2, frames: 8, fps: 12 },
+        playing: { row: 3, frames: 8, fps: 12 },
+        sleeping: { row: 4, frames: 8, fps: 6 },
+        photo: { row: 5, frames: 6, fps: 6 },
       },
     };
 
