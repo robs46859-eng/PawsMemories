@@ -1,0 +1,121 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-primary: #4a6545;
+  --color-primary-container: #a8c69f;
+  --color-on-primary-container: #395334;
+  --color-secondary: #964826;
+  --color-secondary-container: #fd9a71;
+  --color-on-secondary-container: #763010;
+  --color-surface: #fff8f3;
+  --color-surface-dim: #e1d9cf;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #fbf2e8;
+  --color-surface-container: #f6ece3;
+  --color-surface-container-high: #f0e7dd;
+  --color-surface-container-highest: #eae1d7;
+  --color-on-surface: #1f1b15;
+  --color-on-surface-variant: #434840;
+  --color-outline: #73796f;
+  --color-outline-variant: #c3c8bd;
+  --color-error: #ba1a1a;
+  --color-error-container: #ffdad6;
+}
+
+body {
+  background-color: var(--color-surface);
+  font-family: "Plus Jakarta Sans", sans-serif;
+  color: var(--color-on-surface);
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Elegant dark mode variables overrides */
+.dark {
+  --color-surface: #0f172a;
+  --color-surface-dim: #020617;
+  --color-surface-container-lowest: #020617;
+  --color-surface-container-low: #1e293b;
+  --color-surface-container: #0f172a;
+  --color-surface-container-high: #1e293b;
+  --color-surface-container-highest: #334155;
+  --color-on-surface: #f8fafc;
+  --color-on-surface-variant: #cbd5e1;
+  --color-outline: #64748b;
+  --color-outline-variant: #475569;
+  
+  --color-primary: #a8c69f;
+  --color-primary-container: #334e2f;
+  --color-on-primary-container: #e8f5e6;
+  --color-secondary: #ff9d76;
+  --color-secondary-container: #5c240b;
+  --color-on-secondary-container: #ffd5c4;
+}
+
+.soft-glow-shadow {
+  box-shadow: 0 10px 40px rgba(74, 101, 69, 0.08), 0 4px 12px rgba(226, 132, 93, 0.05);
+}
+
+.glowing-shadow-sage {
+  box-shadow: 0 10px 30px -5px rgba(74, 101, 69, 0.15);
+}
+
+.shimmer-button {
+  position: relative;
+  overflow: hidden;
+}
+
+.shimmer-button::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: linear-gradient(
+    to bottom right,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.15) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  transform: rotate(45deg);
+  transition: all 0.5s;
+  opacity: 0;
+}
+
+.shimmer-button:hover::after {
+  opacity: 1;
+  left: 100%;
+  top: 100%;
+}
+
+.premium-shimmer {
+  background: linear-gradient(90deg, #fd9a71 0%, #ffdbce 50%, #fd9a71 100%);
+  background-size: 200% auto;
+  animation: shimmer 3s linear infinite;
+}
+
+@keyframes shimmer {
+  to { background-position: 200% center; }
+}
+
+.floating {
+  animation: floating 4s ease-in-out infinite;
+}
+
+@keyframes floating {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+  100% { transform: translateY(0px); }
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

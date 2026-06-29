@@ -1,0 +1,238 @@
+/**
+ * Blender TCP Bridge Client
+ * =========================
+ * Connects to the Blender TCP bridge (tcp_server.py) running inside the
+ * Blender Docker container and sends JSON-RPC commands.
+ *
+ * Used by the MCP tool interface and the LangGraph orchestrator.
+ */
+
+
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface ExecuteResult {
+  success: boolean;
+  stdout: string;
+  stderr: string;
+  error: string | null;
+}
+
+export interface ViewportResult {
+  success: boolean;
+  image_base64: string;
+  width: number;
+  height: number;
+}
+
+export interface SceneObject {
+  name: string;
+  type: string;
+  location: [number, number, number];
+  rotation_euler: [number, number, number];
+  scale: [number, number, number];
+  visible: boolean;
+  parent: string | null;
+  modifiers: { name: string; type: string }[];
+  // Mesh-specific
+  vertex_count?: number;
+  face_count?: number;
+  edge_count?: number;
+  vertex_groups?: string[];
+  world_bbox?: [number, number, number][];
+  // Armature-specific
+  bones?: {
+    name: string;
+    parent: string | null;
+    head: [number, number, number];
+    tail: [number, number, number];
+    length: number;
+    connected: boolean;
+  }[];
+  // Light-specific
+  light_type?: string;
+  energy?: number;
+  // Camera-specific
+  camera_type?: string;
+  ortho_scale?: number;
+  lens?: number;
+}
+
+export interface SceneGraph {
+  success: boolean;
+  object_count: number;
+  objects: SceneObject[];
+  active_object: string | null;
+  frame_current: number;
+  frame_start: number;
+  frame_end: number;
+  render_engine: string;
+}
+
+export interface ExportResult {
+  success: boolean;
+  glb_base64: string;
+  size_bytes: number;
+  error?: string;
+}
+
+export interface ImportGlbResult {
+  success: boolean;
+  imported_count: number;
+  mesh_count: number;
+  objects: { name: string; type: string }[];
+  error?: string;
+}
+
+export interface CheckpointResult {
+  success: boolean;
+  filepath?: string;
+  error?: string;
+}
+
+export interface PingResult {
+  success: boolean;
+  blender_version: string;
+  scene_objects: number;
+}
+
+// ---------------------------------------------------------------------------
+// Client
+// ---------------------------------------------------------------------------
+
+export class BlenderClient {
+  private baseUrl: string;
+  private timeoutMs: number;
+
+  constructor(
+    workerUrl: string = process.env.BLENDER_WORKER_URL || "http://localhost:10000",
+    timeoutMs: number = 600000
+  ) {
+    this.baseUrl = workerUrl.replace(/\/render$/, "");
+    this.timeoutMs = timeoutMs;
+  }
+
+  /**
+   * Send an HTTP request to the Blender worker proxy.
+   */
+  private async send<T = any>(endpoint: string, method: string = "GET", body?: any): Promise<T> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+
+    try {
+      const url = `${this.baseUrl}${endpoint}`;
+      
+      const options: RequestInit = {
+        method,
+        signal: controller.signal,
+        headers: { "Content-Type": "application/json" }
+      };
+
+      if (body && method !== "GET") {
+        options.body = JSON.stringify(body);
+      }
+
+      const res = await fetch(url, options);
+      const data = await res.json().catch(() => ({}));
+      
+      if (!res.ok || data.error) {
+        throw new Error(data.error || `Worker returned HTTP ${res.status}`);
+      }
+
+      // The python bridge wraps success responses in { success: true, ... }
+      // The express server passes it through.
+      return data as T;
+
+    } catch (err: any) {
+      if (err.name === "AbortError") {
+        throw new Error(`Bridge request timed out after ${this.timeoutMs / 1000}s: ${endpoint}`);
+      }
+      throw new Error(`Bridge connection error: ${err.message}`);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  // ---- Public API ----
+
+  /** Execute arbitrary Python code in Blender's context. */
+  async executeCode(code: string): Promise<ExecuteResult> {
+    return this.send<ExecuteResult>("/execute", "POST", { code });
+  }
+
+  /** Import a base64 GLB into the persistent Blender scene. */
+  async importGlb(glbBase64: string): Promise<ImportGlbResult> {
+    return this.send<ImportGlbResult>("/import-glb", "POST", { glb_base64: glbBase64 });
+  }
+
+  /** Capture a viewport screenshot from a given camera angle. */
+  async getViewport(azimuth?: number, elevation?: number): Promise<ViewportResult> {
+    const params = new URLSearchParams();
+    if (azimuth !== undefined) params.append("azimuth", azimuth.toString());
+    if (elevation !== undefined) params.append("elevation", elevation.toString());
+    const query = params.toString() ? `?${params.toString()}` : "";
+    return this.send<ViewportResult>(`/viewport${query}`, "GET");
+  }
+
+  /** Get the current scene graph (all objects, transforms, bones, etc). */
+  async readScene(): Promise<SceneGraph> {
+    return this.send<SceneGraph>("/scene", "GET");
+  }
+
+  /** Rotate the viewport camera to see from a different angle. */
+  async setViewportAngle(azimuth: number, elevation: number): Promise<{ success: boolean }> {
+    return this.send("/viewport/angle", "POST", { azimuth, elevation });
+  }
+
+  /** Undo the last Blender operation. */
+  async undo(): Promise<{ success: boolean; error?: string }> {
+    return this.send("/undo", "POST");
+  }
+
+  /** Save the current scene as a named checkpoint. */
+  async saveCheckpoint(name: string): Promise<CheckpointResult> {
+    return this.send<CheckpointResult>("/checkpoint/save", "POST", { name });
+  }
+
+  /** Restore the scene from a named checkpoint. */
+  async restoreCheckpoint(name: string): Promise<CheckpointResult> {
+    return this.send<CheckpointResult>("/checkpoint/restore", "POST", { name });
+  }
+
+  /** Export the scene as GLB and return base64. */
+  async exportGlb(): Promise<ExportResult> {
+    return this.send<ExportResult>("/export-glb", "POST");
+  }
+
+  /** Health check — verify the bridge is responsive. */
+  async ping(): Promise<PingResult> {
+    const health = await this.send<any>("/health", "GET");
+    return {
+      success: health.bridge === "connected",
+      blender_version: health.blenderVersion || "unknown",
+      scene_objects: 0 // /health doesn't return scene_objects
+    };
+  }
+
+  /** Test connectivity — returns true if bridge is reachable. */
+  async isConnected(): Promise<boolean> {
+    try {
+      const res = await this.ping();
+      return res.success;
+    } catch {
+      return false;
+    }
+  }
+}
+
+// Singleton for convenience
+let _defaultClient: BlenderClient | null = null;
+
+export function getBlenderClient(): BlenderClient {
+  if (!_defaultClient) {
+    _defaultClient = new BlenderClient();
+  }
+  return _defaultClient;
+}
