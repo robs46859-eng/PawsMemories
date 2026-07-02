@@ -127,7 +127,10 @@ export class BlenderClient {
       const options: RequestInit = {
         method,
         signal: controller.signal,
-        headers: { "Content-Type": "application/json" }
+        headers: { 
+          "Content-Type": "application/json",
+          "x-worker-secret": process.env.WORKER_SHARED_SECRET || ""
+        }
       };
 
       if (body && method !== "GET") {

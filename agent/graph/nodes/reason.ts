@@ -95,15 +95,15 @@ export function generateBuildPlan(state: BuildState): BuildStep[] {
         `front leg ratio=${boneProps.frontLegs.lengthRatio}, rear leg ratio=${boneProps.rearLegs.lengthRatio}, ` +
         `torso ratio=${boneProps.torso.lengthRatio}. ` +
         `Has tail: ${petAnalysis.hasTail}. ` +
-        "Use the exact bone naming convention: hips → spine → chest → neck → head, " +
-        "jaw, ear.L, ear.R, eye.L, eye.R attached to head, " +
-        "front_leg_upper.L/R → front_leg_lower.L/R → front_paw.L/R, " +
-        "back_leg_upper.L/R → back_leg_lower.L/R → back_paw.L/R" +
-        (petAnalysis.hasTail ? ", tail_01 → tail_02 → tail_03" : ""),
+        "Use the exact bone naming convention: " +
+        (petAnalysis.hasWings
+          ? "hips → spine → chest → neck → head, jaw, eye.L, eye.R, wing_inner.L/R → wing_outer.L/R, back_leg_upper.L/R → back_leg_lower.L/R → back_paw.L/R, tail_01/02/03. "
+          : "hips → spine → chest → neck → head, jaw, ear.L, ear.R, eye.L, eye.R attached to head, front_leg_upper.L/R → front_leg_lower.L/R → front_paw.L/R, back_leg_upper.L/R → back_leg_lower.L/R → back_paw.L/R, tail_01/02/03. ") +
+        "Position bones precisely by calculating actual vertex centroids for each body part based on the mesh bounding box.",
       constraints: [
-        "Use edit mode to create bones",
-        "Position bones by calculating actual vertex centroids for each body part (e.g., head is top 20% Z, legs are bottom 30% Z) to ensure precise alignment",
-        "Use Vector from mathutils for world-space coordinates",
+        "Create bones starting from root (hips)",
+        "Bone names MUST match the required convention exactly",
+        "Use edit_bones to position heads and tails",
         "Return to OBJECT mode when done",
         `Breed-specific: front leg joint max ${boneProps.frontLegs.jointAngleMax}°, rear leg joint max ${boneProps.rearLegs.jointAngleMax}°`,
       ],

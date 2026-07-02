@@ -1,0 +1,644 @@
+
+> paws-and-memories@0.0.0 test
+> node --test tests/*.test.mjs
+
+✔ tcp bridge dispatches Blender handlers on the main thread (0.711416ms)
+✔ Blender 5.1 GLB export filters unsupported operator kwargs (0.479084ms)
+✔ orchestrator imports the provided GLB before LLM planning begins (0.149084ms)
+✔ generated Blender code guidance avoids fragile file imports and background context shortcuts (0.235ms)
+✔ successful bpy bridge executions are not counted as failed steps (0.265166ms)
+✔ GLB export failures are propagated to finalization logs (0.121292ms)
+✖ blender worker autostarts the TCP bridge for agent routes (1.503917ms)
+✔ Gemini agent nodes prefer Interactions API with generateContent fallback (0.255875ms)
+✖ core avatar rigging no longer depends on generated automatic-weight scripts (0.71525ms)
+✔ avatar playpen does not go blank when sprite preview cannot load (0.199208ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 8
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 48.842708
+
+✖ failing tests:
+
+test at tests/blender_pipeline_regressions.test.mjs:55:1
+✖ blender worker autostarts the TCP bridge for agent routes (1.503917ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /app\.use\(\[[\s\S]*"\/agent\/build"[\s\S]*\], requireBridge\)/. Input:
+  
+  'import express from "express";\n' +
+    'import fs from "fs";\n' +
+    'import os from "os";\n' +
+    'import path from "path";\n' +
+    'import crypto from "crypto";\n' +
+    'import net from "net";\n' +
+    'import { execSync, exec, spawn } from "child_process";\n' +
+    'import { promisify } from "util";\n' +
+    'import { fileURLToPath } from "url";\n' +
+    'import Jimp from "jimp";\n' +
+    'import * as templates from "./animation-templates.js";\n' +
+    '\n' +
+    'const execPromise = promisify(exec);\n' +
+    'const __dirname = path.dirname(fileURLToPath(import.meta.url));\n' +
+    '\n' +
+    '// =============================================================================\n' +
+    '// Blender TCP Bridge Client\n' +
+    '// =============================================================================\n' +
+    '\n' +
+    'const BRIDGE_HOST = process.env.BLENDER_BRIDGE_HOST || "127.0.0.1";\n' +
+    'const BRIDGE_PORT = parseInt(process.env.BLENDER_BRIDGE_PORT || "9876", 10);\n' +
+    'const BRIDGE_SCRIPT_PATH = process.env.BLENDER_BRIDGE_SCRIPT || path.join(__dirname, "bridge", "tcp_server.py");\n' +
+    'const SHOULD_AUTOSTART_BRIDGE = process.env.BLENDER_AUTOSTART_BRIDGE !== "false";\n' +
+    'let bridgeProcess = null;\n' +
+    '\n' +
+    'class BlenderBridgeClient {\n' +
+    '  constructor(host = BRIDGE_HOST, port = BRIDGE_PORT) {\n' +
+    '    this.host = host;\n' +
+    '    this.port = port;\n' +
+    '    this._requestId = 0;\n' +
+    '  }\n' +
+    '\n' +
+    '  /**\n' +
+    '   * Send a JSON-RPC request to the Blender TCP bridge and wait for the response.\n' +
+    '   * Creates a fresh TCP connection per request (simple, reliable for async work).\n' +
+    '   */\n' +
+    '  async send(method, params = {}) {\n' +
+    '    return new Promise((resolve, reject) => {\n' +
+    '      const id = ++this._requestId;\n' +
+    '      const socket = new net.Socket();\n' +
+    '      let buffer = "";\n' +
+    '      const timeout = setTimeout(() => {\n' +
+    '        socket.destroy();\n' +
+    '        reject(new Error(`Bridge request timed out after 600s: ${method}`));\n' +
+    '      }, 600000);\n' +
+    '\n' +
+    '      socket.connect(this.port, this.host, () => {\n' +
+    '        const request = JSON.stringify({ id, method, params }) + "\\n";\n' +
+    '        socket.write(request);\n' +
+    '      });\n' +
+    '\n' +
+    '      socket.on("data", (chunk) => {\n' +
+    '        buffer += chunk.toString();\n' +
+    '        const newlineIndex = buffer.indexOf("\\n");\n' +
+    '        if (newlineIndex !== -1) {\n' +
+    '          clearTimeout(timeout);\n' +
+    '          const line = buffer.slice(0, newlineIndex);\n' +
+    '          try {\n' +
+    '            const response = JSON.parse(line);\n' +
+    '            if (response.error) {\n' +
+    '              reject(new Error(response.error.message || JSON.stringify(response.error)));\n' +
+    '            } else {\n' +
+    '              resolve(response.result);\n' +
+    '            }\n' +
+    '          } catch (e) {\n' +
+    '            reject(new Error(`Invalid JSON from bridge: ${line.slice(0, 200)}`));\n' +
+    '          }\n' +
+    '          socket.end();\n' +
+    '        }\n' +
+    '      });\n' +
+    '\n' +
+    '      socket.on("error", (err) => {\n' +
+    '        clearTimeout(timeout);\n' +
+    '        reject(new Error(`Bridge connection error: ${err.message}`));\n' +
+    '      });\n' +
+    '\n' +
+    '      socket.on("close", () => {\n' +
+    '        clearTimeout(timeout);\n' +
+    '      });\n' +
+    '    });\n' +
+    '  }\n' +
+    '\n' +
+    '  async executeCode(code) {\n' +
+    '    return this.send("execute_code", { code });\n' +
+    '  }\n' +
+    '\n' +
+    '  async getViewport(azimuth, elevation) {\n' +
+    '    return this.send("get_viewport", { azimuth, elevation });\n' +
+    '  }\n' +
+    '\n' +
+    '  async readScene() {\n' +
+    '    return this.send("read_scene", {});\n' +
+    '  }\n' +
+    '\n' +
+    '  async setViewportAngle(azimuth, elevation) {\n' +
+    '    return this.send("set_viewport_angle", { azimuth, elevation });\n' +
+    '  }\n' +
+    '\n' +
+    '  async undo() {\n' +
+    '    return this.send("undo", {});\n' +
+    '  }\n' +
+    '\n' +
+    '  async saveCheckpoint(name) {\n' +
+    '    return this.send("save_checkpoint", { name });\n' +
+    '  }\n' +
+    '\n' +
+    '  async restoreCheckpoint(name) {\n' +
+    '    return this.send("restore_checkpoint", { name });\n' +
+    '  }\n' +
+    '\n' +
+    '  async exportGlb(outputPath) {\n' +
+    '    return this.send("export_glb", { output_path: outputPath });\n' +
+    '  }\n' +
+    '\n' +
+    '  async ping() {\n' +
+    '    return this.send("ping", {});\n' +
+    '  }\n' +
+    '}\n' +
+    '\n' +
+    'const bridge = new BlenderBridgeClient();\n' +
+    '\n' +
+    'function isLoopbackBridgeHost() {\n' +
+    '  return BRIDGE_HOST === "127.0.0.1" || BRIDGE_HOST === "localhost" || BRIDGE_HOST === "::1";\n' +
+    '}\n' +
+    '\n' +
+    'function resolveBlenderCommand() {\n' +
+    '  const candidates = [\n' +
+    '    process.env.BLENDER_BIN,\n' +
+    '    "blender",\n' +
+    '    "/Applications/Blender.app/Contents/MacOS/Blender",\n' +
+    '  ].filter(Boolean);\n' +
+    '\n' +
+    '  for (const candidate of candidates) {\n' +
+    '    try {\n' +
+    '      execSync(`command -v "${candidate}"`, { stdio: "ignore", shell: "/bin/sh" });\n' +
+    '      return candidate;\n' +
+    '    } catch {}\n' +
+    '    if (path.isAbsolute(candidate) && fs.existsSync(candidate)) {\n' +
+    '      return candidate;\n' +
+    '    }\n' +
+    '  }\n' +
+    '\n' +
+    '  return null;\n' +
+    '}\n' +
+    '\n' +
+    'async function waitForBridgeReady(timeoutMs = 30000) {\n' +
+    '  const startedAt = Date.now();\n' +
+    '  let lastError = null;\n' +
+    '\n' +
+    '  while (Date.now() - startedAt < timeoutMs) {\n' +
+    '    try {\n' +
+    '      const result = await bridge.ping();\n' +
+    '      if (result?.success) return result;\n' +
+    '    } catch (err) {\n' +
+    '      lastError = err;\n' +
+    '    }\n' +
+    '    await new Promise((resolve) => setTimeout(resolve, 500));\n' +
+    '  }\n' +
+    '\n' +
+    '  throw new Error(lastError?.message || `Blender bridge did not become ready within ${timeoutMs}ms`);\n' +
+    '}\n' +
+    '\n' +
+    'async function ensureBridgeReady() {\n' +
+    '  try {\n' +
+    '    return await bridge.ping();\n' +
+    '  } catch (err) {\n' +
+    '    if (!SHOULD_AUTOSTART_BRIDGE || !isLoopbackBridgeHost()) {\n' +
+    '      throw err;\n' +
+    '    }\n' +
+    '\n' +
+    '    if (bridgeProcess && bridgeProcess.exitCode === null) {\n' +
+    '      return waitForBridgeReady(30000);\n' +
+    '    }\n' +
+    '\n' +
+    '    const blenderCommand = resolveBlenderCommand();\n' +
+    '    if (!blenderCommand) {\n' +
+    '      throw new Error("Blender bridge is not running and no Blender executable was found. Set BLENDER_BIN or start blender --background --python bridge/tcp_server.py.");\n' +
+    '    }\n' +
+    '\n' +
+    '    console.log(`[Bridge] Autostarting Blender TCP bridge with ${blenderCommand}`);\n' +
+    '    bridgeProcess = spawn(blenderCommand, ["--background", "--python", BRIDGE_SCRIPT_PATH], {\n' +
+    '      cwd: __dirname,\n' +
+    '      env: { ...process.env, BLENDER_BRIDGE_PORT: String(BRIDGE_PORT) },\n' +
+    '      stdio: ["ignore", "pipe", "pipe"],\n' +
+    '    });\n' +
+    '\n' +
+    '    bridgeProcess.stdout.on("data", (chunk) => {\n' +
+    '      const text = chunk.toString().trim();\n' +
+    '      if (text) console.log(`[Bridge/blender] ${text}`);\n' +
+    '    });\n' +
+    '    bridgeProcess.stderr.on("data", (chunk) => {\n' +
+    '      const text = chunk.toString().trim();\n' +
+    '      if (text) console.error(`[Bridge/blender] ${text}`);\n' +
+    '    });\n' +
+    '    bridgeProcess.on("exit", (code, signal) => {\n' +
+    '      console.warn(`[Bridge] Blender TCP bridge exited: code=${code} signal=${signal}`);\n' +
+    '    });\n' +
+    '    bridgeProcess.on("error", (spawnErr) => {\n' +
+    '      console.error(`[Bridge] Failed to start Blender TCP bridge: ${spawnErr.message}`);\n' +
+    '    });\n' +
+    '\n' +
+    '    return waitForBridgeReady(45000);\n' +
+    '  }\n' +
+    '}\n' +
+    '\n' +
+    "// Extract the meaningful Python error from Blender's combined output\n" +
+    'function extractBlenderError(stdout, stderr) {\n' +
+    '  const combined = (stdout || "") + "\\n" + (stderr || "");\n' +
+    '  // Look for Python traceback in the output and capture everything after it\n' +
+    '  const tracebackMatch = combined.match(/Traceback \\(most recent call last\\)[\\s\\S]+/m);\n' +
+    '  if (tracebackMatch) {\n' +
+    '    // Return last 1500 chars of traceback to get the full chain\n' +
+    '    return tracebackMatch[0].slice(-1500);\n' +
+    '  }\n' +
+    '  // Look for lines containing ERROR or Error\n' +
+    '  const errorLines = combined.split("\\n").filter(l =>\n' +
+    '    l.includes("ERROR") || l.includes("Error:") || l.includes("Exception:")\n' +
+    '  ).filter(l =>\n' +
+    '    !l.includes("mounted file-systems") && !l.includes("libEGL")\n' +
+    '  );\n' +
+    '  if (errorLines.length > 0) {\n' +
+    '    return errorLines.join("\\n").slice(-1500);\n' +
+    '  }\n' +
+    '  // Fallback: return tail of stdout (more useful than stderr for Blender)\n' +
+    '  return (stdout || stderr || "Unknown error").slice(-1500);\n' +
+    '}\n' +
+    '\n' +
+    'const app = express();\n' +
+    'const PORT = process.env.PORT || 10000;\n' +
+    '\n' +
+    '// Increase limit for GLB model data and large scripts\n' +
+    'app.use(express.json({ limit: "100mb" }));\n' +
+    '\n' +
+    '// =============================================================================\n' +
+    '// In-memory job store for async processing\n' +
+    '// =============================================================================\n' +
+    'const jobs = new Map();\n' +
+    '\n' +
+    '// Auto-cleanup jobs older than 15 minutes\n' +
+    'setInterval(() => {\n' +
+    '  const now = Date.now();\n' +
+    '  for (const [id, job] of jobs) {\n' +
+    '    if (now - job.createdAt > 15 * 60 * 1000) {\n' +
+    '      // Cleanup temp dir if still around\n' +
+    '      if (job.tempDir) {\n' +
+    '        try { fs.rmSync(job.tempDir, { recursive: true, force: true }); } catch {}\n' +
+    '      }\n' +
+    '      jobs.delete(id);\n' +
+    '    }\n' +
+    '  }\n' +
+    '}, 60000);\n' +
+    '\n' +
+    '// Health check endpoint — also checks bridge connectivity\n' +
+    'app.get("/health", async (req, res) => {\n' +
+    '  try {\n' +
+    '    const bridgeStatus = await bridge.ping().catch(() => null);\n' +
+    '    res.status(200).json({\n' +
+    '      status: "ok",\n' +
+    '      activeJobs: jobs.size,\n' +
+    '      bridge: bridgeStatus ? "connected" : "disconnected",\n' +
+    '      blenderVersion: bridgeStatus?.blender_version || null,\n' +
+    '    });\n' +
+    '  } catch {\n' +
+    '    res.status(200).json({ status: "ok", activeJobs: jobs.size, bridge: "disconnected" });\n' +
+    '  }\n' +
+    '});\n' +
+    '\n' +
+    '// =============================================================================\n' +
+    '// NEW: Bridge proxy endpoints (for the multi-agent system)\n' +
+    '// =============================================================================\n' +
+    '\n' +
+    'function requireWorkerAuth(req, res, next) {\n' +
+    '  const provided = req.get("x-worker-secret");\n' +
+    '  if (!provided || provided !== process.env.WORKER_SHARED_SECRET) {\n' +
+    '    return res.status(401).json({ error: "Unauthorized" });\n' +
+    '  }\n' +
+    '  next();\n' +
+    '}\n' +
+    '\n' +
+    'async function requireBridge(req, res, next) {\n' +
+    '  try {\n' +
+    '    await ensureBridgeReady();\n' +
+    '    next();\n' +
+    '  } catch (err) {\n' +
+    '    res.status(503).json({ error: `Blender TCP bridge unavailable: ${err.message}` });\n' +
+    '  }\n' +
+    '}\n' +
+    '\n' +
+    'app.use([\n' +
+    '  "/scene",\n' +
+    '  "/viewport",\n' +
+    '  "/execute",\n' +
+    '  "/undo",\n' +
+    '  "/checkpoint",\n' +
+    '  "/export-glb",\n' +
+    '  "/import-glb",\n' +
+    '  "/agent/build",\n' +
+    '], requireWorkerAuth, requireBridge);\n' +
+    '\n' +
+    '// Read the current Blender scene graph\n' +
+    'app.get("/scene", async (req, res) => {\n' +
+    '  try {\n' +
+    '    const result = await bridge.readScene();\n' +
+    '    res.json(result);\n' +
+    '  } catch (err) {\n' +
+    '    res.status(500).json({ error: err.message });\n' +
+    '  }\n' +
+    '});\n' +
+    '\n' +
+    '// Capture a viewport screenshot\n' +
+    'app.get("/viewport", async (req, res) => {\n' +
+    '  try {\n' +
+    '    const azimuth = req.query.azimuth ? parseFloat(req.query.azimuth) : undefined;\n' +
+    '    const elevation = req.query.elevation ? parseFloat(req.query.elevation) : undefined;\n' +
+    '    const result = await bridge.getViewport(azimuth, elevation);\n' +
+    '    res.json(result);\n' +
+    '  } catch (err) {\n' +
+    '    res.status(500).json({ error: err.message });\n' +
+    '  }\n' +
+    '});\n' +
+    '\n' +
+    '// Execute arbitrary bpy code via the bridge\n' +
+    'app.post("/execute", async (req, res) => {\n' +
+    '  try {\n' +
+    '    const { cod'... 24067 more characters
+  
+      at TestContext.<anonymous> (file:///Users/robert/Desktop/claude7126/PawsMemories/tests/blender_pipeline_regressions.test.mjs:59:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'import express from "express";\nimport fs from "fs";\nimport os from "os";\nimport path from "path";\nimport crypto from "crypto";\nimport net from "net";\nimport { execSync, exec, spawn } from "child_process";\nimport { promisify } from "util";\nimport { fileURLToPath } from "url";\nimport Jimp from "jimp";\nimport * as templates from "./animation-templates.js";\n\nconst execPromise = promisify(exec);\nconst __dirname = path.dirname(fileURLToPath(import.meta.url));\n\n// =============================================================================\n// Blender TCP Bridge Client\n// =============================================================================\n\nconst BRIDGE_HOST = process.env.BLENDER_BRIDGE_HOST || "127.0.0.1";\nconst BRIDGE_PORT = parseInt(process.env.BLENDER_BRIDGE_PORT || "9876", 10);\nconst BRIDGE_SCRIPT_PATH = process.env.BLENDER_BRIDGE_SCRIPT || path.join(__dirname, "bridge", "tcp_server.py");\nconst SHOULD_AUTOSTART_BRIDGE = process.env.BLENDER_AUTOSTART_BRIDGE !== "false";\nlet bridgeProcess = null;\n\nclass BlenderBridgeClient {\n  constructor(host = BRIDGE_HOST, port = BRIDGE_PORT) {\n    this.host = host;\n    this.port = port;\n    this._requestId = 0;\n  }\n\n  /**\n   * Send a JSON-RPC request to the Blender TCP bridge and wait for the response.\n   * Creates a fresh TCP connection per request (simple, reliable for async work).\n   */\n  async send(method, params = {}) {\n    return new Promise((resolve, reject) => {\n      const id = ++this._requestId;\n      const socket = new net.Socket();\n      let buffer = "";\n      const timeout = setTimeout(() => {\n        socket.destroy();\n        reject(new Error(`Bridge request timed out after 600s: ${method}`));\n      }, 600000);\n\n      socket.connect(this.port, this.host, () => {\n        const request = JSON.stringify({ id, method, params }) + "\\n";\n        socket.write(request);\n      });\n\n      socket.on("data", (chunk) => {\n        buffer += chunk.toString();\n        const newlineIndex = buffer.indexOf("\\n");\n        if (newlineIndex !== -1) {\n          clearTimeout(timeout);\n          const line = buffer.slice(0, newlineIndex);\n          try {\n            const response = JSON.parse(line);\n            if (response.error) {\n              reject(new Error(response.error.message || JSON.stringify(response.error)));\n            } else {\n              resolve(response.result);\n            }\n          } catch (e) {\n            reject(new Error(`Invalid JSON from bridge: ${line.slice(0, 200)}`));\n          }\n          socket.end();\n        }\n      });\n\n      socket.on("error", (err) => {\n        clearTimeout(timeout);\n        reject(new Error(`Bridge connection error: ${err.message}`));\n      });\n\n      socket.on("close", () => {\n        clearTimeout(timeout);\n      });\n    });\n  }\n\n  async executeCode(code) {\n    return this.send("execute_code", { code });\n  }\n\n  async getViewport(azimuth, elevation) {\n    return this.send("get_viewport", { azimuth, elevation });\n  }\n\n  async readScene() {\n    return this.send("read_scene", {});\n  }\n\n  async setViewportAngle(azimuth, elevation) {\n    return this.send("set_viewport_angle", { azimuth, elevation });\n  }\n\n  async undo() {\n    return this.send("undo", {});\n  }\n\n  async saveCheckpoint(name) {\n    return this.send("save_checkpoint", { name });\n  }\n\n  async restoreCheckpoint(name) {\n    return this.send("restore_checkpoint", { name });\n  }\n\n  async exportGlb(outputPath) {\n    return this.send("export_glb", { output_path: outputPath });\n  }\n\n  async ping() {\n    return this.send("ping", {});\n  }\n}\n\nconst bridge = new BlenderBridgeClient();\n\nfunction isLoopbackBridgeHost() {\n  return BRIDGE_HOST === "127.0.0.1" || BRIDGE_HOST === "localhost" || BRIDGE_HOST === "::1";\n}\n\nfunction resolveBlenderCommand() {\n  const candidates = [\n    process.env.BLENDER_BIN,\n    "blender",\n    "/Applications/Blender.app/Contents/MacOS/Blender",\n  ].filter(Boolean);\n\n  for (const candidate of candidates) {\n    try {\n      execSync(`command -v "${candidate}"`, { stdio: "ignore", shell: "/bin/sh" });\n      return candidate;\n    } catch {}\n    if (path.isAbsolute(candidate) && fs.existsSync(candidate)) {\n      return candidate;\n    }\n  }\n\n  return null;\n}\n\nasync function waitForBridgeReady(timeoutMs = 30000) {\n  const startedAt = Date.now();\n  let lastError = null;\n\n  while (Date.now() - startedAt < timeoutMs) {\n    try {\n      const result = await bridge.ping();\n      if (result?.success) return result;\n    } catch (err) {\n      lastError = err;\n    }\n    await new Promise((resolve) => setTimeout(resolve, 500));\n  }\n\n  throw new Error(lastError?.message || `Blender bridge did not become ready within ${timeoutMs}ms`);\n}\n\nasync function ensureBridgeReady() {\n  try {\n    return await bridge.ping();\n  } catch (err) {\n    if (!SHOULD_AUTOSTART_BRIDGE || !isLoopbackBridgeHost()) {\n      throw err;\n    }\n\n    if (bridgeProcess && bridgeProcess.exitCode === null) {\n      return waitForBridgeReady(30000);\n    }\n\n    const blenderCommand = resolveBlenderCommand();\n    if (!blenderCommand) {\n      throw new Error("Blender bridge is not running and no Blender executable was found. Set BLENDER_BIN or start blender --background --python bridge/tcp_server.py.");\n    }\n\n    console.log(`[Bridge] Autostarting Blender TCP bridge with ${blenderCommand}`);\n    bridgeProcess = spawn(blenderCommand, ["--background", "--python", BRIDGE_SCRIPT_PATH], {\n      cwd: __dirname,\n      env: { ...process.env, BLENDER_BRIDGE_PORT: String(BRIDGE_PORT) },\n      stdio: ["ignore", "pipe", "pipe"],\n    });\n\n    bridgeProcess.stdout.on("data", (chunk) => {\n      const text = chunk.toString().trim();\n      if (text) console.log(`[Bridge/blender] ${text}`);\n    });\n    bridgeProcess.stderr.on("data", (chunk) => {\n      const text = chunk.toString().trim();\n      if (text) console.error(`[Bridge/blender] ${text}`);\n    });\n    bridgeProcess.on("exit", (code, signal) => {\n      console.warn(`[Bridge] Blender TCP bridge exited: code=${code} signal=${signal}`);\n    });\n    bridgeProcess.on("error", (spawnErr) => {\n      console.error(`[Bridge] Failed to start Blender TCP bridge: ${spawnErr.message}`);\n    });\n\n    return waitForBridgeReady(45000);\n  }\n}\n\n// Extract the meaningful Python error from Blender\'s combined output\nfunction extractBlenderError(stdout, stderr) {\n  const combined = (stdout || "") + "\\n" + (stderr || "");\n  // Look for Python traceback in the output and capture everything after it\n  const tracebackMatch = combined.match(/Traceback \\(most recent call last\\)[\\s\\S]+/m);\n  if (tracebackMatch) {\n    // Return last 1500 chars of traceback to get the full chain\n    return tracebackMatch[0].slice(-1500);\n  }\n  // Look for lines containing ERROR or Error\n  const errorLines = combined.split("\\n").filter(l =>\n    l.includes("ERROR") || l.includes("Error:") || l.includes("Exception:")\n  ).filter(l =>\n    !l.includes("mounted file-systems") && !l.includes("libEGL")\n  );\n  if (errorLines.length > 0) {\n    return errorLines.join("\\n").slice(-1500);\n  }\n  // Fallback: return tail of stdout (more useful than stderr for Blender)\n  return (stdout || stderr || "Unknown error").slice(-1500);\n}\n\nconst app = express();\nconst PORT = process.env.PORT || 10000;\n\n// Increase limit for GLB model data and large scripts\napp.use(express.json({ limit: "100mb" }));\n\n// =============================================================================\n// In-memory job store for async processing\n// =============================================================================\nconst jobs = new Map();\n\n// Auto-cleanup jobs older than 15 minutes\nsetInterval(() => {\n  const now = Date.now();\n  for (const [id, job] of jobs) {\n    if (now - job.createdAt > 15 * 60 * 1000) {\n      // Cleanup temp dir if still around\n      if (job.tempDir) {\n        try { fs.rmSync(job.tempDir, { recursive: true, force: true }); } catch {}\n      }\n      jobs.delete(id);\n    }\n  }\n}, 60000);\n\n// Health check endpoint — also checks bridge connectivity\napp.get("/health", async (req, res) => {\n  try {\n    const bridgeStatus = await bridge.ping().catch(() => null);\n    res.status(200).json({\n      status: "ok",\n      activeJobs: jobs.size,\n      bridge: bridgeStatus ? "connected" : "disconnected",\n      blenderVersion: bridgeStatus?.blender_version || null,\n    });\n  } catch {\n    res.status(200).json({ status: "ok", activeJobs: jobs.size, bridge: "disconnected" });\n  }\n});\n\n// =============================================================================\n// NEW: Bridge proxy endpoints (for the multi-agent system)\n// =============================================================================\n\nfunction requireWorkerAuth(req, res, next) {\n  const provided = req.get("x-worker-secret");\n  if (!provided || provided !== process.env.WORKER_SHARED_SECRET) {\n    return res.status(401).json({ error: "Unauthorized" });\n  }\n  next();\n}\n\nasync function requireBridge(req, res, next) {\n  try {\n    await ensureBridgeReady();\n    next();\n  } catch (err) {\n    res.status(503).json({ error: `Blender TCP bridge unavailable: ${err.message}` });\n  }\n}\n\napp.use([\n  "/scene",\n  "/viewport",\n  "/execute",\n  "/undo",\n  "/checkpoint",\n  "/export-glb",\n  "/import-glb",\n  "/agent/build",\n], requireWorkerAuth, requireBridge);\n\n// Read the current Blender scene graph\napp.get("/scene", async (req, res) => {\n  try {\n    const result = await bridge.readScene();\n    res.json(result);\n  } catch (err) {\n    res.status(500).json({ error: err.message });\n  }\n});\n\n// Capture a viewport screenshot\napp.get("/viewport", async (req, res) => {\n  try {\n    const azimuth = req.query.azimuth ? parseFloat(req.query.azimuth) : undefined;\n    const elevation = req.query.elevation ? parseFloat(req.query.elevation) : undefined;\n    const result = await bridge.getViewport(azimuth, elevation);\n    res.json(result);\n  } catch (err) {\n    res.status(500).json({ error: err.message });\n  }\n});\n\n// Execute arbitrary bpy code via the bridge\napp.post("/execute", async (req, res) => {\n  try {\n    const { cod'... 24067 more characters,
+    expected: /app\.use\(\[[\s\S]*"\/agent\/build"[\s\S]*\], requireBridge\)/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at tests/blender_pipeline_regressions.test.mjs:76:1
+✖ core avatar rigging no longer depends on generated automatic-weight scripts (0.71525ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /DogArmature created with/. Input:
+  
+  '/**\n' +
+    ' * Act Node — GPT Code Generation\n' +
+    ' * ================================\n' +
+    ' * Generates actual bpy Python code based on the intent from Claude (reason node),\n' +
+    ' * grounded by RAG context from the Blender API docs.\n' +
+    ' *\n' +
+    ' * Then executes the code via the MCP tool interface and returns the result.\n' +
+    ' */\n' +
+    '\n' +
+    'import type { BuildState, StepResult } from "./types";\n' +
+    'import { executeBlenderTool } from "../../tools/blender_mcp";\n' +
+    'import { retrieveBlenderContext, formatContextForPrompt } from "../../knowledge/retriever";\n' +
+    'import { generateGeminiText } from "../../gemini";\n' +
+    'import { lookupBreedAnatomy, generateVertexGroupCode, getBoneProportions } from "../../knowledge/breed-anatomy";\n' +
+    '\n' +
+    '// ---------------------------------------------------------------------------\n' +
+    '// Forbidden patterns (from the existing sanitizeBlenderScript in ollama-agent.ts)\n' +
+    '// ---------------------------------------------------------------------------\n' +
+    '\n' +
+    'const FORBIDDEN_PATTERNS = `\n' +
+    'FORBIDDEN PATTERNS (these WILL crash Blender 5.1):\n' +
+    '- ❌ bpy.ops.object.select_all() → use: for o in bpy.context.scene.objects: o.select_set(False)\n' +
+    '- ❌ bpy.context.selected_objects → unavailable in Render/worker background contexts; iterate bpy.context.scene.objects instead\n' +
+    '- ❌ bpy.context.active_object → unavailable in some background contexts; use bpy.context.view_layer.objects.active\n' +
+    '- ❌ bpy.ops.import_scene.gltf(...) in generated code → the pipeline imports the input GLB before code generation\n' +
+    '- ❌ Hard-coded GLB paths such as /tmp/input.glb, /tmp/model.glb, model.glb, or Windows temp paths\n' +
+    '- ❌ edit_bones.clear() → use: for b in list(arm.edit_bones): arm.edit_bones.remove(b)\n' +
+    '- ❌ strip.is_active → use: strip.mute = True/False\n' +
+    '- ❌ mathutils.radians() → use: import math; math.radians()\n' +
+    '- ❌ "return" outside a function → use: sys.exit(1) if needed\n' +
+    '- ❌ Full-path keyframe_insert data_path → use RELATIVE path only (e.g., "rotation_euler")\n' +
+    "- ❌ Reading pixels from 'Render Result' image → render to disk first\n" +
+    '- ❌ light_data.distance = X → Use .energy instead\n' +
+    '- ❌ use_contact_shadow(s) = True → removed in EEVEE-Next\n' +
+    '- ❌ action.fcurves → removed in Blender 5 Animation 2.0\n' +
+    "- ❌ scene.render.engine = 'BLENDER_EEVEE' → use 'BLENDER_WORKBENCH'\n" +
+    '- ❌ bpy.data.lights.remove() / bpy.data.cameras.remove() → causes StructRNA ReferenceError\n' +
+    '- ❌ BLENDER_EEVEE_NEXT → use BLENDER_EEVEE if needed, but prefer BLENDER_WORKBENCH for headless\n' +
+    '\n' +
+    'MANDATORY PATTERNS:\n' +
+    '- ✅ Work with the existing imported mesh in bpy.context.scene.objects; Do not import GLB files from generated code\n' +
+    '- ✅ active = bpy.context.view_layer.objects.active — use view_layer for active object access\n' +
+    '- ✅ for obj in bpy.context.scene.objects: obj.select_set(False) — safe background deselection\n' +
+    '- ✅ bone = armature.pose.bones.get("name") — ALWAYS use .get(), NEVER direct indexing\n' +
+    "- ✅ bone.rotation_mode = 'XYZ' — set before using rotation_euler\n" +
+    '- ✅ bone.keyframe_insert(data_path="rotation_euler") — RELATIVE path\n' +
+    '- ✅ from mathutils import Vector — for bounding box calculations\n' +
+    '- ✅ world_bbox = [obj.matrix_world @ Vector(v) for v in obj.bound_box]\n' +
+    '- ✅ import math — for math.radians(), math.sin(), math.cos()\n' +
+    '`;\n' +
+    '\n' +
+    'const CODE_GEN_SYSTEM_PROMPT = `You are an expert Blender 5.1 Python (bpy) code generator.\n' +
+    '\n' +
+    'You receive:\n' +
+    '1. A natural language description of what the code should do (the "intent")\n' +
+    '2. Constraints to follow\n' +
+    '3. Relevant Blender API documentation (from RAG)\n' +
+    '4. The current scene state\n' +
+    '\n' +
+    'Generate ONLY valid Python code that accomplishes the intent. The code will be executed directly in Blender 5.1.2 running headless (--background).\n' +
+    '\n' +
+    '${FORBIDDEN_PATTERNS}\n' +
+    '\n' +
+    'CODE STYLE:\n' +
+    '- Start with "import bpy" and any other needed imports\n' +
+    '- Assume the pet mesh is already imported into the current scene by the pipeline\n' +
+    '- Never load external GLB files or guess filesystem paths\n' +
+    '- Use print() for progress logging\n' +
+    '- Handle errors gracefully — catch exceptions where appropriate\n' +
+    '- Keep code under 200 lines\n' +
+    '- Use helper functions for repeated operations\n' +
+    '- End with a print statement confirming completion\n' +
+    '\n' +
+    'Return ONLY the Python code. No markdown fences, no explanations. Start with "import".`;\n' +
+    '\n' +
+    '/**\n' +
+    ' * Generate bpy code using GPT (or Gemini as fallback), grounded by RAG.\n' +
+    ' */\n' +
+    'async function generateCode(\n' +
+    '  intent: string,\n' +
+    '  constraints: string[],\n' +
+    '  sceneContext: string,\n' +
+    '  ragContext: string\n' +
+    '): Promise<string> {\n' +
+    '  const apiKey = process.env.OPENAI_API_KEY;\n' +
+    '\n' +
+    '  // Build the prompt\n' +
+    '  const userPrompt = [\n' +
+    '    `INTENT: ${intent}`,\n' +
+    '    "",\n' +
+    '    `CONSTRAINTS:`,\n' +
+    '    ...constraints.map((c) => `- ${c}`),\n' +
+    '    "",\n' +
+    '    `CURRENT SCENE STATE:`,\n' +
+    '    sceneContext,\n' +
+    '    "",\n' +
+    '    ragContext,\n' +
+    '    "",\n' +
+    `    "Generate the Python code now. Return ONLY code, starting with 'import'.",\n` +
+    '  ].join("\\n");\n' +
+    '\n' +
+    '  // Try OpenAI GPT first\n' +
+    '  if (apiKey) {\n' +
+    '    try {\n' +
+    '      const baseUrl = process.env.OPENAI_BASE_URL || "https://api.openai.com/v1";\n' +
+    '      const endpoint = baseUrl.endsWith("/") ? `${baseUrl}chat/completions` : `${baseUrl}/chat/completions`;\n' +
+    '      \n' +
+    '      const headers: Record<string, string> = {\n' +
+    '        "Content-Type": "application/json",\n' +
+    '        Authorization: `Bearer ${apiKey}`,\n' +
+    '      };\n' +
+    '\n' +
+    '      // Add OpenRouter specific headers if configured\n' +
+    '      if (process.env.OPENAI_HTTP_REFERER) headers["HTTP-Referer"] = process.env.OPENAI_HTTP_REFERER;\n' +
+    '      if (process.env.OPENAI_X_TITLE) headers["X-Title"] = process.env.OPENAI_X_TITLE;\n' +
+    '\n' +
+    '      const response = await fetch(endpoint, {\n' +
+    '        method: "POST",\n' +
+    '        headers,\n' +
+    '        body: JSON.stringify({\n' +
+    '          model: "gpt-4o",\n' +
+    '          messages: [\n' +
+    '            { role: "system", content: CODE_GEN_SYSTEM_PROMPT },\n' +
+    '            { role: "user", content: userPrompt },\n' +
+    '          ],\n' +
+    '          temperature: 0.1,\n' +
+    '          max_tokens: 4096,\n' +
+    '        }),\n' +
+    '      });\n' +
+    '\n' +
+    '      if (response.ok) {\n' +
+    '        const data = (await response.json()) as {\n' +
+    '          choices: { message: { content: string } }[];\n' +
+    '        };\n' +
+    '        let code = data.choices[0]?.message?.content || "";\n' +
+    '        code = cleanCodeResponse(code);\n' +
+    '        if (code) return code;\n' +
+    '      }\n' +
+    '    } catch (err: any) {\n' +
+    '      console.warn("[Act] OpenAI GPT failed, falling back to Gemini:", err.message);\n' +
+    '    }\n' +
+    '  }\n' +
+    '\n' +
+    '  // Fallback: use Gemini\n' +
+    '  const geminiKey = process.env.GEMINI_API_KEY;\n' +
+    '  if (!geminiKey) throw new Error("No OPENAI_API_KEY or GEMINI_API_KEY available for code generation");\n' +
+    '\n' +
+    '  const code = await generateGeminiText({\n' +
+    '    apiKey: geminiKey,\n' +
+    '    model: "gemini-2.5-flash",\n' +
+    '    input: userPrompt,\n' +
+    '    fallbackContents: userPrompt,\n' +
+    '    systemInstruction: CODE_GEN_SYSTEM_PROMPT,\n' +
+    '    temperature: 0.1,\n' +
+    '  });\n' +
+    '\n' +
+    '  return cleanCodeResponse(code);\n' +
+    '}\n' +
+    '\n' +
+    '/**\n' +
+    ' * Clean markdown fences and extract pure Python code from LLM response.\n' +
+    ' */\n' +
+    'function cleanCodeResponse(code: string): string {\n' +
+    '  // Remove markdown fences\n' +
+    '  const fenceMatch = code.match(/```(?:python)?\\s*\\n?([\\s\\S]*?)\\n?```/);\n' +
+    '  if (fenceMatch) {\n' +
+    '    code = fenceMatch[1];\n' +
+    '  }\n' +
+    '\n' +
+    '  // Ensure starts with import\n' +
+    '  if (!code.trim().startsWith("import")) {\n' +
+    '    const importIdx = code.indexOf("import bpy");\n' +
+    '    if (importIdx >= 0) {\n' +
+    '      code = code.slice(importIdx);\n' +
+    '    }\n' +
+    '  }\n' +
+    '\n' +
+    '  return code.trim();\n' +
+    '}\n' +
+    '\n' +
+    '/**\n' +
+    ' * Apply post-generation sanitization (from existing ollama-agent.ts).\n' +
+    ' */\n' +
+    'function sanitizeCode(script: string): string {\n' +
+    '  let s = script;\n' +
+    '\n' +
+    '  // Fix: strip.is_active → strip.mute\n' +
+    '  s = s.replace(/\\.is_active\\s*=\\s*False/g, ".mute = True");\n' +
+    '  s = s.replace(/\\.is_active\\s*=\\s*True/g, ".mute = False");\n' +
+    '\n' +
+    '  // Fix: BLENDER_EEVEE_NEXT → BLENDER_EEVEE\n' +
+    '  s = s.replace(/BLENDER_EEVEE_NEXT/g, "BLENDER_EEVEE");\n' +
+    '\n' +
+    '  // Fix: background-safe object selection/context access\n' +
+    '  s = s.replace(/bpy\\.context\\.selected_objects/g, "bpy.context.scene.objects");\n' +
+    '  s = s.replace(/bpy\\.context\\.active_object/g, "bpy.context.view_layer.objects.active");\n' +
+    '  s = s.replace(\n' +
+    `    /bpy\\.ops\\.object\\.select_all\\s*\\(\\s*action\\s*=\\s*['"](?:SELECT|DESELECT)['"]\\s*\\)/g,\n` +
+    '    "for _o in bpy.context.scene.objects: _o.select_set(False)"\n' +
+    '  );\n' +
+    '\n' +
+    '  // Fix: generated code must operate on the already-imported scene, not random paths.\n' +
+    '  s = s.replace(/^.*bpy\\.ops\\.import_scene\\.gltf\\s*\\(.*$/gm, "# import_scene.gltf removed: pipeline already imported the GLB");\n' +
+    '\n' +
+    '  // Fix: Full-path keyframe_insert\n' +
+    '  s = s.replace(\n' +
+    `    /keyframe_insert\\s*\\(\\s*data_path\\s*=\\s*f?['"]\\s*pose\\.bones\\[.*?\\]\\.(rotation_euler|location|scale|rotation_quaternion)['"]/g,\n` +
+    '    (_, prop) => `keyframe_insert(data_path="${prop}"`\n' +
+    '  );\n' +
+    '\n' +
+    '  // Fix: mathutils.radians → math.radians\n' +
+    '  s = s.replace(/mathutils\\.radians\\s*\\(/g, "math.radians(");\n' +
+    '\n' +
+    "  // Fix: Remove bare 'return' outside functions\n" +
+    '  s = s.replace(/^return\\b.*$/gm, "# return removed (top-level)");\n' +
+    '\n' +
+    '  // Fix: edit_bones.clear() → safe loop\n' +
+    '  s = s.replace(\n' +
+    '    /(\\w+)\\.edit_bones\\.clear\\(\\)/g,\n' +
+    '    "for _b in list($1.edit_bones): $1.edit_bones.remove(_b)"\n' +
+    '  );\n' +
+    '\n' +
+    '  // Fix: Ensure math import\n' +
+    '  if (s.includes("math.radians") && !s.includes("import math")) {\n' +
+    '    s = "import math\\n" + s;\n' +
+    '  }\n' +
+    '\n' +
+    '  // Fix: Remove obsolete light.distance\n' +
+    '  s = s.replace(/(\\w+)\\.distance\\s*=\\s*([^#\\n]+)/g, "# legacy light distance removed");\n' +
+    '\n' +
+    '  // Fix: Remove obsolete contact shadows\n' +
+    '  s = s.replace(/(\\w+)\\.use_contact_shadows?\\s*=\\s*(True|False)/g, "# contact shadows removed in EEVEE-Next");\n' +
+    '\n' +
+    '  // Fix: Remove direct .fcurves access\n' +
+    '  s = s.replace(/^.*\\.fcurves.*$/gm, "# fcurves access removed in Blender 5 Animation 2.0");\n' +
+    '\n' +
+    '  // Fix: Neutralize bpy.data.lights.remove()\n' +
+    '  s = s.replace(/bpy\\.data\\.lights\\.remove\\s*\\([^)]*\\)/g, "pass  # light data removal skipped");\n' +
+    '\n' +
+    '  // Fix: Neutralize bpy.data.cameras.remove()\n' +
+    '  s = s.replace(/bpy\\.data\\.cameras\\.remove\\s*\\([^)]*\\)/g, "pass  # camera data removal skipped");\n' +
+    '\n' +
+    '  return s;\n' +
+    '}\n' +
+    '\n' +
+    'function deterministicCodeForAction(state: BuildState): string | null {\n' +
+    '  const action = state.currentAction;\n' +
+    '  if (!action) return null;\n' +
+    '\n' +
+    '  const description = action.stepDescription.toLowerCase();\n' +
+    '  const hasTail = state.petAnalysis.hasTail ? "True" : "False";\n' +
+    '\n' +
+    '  // Look up breed-specific anatomy for proportions and animation modifiers\n' +
+    '  const anatomy = lookupBreedAnatomy(state.petAnalysis.species, state.petAnalysis.breed);\n' +
+    '  co'... 25037 more characters
+  
+      at TestContext.<anonymous> (file:///Users/robert/Desktop/claude7126/PawsMemories/tests/blender_pipeline_regressions.test.mjs:81:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '/**\n * Act Node — GPT Code Generation\n * ================================\n * Generates actual bpy Python code based on the intent from Claude (reason node),\n * grounded by RAG context from the Blender API docs.\n *\n * Then executes the code via the MCP tool interface and returns the result.\n */\n\nimport type { BuildState, StepResult } from "./types";\nimport { executeBlenderTool } from "../../tools/blender_mcp";\nimport { retrieveBlenderContext, formatContextForPrompt } from "../../knowledge/retriever";\nimport { generateGeminiText } from "../../gemini";\nimport { lookupBreedAnatomy, generateVertexGroupCode, getBoneProportions } from "../../knowledge/breed-anatomy";\n\n// ---------------------------------------------------------------------------\n// Forbidden patterns (from the existing sanitizeBlenderScript in ollama-agent.ts)\n// ---------------------------------------------------------------------------\n\nconst FORBIDDEN_PATTERNS = `\nFORBIDDEN PATTERNS (these WILL crash Blender 5.1):\n- ❌ bpy.ops.object.select_all() → use: for o in bpy.context.scene.objects: o.select_set(False)\n- ❌ bpy.context.selected_objects → unavailable in Render/worker background contexts; iterate bpy.context.scene.objects instead\n- ❌ bpy.context.active_object → unavailable in some background contexts; use bpy.context.view_layer.objects.active\n- ❌ bpy.ops.import_scene.gltf(...) in generated code → the pipeline imports the input GLB before code generation\n- ❌ Hard-coded GLB paths such as /tmp/input.glb, /tmp/model.glb, model.glb, or Windows temp paths\n- ❌ edit_bones.clear() → use: for b in list(arm.edit_bones): arm.edit_bones.remove(b)\n- ❌ strip.is_active → use: strip.mute = True/False\n- ❌ mathutils.radians() → use: import math; math.radians()\n- ❌ "return" outside a function → use: sys.exit(1) if needed\n- ❌ Full-path keyframe_insert data_path → use RELATIVE path only (e.g., "rotation_euler")\n- ❌ Reading pixels from \'Render Result\' image → render to disk first\n- ❌ light_data.distance = X → Use .energy instead\n- ❌ use_contact_shadow(s) = True → removed in EEVEE-Next\n- ❌ action.fcurves → removed in Blender 5 Animation 2.0\n- ❌ scene.render.engine = \'BLENDER_EEVEE\' → use \'BLENDER_WORKBENCH\'\n- ❌ bpy.data.lights.remove() / bpy.data.cameras.remove() → causes StructRNA ReferenceError\n- ❌ BLENDER_EEVEE_NEXT → use BLENDER_EEVEE if needed, but prefer BLENDER_WORKBENCH for headless\n\nMANDATORY PATTERNS:\n- ✅ Work with the existing imported mesh in bpy.context.scene.objects; Do not import GLB files from generated code\n- ✅ active = bpy.context.view_layer.objects.active — use view_layer for active object access\n- ✅ for obj in bpy.context.scene.objects: obj.select_set(False) — safe background deselection\n- ✅ bone = armature.pose.bones.get("name") — ALWAYS use .get(), NEVER direct indexing\n- ✅ bone.rotation_mode = \'XYZ\' — set before using rotation_euler\n- ✅ bone.keyframe_insert(data_path="rotation_euler") — RELATIVE path\n- ✅ from mathutils import Vector — for bounding box calculations\n- ✅ world_bbox = [obj.matrix_world @ Vector(v) for v in obj.bound_box]\n- ✅ import math — for math.radians(), math.sin(), math.cos()\n`;\n\nconst CODE_GEN_SYSTEM_PROMPT = `You are an expert Blender 5.1 Python (bpy) code generator.\n\nYou receive:\n1. A natural language description of what the code should do (the "intent")\n2. Constraints to follow\n3. Relevant Blender API documentation (from RAG)\n4. The current scene state\n\nGenerate ONLY valid Python code that accomplishes the intent. The code will be executed directly in Blender 5.1.2 running headless (--background).\n\n${FORBIDDEN_PATTERNS}\n\nCODE STYLE:\n- Start with "import bpy" and any other needed imports\n- Assume the pet mesh is already imported into the current scene by the pipeline\n- Never load external GLB files or guess filesystem paths\n- Use print() for progress logging\n- Handle errors gracefully — catch exceptions where appropriate\n- Keep code under 200 lines\n- Use helper functions for repeated operations\n- End with a print statement confirming completion\n\nReturn ONLY the Python code. No markdown fences, no explanations. Start with "import".`;\n\n/**\n * Generate bpy code using GPT (or Gemini as fallback), grounded by RAG.\n */\nasync function generateCode(\n  intent: string,\n  constraints: string[],\n  sceneContext: string,\n  ragContext: string\n): Promise<string> {\n  const apiKey = process.env.OPENAI_API_KEY;\n\n  // Build the prompt\n  const userPrompt = [\n    `INTENT: ${intent}`,\n    "",\n    `CONSTRAINTS:`,\n    ...constraints.map((c) => `- ${c}`),\n    "",\n    `CURRENT SCENE STATE:`,\n    sceneContext,\n    "",\n    ragContext,\n    "",\n    "Generate the Python code now. Return ONLY code, starting with \'import\'.",\n  ].join("\\n");\n\n  // Try OpenAI GPT first\n  if (apiKey) {\n    try {\n      const baseUrl = process.env.OPENAI_BASE_URL || "https://api.openai.com/v1";\n      const endpoint = baseUrl.endsWith("/") ? `${baseUrl}chat/completions` : `${baseUrl}/chat/completions`;\n      \n      const headers: Record<string, string> = {\n        "Content-Type": "application/json",\n        Authorization: `Bearer ${apiKey}`,\n      };\n\n      // Add OpenRouter specific headers if configured\n      if (process.env.OPENAI_HTTP_REFERER) headers["HTTP-Referer"] = process.env.OPENAI_HTTP_REFERER;\n      if (process.env.OPENAI_X_TITLE) headers["X-Title"] = process.env.OPENAI_X_TITLE;\n\n      const response = await fetch(endpoint, {\n        method: "POST",\n        headers,\n        body: JSON.stringify({\n          model: "gpt-4o",\n          messages: [\n            { role: "system", content: CODE_GEN_SYSTEM_PROMPT },\n            { role: "user", content: userPrompt },\n          ],\n          temperature: 0.1,\n          max_tokens: 4096,\n        }),\n      });\n\n      if (response.ok) {\n        const data = (await response.json()) as {\n          choices: { message: { content: string } }[];\n        };\n        let code = data.choices[0]?.message?.content || "";\n        code = cleanCodeResponse(code);\n        if (code) return code;\n      }\n    } catch (err: any) {\n      console.warn("[Act] OpenAI GPT failed, falling back to Gemini:", err.message);\n    }\n  }\n\n  // Fallback: use Gemini\n  const geminiKey = process.env.GEMINI_API_KEY;\n  if (!geminiKey) throw new Error("No OPENAI_API_KEY or GEMINI_API_KEY available for code generation");\n\n  const code = await generateGeminiText({\n    apiKey: geminiKey,\n    model: "gemini-2.5-flash",\n    input: userPrompt,\n    fallbackContents: userPrompt,\n    systemInstruction: CODE_GEN_SYSTEM_PROMPT,\n    temperature: 0.1,\n  });\n\n  return cleanCodeResponse(code);\n}\n\n/**\n * Clean markdown fences and extract pure Python code from LLM response.\n */\nfunction cleanCodeResponse(code: string): string {\n  // Remove markdown fences\n  const fenceMatch = code.match(/```(?:python)?\\s*\\n?([\\s\\S]*?)\\n?```/);\n  if (fenceMatch) {\n    code = fenceMatch[1];\n  }\n\n  // Ensure starts with import\n  if (!code.trim().startsWith("import")) {\n    const importIdx = code.indexOf("import bpy");\n    if (importIdx >= 0) {\n      code = code.slice(importIdx);\n    }\n  }\n\n  return code.trim();\n}\n\n/**\n * Apply post-generation sanitization (from existing ollama-agent.ts).\n */\nfunction sanitizeCode(script: string): string {\n  let s = script;\n\n  // Fix: strip.is_active → strip.mute\n  s = s.replace(/\\.is_active\\s*=\\s*False/g, ".mute = True");\n  s = s.replace(/\\.is_active\\s*=\\s*True/g, ".mute = False");\n\n  // Fix: BLENDER_EEVEE_NEXT → BLENDER_EEVEE\n  s = s.replace(/BLENDER_EEVEE_NEXT/g, "BLENDER_EEVEE");\n\n  // Fix: background-safe object selection/context access\n  s = s.replace(/bpy\\.context\\.selected_objects/g, "bpy.context.scene.objects");\n  s = s.replace(/bpy\\.context\\.active_object/g, "bpy.context.view_layer.objects.active");\n  s = s.replace(\n    /bpy\\.ops\\.object\\.select_all\\s*\\(\\s*action\\s*=\\s*[\'"](?:SELECT|DESELECT)[\'"]\\s*\\)/g,\n    "for _o in bpy.context.scene.objects: _o.select_set(False)"\n  );\n\n  // Fix: generated code must operate on the already-imported scene, not random paths.\n  s = s.replace(/^.*bpy\\.ops\\.import_scene\\.gltf\\s*\\(.*$/gm, "# import_scene.gltf removed: pipeline already imported the GLB");\n\n  // Fix: Full-path keyframe_insert\n  s = s.replace(\n    /keyframe_insert\\s*\\(\\s*data_path\\s*=\\s*f?[\'"]\\s*pose\\.bones\\[.*?\\]\\.(rotation_euler|location|scale|rotation_quaternion)[\'"]/g,\n    (_, prop) => `keyframe_insert(data_path="${prop}"`\n  );\n\n  // Fix: mathutils.radians → math.radians\n  s = s.replace(/mathutils\\.radians\\s*\\(/g, "math.radians(");\n\n  // Fix: Remove bare \'return\' outside functions\n  s = s.replace(/^return\\b.*$/gm, "# return removed (top-level)");\n\n  // Fix: edit_bones.clear() → safe loop\n  s = s.replace(\n    /(\\w+)\\.edit_bones\\.clear\\(\\)/g,\n    "for _b in list($1.edit_bones): $1.edit_bones.remove(_b)"\n  );\n\n  // Fix: Ensure math import\n  if (s.includes("math.radians") && !s.includes("import math")) {\n    s = "import math\\n" + s;\n  }\n\n  // Fix: Remove obsolete light.distance\n  s = s.replace(/(\\w+)\\.distance\\s*=\\s*([^#\\n]+)/g, "# legacy light distance removed");\n\n  // Fix: Remove obsolete contact shadows\n  s = s.replace(/(\\w+)\\.use_contact_shadows?\\s*=\\s*(True|False)/g, "# contact shadows removed in EEVEE-Next");\n\n  // Fix: Remove direct .fcurves access\n  s = s.replace(/^.*\\.fcurves.*$/gm, "# fcurves access removed in Blender 5 Animation 2.0");\n\n  // Fix: Neutralize bpy.data.lights.remove()\n  s = s.replace(/bpy\\.data\\.lights\\.remove\\s*\\([^)]*\\)/g, "pass  # light data removal skipped");\n\n  // Fix: Neutralize bpy.data.cameras.remove()\n  s = s.replace(/bpy\\.data\\.cameras\\.remove\\s*\\([^)]*\\)/g, "pass  # camera data removal skipped");\n\n  return s;\n}\n\nfunction deterministicCodeForAction(state: BuildState): string | null {\n  const action = state.currentAction;\n  if (!action) return null;\n\n  const description = action.stepDescription.toLowerCase();\n  const hasTail = state.petAnalysis.hasTail ? "True" : "False";\n\n  // Look up breed-specific anatomy for proportions and animation modifiers\n  const anatomy = lookupBreedAnatomy(state.petAnalysis.species, state.petAnalysis.breed);\n  co'... 25037 more characters,
+    expected: /DogArmature created with/,
+    operator: 'match',
+    diff: 'simple'
+  }

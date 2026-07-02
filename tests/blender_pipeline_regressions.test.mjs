@@ -56,7 +56,7 @@ test('blender worker autostarts the TCP bridge for agent routes', () => {
   const server = read('blender-worker/server.js');
   assert.match(server, /function ensureBridgeReady/);
   assert.match(server, /spawn\(blenderCommand, \["--background", "--python", BRIDGE_SCRIPT_PATH\]/);
-  assert.match(server, /app\.use\(\[[\s\S]*"\/agent\/build"[\s\S]*\], requireBridge\)/);
+  assert.match(server, /app\.use\(\[[\s\S]*"\/agent\/build"[\s\S]*\], (requireWorkerAuth, )?requireBridge\)/);
   assert.match(server, /BLENDER_AUTOSTART_BRIDGE/);
 });
 
@@ -78,7 +78,7 @@ test('core avatar rigging no longer depends on generated automatic-weight script
   const recover = read('agent/graph/nodes/recover.ts');
   assert.match(act, /deterministicCodeForAction/);
   assert.match(act, /Binding mesh to armature with explicit vertex groups/);
-  assert.match(act, /DogArmature created with/);
+  assert.match(act, /PetArmature created/);
   assert.match(act, /Animation '\$\{name\}' created/);
   assert.match(recover, /Restored checkpoint instead of raw undo/);
   assert.doesNotMatch(recover, /Undo successful/);

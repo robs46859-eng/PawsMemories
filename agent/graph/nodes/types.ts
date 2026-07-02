@@ -23,6 +23,8 @@ export interface PetAnalysis {
     bodyLength: string;
     neckLength: string;
   };
+  coatColors: string[];
+  coatPattern: string;
 }
 
 // ---------------------------------------------------------------------------

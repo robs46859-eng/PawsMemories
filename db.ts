@@ -991,6 +991,32 @@ export async function claimDailyStreak(phone: string): Promise<{success: boolean
   return { success: true };
 }
 
+export async function claimAchievement(phone: string, id: string): Promise<{success: boolean}> {
+  try {
+    const user = await findUserByPhone(phone);
+    if (!user) throw new Error("User not found");
+    
+    let achievements: string[] = [];
+    if (user.achievements_json) {
+      try { achievements = JSON.parse(user.achievements_json); } catch(e) {}
+    }
+    
+    if (achievements.includes(id)) {
+      return { success: false }; // Already claimed
+    }
+    
+    achievements.push(id);
+    await getPool().query(
+      `UPDATE users SET achievements_json = ?, credits = credits + 10 WHERE phone = ?`, 
+      [JSON.stringify(achievements), phone]
+    );
+    return { success: true };
+  } catch (err) {
+    console.error("Achievement claim error:", err);
+    throw err;
+  }
+}
+
 // ============================================================================
 // Photo Requests Helpers
 // ============================================================================

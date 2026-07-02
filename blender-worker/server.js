@@ -269,6 +269,14 @@ app.get("/health", async (req, res) => {
 // NEW: Bridge proxy endpoints (for the multi-agent system)
 // =============================================================================
 
+function requireWorkerAuth(req, res, next) {
+  const provided = req.get("x-worker-secret");
+  if (!provided || provided !== process.env.WORKER_SHARED_SECRET) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  next();
+}
+
 async function requireBridge(req, res, next) {
   try {
     await ensureBridgeReady();
@@ -287,7 +295,7 @@ app.use([
   "/export-glb",
   "/import-glb",
   "/agent/build",
-], requireBridge);
+], requireWorkerAuth, requireBridge);
 
 // Read the current Blender scene graph
 app.get("/scene", async (req, res) => {
