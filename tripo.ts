@@ -53,13 +53,17 @@ export async function startImageTo3D(input: TripoJobInput): Promise<string> {
     throw new Error(`Tripo upload returned no image_token: ${JSON.stringify(uploadJson)}`);
   }
 
-  // 3. Start task
+  // 3. Start task with high-fidelity flags (Phase 3.2 & 3.6)
   const body = {
     type: "image_to_model",
     file: {
       type: ext,
       file_token: fileToken
-    }
+    },
+    texture: true,
+    pbr: true,
+    quad: true,
+    face_limit: 40000
   };
 
   const res = await fetch(`${TRIPO_BASE}/task`, {

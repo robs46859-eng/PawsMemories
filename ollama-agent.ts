@@ -30,6 +30,8 @@ export interface PetAnalysis {
     bodyLength: string;   // "compact", "medium", "elongated"
     neckLength: string;   // "short", "medium", "long"
   };
+  coatColors: string[];
+  coatPattern: string;
 }
 
 // =============================================================================
@@ -136,7 +138,9 @@ Return ONLY a valid JSON object with this exact structure (no other text):
     "legLength": "medium",
     "bodyLength": "medium",
     "neckLength": "medium"
-  }
+  },
+  "coatColors": ["#C0A080", "#FFFFFF"],
+  "coatPattern": "solid"
 }
 
 Rules:
@@ -146,6 +150,8 @@ Rules:
 - estimatedPose: "standing", "sitting", "lying_down", or "other"
 - legCount: number of legs (4 for dogs/cats, 2 for birds)
 - bodyProportions values: "small", "medium", or "large" / "short", "medium", "long" / "compact", "medium", "elongated"
+- coatColors: Array of 1-3 primary colors found on the pet, formatted as hex codes (e.g., ["#000000", "#FFFFFF"])
+- coatPattern: The pattern of the coat (e.g., "solid", "spotted", "striped", "bicolor", "tricolor")
 
 Return ONLY the JSON object.`;
 
@@ -203,6 +209,8 @@ Return ONLY the JSON object.`;
         bodyLength: "medium",
         neckLength: "medium",
       },
+      coatColors: ["#C0A080"],
+      coatPattern: "solid"
     };
   }
 }

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, useMotionValue, useTransform, AnimatePresence } from "motion/react";
 import { Avatar, AvatarAction, AnimationMetadata } from "../types";
+import PetModelViewer from "./PetModelViewer";
 
 interface Avatar3DPlaypenProps {
   avatar: Avatar;
@@ -231,10 +232,11 @@ export default function Avatar3DPlaypen({
     renderFrame("photo", 0);
   }, [activeAction, spriteLoaded, renderFrame]);
 
-  // Determine display mode — NO 2D photo fallback
+  // Determine display mode
   const hasSpriteSheet = !!avatar.sprite_sheet_url && spriteLoaded;
   const isGenerating = avatar.generation_status !== "done" && avatar.generation_status !== "failed";
   const showSpriteError = avatar.generation_status === "done" && !hasSpriteSheet && !isGenerating;
+  const showFallbackImage = (spriteLoadFailed || (!avatar.sprite_sheet_url && avatar.generation_status === "done")) && !!avatar.image_url;
 
   return (
     <div
@@ -314,9 +316,17 @@ export default function Avatar3DPlaypen({
           </div>
         )}
 
-        {/* Pet Avatar — Canvas for sprite sheet OR error state (NO 2D fallback) */}
+        {/* Pet Avatar — GLB or Sprite fallback or Error state */}
         <div className="absolute inset-0 flex items-center justify-center">
-          {hasSpriteSheet && (
+          {avatar.model_url && !isGenerating ? (
+            <div className="absolute inset-0 pb-10">
+              <PetModelViewer
+                src={avatar.model_url}
+                animationName={activeAction || "photo"}
+                autoRotate={false}
+              />
+            </div>
+          ) : hasSpriteSheet ? (
             <motion.div
               animate={{
                 y: activeAction ? [0, -8, 0] : [0, -3, 0],
@@ -341,21 +351,26 @@ export default function Avatar3DPlaypen({
               {/* Shadow under pet */}
               <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-20 h-3 bg-black/15 dark:bg-black/30 rounded-full blur-[2px]" />
             </motion.div>
-          )}
-
-          {/* Sprite load error — generation done but sprite sheet failed to load */}
-          {showSpriteError && (
+          ) : showSpriteError ? (
             <motion.div
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               className="flex flex-col items-center text-center px-6"
             >
-              <span className="text-3xl mb-3">🔧</span>
+              {showFallbackImage ? (
+                <img
+                  src={avatar.image_url}
+                  alt={avatar.name}
+                  className="w-32 h-32 sm:w-40 sm:h-40 rounded-full object-cover drop-shadow-xl mb-3"
+                />
+              ) : (
+                <span className="text-3xl mb-3">🔧</span>
+              )}
               <p className="text-xs font-bold text-on-surface mb-1">Avatar Render Issue</p>
               <p className="text-[10px] text-on-surface-variant opacity-70 mb-3 max-w-[80%]">
                 {spriteLoadFailed
-                  ? "The sprite sheet failed to load. The avatar may need to be regenerated."
-                  : "No sprite sheet was generated for this avatar."}
+                  ? "The avatar graphics failed to load. The avatar may need to be regenerated."
+                  : "No graphics were generated for this avatar."}
               </p>
               {onRetry && (
                 <button
@@ -366,7 +381,7 @@ export default function Avatar3DPlaypen({
                 </button>
               )}
             </motion.div>
-          )}
+          ) : null}
         </div>
 
         {/* Floating Emojis */}

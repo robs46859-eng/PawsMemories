@@ -6,7 +6,8 @@ import dotenv from "dotenv";
 import Stripe from "stripe";
 import fs from "fs";
 import twilio from "twilio";
-import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, getPool } from "./db";
+import rateLimit from "express-rate-limit";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, getPool, claimDailyStreak, claimAchievement } from "./db";
 import { uploadBase64Image, uploadBinaryFromUrl, fetchUrlAsBase64 } from "./storage";
 import { runBuildPipeline } from "./agent/graph/orchestrator";
 import { analyzePetImage } from "./ollama-agent";
@@ -25,6 +26,13 @@ dotenv.config();
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
+
+  process.on("unhandledRejection", (reason) => {
+    console.error("[FATAL] Unhandled rejection:", reason);
+  });
+  process.on("uncaughtException", (err) => {
+    console.error("[FATAL] Uncaught exception:", err);
+  });
 
   // Fix 3: JWT_SECRET startup guard — refuse to start with an insecure empty secret.
   if (!process.env.JWT_SECRET || process.env.JWT_SECRET === "MY_JWT_SECRET" || process.env.JWT_SECRET.length < 16) {
@@ -134,6 +142,7 @@ async function startServer() {
 
   // Content Security Policy — strict but permits what the app needs
   app.use((_req, res, next) => {
+    const bucketOrigin = new URL(process.env.MEDIA_BUCKET_URL || "https://example.invalid").origin;
     res.setHeader(
       "Content-Security-Policy",
       [
@@ -142,8 +151,9 @@ async function startServer() {
         "script-src-elem 'self' 'unsafe-inline' https://maps.googleapis.com https://maps.google.com",
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://maps.googleapis.com",
         "worker-src 'self' blob:",
-        "img-src 'self' blob: data: https: http://localhost:*",
-        "connect-src 'self' https://maps.googleapis.com https://*.googleapis.com https://maps.google.com",
+        `img-src 'self' blob: data: https: http://localhost:*`,
+        `media-src 'self' ${bucketOrigin}`,
+        `connect-src 'self' https://maps.googleapis.com https://*.googleapis.com https://maps.google.com ${bucketOrigin}`,
         "font-src 'self' https://fonts.gstatic.com data:",
         "frame-src 'self' https://*.google.com https://js.stripe.com",
       ].join("; ")
@@ -153,6 +163,11 @@ async function startServer() {
 
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+  const authLimiter = rateLimit({ windowMs: 60 * 1000, max: 10, message: { error: "Too many requests from this IP, please try again after a minute" } });
+  app.use("/api/auth/login", authLimiter);
+  app.use("/api/auth/signup", authLimiter);
+  app.use("/api/create-video", authLimiter);
 
   // ---------------------------------------------------------------------------
   // Authentication: email/password + session tokens (JWT)
@@ -234,7 +249,6 @@ async function startServer() {
       const password = String(req.body?.password || "");
       if (!email || !password) return res.status(400).json({ error: "Email and password are required." });
       
-      const { getPool } = require("./db");
       const [rows] = await getPool().query("SELECT * FROM users WHERE email = ? LIMIT 1", [email]) as any;
       if (!rows || rows.length === 0) {
         return res.status(401).json({ error: "Invalid email or password." });
@@ -265,7 +279,6 @@ async function startServer() {
 
   app.post("/api/streak/claim", requireAuth, async (req: AuthedRequest, res) => {
     try {
-      const { claimDailyStreak } = require("./db");
       const result = await claimDailyStreak(req.user!.phone);
       if (!result.success) return res.status(400).json({ success: false, error: "Streak already claimed today" });
       const user = await findUserByPhone(req.user!.phone);
@@ -278,7 +291,6 @@ async function startServer() {
   app.post("/api/achievements/claim", requireAuth, async (req: AuthedRequest, res) => {
     try {
       const { id } = req.body;
-      const { claimAchievement } = require("./db");
       const result = await claimAchievement(req.user!.phone, id);
       if (!result.success) return res.status(400).json({ success: false, error: "Already claimed" });
       const user = await findUserByPhone(req.user!.phone);
@@ -359,6 +371,7 @@ async function startServer() {
     }
   });
 
+  const avatarBuildLocks = new Set<number>();
   app.get("/api/avatars/:id/status", requireAuth, async (req: AuthedRequest, res) => {
     try {
       const avatarId = Number(req.params.id);
@@ -377,6 +390,10 @@ async function startServer() {
       if (avatar.meshy_handle) {
         const poll = await pollImageTo3D(avatar.meshy_handle);
         if (poll.done && !poll.error) {
+          if (avatarBuildLocks.has(avatarId)) {
+            return res.json({ status: "rigging" });
+          }
+          avatarBuildLocks.add(avatarId);
           await getPool().query(`UPDATE avatars SET meshy_handle = NULL WHERE id = ?`, [avatarId]);
           await updateAvatarGenerationStatus(avatarId, "rigging");
           
@@ -427,6 +444,8 @@ async function startServer() {
              } catch (err: any) {
                 console.error(`[Avatar ${avatarId} Agent Error]`, err);
                 await updateAvatarGenerationStatus(avatarId, "failed", err.message || "Unknown error in background agent");
+             } finally {
+                avatarBuildLocks.delete(avatarId);
              }
           })();
 
@@ -739,6 +758,11 @@ async function startServer() {
       const { style, background, photo, breed, name, brightness, contrast, location } = req.body;
       
       let promptText = "";
+      if (brightness > 70) promptText += ` Use very bright, high-key lighting.`;
+      else if (brightness < 30) promptText += ` Use moody, low-key dramatic lighting.`;
+      if (contrast > 70) promptText += ` High contrast, punchy colors.`;
+      else if (contrast < 30) promptText += ` Soft, low-contrast, pastel tones.`;
+
       if (name) {
         promptText += `The pet is a lovely animal named ${name}. `;
       }
@@ -811,9 +835,9 @@ async function startServer() {
         const base64Data = matches[2];
 
         try {
-          // Call gemini-2.5-flash-image to translate/style-transfer the input photo
+          // Call gemini-2.0-flash-exp to translate/style-transfer the input photo
           const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash-image',
+            model: 'gemini-2.0-flash-exp',
             contents: {
               parts: [
                 {
@@ -932,7 +956,7 @@ async function startServer() {
         console.error("Imagen model error, trying gemini-2.5-flash-image fallback:", e);
         
         const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash-image',
+          model: 'gemini-2.0-flash-exp',
           contents: {
             parts: [{ text: `Generate a beautiful artistic image matching this prompt: ${promptText}` }]
           },
@@ -1101,7 +1125,7 @@ async function startServer() {
       const formattedAlbums = albums.map((a: any) => ({
         id: a.id.toString(),
         name: a.name,
-        imageUrl: "https://images.unsplash.com/photo-1548199973-03cce0bbc87b?q=80&w=600&auto=format&fit=crop", // placeholder cover
+        imageUrl: a.cover_url || "https://images.unsplash.com/photo-1548199973-03cce0bbc87b?q=80&w=600&auto=format&fit=crop",
         itemCount: a.itemCount || 0
       }));
       res.json({ success: true, albums: formattedAlbums });
@@ -1172,7 +1196,19 @@ async function startServer() {
       if (sv_pitch !== undefined) updates.sv_pitch = sv_pitch;
       if (sv_fov !== undefined) updates.sv_fov = sv_fov;
       if (place_label !== undefined) updates.place_label = place_label;
-      if (album_id !== undefined) updates.album_id = album_id;
+      
+      if (album_id !== undefined && album_id !== null) {
+        const [albumRows] = await getPool().query(
+          "SELECT id FROM albums WHERE id = ? AND user_phone = ? LIMIT 1",
+          [album_id, req.user!.phone]
+        ) as any;
+        if (!albumRows.length) {
+          return res.status(403).json({ success: false, error: "Album not found or not yours." });
+        }
+        updates.album_id = album_id;
+      } else if (album_id === null) {
+        updates.album_id = null;
+      }
 
       const success = await updateCreation(id, req.user!.phone, updates);
       if (!success) {
@@ -1190,6 +1226,10 @@ async function startServer() {
     try {
       const url = req.query.url as string;
       if (!url) return res.status(400).send("Missing url parameter");
+      const allowed = process.env.MEDIA_BUCKET_URL;
+      if (!allowed || !url.startsWith(allowed)) {
+        return res.status(403).send("URL not allowed");
+      }
 
       // We use node's global fetch
       const fetchReq = await fetch(url);
@@ -1477,7 +1517,7 @@ async function startServer() {
                     await twilioClient.messages.create({
                       body: `🐾 Paws & Memories: Your talking pet video is ready! View it at ${process.env.APP_URL || "your app"}.`,
                       to: req.user!.phone,
-                      from: process.env.TWILIO_VERIFY_SERVICE_SID
+                      from: process.env.TWILIO_PHONE_NUMBER
                     });
                   } catch (smsErr) {
                     console.warn("Failed to send SMS notification:", smsErr);
@@ -1515,7 +1555,7 @@ async function startServer() {
                     await twilioClient.messages.create({
                       body: `🐾 Paws & Memories: Your 3D pet model is ready! View it at ${process.env.APP_URL || "your app"}.`,
                       to: req.user!.phone,
-                      from: process.env.TWILIO_VERIFY_SERVICE_SID
+                      from: process.env.TWILIO_PHONE_NUMBER
                     });
                   } catch (smsErr) {
                     console.warn("Failed to send SMS notification:", smsErr);
@@ -1545,11 +1585,16 @@ async function startServer() {
             if (op.done) {
               if (op.response?.generatedVideos?.[0]?.video) {
                 const videoData: any = op.response.generatedVideos[0].video;
-                // videoData usually has imageBytes for Veo
-                const base64Video = videoData.imageBytes || videoData;
-                
-                // Upload to object storage
-                const videoUrl = await uploadBase64Image(`data:video/mp4;base64,${base64Video}`);
+                let videoUrl: string;
+                if (videoData.uri) {
+                  const gcsRes = await fetch(videoData.uri);
+                  const buf = Buffer.from(await gcsRes.arrayBuffer());
+                  videoUrl = await uploadBase64Image(`data:video/mp4;base64,${buf.toString("base64")}`);
+                } else if (videoData.imageBytes) {
+                  videoUrl = await uploadBase64Image(`data:video/mp4;base64,${videoData.imageBytes}`);
+                } else {
+                  throw new Error("Veo returned no video URI or bytes");
+                }
                 
                 // Update DB
                 await updateJobStatus(jobId, "done");
@@ -1562,7 +1607,7 @@ async function startServer() {
                     await twilioClient.messages.create({
                       body: `🐾 Paws & Memories: Your pet video animation is ready! View it at ${process.env.APP_URL || "your app"}.`,
                       to: req.user!.phone,
-                      from: process.env.TWILIO_VERIFY_SERVICE_SID // Fallback if no dedicated messaging SID, or use a specific one
+                      from: process.env.TWILIO_PHONE_NUMBER // Fallback if no dedicated messaging SID, or use a specific one
                     });
                   } catch (smsErr) {
                     console.warn("Failed to send SMS notification:", smsErr);
@@ -1620,7 +1665,7 @@ async function startServer() {
                     await twilioClient.messages.create({
                       body: `🐾 Paws & Memories: Your talking pet video is ready! View it at ${process.env.APP_URL || "your app"}.`,
                       to: job.user_phone,
-                      from: process.env.TWILIO_VERIFY_SERVICE_SID
+                      from: process.env.TWILIO_PHONE_NUMBER
                     });
                   } catch (smsErr) {
                     console.warn("Failed to send SMS notification (poller):", smsErr);
@@ -1655,7 +1700,7 @@ async function startServer() {
                     await twilioClient.messages.create({
                       body: `🐾 Paws & Memories: Your 3D pet model is ready! View it at ${process.env.APP_URL || "your app"}.`,
                       to: job.user_phone,
-                      from: process.env.TWILIO_VERIFY_SERVICE_SID
+                      from: process.env.TWILIO_PHONE_NUMBER
                     });
                   } catch (smsErr) {
                     console.warn("Failed to send SMS notification (poller):", smsErr);
@@ -1679,8 +1724,16 @@ async function startServer() {
           if (op.done) {
             if (op.response?.generatedVideos?.[0]?.video) {
               const videoData: any = op.response.generatedVideos[0].video;
-              const base64Video = videoData.imageBytes || videoData;
-              const videoUrl = await uploadBase64Image(`data:video/mp4;base64,${base64Video}`);
+              let videoUrl: string;
+              if (videoData.uri) {
+                const gcsRes = await fetch(videoData.uri);
+                const buf = Buffer.from(await gcsRes.arrayBuffer());
+                videoUrl = await uploadBase64Image(`data:video/mp4;base64,${buf.toString("base64")}`);
+              } else if (videoData.imageBytes) {
+                videoUrl = await uploadBase64Image(`data:video/mp4;base64,${videoData.imageBytes}`);
+              } else {
+                throw new Error("Veo returned no video URI or bytes");
+              }
               
               await updateJobStatus(job.id, "done");
               if (job.creation_id) {

@@ -402,10 +402,7 @@ for obj in bpy.context.scene.objects:
 mesh.select_set(True)
 armature.select_set(True)
 try:
-    print("[Deterministic] Attempting automatic bone weights...")
-    bpy.ops.object.parent_set(type='ARMATURE_AUTO')
-except Exception as e:
-    print(f"[Deterministic] Auto weights failed ({e}), falling back to box binding...")
+    print("[Deterministic] Attempting explicit breed-aware bone weights...")
     for v in mesh.data.vertices:
         world = mesh.matrix_world @ v.co
         group_name = choose_group(world)
@@ -417,6 +414,10 @@ except Exception as e:
         mod = mesh.modifiers.new("PetArmature", 'ARMATURE')
     mod.object = armature
     mesh.parent = armature
+    print("Binding mesh to armature with explicit vertex groups")
+except Exception as e:
+    print(f"[Deterministic] Explicit weights failed ({e}), falling back to auto heat-diffusion...")
+    bpy.ops.object.parent_set(type='ARMATURE_AUTO')
 print(f"[Deterministic] Bound {mesh.name} to {armature.name} with {len(bone_names)} breed-aware vertex groups")`;
   }
 
@@ -433,6 +434,7 @@ print(f"[Deterministic] Bound {mesh.name} to {armature.name} with {len(bone_name
     // Use breed gait for running
     const isWaddle = animMods.runGaitType === "waddle";
     const isHop = animMods.runGaitType === "hop";
+    const frameCount = isWaddle ? 36 : (isHop ? 20 : 24);
 
     return `import bpy
 import math
@@ -446,7 +448,25 @@ if not armature.animation_data:
     armature.animation_data_create()
 action = bpy.data.actions.new("${name}") if "${name}" not in bpy.data.actions else bpy.data.actions["${name}"]
 armature.animation_data.action = action
-frames = list(range(24)) if "${name}" in ("eating", "drinking", "running", "playing", "sleeping") else list(range(12))
+frames = list(range(${frameCount})) if "${name}" in ("eating", "drinking", "running", "playing", "sleeping") else list(range(12))
+
+# Setup IK constraints for foot-locking
+for leg, chain in [("front", 2), ("back", 2)]:
+    for side in ("L", "R"):
+        paw_name = f"{leg}_paw.{side}"
+        lower_name = f"{leg}_leg_lower.{side}"
+        paw_bone = armature.pose.bones.get(paw_name)
+        lower_bone = armature.pose.bones.get(lower_name)
+        if paw_bone and lower_bone:
+            # Check if IK already exists
+            ik = next((c for c in lower_bone.constraints if c.type == 'IK'), None)
+            if not ik:
+                ik = lower_bone.constraints.new('IK')
+                ik.target = armature
+                ik.subtarget = paw_name
+                ik.chain_count = chain
+                ik.influence = 0.5 if "${name}" in ("running", "playing") else 0.0
+
 # Breed-specific animation parameters
 leg_angle_max = ${legAngleMax}
 tail_angle_max = ${tailAngle}
@@ -454,15 +474,22 @@ eating_reach = ${eatingReach}
 play_bounce = ${playBounce}
 spine_flex = ${spineFlex}
 tail_wag = ${tailWag}
+
 for frame in frames:
     bpy.context.scene.frame_set(frame)
     phase = (frame / max(len(frames) - 1, 1)) * math.tau
-    for bone_name in ("hips", "spine", "chest", "neck", "head", "jaw", "ear.L", "ear.R", "eye.L", "eye.R", "tail_01", "tail_02", "front_leg_upper.L", "front_leg_upper.R", "back_leg_upper.L", "back_leg_upper.R"):
+    
+    # Secondary motion phase delay
+    sec_phase = phase - 0.5
+    
+    for bone_name in ("hips", "spine", "chest", "neck", "head", "jaw", "ear.L", "ear.R", "eye.L", "eye.R", "tail_01", "tail_02", "front_leg_upper.L", "front_leg_upper.R", "back_leg_upper.L", "back_leg_upper.R", "front_paw.L", "front_paw.R", "back_paw.L", "back_paw.R"):
         bone = armature.pose.bones.get(bone_name)
         if not bone:
             continue
         bone.rotation_mode = 'XYZ'
         bone.rotation_euler = (0, 0, 0)
+        
+        # Base motions
         if "${name}" == "eating" and bone_name in ("neck", "head"):
             bone.rotation_euler.x = math.radians((10 + 12 * math.sin(phase)) * eating_reach)
         elif "${name}" == "eating" and bone_name == "jaw":
@@ -478,6 +505,10 @@ for frame in frames:
               : isHop
                 ? 'bone.rotation_euler.x = math.radians(leg_amp * math.sin(phase))  # synchronous hop'
                 : 'bone.rotation_euler.x = math.radians(leg_amp * math.sin(phase + (math.pi if bone_name.endswith(".R") else 0)))'}
+        elif "${name}" == "running" and bone_name.endswith("paw.L") or bone_name.endswith("paw.R"):
+            # Counter-rotate paws for IK target simulation
+            leg_amp = min(leg_angle_max, ${isWaddle ? 14 : isHop ? 30 : 22})
+            ${isHop ? 'bone.rotation_euler.x = math.radians(-leg_amp * math.sin(phase))' : 'bone.rotation_euler.x = math.radians(-leg_amp * math.sin(phase + (math.pi if bone_name.endswith(".R") else 0)))'}
         elif "${name}" == "running" and bone_name in ("spine", "chest"):
             bone.rotation_euler.x = math.radians(${(4 * spineFlex).toFixed(1)} * math.sin(phase))
         elif "${name}" == "playing" and bone_name in ("hips", "spine", "chest"):
@@ -491,8 +522,18 @@ for frame in frames:
             bone.rotation_euler.x = math.radians(10) # close eyes
         elif "${name}" == "photo" and bone_name == "head":
             bone.rotation_euler.z = math.radians(8 * math.sin(phase))
-        elif bone_name.startswith("tail_"):
+            
+        # Secondary motion
+        if "${name}" in ("running", "playing") and bone_name.startswith("ear."):
+            bone.rotation_euler.x += math.radians(-10 * math.sin(sec_phase)) # ear follow-through
+        elif "${name}" in ("running", "playing") and bone_name == "jaw":
+            bone.rotation_euler.x += math.radians(5 + 5 * math.sin(sec_phase)) # jowl bounce
+        elif "${name}" in ("eating", "photo", "sleeping") and bone_name in ("chest", "spine"):
+            bone.rotation_euler.x += math.radians(1.5 * math.sin(phase * 0.5)) # subtle breathing
+            
+        if bone_name.startswith("tail_"):
             bone.rotation_euler.z = math.radians(${(12 * tailWag).toFixed(1)} * math.sin(phase))
+            
         bone.keyframe_insert(data_path="rotation_euler", frame=frame)
 bpy.context.scene.frame_start = min(frames)
 bpy.context.scene.frame_end = max(frames)
@@ -544,14 +585,65 @@ try:
 except Exception:
     pass
 
-# Apply Procedural Fur Bump Map
+# Apply Deterministic Procedural Coat Material based on extracted colors and pattern
 if mesh.data.materials:
     mat = mesh.data.materials[0]
     mat.use_nodes = True
     nodes = mat.node_tree.nodes
     links = mat.node_tree.links
     bsdf = nodes.get("Principled BSDF")
+    
+    # Coat colors from pet analysis
+    colors = ${JSON.stringify(state.petAnalysis?.coatColors || ["#C0A080"])}
+    pattern = "${state.petAnalysis?.coatPattern || "solid"}"
+    
+    def hex_to_rgb(hex_code):
+        hex_code = hex_code.lstrip('#')
+        if len(hex_code) == 3:
+            hex_code = ''.join(c + c for c in hex_code)
+        r = int(hex_code[0:2], 16) / 255.0
+        g = int(hex_code[2:4], 16) / 255.0
+        b = int(hex_code[4:6], 16) / 255.0
+        # sRGB to Linear
+        r = (r / 12.92) if r <= 0.04045 else ((r + 0.055) / 1.055) ** 2.4
+        g = (g / 12.92) if g <= 0.04045 else ((g + 0.055) / 1.055) ** 2.4
+        b = (b / 12.92) if b <= 0.04045 else ((b + 0.055) / 1.055) ** 2.4
+        return (r, g, b, 1.0)
+    
     if bsdf:
+        # Coat Pattern & Color Ramp
+        voronoi = nodes.new(type='ShaderNodeTexVoronoi')
+        voronoi.inputs['Scale'].default_value = 10.0 if pattern == "spotted" else (50.0 if pattern == "striped" else 0.1)
+        
+        ramp = nodes.new(type='ShaderNodeValToRGB')
+        # Setup colors in ramp
+        for i in range(len(ramp.color_ramp.elements) - 1):
+            ramp.color_ramp.elements.remove(ramp.color_ramp.elements[0])
+        ramp.color_ramp.elements[0].position = 0.0
+        ramp.color_ramp.elements[0].color = hex_to_rgb(colors[0])
+        
+        if len(colors) > 1:
+            el = ramp.color_ramp.elements.new(1.0)
+            el.color = hex_to_rgb(colors[1 % len(colors)])
+        if len(colors) > 2:
+            el = ramp.color_ramp.elements.new(0.5)
+            el.color = hex_to_rgb(colors[2 % len(colors)])
+            
+        links.new(voronoi.outputs['Distance'], ramp.inputs['Fac'])
+        
+        # Don't completely override Base Color if an Image Texture exists (Tripo3D output)
+        base_tex = next((n for n in nodes if n.type == 'TEX_IMAGE'), None)
+        if base_tex:
+            mix = nodes.new(type='ShaderNodeMixRGB')
+            mix.blend_type = 'OVERLAY'
+            mix.inputs[0].default_value = 0.3 # Fac
+            links.new(base_tex.outputs['Color'], mix.inputs[1])
+            links.new(ramp.outputs['Color'], mix.inputs[2])
+            links.new(mix.outputs['Color'], bsdf.inputs['Base Color'])
+        else:
+            links.new(ramp.outputs['Color'], bsdf.inputs['Base Color'])
+        
+        # Fur Bump Map
         noise = nodes.new(type='ShaderNodeTexNoise')
         noise.inputs['Scale'].default_value = 150.0
         noise.inputs['Detail'].default_value = 10.0
