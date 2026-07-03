@@ -1,4 +1,4 @@
-import { PublicUser, Creation, Album, LocationParams, Avatar, PhotoRequest, RequestType } from "./types";
+import { PublicUser, Creation, Album, LocationParams, Avatar, PhotoRequest, RequestType, AvatarNeeds, BehaviorAction, PlacedObject } from "./types";
 
 /**
  * Lightweight API client that manages the session token and auth flow.
@@ -353,4 +353,95 @@ export async function rejectRequest(
   });
   if (!res.ok) throw new Error(await parseError(res, "Failed to reject request."));
   return await res.json();
+}
+
+// --- Living avatar: needs & commands (Phase 2) -----------------------------
+
+/**
+ * Fetch the server-computed live needs for an avatar (server applies offline
+ * decay from `last_seen`). Returns null if the endpoint is unavailable so the
+ * client can fall back to a local simulation — safe to deploy the frontend
+ * before the backend.
+ */
+export async function fetchAvatarNeeds(avatarId: number): Promise<AvatarNeeds | null> {
+  try {
+    const res = await authedFetch(`/api/avatars/${avatarId}/state`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return (data?.needs as AvatarNeeds) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Persist the current needs snapshot. Best-effort; resolves false on failure. */
+export async function patchAvatarNeeds(avatarId: number, needs: AvatarNeeds): Promise<boolean> {
+  try {
+    const res = await authedFetch(`/api/avatars/${avatarId}/state`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ needs }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Log a user-issued command (telemetry + ambient awareness). Best-effort. */
+export async function sendAvatarCommand(
+  avatarId: number,
+  action: BehaviorAction,
+  targetObjectId?: string
+): Promise<boolean> {
+  try {
+    const res = await authedFetch(`/api/avatars/${avatarId}/command`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, targetObjectId }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// --- Placed objects (Phase 3) ----------------------------------------------
+
+/** Load the objects the user has placed for an avatar. Returns [] on failure. */
+export async function fetchPlacedObjects(avatarId: number): Promise<PlacedObject[]> {
+  try {
+    const res = await authedFetch(`/api/avatars/${avatarId}/objects`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data?.objects as PlacedObject[]) ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** Persist a newly placed object. Best-effort. */
+export async function createPlacedObject(avatarId: number, obj: PlacedObject): Promise<boolean> {
+  try {
+    const res = await authedFetch(`/api/avatars/${avatarId}/objects`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(obj),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Remove a placed object. Best-effort. */
+export async function deletePlacedObject(avatarId: number, objectId: string): Promise<boolean> {
+  try {
+    const res = await authedFetch(`/api/avatars/${avatarId}/objects/${objectId}`, {
+      method: "DELETE",
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }

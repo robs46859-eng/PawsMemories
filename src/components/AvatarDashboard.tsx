@@ -3,9 +3,10 @@ import { Avatar, PublicUser, UserProfile, AvatarAction } from "../types";
 import { fetchAvatars, generate3DAvatar, retryAvatarGeneration, pollAvatarStatus, feedAvatarReq, waterAvatarReq, giveTreatReq } from "../api";
 import CreateAvatarDialog from "./CreateAvatarDialog";
 import Avatar3DPlaypen from "./Avatar3DPlaypen";
+import LivingAvatarView from "./LivingAvatarView";
 import {
   Plus, Utensils, Droplets, Bone, RefreshCw, Info,
-  Play, Camera, Moon, Zap
+  Play, Camera, Moon, Zap, X, Sparkles
 } from "lucide-react";
 
 interface AvatarDashboardProps {
@@ -37,6 +38,7 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode 
 
   // Tracks active action animation for each avatar
   const [activeActions, setActiveActions] = useState<Record<number, AvatarAction | null>>({});
+  const [livingAvatar, setLivingAvatar] = useState<Avatar | null>(null);
 
   // Track avatars currently being generated (for polling)
   const pollingRef = useRef<Record<number, ReturnType<typeof setInterval>>>({});
@@ -243,6 +245,14 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode 
                     onRetry={handleRetryGeneration}
                   />
                   <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/60 to-transparent pointer-events-none z-10" />
+                  {isReady && (
+                    <button
+                      onClick={() => setLivingAvatar(avatar)}
+                      className="absolute top-4 left-4 z-30 bg-primary text-white px-3 py-1.5 rounded-full text-xs font-bold shadow-lg hover:bg-primary/90 active:scale-95 flex items-center gap-1"
+                    >
+                      <Sparkles size={12} /> Live 3D
+                    </button>
+                  )}
                   <h3 className="absolute bottom-4 left-4 text-white text-2xl font-black drop-shadow-md z-20">
                     {avatar.name}
                   </h3>
@@ -373,6 +383,30 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode 
           <RefreshCw className="animate-spin mb-4" size={32} />
           <p className="font-bold">Creating hyper-realistic reference image & starting 3D generation...</p>
           <p className="text-sm opacity-60 mt-1">This will just take a moment</p>
+        </div>
+      )}
+
+      {livingAvatar && (
+        <div className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-surface-container rounded-3xl w-full max-w-2xl h-[85vh] flex flex-col overflow-hidden shadow-2xl border border-outline-variant/20">
+            <div className="flex justify-between items-center p-4 border-b border-outline-variant/20">
+              <h2 className="font-extrabold text-on-surface flex items-center gap-2">
+                <Sparkles size={16} className="text-primary" />
+                {livingAvatar.name} — Live 3D
+                <span className="text-[10px] uppercase opacity-50 tracking-wider">beta</span>
+              </h2>
+              <button
+                onClick={() => setLivingAvatar(null)}
+                className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-black/10 text-on-surface"
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="flex-1 min-h-0">
+              <LivingAvatarView avatar={livingAvatar} isDarkMode={isDarkMode} />
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -1,0 +1,52 @@
+import { BehaviorAction } from "../types";
+
+/**
+ * Ordered candidate name fragments for each behavior, matched
+ * case-insensitively against the clip names present in a generated / rigged
+ * GLB. First hit wins. This lets us author clips in Blender with reasonable
+ * names without hard-coding an exact convention.
+ */
+const CLIP_CANDIDATES: Record<BehaviorAction, string[]> = {
+  idle: ["idle", "breath", "stand"],
+  walking: ["walk", "trot"],
+  running: ["run", "gallop", "sprint"],
+  sitting: ["sit"],
+  sleeping: ["sleep", "liedown", "lie_down", "rest"],
+  eating: ["eat", "chew", "feed"],
+  drinking: ["drink", "lap"],
+  playing: ["play", "jump", "bounce"],
+  peeing: ["pee", "urinate", "leglift", "leg_lift"],
+  pooping: ["poop", "squat", "defecate"],
+  speaking: ["bark", "speak", "howl"],
+  interacting: ["interact", "nuzzle", "sniff"],
+};
+
+/** Resolve the best-matching clip name in `available` for `action`, or null. */
+export function resolveClipName(
+  action: BehaviorAction,
+  available: string[]
+): string | null {
+  if (!available.length) return null;
+  const lower = available.map((n) => ({ raw: n, low: n.toLowerCase() }));
+  for (const frag of CLIP_CANDIDATES[action] || []) {
+    const hit = lower.find((c) => c.low.includes(frag));
+    if (hit) return hit.raw;
+  }
+  return null;
+}
+
+/** Which behaviors loop vs. play once and hold. */
+export const LOOPING: Record<BehaviorAction, boolean> = {
+  idle: true,
+  walking: true,
+  running: true,
+  sitting: true,
+  sleeping: true,
+  eating: true,
+  drinking: true,
+  playing: true,
+  peeing: false,
+  pooping: false,
+  speaking: false,
+  interacting: false,
+};

@@ -7,10 +7,11 @@ import Stripe from "stripe";
 import fs from "fs";
 import twilio from "twilio";
 import rateLimit from "express-rate-limit";
-import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, getPool, claimDailyStreak, claimAchievement } from "./db";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, getPool, claimDailyStreak, claimAchievement } from "./db";
 import { uploadBase64Image, uploadBinaryFromUrl, fetchUrlAsBase64 } from "./storage";
 import { runBuildPipeline } from "./agent/graph/orchestrator";
 import { analyzePetImage } from "./ollama-agent";
+import { getBlenderClient } from "./agent/tools/blender_client";
 import { startTalkingVideo, pollTalkingVideo, fetchMp4AsDataUrl, isHeyGenHandle } from "./heygen";
 import { startImageTo3D, pollImageTo3D, isTripoHandle } from "./tripo";
 import {
@@ -508,6 +509,23 @@ async function startServer() {
                    }
                    
                    await updateAvatarModel(avatarId, avatarPhone, finalModelUrl, finalSpriteSheetUrl, buildState.animationMetadata || {});
+
+                   // Phase 5: bake named skeletal clips onto the rigged model.
+                   // Fail-safe: any error here is logged and swallowed so the avatar
+                   // still completes with model_url + sprites (procedural motion in the 3D view).
+                   if (buildState.riggedGlbBase64) {
+                      try {
+                         await updateAvatarGenerationStatus(avatarId, "baking_clips");
+                         const { riggedGlbBase64, clips } = await getBlenderClient()
+                            .bakeClipsAndWait(buildState.riggedGlbBase64);
+                         const riggedUrl = await uploadBase64Image(riggedGlbBase64);
+                         await updateAvatarRiggedModel(avatarId, avatarPhone, riggedUrl, clips);
+                         console.log(`[Avatar ${avatarId}] Baked ${clips.length} skeletal clips.`);
+                      } catch (clipErr: any) {
+                         console.warn(`[Avatar ${avatarId}] Skeletal clip baking skipped: ${clipErr?.message || clipErr}`);
+                      }
+                   }
+
                    await updateAvatarGenerationStatus(avatarId, "done");
                 }
              } catch (err: any) {
@@ -591,6 +609,86 @@ async function startServer() {
       res.json({ success });
     } catch (err: any) {
       res.status(500).json({ error: "Failed to give treat." });
+    }
+  });
+
+  // --- Living avatar: needs state & commands (Phase 2) ---------------------
+
+  // Returns the stored needs snapshot (client applies offline decay from lastSeen).
+  app.get("/api/avatars/:id/state", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const needs = await getAvatarNeeds(Number(req.params.id), req.user!.phone);
+      if (!needs) return res.status(404).json({ error: "Avatar not found." });
+      res.json({ needs });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to load avatar state." });
+    }
+  });
+
+  // Persists the current needs snapshot.
+  app.patch("/api/avatars/:id/state", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { needs } = req.body || {};
+      if (!needs || typeof needs !== "object") {
+        return res.status(400).json({ error: "needs object required." });
+      }
+      const success = await saveAvatarNeeds(Number(req.params.id), req.user!.phone, needs);
+      res.json({ success });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to save avatar state." });
+    }
+  });
+
+  // Logs a user-issued command (telemetry / ambient awareness). Execution is client-side.
+  app.post("/api/avatars/:id/command", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { action } = req.body || {};
+      if (!action || typeof action !== "string") {
+        return res.status(400).json({ error: "action required." });
+      }
+      console.log(`[command] avatar ${req.params.id} <- ${action} (user ${req.user!.phone})`);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to log command." });
+    }
+  });
+
+  // --- Placed objects (Phase 3) -------------------------------------------
+
+  app.get("/api/avatars/:id/objects", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const objects = await getPlacedObjects(Number(req.params.id), req.user!.phone);
+      res.json({ objects });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to load objects." });
+    }
+  });
+
+  app.post("/api/avatars/:id/objects", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { id, kind, position, rotationY, scale } = req.body || {};
+      if (!id || !kind || !Array.isArray(position) || position.length !== 3) {
+        return res.status(400).json({ error: "id, kind and position[3] required." });
+      }
+      const ok = await addPlacedObject(Number(req.params.id), req.user!.phone, {
+        id: String(id),
+        kind: String(kind),
+        position: [Number(position[0]), Number(position[1]), Number(position[2])],
+        rotationY: Number(rotationY) || 0,
+        scale: Number(scale) || 1,
+      });
+      res.json({ success: ok });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to place object." });
+    }
+  });
+
+  app.delete("/api/avatars/:id/objects/:objectId", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const ok = await deletePlacedObject(req.params.objectId, req.user!.phone);
+      res.json({ success: ok });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to remove object." });
     }
   });
 

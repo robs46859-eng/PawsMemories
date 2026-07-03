@@ -312,6 +312,12 @@ export async function initDb(): Promise<void> {
       { name: "breed",              ddl: "ADD COLUMN breed VARCHAR(120) NULL" },
       { name: "generation_status",  ddl: "ADD COLUMN generation_status ENUM('pending','generating_mesh','rigging','baking_sprites','done','failed') NOT NULL DEFAULT 'done'" },
       { name: "generation_error",   ddl: "ADD COLUMN generation_error TEXT NULL" },
+      // Living-avatar behavior system (Phase 2): full needs snapshot + last-seen for offline decay.
+      { name: "needs_json",         ddl: "ADD COLUMN needs_json JSON NULL" },
+      { name: "last_seen",          ddl: "ADD COLUMN last_seen TIMESTAMP NULL" },
+      // Rigged skeletal model + clip manifest (Phase 5).
+      { name: "rigged_model_url",   ddl: "ADD COLUMN rigged_model_url LONGTEXT NULL" },
+      { name: "clips_json",         ddl: "ADD COLUMN clips_json JSON NULL" },
     ];
     for (const col of requiredAvatarColumns) {
       if (!avatarColumnNames.includes(col.name)) {
@@ -330,9 +336,31 @@ export async function initDb(): Promise<void> {
       await getPool().query(`ALTER TABLE avatars MODIFY COLUMN model_url LONGTEXT NULL`);
       await getPool().query(`ALTER TABLE avatars MODIFY COLUMN sprite_sheet_url LONGTEXT NULL`);
       await getPool().query(`ALTER TABLE avatars MODIFY COLUMN generation_error LONGTEXT NULL`);
+      // Extend generation_status with the rigged-clip pipeline stages (Phase 5).
+      await getPool().query(
+        `ALTER TABLE avatars MODIFY COLUMN generation_status ENUM('pending','generating_mesh','rigging','retargeting','baking_clips','baking_sprites','done','failed') NOT NULL DEFAULT 'done'`
+      );
     } catch (alterErr) {
       console.warn("⚠️ Could not modify avatar columns to LONGTEXT:", alterErr);
     }
+
+    // Placed objects for the living-avatar scene / AR (Phase 3).
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS placed_objects (
+        id         VARCHAR(64) PRIMARY KEY,
+        avatar_id  INT NOT NULL,
+        user_phone VARCHAR(32) NOT NULL,
+        kind       VARCHAR(40) NOT NULL,
+        pos_x      FLOAT NOT NULL DEFAULT 0,
+        pos_y      FLOAT NOT NULL DEFAULT 0,
+        pos_z      FLOAT NOT NULL DEFAULT 0,
+        rot_y      FLOAT NOT NULL DEFAULT 0,
+        scale      FLOAT NOT NULL DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX (avatar_id),
+        INDEX (user_phone)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
 
     await getPool().query(`
       CREATE TABLE IF NOT EXISTS photo_requests (
@@ -885,9 +913,27 @@ export async function updateAvatarModel(
   return result.affectedRows === 1;
 }
 
+/**
+ * Store the rigged skeletal model + clip manifest produced by the Blender
+ * pipeline (Phase 5). Consumed by the 3D/AR scene, which prefers this over
+ * the plain mesh model_url.
+ */
+export async function updateAvatarRiggedModel(
+  id: number,
+  phone: string,
+  riggedModelUrl: string,
+  clips: { name: string; loop: boolean; durationSec: number }[]
+): Promise<boolean> {
+  const [result] = (await getPool().query(
+    `UPDATE avatars SET rigged_model_url = ?, clips_json = ? WHERE id = ? AND user_phone = ?`,
+    [riggedModelUrl, JSON.stringify(clips || []), id, phone]
+  )) as any;
+  return result.affectedRows === 1;
+}
+
 export async function updateAvatarGenerationStatus(
   id: number,
-  status: 'pending' | 'generating_mesh' | 'rigging' | 'baking_sprites' | 'done' | 'failed',
+  status: 'pending' | 'generating_mesh' | 'rigging' | 'retargeting' | 'baking_clips' | 'baking_sprites' | 'done' | 'failed',
   error?: string | null
 ): Promise<boolean> {
   const [result] = await getPool().query(
@@ -924,6 +970,111 @@ export async function waterAvatar(id: number, phone: string): Promise<boolean> {
     `UPDATE avatars SET water_level = 100, last_watered = CURRENT_TIMESTAMP WHERE id = ? AND user_phone = ?`,
     [id, phone]
   ) as any;
+  return result.affectedRows === 1;
+}
+
+/**
+ * Living-avatar needs (Phase 2). Returns the stored needs snapshot, or an
+ * initial one derived from legacy food/water columns if none has been saved.
+ * The CLIENT applies offline decay from `lastSeen`, so this just returns raw state.
+ */
+export async function getAvatarNeeds(id: number, phone: string): Promise<any | null> {
+  const [rows] = await getPool().query(
+    `SELECT needs_json, food_level, water_level, last_seen, last_fed FROM avatars WHERE id = ? AND user_phone = ? LIMIT 1`,
+    [id, phone]
+  );
+  const arr = rows as any[];
+  if (!arr.length) return null;
+  const row = arr[0];
+  if (row.needs_json) {
+    try {
+      return typeof row.needs_json === "string" ? JSON.parse(row.needs_json) : row.needs_json;
+    } catch {
+      /* fall through to derived defaults */
+    }
+  }
+  const seenSource = row.last_seen || row.last_fed || new Date();
+  return {
+    food: row.food_level ?? 80,
+    water: row.water_level ?? 80,
+    energy: 90,
+    bladder: 20,
+    bowel: 15,
+    happiness: 85,
+    lastSeen: new Date(seenSource).toISOString(),
+  };
+}
+
+/** Persist a needs snapshot; keeps legacy food/water columns in sync for old UI. */
+export async function saveAvatarNeeds(id: number, phone: string, needs: any): Promise<boolean> {
+  const [result] = (await getPool().query(
+    `UPDATE avatars SET needs_json = ?, last_seen = CURRENT_TIMESTAMP, food_level = ?, water_level = ? WHERE id = ? AND user_phone = ?`,
+    [
+      JSON.stringify(needs || {}),
+      Math.round(needs?.food ?? 80),
+      Math.round(needs?.water ?? 80),
+      id,
+      phone,
+    ]
+  )) as any;
+  return result.affectedRows === 1;
+}
+
+// --- Placed objects (Phase 3) ---------------------------------------------
+
+export interface PlacedObjectRow {
+  id: string;
+  kind: string;
+  position: [number, number, number];
+  rotationY: number;
+  scale: number;
+  createdAt: string;
+}
+
+export async function getPlacedObjects(avatarId: number, phone: string): Promise<PlacedObjectRow[]> {
+  const [rows] = await getPool().query(
+    `SELECT id, kind, pos_x, pos_y, pos_z, rot_y, scale, created_at
+       FROM placed_objects WHERE avatar_id = ? AND user_phone = ? ORDER BY created_at ASC`,
+    [avatarId, phone]
+  );
+  return (rows as any[]).map((r) => ({
+    id: r.id,
+    kind: r.kind,
+    position: [r.pos_x, r.pos_y, r.pos_z],
+    rotationY: r.rot_y,
+    scale: r.scale,
+    createdAt: new Date(r.created_at).toISOString(),
+  }));
+}
+
+export async function addPlacedObject(
+  avatarId: number,
+  phone: string,
+  obj: { id: string; kind: string; position: [number, number, number]; rotationY: number; scale: number }
+): Promise<boolean> {
+  const [result] = (await getPool().query(
+    `INSERT INTO placed_objects (id, avatar_id, user_phone, kind, pos_x, pos_y, pos_z, rot_y, scale)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      obj.id,
+      avatarId,
+      phone,
+      obj.kind,
+      obj.position[0],
+      obj.position[1],
+      obj.position[2],
+      obj.rotationY,
+      obj.scale,
+    ]
+  )) as any;
+  return result.affectedRows === 1;
+}
+
+export async function deletePlacedObject(id: string, phone: string): Promise<boolean> {
+  const [result] = (await getPool().query(
+    `DELETE FROM placed_objects WHERE id = ? AND user_phone = ?`,
+    [id, phone]
+  )) as any;
   return result.affectedRows === 1;
 }
 
