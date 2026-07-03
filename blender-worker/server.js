@@ -9,6 +9,7 @@ import { promisify } from "util";
 import { fileURLToPath } from "url";
 import Jimp from "jimp";
 import * as templates from "./animation-templates.js";
+import { buildSkeletalClipScript, SKELETAL_CLIP_MANIFEST } from "./skeletal-clips.js";
 
 const execPromise = promisify(exec);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -812,6 +813,86 @@ print("[Rig] RIGGING_EXPORT_COMPLETE")
     // Only send error response if we haven't already sent the 202
     if (!res.headersSent) {
       res.status(500).json({ error: "Internal server error during rigging" });
+    }
+  }
+});
+
+// =============================================================================
+// POST /bake-clips — ASYNC: Take a rigged GLB, author named skeletal Action
+// clips on its armature, export a multi-animation GLB (Phase 5).
+// Receives: { rigged_glb_base64 }
+// Returns:  { jobId } immediately; poll /jobs/:jobId for
+//           { success, rigged_glb_base64, clips: [{name,loop,durationSec}] }
+// =============================================================================
+app.post("/bake-clips", async (req, res) => {
+  const jobId = crypto.randomUUID();
+  const tempDir = path.join(os.tmpdir(), `clips_${jobId}`);
+
+  try {
+    const { rigged_glb_base64 } = req.body;
+    if (!rigged_glb_base64) {
+      return res.status(400).json({ error: "Missing rigged_glb_base64" });
+    }
+
+    console.log(`[Clips ${jobId}] Starting skeletal clip bake...`);
+    fs.mkdirSync(tempDir, { recursive: true });
+
+    const inputGlbPath = path.join(tempDir, "rigged_input.glb");
+    const outputGlbPath = path.join(tempDir, "clips_output.glb");
+    const scriptPath = path.join(tempDir, "clips_script.py");
+
+    let rawGlb = rigged_glb_base64;
+    if (rawGlb.startsWith("data:")) {
+      rawGlb = rawGlb.split(",")[1] || rawGlb;
+    }
+    fs.writeFileSync(inputGlbPath, Buffer.from(rawGlb, "base64"));
+    fs.writeFileSync(scriptPath, buildSkeletalClipScript(inputGlbPath, outputGlbPath), "utf8");
+
+    jobs.set(jobId, { type: "bake-clips", status: "processing", createdAt: Date.now(), tempDir });
+
+    res.status(202).json({ jobId, status: "processing" });
+
+    exec(
+      `blender --background --python-exit-code 1 --python "${scriptPath}"`,
+      { timeout: 300000, maxBuffer: 50 * 1024 * 1024 },
+      (error, stdout, stderr) => {
+        const job = jobs.get(jobId);
+        if (!job) return;
+        if (error) {
+          const detail = extractBlenderError(stdout, stderr);
+          console.error(`[Clips ${jobId}] Blender clip bake failed:`, detail);
+          job.status = "failed";
+          job.error = `Blender clip bake failed: ${detail}`;
+          try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+          return;
+        }
+        if (!fs.existsSync(outputGlbPath)) {
+          job.status = "failed";
+          job.error = "Blender completed but no clip GLB was generated.";
+          try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+          return;
+        }
+        const buffer = fs.readFileSync(outputGlbPath);
+        console.log(`[Clips ${jobId}] ✅ Clip bake successful (${buffer.length} bytes)`);
+        job.status = "complete";
+        job.result = {
+          success: true,
+          rigged_glb_base64: buffer.toString("base64"),
+          clips: SKELETAL_CLIP_MANIFEST,
+        };
+        try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+      }
+    );
+  } catch (err) {
+    console.error(`[Clips ${jobId}] Unexpected error:`, err);
+    const job = jobs.get(jobId);
+    if (job) {
+      job.status = "failed";
+      job.error = "Internal server error during clip bake";
+    }
+    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Internal server error during clip bake" });
     }
   }
 });

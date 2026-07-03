@@ -129,17 +129,100 @@ export interface Avatar {
   name: string;
   image_url: string;
   model_url?: string | null;
+  /** Rigged GLB with skeletal clips (Phase 5). Preferred over model_url for the 3D/AR scene. */
+  rigged_model_url?: string | null;
+  /** Names/metadata of skeletal clips embedded in the rigged model. */
+  clips?: SkeletalClip[] | null;
   sprite_sheet_url?: string | null;
   animation_data?: AnimationMetadata | null;
   animal_type?: string | null;
   breed?: string | null;
-  generation_status: 'pending' | 'generating_mesh' | 'rigging' | 'baking_sprites' | 'done' | 'failed';
+  generation_status: 'pending' | 'generating_mesh' | 'rigging' | 'retargeting' | 'baking_clips' | 'baking_sprites' | 'done' | 'failed';
   generation_error?: string | null;
   food_level: number;
   water_level: number;
   last_fed: string;
   last_watered: string;
   created_at: string;
+}
+
+/* ------------------------------------------------------------------ *
+ * Living-avatar 3D behavior system (Phase 1 & 2)
+ * NOTE: `AvatarAction` above is the LEGACY sprite-sheet action union and
+ * is intentionally left unchanged. The 3D behavior engine uses the richer
+ * `BehaviorAction` union below so existing sprite code keeps compiling.
+ * ------------------------------------------------------------------ */
+
+/** Every motion the 3D behavior engine can request from the avatar. */
+export type BehaviorAction =
+  | 'idle'
+  | 'walking'
+  | 'running'
+  | 'sitting'
+  | 'sleeping'
+  | 'eating'
+  | 'drinking'
+  | 'playing'
+  | 'peeing'
+  | 'pooping'
+  | 'speaking'
+  | 'interacting';
+
+/** A skeletal animation clip embedded in a rigged GLB. */
+export interface SkeletalClip {
+  name: string;
+  loop: boolean;
+  durationSec: number;
+}
+
+/** Metadata for the rigged model produced by the Blender clip pipeline (Phase 5). */
+export interface RiggedModelData {
+  modelUrl: string;
+  clips: SkeletalClip[];
+}
+
+/**
+ * The pet's live "needs". 0..100. Higher food/water/energy = better;
+ * higher bladder/bowel = more urgent. `lastSeen` drives offline decay so
+ * the pet appears to have lived while the app was closed.
+ */
+export interface AvatarNeeds {
+  food: number;
+  water: number;
+  energy: number;
+  bladder: number;
+  bowel: number;
+  happiness: number;
+  lastSeen: string; // ISO timestamp
+}
+
+/** Kinds of placeable dog objects (Phase 3 assets). */
+export type PetObjectKind =
+  | 'dog_house'
+  | 'food_bowl'
+  | 'water_bowl'
+  | 'ball'
+  | 'bone'
+  | 'bed'
+  | 'hydrant'
+  | 'chew_toy';
+
+/** An object the user has placed in the scene / AR space. */
+export interface PlacedObject {
+  id: string;
+  kind: PetObjectKind;
+  position: [number, number, number];
+  rotationY: number;
+  scale: number;
+  createdAt: string;
+}
+
+/** A command the user issues to the avatar. */
+export interface AvatarCommand {
+  action: BehaviorAction;
+  /** Optional target object the command refers to (e.g. go eat from this bowl). */
+  targetObjectId?: string;
+  issuedAt: number; // epoch ms
 }
 
 export type RequestType = 'photo_standard' | 'photo_premium' | 'video_standard' | 'video_premium';

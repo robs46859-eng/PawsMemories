@@ -86,6 +86,12 @@ export interface ImportGlbResult {
   error?: string;
 }
 
+export interface ClipManifestEntry {
+  name: string;
+  loop: boolean;
+  durationSec: number;
+}
+
 export interface CheckpointResult {
   success: boolean;
   filepath?: string;
@@ -214,6 +220,39 @@ export class BlenderClient {
   /** Export the scene as GLB and return base64. */
   async exportGlb(): Promise<ExportResult> {
     return this.send<ExportResult>("/export-glb", "POST");
+  }
+
+  /**
+   * Bake named skeletal Action clips onto a rigged GLB and return a new GLB
+   * containing them as glTF animation tracks (Phase 5). Async on the worker;
+   * this starts the job and polls until complete.
+   */
+  async bakeClipsAndWait(
+    riggedGlbBase64: string,
+    opts: { timeoutMs?: number; intervalMs?: number } = {}
+  ): Promise<{ riggedGlbBase64: string; clips: ClipManifestEntry[] }> {
+    const { timeoutMs = 300000, intervalMs = 3000 } = opts;
+    const start = await this.send<{ jobId?: string }>("/bake-clips", "POST", {
+      rigged_glb_base64: riggedGlbBase64,
+    });
+    const jobId = start.jobId;
+    if (!jobId) throw new Error("bake-clips did not return a jobId");
+
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, intervalMs));
+      const job = await this.send<any>(`/jobs/${jobId}`, "GET");
+      if (job.status === "complete") {
+        const result = job.result || {};
+        if (!result.rigged_glb_base64) throw new Error("bake-clips completed without a GLB");
+        return {
+          riggedGlbBase64: result.rigged_glb_base64 as string,
+          clips: (result.clips as ClipManifestEntry[]) || [],
+        };
+      }
+      if (job.status === "failed") throw new Error(job.error || "bake-clips failed");
+    }
+    throw new Error("bake-clips timed out");
   }
 
   /** Health check — verify the bridge is responsive. */
