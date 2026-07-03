@@ -102,10 +102,10 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode 
     });
   }, [avatars]);
 
-  const handleCreateAvatar = async (name: string, photo: string) => {
+  const handleCreateAvatar = async (name: string, photos: string[]) => {
     setCreating(true);
     try {
-      const result = await generate3DAvatar(name, photo);
+      const result = await generate3DAvatar(name, photos);
       setShowCreate(false);
       // Reload to get the new avatar with 'pending' status
       await loadAvatars();
@@ -371,7 +371,7 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode 
       {creating && (
         <div className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex flex-col items-center justify-center text-white">
           <RefreshCw className="animate-spin mb-4" size={32} />
-          <p className="font-bold">Uploading photo & starting generation...</p>
+          <p className="font-bold">Creating hyper-realistic reference image & starting 3D generation...</p>
           <p className="text-sm opacity-60 mt-1">This will just take a moment</p>
         </div>
       )}

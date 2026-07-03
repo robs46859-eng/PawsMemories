@@ -350,21 +350,90 @@ async function startServer() {
     }
   });
 
+  /**
+   * Layer 1 of avatar generation: fuse one or more pet photos into a single
+   * hyper-realistic reference image (standing on all 4 legs, facing forward,
+   * slight panting expression) that is then fed to the image-to-3D pipeline.
+   * Returns a data URL, or null if generation fails (caller falls back to first photo).
+   */
+  const REFERENCE_IMAGE_PROMPT =
+    `You are given one or more reference photos, all of the SAME pet. ` +
+    `Generate ONE hyper-realistic, photographic image of this exact pet. ` +
+    `Requirements: full body visible with margin on all sides; the pet is standing squarely on all four legs; ` +
+    `body and head facing directly forward toward the camera; mouth slightly open in a gentle, relaxed panting ` +
+    `expression with the tongue just visible. Faithfully preserve the pet's exact fur colors, markings, patterns, ` +
+    `eye color, ear shape, and breed characteristics as seen across ALL reference photos. ` +
+    `Extremely high detail and texture: individual fur strands, whiskers, moist nose, natural eye reflections. ` +
+    `Sharp focus, even soft studio lighting, plain neutral light-gray seamless background, no shadows cast on walls, ` +
+    `no props, no people, no text, no watermark. Respond with only the generated image.`;
+
+  async function generatePetReferenceImage(photos: string[]): Promise<string | null> {
+    const imageParts = photos
+      .map((p) => {
+        const matches = p.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
+        if (!matches || matches.length < 3) return null;
+        return { inlineData: { data: matches[2], mimeType: matches[1] } };
+      })
+      .filter((p): p is { inlineData: { data: string; mimeType: string } } => p !== null);
+
+    if (imageParts.length === 0) return null;
+
+    // Try the dedicated image model first, then fall back to the model already used elsewhere in this app.
+    for (const model of ["gemini-2.5-flash-image", "gemini-2.0-flash-exp"]) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: { parts: [...imageParts, { text: REFERENCE_IMAGE_PROMPT }] },
+          config: { imageConfig: { aspectRatio: "1:1" } },
+        });
+        const parts = response.candidates?.[0]?.content?.parts || [];
+        for (const part of parts) {
+          if (part.inlineData?.data) {
+            return `data:image/png;base64,${part.inlineData.data}`;
+          }
+        }
+        console.warn(`[referenceImage] ${model} returned no image part.`);
+      } catch (err) {
+        console.warn(`[referenceImage] ${model} failed:`, err);
+      }
+    }
+    return null;
+  }
+
   app.post("/api/avatars", requireAuth, async (req: AuthedRequest, res) => {
     try {
-      const { name, photo } = req.body;
-      if (!name || !photo) return res.status(400).json({ error: "Name and photo required." });
+      const { name, photo, photos } = req.body;
+      // Accept new multi-photo payload; keep backward compat with single `photo`.
+      const photoList: string[] = Array.isArray(photos) && photos.length > 0
+        ? photos.filter((p: unknown) => typeof p === "string" && p.length > 0)
+        : (photo ? [photo] : []);
 
-      let finalImageUrl = photo;
-      if (photo.startsWith("data:image")) {
-        finalImageUrl = await uploadBase64Image(photo);
+      if (!name || photoList.length === 0) {
+        return res.status(400).json({ error: "Name and at least one photo required." });
+      }
+      if (photoList.length > 5) {
+        return res.status(400).json({ error: "Maximum 5 photos per avatar." });
       }
 
-      // Start Tripo3D generation
+      // Layer 1: generate a single hyper-realistic reference image from all photos.
+      let sourceImage = await generatePetReferenceImage(photoList);
+      let usedReferenceImage = true;
+      if (!sourceImage) {
+        console.warn("[POST /api/avatars] Reference image generation failed; falling back to first uploaded photo.");
+        sourceImage = photoList[0];
+        usedReferenceImage = false;
+      }
+
+      let finalImageUrl = sourceImage;
+      if (sourceImage.startsWith("data:image")) {
+        finalImageUrl = await uploadBase64Image(sourceImage);
+      }
+
+      // Layer 2: start Tripo3D generation from the reference image.
       const handle = await startImageTo3D({ imageUrl: finalImageUrl });
       const avatarId = await createAvatar(req.user!.phone, name, finalImageUrl, handle);
-      
-      res.json({ avatarId, status: "pending" });
+
+      res.json({ avatarId, status: "pending", referenceImageUrl: finalImageUrl, usedReferenceImage });
     } catch (err: any) {
       console.error("[POST /api/avatars] Error creating avatar:", err);
       res.status(500).json({ error: err.message || "Failed to create avatar." });

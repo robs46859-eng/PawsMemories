@@ -1,39 +1,75 @@
 import React, { useState, useRef } from "react";
-import { Camera, X, Check, Upload, Sparkles, RefreshCw } from "lucide-react";
+import { Camera, X, Check, Upload, Sparkles, Plus } from "lucide-react";
 
 interface CreateAvatarDialogProps {
   onClose: () => void;
-  onSubmit: (name: string, photo: string) => void;
+  onSubmit: (name: string, photos: string[]) => void;
   isDarkMode: boolean;
+}
+
+const MAX_PHOTOS = 5;
+
+/** Downscale an image to max 1536px on the longest edge and re-encode as JPEG to keep payloads small. */
+function downscaleImage(dataUrl: string, maxDim = 1536): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+      if (scale >= 1) return resolve(dataUrl);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return resolve(dataUrl);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL("image/jpeg", 0.9));
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
 }
 
 export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: CreateAvatarDialogProps) {
   const [name, setName] = useState("");
-  const [photo, setPhoto] = useState<string | null>(null);
+  const [photos, setPhotos] = useState<string[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileSelect = (file: File) => {
-    if (!file.type.startsWith("image/")) {
-      alert("Please select an image file (jpg, png, webp).");
-      return;
+  const handleFilesSelect = (files: FileList | File[]) => {
+    const list = Array.from(files);
+    for (const file of list) {
+      if (!file.type.startsWith("image/")) {
+        alert("Please select image files only (jpg, png, webp).");
+        return;
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        alert(`"${file.name}" is over 10MB. Please use a smaller image.`);
+        return;
+      }
     }
-    if (file.size > 10 * 1024 * 1024) {
-      alert("Image must be under 10MB.");
-      return;
+    const remaining = MAX_PHOTOS - photos.length;
+    if (list.length > remaining) {
+      alert(`You can upload up to ${MAX_PHOTOS} photos (${remaining} more allowed).`);
     }
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      setPhoto(e.target?.result as string);
-    };
-    reader.readAsDataURL(file);
+    list.slice(0, remaining).forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const raw = e.target?.result as string;
+        const optimized = await downscaleImage(raw);
+        setPhotos((prev) => (prev.length >= MAX_PHOTOS ? prev : [...prev, optimized]));
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const removePhoto = (index: number) => {
+    setPhotos((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    const file = e.dataTransfer.files[0];
-    if (file) handleFileSelect(file);
+    if (e.dataTransfer.files.length) handleFilesSelect(e.dataTransfer.files);
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -48,17 +84,17 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
       alert("Please enter a name for your avatar.");
       return;
     }
-    if (!photo) {
-      alert("Please upload a photo of your pet.");
+    if (photos.length === 0) {
+      alert("Please upload at least one photo of your pet.");
       return;
     }
-    onSubmit(name.trim(), photo);
+    onSubmit(name.trim(), photos);
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
       <div className="bg-surface-container rounded-3xl p-6 max-w-lg w-full shadow-2xl border border-outline-variant/30 flex flex-col max-h-[90vh] overflow-y-auto">
-        
+
         {/* Header */}
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-extrabold flex items-center gap-2 text-on-surface">
@@ -75,8 +111,9 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
           <div>
             <p className="font-bold mb-1">AI-Powered 3D Generation</p>
             <p className="opacity-70 text-xs">
-              Upload a clear photo of your pet. Our AI will analyze the photo, generate a 3D model, 
-              rig it with proper anatomy, and create animations — all automatically!
+              Upload up to {MAX_PHOTOS} clear photos of your pet from different angles. Our AI fuses them
+              into one hyper-realistic reference image (standing, facing forward), then builds the 3D
+              model, rigs it, and creates animations — all automatically!
             </p>
           </div>
         </div>
@@ -98,33 +135,41 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
         {/* Photo Upload Area */}
         <div className="mb-6">
           <label className="block text-xs font-bold mb-1.5 opacity-60 uppercase tracking-wider text-on-surface-variant">
-            Pet Photo
+            Pet Photos ({photos.length}/{MAX_PHOTOS})
           </label>
-          
-          {photo ? (
-            // Preview uploaded photo
-            <div className="relative rounded-2xl overflow-hidden border border-outline-variant/30 bg-surface">
-              <img
-                src={photo}
-                alt="Pet preview"
-                className="w-full aspect-square object-cover"
-              />
-              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-4 flex justify-between items-end">
-                <span className="text-white text-xs font-bold">📸 Photo uploaded</span>
+
+          {photos.length > 0 && (
+            <div className="grid grid-cols-3 gap-2 mb-2">
+              {photos.map((p, i) => (
+                <div key={i} className="relative rounded-xl overflow-hidden border border-outline-variant/30 bg-surface aspect-square group">
+                  <img src={p} alt={`Pet photo ${i + 1}`} className="w-full h-full object-cover" />
+                  <button
+                    onClick={() => removePhoto(i)}
+                    className="absolute top-1.5 right-1.5 bg-black/60 backdrop-blur-sm text-white w-6 h-6 rounded-full flex items-center justify-center hover:bg-red-500 transition-colors"
+                    aria-label={`Remove photo ${i + 1}`}
+                  >
+                    <X size={12} />
+                  </button>
+                  {i === 0 && (
+                    <span className="absolute bottom-1 left-1 bg-primary/90 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">
+                      Primary
+                    </span>
+                  )}
+                </div>
+              ))}
+              {photos.length < MAX_PHOTOS && (
                 <button
-                  onClick={() => setPhoto(null)}
-                  className="bg-white/20 backdrop-blur-sm text-white px-3 py-1.5 rounded-full text-xs font-bold hover:bg-white/30 transition-colors"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="rounded-xl border-2 border-dashed border-outline-variant/40 bg-surface hover:border-primary/50 hover:bg-primary/5 aspect-square flex flex-col items-center justify-center gap-1 transition-all"
                 >
-                  Replace
+                  <Plus size={20} className="text-on-surface-variant" />
+                  <span className="text-[10px] font-bold text-on-surface-variant">Add more</span>
                 </button>
-              </div>
-              {/* Success checkmark */}
-              <div className="absolute top-3 right-3 bg-green-500 text-white w-8 h-8 rounded-full flex items-center justify-center shadow-lg">
-                <Check size={16} />
-              </div>
+              )}
             </div>
-          ) : (
-            // Upload zone
+          )}
+
+          {photos.length === 0 && (
             <div
               onDrop={handleDrop}
               onDragOver={handleDragOver}
@@ -146,22 +191,30 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
                 <Upload size={28} className={isDragging ? "text-primary" : "text-on-surface-variant"} />
               </div>
               <p className="text-sm font-bold text-on-surface mb-1">
-                {isDragging ? "Drop your photo here!" : "Upload a pet photo"}
+                {isDragging ? "Drop your photos here!" : "Upload pet photos"}
               </p>
               <p className="text-xs text-on-surface-variant opacity-60">
-                Drag & drop or click to browse • JPG, PNG, WebP • Max 10MB
+                Drag & drop or click to browse • Up to {MAX_PHOTOS} photos • JPG, PNG, WebP • Max 10MB each
               </p>
             </div>
           )}
-          
+
+          {photos.length > 0 && (
+            <p className="text-[10px] text-on-surface-variant opacity-60 mt-1">
+              <Check size={10} className="inline mr-1 text-green-500" />
+              Tip: photos from different angles (front, side, face close-up) give the best 3D result.
+            </p>
+          )}
+
           <input
             ref={fileInputRef}
             type="file"
             accept="image/jpeg,image/png,image/webp"
+            multiple
             className="hidden"
             onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) handleFileSelect(file);
+              if (e.target.files?.length) handleFilesSelect(e.target.files);
+              e.target.value = "";
             }}
           />
         </div>
@@ -173,6 +226,7 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
           </p>
           <div className="grid grid-cols-2 gap-2">
             {[
+              { icon: "🖼️", label: "Fuse photos into HD portrait" },
               { icon: "🧠", label: "Analyze anatomy" },
               { icon: "🧊", label: "Generate 3D mesh" },
               { icon: "🦴", label: "Rig skeleton" },
@@ -192,7 +246,7 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
         {/* Submit Button */}
         <button
           onClick={handleSave}
-          disabled={!name.trim() || !photo}
+          disabled={!name.trim() || photos.length === 0}
           className="w-full bg-primary text-white py-3.5 rounded-xl font-black uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg active:scale-95"
         >
           <Sparkles size={18} />
