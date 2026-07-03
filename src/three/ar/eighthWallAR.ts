@@ -16,6 +16,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { PlacedObject } from "../../types";
 import { OBJECT_CATALOG } from "../objects/catalog";
 import { resolveClipName } from "../clipMap";
+import { useAvatarScene } from "../store";
 
 const XR8_SRC = "https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js";
 
@@ -72,6 +73,64 @@ export async function startEighthWallAR(
   const anchor = new THREE.Group();
   anchor.visible = false;
 
+  // Live object nodes, kept in sync with the shared store so objects added from
+  // the AR overlay appear immediately.
+  const objectNodes = new Map<string, THREE.Object3D>();
+  let unsubscribe: (() => void) | null = null;
+
+  const buildObjectNode = (o: PlacedObject) => {
+    const def = OBJECT_CATALOG[o.kind];
+    const wrap = new THREE.Group();
+    wrap.position.set(o.position[0], 0, o.position[2]);
+    wrap.rotation.y = o.rotationY;
+    const place = (child: THREE.Object3D, fit: number) => {
+      const box = new THREE.Box3().setFromObject(child);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      const center = new THREE.Vector3();
+      box.getCenter(center);
+      const s = fit / (Math.max(size.x, size.y, size.z) || 1);
+      child.position.set(-center.x, -box.min.y, -center.z);
+      const inner = new THREE.Group();
+      inner.scale.setScalar(s * o.scale);
+      inner.add(child);
+      wrap.add(inner);
+    };
+    if (def?.glbUrl) {
+      loader.load(
+        def.glbUrl,
+        (gltf: any) => place(gltf.scene, def.fitSize),
+        undefined,
+        () => {
+          // Missing GLB → simple box placeholder so something appears in AR.
+          const box = new THREE.Mesh(
+            new THREE.BoxGeometry(def.fitSize, def.fitSize, def.fitSize),
+            new THREE.MeshStandardMaterial({ color: 0x9ca3af })
+          );
+          box.position.y = def.fitSize / 2;
+          wrap.add(box);
+        }
+      );
+    }
+    anchor.add(wrap);
+    objectNodes.set(o.id, wrap);
+  };
+
+  const syncObjects = (list: PlacedObject[]) => {
+    const ids = new Set(list.map((o) => o.id));
+    // Remove gone.
+    for (const [id, node] of objectNodes) {
+      if (!ids.has(id)) {
+        anchor.remove(node);
+        objectNodes.delete(id);
+      }
+    }
+    // Add new.
+    for (const o of list) {
+      if (!objectNodes.has(o.id)) buildObjectNode(o);
+    }
+  };
+
   const reticle = new THREE.Mesh(
     new THREE.RingGeometry(0.08, 0.1, 32).rotateX(-Math.PI / 2),
     new THREE.MeshBasicMaterial({ color: 0x22c55e })
@@ -124,34 +183,11 @@ export async function startEighthWallAR(
         }
       });
 
-      // Load placed objects.
-      for (const o of opts.objects) {
-        const def = OBJECT_CATALOG[o.kind];
-        if (!def?.glbUrl) continue;
-        loader.load(
-          def.glbUrl,
-          (gltf: any) => {
-            const g = gltf.scene;
-            const box = new THREE.Box3().setFromObject(g);
-            const size = new THREE.Vector3();
-            box.getSize(size);
-            const center = new THREE.Vector3();
-            box.getCenter(center);
-            const s = def.fitSize / (Math.max(size.x, size.y, size.z) || 1);
-            g.position.set(-center.x, -box.min.y, -center.z);
-            const wrap = new THREE.Group();
-            wrap.position.set(o.position[0], 0, o.position[2]);
-            wrap.rotation.y = o.rotationY;
-            wrap.scale.setScalar(s * o.scale);
-            wrap.add(g);
-            anchor.add(wrap);
-          },
-          undefined,
-          () => {
-            /* missing object GLB — skip in AR */
-          }
-        );
-      }
+      // Load placed objects now, and keep them in sync with the store live.
+      syncObjects(useAvatarScene.getState().placedObjects);
+      unsubscribe = useAvatarScene.subscribe((state, prev) => {
+        if (state.placedObjects !== prev.placedObjects) syncObjects(state.placedObjects);
+      });
 
       // Camera controls: enable world tracking.
       XR8.XrController.configure({ disableWorldTracking: false });
@@ -199,6 +235,7 @@ export async function startEighthWallAR(
 
   return {
     stop: () => {
+      unsubscribe?.();
       try {
         XR8.stop();
       } catch {

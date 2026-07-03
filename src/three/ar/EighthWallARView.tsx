@@ -4,6 +4,8 @@ import { Avatar } from "../../types";
 import { useAvatarScene } from "../store";
 import { startEighthWallAR, EighthWallHandle } from "./eighthWallAR";
 import ARCommandOverlay from "../../components/ARCommandOverlay";
+import ARObjectOverlay from "../../components/ARObjectOverlay";
+import { addObjectForAvatar } from "../objects/placement";
 
 /**
  * iOS AR view powered by 8th Wall (XR8). Standalone vanilla-three.js session
@@ -72,6 +74,7 @@ export default function EighthWallARView({ avatar, onExit }: { avatar: Avatar; o
           <p className="absolute bottom-20 left-1/2 -translate-x-1/2 text-white/80 text-xs bg-black/50 px-3 py-1 rounded-full">
             Move your phone to scan, then tap to place your pet
           </p>
+          <ARObjectOverlay onAdd={(kind) => addObjectForAvatar(avatar.id, kind)} />
           <ARCommandOverlay avatarId={avatar.id} />
         </>
       )}

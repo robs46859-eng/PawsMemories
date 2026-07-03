@@ -8,6 +8,8 @@ import ObjectModel from "../objects/ObjectModel";
 import { useAvatarScene } from "../store";
 import EighthWallARView from "./EighthWallARView";
 import ARCommandOverlay from "../../components/ARCommandOverlay";
+import ARObjectOverlay from "../../components/ARObjectOverlay";
+import { addObjectForAvatar } from "../objects/placement";
 
 // Request the DOM-overlay feature so command buttons can float over the camera view.
 const store = createXRStore({ domOverlay: true });
@@ -132,8 +134,9 @@ export default function ARScene({ avatar }: { avatar: Avatar }) {
       <Canvas shadows camera={{ position: [0, 1.4, 2], fov: 50 }}>
         <XR store={store}>
           <ARContent avatar={avatar} />
-          {/* Floats the command buttons over the live camera during the immersive session. */}
+          {/* Floats the command + object controls over the live camera during the immersive session. */}
           <XRDomOverlay>
+            <ARObjectOverlay onAdd={(kind) => addObjectForAvatar(avatar.id, kind)} />
             <ARCommandOverlay avatarId={avatar.id} />
           </XRDomOverlay>
         </XR>

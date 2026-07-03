@@ -1,22 +1,14 @@
 import React, { Component, ReactNode, useEffect, useState } from "react";
 import { Boxes, Scan } from "lucide-react";
-import { Avatar, PetObjectKind, PlacedObject } from "../types";
+import { Avatar, PetObjectKind } from "../types";
 import PetScene from "../three/PetScene";
 import ARScene from "../three/ar/ARScene";
 import CommandBar from "./CommandBar";
 import ObjectPalette from "./ObjectPalette";
 import { useAvatarBrain } from "../three/useAvatarBrain";
 import { useAvatarScene } from "../three/store";
-import { OBJECT_CATALOG } from "../three/objects/catalog";
-import { fetchPlacedObjects, createPlacedObject, deletePlacedObject } from "../api";
-
-function newObjectId(): string {
-  try {
-    return crypto.randomUUID();
-  } catch {
-    return `obj_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  }
-}
+import { addObjectForAvatar, removeObjectForAvatar } from "../three/objects/placement";
+import { fetchPlacedObjects } from "../api";
 
 /** Local scene guard — falls back to a poster instead of the app-wide error page. */
 class SceneBoundary extends Component<
@@ -66,8 +58,6 @@ export default function LivingAvatarView({ avatar }: LivingAvatarViewProps) {
   useAvatarBrain(avatar, { enabled: ready });
 
   const setPlacedObjects = useAvatarScene((s) => s.setPlacedObjects);
-  const addPlacedObject = useAvatarScene((s) => s.addPlacedObject);
-  const removePlacedObject = useAvatarScene((s) => s.removePlacedObject);
   const [showObjects, setShowObjects] = useState(false);
   const [arMode, setArMode] = useState(false);
 
@@ -83,27 +73,8 @@ export default function LivingAvatarView({ avatar }: LivingAvatarViewProps) {
     };
   }, [avatar.id, setPlacedObjects]);
 
-  const handleAdd = (kind: PetObjectKind) => {
-    const count = useAvatarScene.getState().placedObjects.length;
-    // Spread new objects around the yard using a golden-angle spiral.
-    const angle = count * 2.399963;
-    const r = 1.2 + (count % 3) * 0.35;
-    const obj: PlacedObject = {
-      id: newObjectId(),
-      kind,
-      position: [Math.cos(angle) * r, 0, Math.sin(angle) * r],
-      rotationY: Math.random() * Math.PI * 2,
-      scale: OBJECT_CATALOG[kind]?.baseScale ?? 1,
-      createdAt: new Date().toISOString(),
-    };
-    addPlacedObject(obj); // optimistic
-    createPlacedObject(avatar.id, obj).catch(() => {});
-  };
-
-  const handleRemove = (id: string) => {
-    removePlacedObject(id); // optimistic
-    deletePlacedObject(avatar.id, id).catch(() => {});
-  };
+  const handleAdd = (kind: PetObjectKind) => addObjectForAvatar(avatar.id, kind);
+  const handleRemove = (id: string) => removeObjectForAvatar(avatar.id, id);
 
   return (
     <div className="w-full h-full flex flex-col">
