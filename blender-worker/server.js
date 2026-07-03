@@ -387,14 +387,8 @@ app.post("/export-glb", async (req, res) => {
 // Import a base64 GLB into the persistent Blender scene
 app.post("/import-glb", async (req, res) => {
   try {
-    let { glb_base64 } = req.body;
+    const { glb_base64 } = req.body;
     if (!glb_base64) return res.status(400).json({ error: "Missing 'glb_base64' in request body" });
-    // Strip a data URL prefix if present (same guard as /agent-build).
-    // Without this, base64.b64decode silently corrupts the GLB and Blender
-    // fails with "Bad glTF: json error: utf-8".
-    if (glb_base64.startsWith("data:")) {
-      glb_base64 = glb_base64.split(",")[1] || glb_base64;
-    }
     const result = await bridge.send("import_glb", { glb_base64 });
     res.json(result);
   } catch (err) {

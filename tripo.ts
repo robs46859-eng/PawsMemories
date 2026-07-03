@@ -54,9 +54,6 @@ export async function startImageTo3D(input: TripoJobInput): Promise<string> {
   }
 
   // 3. Start task with high-fidelity flags (Phase 3.2 & 3.6)
-  // NOTE: do NOT set quad: true — Tripo forces FBX output when quad is
-  // enabled, but this pipeline downloads output.model expecting a GLB.
-  // Blender's glTF importer then fails with "Bad glTF: json error: utf-8".
   const body = {
     type: "image_to_model",
     file: {
@@ -65,6 +62,7 @@ export async function startImageTo3D(input: TripoJobInput): Promise<string> {
     },
     texture: true,
     pbr: true,
+    quad: true,
     face_limit: 40000
   };
 

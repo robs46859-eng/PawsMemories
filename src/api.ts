@@ -224,12 +224,20 @@ export async function fetchAvatars(): Promise<Avatar[]> {
   }
 }
 
-/** Create a new 3D avatar from a pet photo. Returns immediately with avatarId; generation is async. */
-export async function generate3DAvatar(name: string, photo: string): Promise<{ avatarId: number; status: string }> {
+/**
+ * Create a new 3D avatar from one or more pet photos.
+ * The server first fuses the photos into a single hyper-realistic reference image
+ * (pet standing on all 4 legs, facing forward, slight panting expression),
+ * then generates the 3D model from that image. Returns immediately; generation is async.
+ */
+export async function generate3DAvatar(
+  name: string,
+  photos: string[]
+): Promise<{ avatarId: number; status: string; referenceImageUrl?: string; usedReferenceImage?: boolean }> {
   const res = await authedFetch("/api/avatars", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, photo }),
+    body: JSON.stringify({ photos, name }),
   });
   if (!res.ok) throw new Error(await parseError(res, "Failed to create avatar."));
   return await res.json();
