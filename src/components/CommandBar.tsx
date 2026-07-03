@@ -1,24 +1,6 @@
 import React from "react";
-import { Armchair, Dog, Volume2, Gamepad2, Drumstick, Droplet, Moon } from "lucide-react";
-import { BehaviorAction } from "../types";
 import { useAvatarScene } from "../three/store";
-import { sendAvatarCommand } from "../api";
-
-interface CommandDef {
-  label: string;
-  action: BehaviorAction;
-  icon: React.ReactNode;
-}
-
-const COMMANDS: CommandDef[] = [
-  { label: "Sit", action: "sitting", icon: <Armchair size={18} /> },
-  { label: "Come", action: "walking", icon: <Dog size={18} /> },
-  { label: "Speak", action: "speaking", icon: <Volume2 size={18} /> },
-  { label: "Play", action: "playing", icon: <Gamepad2 size={18} /> },
-  { label: "Eat", action: "eating", icon: <Drumstick size={18} /> },
-  { label: "Drink", action: "drinking", icon: <Droplet size={18} /> },
-  { label: "Sleep", action: "sleeping", icon: <Moon size={18} /> },
-];
+import { AVATAR_COMMANDS, issueAvatarCommand } from "./avatarCommands";
 
 /** Lower is more urgent for bladder/bowel; higher is better for the rest. */
 const NEED_BARS: { key: keyof NeedsView; label: string; invert?: boolean; color: string }[] = [
@@ -47,13 +29,10 @@ export default function CommandBar({
   avatarId?: number;
 }) {
   const needs = useAvatarScene((s) => s.needs);
-  const enqueueCommand = useAvatarScene((s) => s.enqueueCommand);
   const action = useAvatarScene((s) => s.action);
 
-  const issue = (a: BehaviorAction) => {
-    enqueueCommand({ action: a, issuedAt: Date.now() });
-    if (avatarId != null) sendAvatarCommand(avatarId, a).catch(() => {});
-  };
+  const issue = (a: (typeof AVATAR_COMMANDS)[number]["action"]) =>
+    issueAvatarCommand(a, avatarId);
 
   return (
     <div className="w-full flex flex-col gap-3">
@@ -89,7 +68,7 @@ export default function CommandBar({
 
       {/* Command buttons */}
       <div className="flex flex-wrap justify-center gap-2">
-        {COMMANDS.map((c) => (
+        {AVATAR_COMMANDS.map((c) => (
           <button
             key={c.label}
             onClick={() => issue(c.action)}

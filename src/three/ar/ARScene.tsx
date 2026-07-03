@@ -1,14 +1,16 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
-import { XR, createXRStore, useXR, useXRHitTest } from "@react-three/xr";
+import { XR, XRDomOverlay, createXRStore, useXR, useXRHitTest } from "@react-three/xr";
 import * as THREE from "three";
 import { Avatar } from "../../types";
 import AvatarModel from "../AvatarModel";
 import ObjectModel from "../objects/ObjectModel";
 import { useAvatarScene } from "../store";
 import EighthWallARView from "./EighthWallARView";
+import ARCommandOverlay from "../../components/ARCommandOverlay";
 
-const store = createXRStore();
+// Request the DOM-overlay feature so command buttons can float over the camera view.
+const store = createXRStore({ domOverlay: true });
 
 function PlacedObjects() {
   const objects = useAvatarScene((s) => s.placedObjects);
@@ -130,6 +132,10 @@ export default function ARScene({ avatar }: { avatar: Avatar }) {
       <Canvas shadows camera={{ position: [0, 1.4, 2], fov: 50 }}>
         <XR store={store}>
           <ARContent avatar={avatar} />
+          {/* Floats the command buttons over the live camera during the immersive session. */}
+          <XRDomOverlay>
+            <ARCommandOverlay avatarId={avatar.id} />
+          </XRDomOverlay>
         </XR>
       </Canvas>
     </div>

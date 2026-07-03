@@ -3,6 +3,7 @@ import { X } from "lucide-react";
 import { Avatar } from "../../types";
 import { useAvatarScene } from "../store";
 import { startEighthWallAR, EighthWallHandle } from "./eighthWallAR";
+import ARCommandOverlay from "../../components/ARCommandOverlay";
 
 /**
  * iOS AR view powered by 8th Wall (XR8). Standalone vanilla-three.js session
@@ -66,9 +67,14 @@ export default function EighthWallARView({ avatar, onExit }: { avatar: Avatar; o
       >
         <X size={18} />
       </button>
-      <p className="absolute bottom-3 left-1/2 -translate-x-1/2 text-white/80 text-xs bg-black/50 px-3 py-1 rounded-full">
-        Move your phone to scan, then tap to place your pet
-      </p>
+      {!starting && !error && (
+        <>
+          <p className="absolute bottom-20 left-1/2 -translate-x-1/2 text-white/80 text-xs bg-black/50 px-3 py-1 rounded-full">
+            Move your phone to scan, then tap to place your pet
+          </p>
+          <ARCommandOverlay avatarId={avatar.id} />
+        </>
+      )}
     </div>
   );
 }
