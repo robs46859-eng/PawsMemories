@@ -167,7 +167,14 @@ export class BlenderClient {
 
   /** Import a base64 GLB into the persistent Blender scene. */
   async importGlb(glbBase64: string): Promise<ImportGlbResult> {
-    return this.send<ImportGlbResult>("/import-glb", "POST", { glb_base64: glbBase64 });
+    // Strip a data URL prefix (e.g. "data:model/gltf-binary;base64,") if present.
+    // Passing the prefix through corrupts the decoded bytes and Blender fails
+    // with "Bad glTF: json error: utf-8".
+    let raw = glbBase64;
+    if (raw.startsWith("data:")) {
+      raw = raw.split(",")[1] || raw;
+    }
+    return this.send<ImportGlbResult>("/import-glb", "POST", { glb_base64: raw });
   }
 
   /** Capture a viewport screenshot from a given camera angle. */
