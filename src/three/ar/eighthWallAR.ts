@@ -17,6 +17,7 @@ import { PlacedObject } from "../../types";
 import { OBJECT_CATALOG } from "../objects/catalog";
 import { resolveClipName } from "../clipMap";
 import { useAvatarScene } from "../store";
+import { addObjectAtPosition } from "../objects/placement";
 
 const XR8_SRC = "https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js";
 
@@ -48,6 +49,7 @@ export interface EighthWallHandle {
 }
 
 export interface StartOptions {
+  avatarId: number;
   modelUrl: string;
   objects: PlacedObject[];
   /** current behavior action name, read each frame from the shared store */
@@ -192,7 +194,8 @@ export async function startEighthWallAR(
       // Camera controls: enable world tracking.
       XR8.XrController.configure({ disableWorldTracking: false });
 
-      // Tap to place / re-place the anchor.
+      // Tap: first tap anchors the pet; once anchored, an armed object
+      // (pendingObjectKind) drops at the tapped surface, otherwise re-anchor.
       c.addEventListener("touchstart", (e: TouchEvent) => {
         const t = e.touches[0];
         if (!t) return;
@@ -201,12 +204,18 @@ export async function startEighthWallAR(
           t.clientY / window.innerHeight,
           ["FEATURE_POINT", "ESTIMATED_SURFACE"]
         );
-        if (hits && hits[0]) {
-          const p = hits[0].position;
-          anchor.position.set(p.x, p.y, p.z);
-          anchor.visible = true;
-          reticle.visible = false;
+        if (!hits || !hits[0]) return;
+        const p = hits[0].position;
+        const pending = useAvatarScene.getState().pendingObjectKind;
+        if (pending && anchor.visible) {
+          // Drop the armed object at the hit, in the anchor's local space.
+          addObjectAtPosition(opts.avatarId, pending, [p.x - anchor.position.x, 0, p.z - anchor.position.z]);
+          useAvatarScene.getState().setPendingObjectKind(null);
+          return;
         }
+        anchor.position.set(p.x, p.y, p.z);
+        anchor.visible = true;
+        reticle.visible = false;
       });
     },
     onUpdate: () => {

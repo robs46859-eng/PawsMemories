@@ -33,6 +33,28 @@ export function addObjectForAvatar(avatarId: number, kind: PetObjectKind): Place
   return obj;
 }
 
+/**
+ * Place an object at an explicit position (used by AR tap-to-place, where the
+ * position comes from a real-world surface hit-test).
+ */
+export function addObjectAtPosition(
+  avatarId: number,
+  kind: PetObjectKind,
+  position: [number, number, number]
+): PlacedObject {
+  const obj: PlacedObject = {
+    id: newObjectId(),
+    kind,
+    position,
+    rotationY: Math.random() * Math.PI * 2,
+    scale: OBJECT_CATALOG[kind]?.baseScale ?? 1,
+    createdAt: new Date().toISOString(),
+  };
+  useAvatarScene.getState().addPlacedObject(obj); // optimistic
+  createPlacedObject(avatarId, obj).catch(() => {});
+  return obj;
+}
+
 /** Remove a placed object everywhere (store + server). */
 export function removeObjectForAvatar(avatarId: number, id: string): void {
   useAvatarScene.getState().removePlacedObject(id); // optimistic

@@ -9,7 +9,7 @@ import { useAvatarScene } from "../store";
 import EighthWallARView from "./EighthWallARView";
 import ARCommandOverlay from "../../components/ARCommandOverlay";
 import ARObjectOverlay from "../../components/ARObjectOverlay";
-import { addObjectForAvatar } from "../objects/placement";
+import { addObjectAtPosition } from "../objects/placement";
 
 // Request the DOM-overlay feature so command buttons can float over the camera view.
 const store = createXRStore({ domOverlay: true });
@@ -37,6 +37,7 @@ function ARContent({ avatar }: { avatar: Avatar }) {
   const lastHit = useRef(new THREE.Vector3());
   const matrix = useRef(new THREE.Matrix4());
   const [placed, setPlaced] = useState(false);
+  const placedRef = useRef(false);
 
   // Continuously position the reticle on the nearest detected surface.
   useXRHitTest((results, getWorldMatrix) => {
@@ -48,18 +49,27 @@ function ARContent({ avatar }: { avatar: Avatar }) {
     }
   }, "viewer");
 
-  // Tap ("select") to anchor the scene at the reticle.
+  // Tap ("select"): first tap anchors the pet; once anchored, an armed object
+  // (pendingObjectKind) drops at the tapped surface, otherwise re-anchor.
   useEffect(() => {
     if (!session) return;
     const onSelect = () => {
-      if (anchorRef.current) {
-        anchorRef.current.position.copy(lastHit.current);
-        setPlaced(true);
+      const anchor = anchorRef.current;
+      if (!anchor) return;
+      const pending = useAvatarScene.getState().pendingObjectKind;
+      if (pending && placedRef.current) {
+        const local = lastHit.current.clone().sub(anchor.position);
+        addObjectAtPosition(avatar.id, pending, [local.x, 0, local.z]);
+        useAvatarScene.getState().setPendingObjectKind(null);
+        return;
       }
+      anchor.position.copy(lastHit.current);
+      placedRef.current = true;
+      setPlaced(true);
     };
     session.addEventListener("select", onSelect);
     return () => session.removeEventListener("select", onSelect);
-  }, [session]);
+  }, [session, avatar.id]);
 
   return (
     <>
@@ -136,7 +146,7 @@ export default function ARScene({ avatar }: { avatar: Avatar }) {
           <ARContent avatar={avatar} />
           {/* Floats the command + object controls over the live camera during the immersive session. */}
           <XRDomOverlay>
-            <ARObjectOverlay onAdd={(kind) => addObjectForAvatar(avatar.id, kind)} />
+            <ARObjectOverlay />
             <ARCommandOverlay avatarId={avatar.id} />
           </XRDomOverlay>
         </XR>

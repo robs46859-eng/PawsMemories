@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { AvatarNeeds, BehaviorAction, PlacedObject, AvatarCommand } from "../types";
+import { AvatarNeeds, BehaviorAction, PlacedObject, AvatarCommand, PetObjectKind } from "../types";
 
 export interface Vec2 {
   x: number;
@@ -22,6 +22,8 @@ interface AvatarSceneState {
   facing: number;
   commandQueue: AvatarCommand[];
   placedObjects: PlacedObject[];
+  /** When set, the next AR surface tap places this object kind (tap-to-place). */
+  pendingObjectKind: PetObjectKind | null;
   /** Transient speech/emote bubble text, or null. */
   speech: string | null;
 
@@ -37,6 +39,7 @@ interface AvatarSceneState {
   setPlacedObjects: (o: PlacedObject[]) => void;
   addPlacedObject: (o: PlacedObject) => void;
   removePlacedObject: (id: string) => void;
+  setPendingObjectKind: (k: PetObjectKind | null) => void;
   say: (msg: string | null) => void;
 }
 
@@ -58,6 +61,7 @@ export const useAvatarScene = create<AvatarSceneState>((set, get) => ({
   facing: 0,
   commandQueue: [],
   placedObjects: [],
+  pendingObjectKind: null,
   speech: null,
 
   setNeeds: (n) => set((s) => ({ needs: { ...s.needs, ...n } })),
@@ -79,5 +83,6 @@ export const useAvatarScene = create<AvatarSceneState>((set, get) => ({
   addPlacedObject: (o) => set((s) => ({ placedObjects: [...s.placedObjects, o] })),
   removePlacedObject: (id) =>
     set((s) => ({ placedObjects: s.placedObjects.filter((p) => p.id !== id) })),
+  setPendingObjectKind: (k) => set({ pendingObjectKind: k }),
   say: (msg) => set({ speech: msg }),
 }));
