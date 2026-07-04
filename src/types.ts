@@ -8,6 +8,8 @@ export enum Screen {
   SHARE_MEMORY = "SHARE_MEMORY",
   AVATAR_DASHBOARD = "AVATAR_DASHBOARD",
   REQUEST_MEMORY = "REQUEST_MEMORY",
+  STORE = "STORE",
+  PROFILE = "PROFILE",
 }
 
 export type StyleType = "Realistic" | "Sketch" | "Clay" | "Artistic" | "Anime" | "3D" | "Retro";

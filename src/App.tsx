@@ -11,9 +11,11 @@ import ShareMemory from "./components/ShareMemory";
 import RandyChat from "./components/RandyChat";
 import AlbumView from "./components/AlbumView";
 import { fetchMe, fetchCreations, fetchAlbums, createAlbum, clearToken, claimAchievement, claimDailyStreak } from "./api";
-import { Sparkles, User, History, FolderOpen, Sun, Moon, LogOut, RefreshCw, Zap, Dog, ClipboardList, Bell } from "lucide-react";
+import { Sparkles, User, History, FolderOpen, Sun, Moon, LogOut, RefreshCw, Zap, Dog, ClipboardList, Bell, ShoppingBag, Users } from "lucide-react";
 import CreditStore from "./components/CreditStore";
 import AvatarDashboard from "./components/AvatarDashboard";
+import Store from "./components/Store";
+import ProfileScreen from "./components/ProfileScreen";
 
 const EMPTY_PROFILE: UserProfile = { fullName: "", email: "", credits: 0, treats: 0, isAdmin: false, city: "", ageVerified: false };
 
@@ -62,7 +64,7 @@ export default function App() {
       if (user && user.profileComplete) {
         applyUser(user);
         setIsAuthed(true);
-        setCurrentScreen(Screen.DASHBOARD);
+        setCurrentScreen(Screen.AVATAR_DASHBOARD);
         // Phase 1.7: Fetch persistent creations from backend
         const serverCreations = await fetchCreations();
         setCreations(serverCreations);
@@ -188,7 +190,7 @@ export default function App() {
       handleUnlockAchievement("pioneer");
       setCurrentScreen(Screen.WELCOME);
     } else {
-      setCurrentScreen(Screen.DASHBOARD);
+      setCurrentScreen(Screen.AVATAR_DASHBOARD);
       fetchCreations().then(setCreations);
       fetchAlbums().then(setAlbums);
     }
@@ -203,7 +205,7 @@ export default function App() {
 
   const handleWelcomeNext = () => setCurrentScreen(Screen.TUTORIAL);
 
-  const handleTutorialComplete = () => setCurrentScreen(Screen.DASHBOARD);
+  const handleTutorialComplete = () => setCurrentScreen(Screen.AVATAR_DASHBOARD);
 
   const handleClaimDailyBonus = () => {
     setUserProfile((prev) => ({ ...prev, credits: prev.credits + 5 }));
@@ -272,10 +274,10 @@ export default function App() {
           <span className="text-xl">🐾</span>
           <div>
             <h1 className="text-sm font-extrabold text-on-surface tracking-tight font-sans">
-              Paws &amp; Memories
+              Pawsome3D
             </h1>
             <p className="text-[9px] text-on-surface-variant uppercase font-bold tracking-widest leading-none">
-              Simply Fullstack
+              Your Pet, Immortalized
             </p>
           </div>
         </div>
@@ -428,6 +430,29 @@ export default function App() {
               />
             )}
 
+            {currentScreen === Screen.STORE && (
+              <Store
+                userProfile={userProfile}
+                onOpenCreditStore={() => setShowCreditStore(true)}
+                onGoToAvatars={() => setCurrentScreen(Screen.AVATAR_DASHBOARD)}
+              />
+            )}
+
+            {currentScreen === Screen.PROFILE && (
+              <ProfileScreen
+                userProfile={userProfile}
+                achievements={achievements}
+                onClaimReward={handleClaimReward}
+                dailyStreak={dailyStreak}
+                dailyStreakClaimed={dailyStreakClaimed}
+                onClaimDailyStreak={handleClaimDailyStreak}
+                onOpenCreditStore={() => setShowCreditStore(true)}
+                onLogout={handleLogout}
+                isDarkMode={isDarkMode}
+                onToggleDarkMode={toggleDarkMode}
+              />
+            )}
+
             {/* Safety net: if somehow on SIGN_UP while authed, send to dashboard */}
             {currentScreen === Screen.SIGN_UP && (
               <Dashboard
@@ -456,40 +481,8 @@ export default function App() {
       </main>
 
       {/* Floating Bottom Navigator (only when signed in and past onboarding) */}
-      {isAuthed && [Screen.DASHBOARD, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.AVATAR_DASHBOARD].includes(currentScreen) && (
+      {isAuthed && [Screen.DASHBOARD, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.AVATAR_DASHBOARD, Screen.STORE, Screen.PROFILE].includes(currentScreen) && (
         <div className="fixed bottom-0 left-0 right-0 bg-surface-container-lowest/90 backdrop-blur-md border-t border-outline-variant/30 py-2 px-6 flex justify-around items-center max-w-md mx-auto z-40 rounded-t-3xl soft-glow-shadow">
-          <button
-            onClick={() => setCurrentScreen(Screen.DASHBOARD)}
-            className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-xl transition-all cursor-pointer ${
-              currentScreen === Screen.DASHBOARD ? "text-primary scale-103 font-bold" : "text-on-surface-variant opacity-75"
-            }`}
-          >
-            <History size={20} />
-            <span className="text-[9px] uppercase tracking-wider font-extrabold">Feed</span>
-          </button>
-
-          <button
-            onClick={() => setCurrentScreen(userProfile.isAdmin ? Screen.EDIT_MEMORY : Screen.REQUEST_MEMORY)}
-            className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-xl transition-all cursor-pointer ${
-              currentScreen === Screen.EDIT_MEMORY || currentScreen === Screen.REQUEST_MEMORY ? "text-primary scale-103 font-bold" : "text-on-surface-variant opacity-75"
-            }`}
-          >
-            <Sparkles size={20} />
-            <span className="text-[9px] uppercase tracking-wider font-extrabold">{userProfile.isAdmin ? "Create" : "Request"}</span>
-          </button>
-
-          <button
-            onClick={() => {
-              setCurrentScreen(Screen.DASHBOARD);
-            }}
-            className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-xl transition-all cursor-pointer ${
-              currentScreen === Screen.ALBUM_VIEW ? "text-primary scale-103 font-bold" : "text-on-surface-variant opacity-75"
-            }`}
-          >
-            <FolderOpen size={20} />
-            <span className="text-[9px] uppercase tracking-wider font-extrabold">Albums</span>
-          </button>
-
           <button
             onClick={() => setCurrentScreen(Screen.AVATAR_DASHBOARD)}
             className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-xl transition-all cursor-pointer ${
@@ -497,7 +490,39 @@ export default function App() {
             }`}
           >
             <Dog size={20} />
-            <span className="text-[9px] uppercase tracking-wider font-extrabold">Pets</span>
+            <span className="text-[9px] uppercase tracking-wider font-extrabold">Avatar</span>
+          </button>
+
+          <button
+            onClick={() => setCurrentScreen(Screen.STORE)}
+            className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-xl transition-all cursor-pointer ${
+              currentScreen === Screen.STORE ? "text-primary scale-103 font-bold" : "text-on-surface-variant opacity-75"
+            }`}
+          >
+            <ShoppingBag size={20} />
+            <span className="text-[9px] uppercase tracking-wider font-extrabold">Store</span>
+          </button>
+
+          <button
+            onClick={() => setCurrentScreen(Screen.DASHBOARD)}
+            className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-xl transition-all cursor-pointer ${
+              [Screen.DASHBOARD, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW].includes(currentScreen)
+                ? "text-primary scale-103 font-bold"
+                : "text-on-surface-variant opacity-75"
+            }`}
+          >
+            <Users size={20} />
+            <span className="text-[9px] uppercase tracking-wider font-extrabold">Community</span>
+          </button>
+
+          <button
+            onClick={() => setCurrentScreen(Screen.PROFILE)}
+            className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-xl transition-all cursor-pointer ${
+              currentScreen === Screen.PROFILE ? "text-primary scale-103 font-bold" : "text-on-surface-variant opacity-75"
+            }`}
+          >
+            <User size={20} />
+            <span className="text-[9px] uppercase tracking-wider font-extrabold">Profile</span>
           </button>
         </div>
       )}
