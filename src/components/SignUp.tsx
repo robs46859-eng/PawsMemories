@@ -133,21 +133,21 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
     "absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant opacity-50 group-focus-within:text-primary group-focus-within:opacity-100 transition-all";
 
   return (
-    <div className="w-full max-w-md mx-auto px-6 py-8 relative overflow-hidden flex flex-col justify-center min-h-[90vh]">
-      {/* Background Decor */}
-      <div className="absolute -top-24 -right-24 w-64 h-64 bg-secondary-container opacity-20 rounded-full blur-3xl"></div>
-      <div className="absolute -bottom-32 -left-32 w-80 h-80 bg-primary-container opacity-10 rounded-full blur-3xl"></div>
+    <div className="w-full mx-auto px-6 py-8 relative overflow-hidden flex flex-col justify-end min-h-[100dvh]">
+      {/* Background Layer: Soft Focus 3D Living Room */}
+      <div className="fixed inset-0 z-0">
+        <div className="w-full h-full bg-cover bg-center brightness-110" style={{ backgroundImage: "url('https://lh3.googleusercontent.com/aida-public/AB6AXuCmslfv27LqlVMb1iuCR2TrSUwoT353IiT_gWKMl14O92VmFnHi2E8S929WES9WwP9GPma1pMS41leh3yt8b3fWbwxyAiiUnVWH1bo0JurybYizIl3gqDqt7QXuX_ROvOdMuNEXDDL6wROgii8esA6ZHcLveSz-KaMPGvrW1nohZmCDHgrYLS5rwnVioKaDY32yB5uN6cc2ssMxeVYbQDRcXGOq-u9eZa2k3n40WulEBsZ9d99kKU5RzhPvCobQsXyslauPvYhitU2s')" }}></div>
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-background/20 to-background/90"></div>
+      </div>
 
-      <div className="z-10 w-full">
+      <div className="z-10 w-full max-w-md mx-auto relative pt-[80px]">
         {/* Header Section */}
-        <div className="text-center mb-6">
-          <div className="mb-3 flex justify-center">
-            <div className="w-14 h-14 bg-surface-container rounded-3xl flex items-center justify-center soft-glow-shadow">
-              <span className="text-primary text-2xl font-bold font-sans">🐾</span>
-            </div>
+        <div className="text-center mb-10">
+          <div className="inline-flex items-center justify-center p-3 mb-6 bg-primary/10 rounded-2xl backdrop-blur-md dog-float">
+            <span className="text-primary text-4xl font-bold font-sans">🐾</span>
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-on-surface mb-1">
-            {step === "login" ? "Welcome Back" : step === "signup" ? "Create Account" : step === "profile" ? "Set Up Your Profile" : "About Your Pets"}
+          <h1 className="font-headline-lg-mobile text-headline-lg-mobile text-primary mb-2">
+            {step === "login" ? "Welcome Back" : step === "signup" ? "Join Pawsome3D" : step === "profile" ? "Set Up Your Profile" : "About Your Pets"}
           </h1>
           <p className="text-xs font-medium text-on-surface-variant opacity-80">
             {step === "login" && "Log in with your email and password."}
@@ -174,7 +174,7 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
         )}
 
         {/* Form Container */}
-        <div className="bg-surface-container-lowest rounded-3xl p-5 soft-glow-shadow border border-surface-variant/30">
+        <div className="glass-panel rounded-3xl p-8 space-y-6">
 
           {/* STEP: Login */}
           {step === "login" && (
@@ -209,9 +209,9 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
 
               <button
                 type="submit" disabled={busy}
-                className="w-full bg-primary text-white font-semibold text-xs py-3 rounded-xl soft-glow-shadow hover:bg-primary/95 transition-all mt-2 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-70"
+                className="tactile-button w-full bg-primary text-on-primary font-headline-lg-mobile text-body-md py-4 rounded-xl flex items-center justify-center gap-2 group cursor-pointer disabled:opacity-70 mt-2"
               >
-                {busy ? <RefreshCw className="animate-spin" size={14} /> : <LogIn size={14} />}
+                {busy ? <RefreshCw className="animate-spin" size={14} /> : <LogIn size={18} />}
                 Log In
               </button>
             </form>
@@ -261,9 +261,10 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
 
               <button
                 type="submit" disabled={busy}
-                className="w-full bg-primary text-white font-semibold text-xs py-3 rounded-xl soft-glow-shadow hover:bg-primary/95 transition-all mt-2 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-70"
+                className="tactile-button w-full bg-primary text-on-primary font-headline-lg-mobile text-body-md py-4 rounded-xl flex items-center justify-center gap-2 group cursor-pointer disabled:opacity-70 mt-2"
               >
-                {busy ? <RefreshCw className="animate-spin" size={14} /> : <><UserPlus size={14} /> Create Account →</>}
+                {busy ? <RefreshCw className="animate-spin" size={14} /> : <span>Create Account</span>}
+                <span className="material-symbols-outlined group-hover:translate-x-1 transition-transform">arrow_forward</span>
               </button>
             </form>
           )}
@@ -315,9 +316,10 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
 
               <button
                 type="submit"
-                className="w-full bg-primary text-white font-semibold text-xs py-3 rounded-xl soft-glow-shadow hover:bg-primary/95 transition-all mt-2 flex items-center justify-center gap-2 cursor-pointer"
+                className="tactile-button w-full bg-primary text-on-primary font-headline-lg-mobile text-body-md py-4 rounded-xl flex items-center justify-center gap-2 group cursor-pointer mt-2"
               >
-                Continue →
+                <span>Continue</span>
+                <span className="material-symbols-outlined group-hover:translate-x-1 transition-transform">arrow_forward</span>
               </button>
             </form>
           )}
@@ -379,9 +381,10 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
 
               <button
                 type="submit" disabled={busy}
-                className="w-full bg-primary text-white font-semibold text-xs py-3 rounded-xl soft-glow-shadow hover:bg-primary/95 transition-all mt-4 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-70"
+                className="tactile-button w-full bg-primary text-on-primary font-headline-lg-mobile text-body-md py-4 rounded-xl flex items-center justify-center gap-2 group cursor-pointer disabled:opacity-70 mt-4"
               >
-                {busy ? <RefreshCw className="animate-spin" size={14} /> : <span>Complete Setup →</span>}
+                {busy ? <RefreshCw className="animate-spin" size={14} /> : <span>Complete Setup</span>}
+                <span className="material-symbols-outlined group-hover:translate-x-1 transition-transform">arrow_forward</span>
               </button>
             </form>
           )}

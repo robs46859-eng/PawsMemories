@@ -178,25 +178,25 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode 
   }
 
   return (
-    <div className="w-full max-w-5xl mx-auto px-4 py-6 pb-24 flex flex-col items-center">
+    <div className="w-full max-w-5xl mx-auto px-4 py-8 pb-24 pt-24 flex flex-col items-center">
       {/* Header */}
       <div className="w-full flex justify-between items-end mb-8">
         <div>
-          <h2 className="text-3xl font-black tracking-tight text-on-surface">3D Avatars</h2>
-          <p className="text-sm text-on-surface-variant font-medium mt-1">
+          <h2 className="text-3xl font-headline-xl font-black tracking-tight text-on-surface">3D Avatars</h2>
+          <p className="text-sm text-on-surface-variant font-medium mt-1 font-body-md">
             Upload a pet photo to generate animated 3D avatars!
           </p>
         </div>
         <div className="flex flex-col items-end gap-2">
-          <div className="bg-surface-container py-1.5 px-4 rounded-full border border-outline-variant/30 flex items-center gap-2 shadow-sm">
+          <div className="glass-panel py-1.5 px-4 rounded-full border border-outline-variant/30 flex items-center gap-2 shadow-sm">
             <Bone size={14} className="text-amber-500" />
-            <span className="text-xs font-bold text-on-surface">
+            <span className="text-xs font-bold text-on-surface font-label-caps">
               {userProfile.treats} Treats
             </span>
           </div>
           <button
             onClick={() => setShowCreate(true)}
-            className="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-full text-xs font-black uppercase tracking-wider shadow-md hover:bg-primary/90 transition-all active:scale-95"
+            className="flex items-center gap-2 bg-primary text-on-primary px-5 py-2.5 rounded-full text-xs font-black uppercase tracking-wider shadow-md hover:bg-primary/90 transition-all tactile-button"
           >
             <Plus size={14} /> New 3D Avatar
           </button>
@@ -204,15 +204,15 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode 
       </div>
 
       {avatars.length === 0 ? (
-        <div className="w-full flex flex-col items-center justify-center p-12 bg-surface-container rounded-3xl border border-dashed border-outline-variant/50">
-          <span className="text-6xl mb-4 opacity-50">🐾</span>
-          <h3 className="text-lg font-bold text-on-surface mb-2">No Avatars Yet</h3>
-          <p className="text-sm text-on-surface-variant text-center max-w-sm mb-6">
+        <div className="w-full flex flex-col items-center justify-center p-12 glass-panel rounded-3xl border border-dashed border-outline-variant/50">
+          <span className="text-6xl mb-4 opacity-50 dog-float">🐾</span>
+          <h3 className="text-lg font-bold text-on-surface mb-2 font-headline-lg-mobile">No Avatars Yet</h3>
+          <p className="text-sm text-on-surface-variant text-center max-w-sm mb-6 font-body-md">
             Upload a photo of your pet and our AI will create a fully animated 3D avatar!
           </p>
           <button
             onClick={() => setShowCreate(true)}
-            className="bg-primary text-white px-6 py-3 rounded-xl font-bold hover:shadow-lg transition-all"
+            className="bg-primary text-on-primary px-6 py-3 rounded-xl font-bold hover:shadow-lg transition-all tactile-button"
           >
             Create 3D Avatar
           </button>
@@ -230,7 +230,7 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode 
             return (
               <div
                 key={avatar.id}
-                className="bg-surface-container rounded-3xl overflow-hidden shadow-lg border border-outline-variant/20 flex flex-col transition-all hover:-translate-y-1 hover:shadow-xl"
+                className="glass-panel rounded-3xl overflow-hidden shadow-lg border border-outline-variant/20 flex flex-col transition-all hover:-translate-y-1 hover:shadow-xl"
               >
                 {/* 3D Playpen */}
                 <div className="relative aspect-square bg-slate-900/5 dark:bg-slate-100/5">
@@ -244,20 +244,20 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode 
                     isDarkMode={isDarkMode}
                     onRetry={handleRetryGeneration}
                   />
-                  <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/60 to-transparent pointer-events-none z-10" />
+                  <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/70 to-transparent pointer-events-none z-10" />
                   {isReady && (
                     <button
                       onClick={() => setLivingAvatar(avatar)}
-                      className="absolute top-4 left-4 z-30 bg-primary text-white px-3 py-1.5 rounded-full text-xs font-bold shadow-lg hover:bg-primary/90 active:scale-95 flex items-center gap-1"
+                      className="absolute top-4 left-4 z-30 bg-primary text-on-primary px-3 py-1.5 rounded-full text-xs font-bold shadow-lg hover:bg-primary/90 flex items-center gap-1 tactile-button"
                     >
                       <Sparkles size={12} /> Live 3D
                     </button>
                   )}
-                  <h3 className="absolute bottom-4 left-4 text-white text-2xl font-black drop-shadow-md z-20">
+                  <h3 className="absolute bottom-4 left-4 text-white text-2xl font-black drop-shadow-md z-20 font-headline-lg-mobile">
                     {avatar.name}
                   </h3>
                   {avatar.breed && (
-                    <span className="absolute bottom-4 right-4 text-white/70 text-[10px] font-bold uppercase tracking-wider z-20 bg-white/10 backdrop-blur-sm px-2 py-0.5 rounded-full">
+                    <span className="absolute bottom-5 right-4 text-white text-[10px] font-bold uppercase tracking-wider z-20 bg-white/20 backdrop-blur-md px-2 py-0.5 rounded-full shadow-sm">
                       {avatar.breed}
                     </span>
                   )}
@@ -322,7 +322,7 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode 
                             key={action}
                             onClick={() => handleActionClick(action, avatar.id)}
                             disabled={isAnimating || !isReady}
-                            className={`flex flex-col items-center justify-center gap-1 ${bgColor} ${color} disabled:opacity-40 py-2.5 rounded-xl transition-all cursor-pointer active:scale-95`}
+                            className={`flex flex-col items-center justify-center gap-1 ${bgColor} ${color} disabled:opacity-40 py-2.5 rounded-xl transition-all cursor-pointer tactile-button font-label-caps`}
                           >
                             {icon}
                             <span className="text-[10px] font-black uppercase">{label}</span>
@@ -336,7 +336,7 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode 
                         disabled={
                           userProfile.treats <= 0 || currentFood >= 100 || isAnimating
                         }
-                        className="flex items-center justify-center gap-2 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 disabled:opacity-40 py-2 rounded-xl transition-colors cursor-pointer active:scale-95"
+                        className="flex items-center justify-center gap-2 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 disabled:opacity-40 py-2 rounded-xl transition-colors cursor-pointer tactile-button font-label-caps"
                         title={`Give a treat (${userProfile.treats} available)`}
                       >
                         <Bone size={14} />

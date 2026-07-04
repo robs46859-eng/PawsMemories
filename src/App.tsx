@@ -269,20 +269,19 @@ export default function App() {
     <div className={`min-h-screen bg-surface flex flex-col selection:bg-primary-container selection:text-on-primary-container ${isDarkMode ? "dark" : ""}`}>
 
       {/* Dynamic Upper Header Bar */}
-      <header className="sticky top-0 bg-surface/85 backdrop-blur-md border-b border-outline-variant/30 z-40 px-4 py-3.5 flex justify-between items-center max-w-7xl w-full mx-auto">
-        <div className="flex items-center gap-2">
-          <span className="text-xl">🐾</span>
-          <div>
-            <h1 className="text-sm font-extrabold text-on-surface tracking-tight font-sans">
-              Pawsome3D
-            </h1>
-            <p className="text-[9px] text-on-surface-variant uppercase font-bold tracking-widest leading-none">
-              Your Pet, Immortalized
-            </p>
+      <header className="fixed top-0 w-full z-50 bg-surface/60 backdrop-blur-xl shadow-[0_8px_32px_0_rgba(68,42,34,0.08)]">
+        <nav className="flex justify-between items-center px-6 md:px-16 py-4 w-full max-w-7xl mx-auto">
+          <div className="flex items-center gap-2">
+            <span className="text-headline-lg font-headline-xl font-extrabold text-primary tracking-tight">Pawsome3D</span>
           </div>
-        </div>
 
-        <div className="flex items-center gap-2 md:gap-3">
+          <div className="hidden md:flex items-center gap-8">
+            <button onClick={() => setCurrentScreen(Screen.DASHBOARD)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.DASHBOARD ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Home</button>
+            <button onClick={() => setCurrentScreen(Screen.AVATAR_DASHBOARD)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.AVATAR_DASHBOARD ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Avatars</button>
+            <button onClick={() => setCurrentScreen(Screen.STORE)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.STORE ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Store</button>
+          </div>
+
+          <div className="flex items-center gap-2 md:gap-4">
           {/* Theme Mode trigger button */}
           <button
             onClick={toggleDarkMode}
@@ -321,14 +320,15 @@ export default function App() {
               </button>
               <button
                 onClick={handleLogout}
-                className="w-8 h-8 rounded-full bg-surface-container hover:bg-error/10 hover:text-error text-on-surface-variant flex items-center justify-center border border-outline-variant/20 transition-all cursor-pointer shadow-sm"
+                className="w-10 h-10 rounded-full bg-surface-container hover:bg-error/10 hover:text-error text-on-surface-variant flex items-center justify-center border border-outline-variant/20 transition-all cursor-pointer shadow-sm"
                 title="Log out"
               >
-                <LogOut size={14} />
+                <LogOut size={18} />
               </button>
             </>
           )}
         </div>
+        </nav>
       </header>
 
       {/* Main Content Router viewport */}
@@ -482,7 +482,7 @@ export default function App() {
 
       {/* Floating Bottom Navigator (only when signed in and past onboarding) */}
       {isAuthed && [Screen.DASHBOARD, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.AVATAR_DASHBOARD, Screen.STORE, Screen.PROFILE].includes(currentScreen) && (
-        <div className="fixed bottom-0 left-0 right-0 bg-surface-container-lowest/90 backdrop-blur-md border-t border-outline-variant/30 py-2 px-6 flex justify-around items-center max-w-md mx-auto z-40 rounded-t-3xl soft-glow-shadow">
+        <div className="fixed md:hidden bottom-0 left-0 right-0 bg-surface-container-lowest/90 backdrop-blur-md border-t border-outline-variant/30 py-2 px-6 flex justify-around items-center max-w-md mx-auto z-40 rounded-t-3xl shadow-[0_-8px_32px_0_rgba(68,42,34,0.08)]">
           <button
             onClick={() => setCurrentScreen(Screen.AVATAR_DASHBOARD)}
             className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-xl transition-all cursor-pointer ${

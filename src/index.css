@@ -6,20 +6,43 @@
   --font-body: "Be Vietnam Pro", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 
-  /* TerraPaw design system (stitch_pawsome3d/terrapaw/DESIGN.md) */
+  /* Custom Font Utilities based on Prototype */
+  --font-headline-xl: "Plus Jakarta Sans";
+  --font-headline-lg: "Plus Jakarta Sans";
+  --font-headline-lg-mobile: "Plus Jakarta Sans";
+  --font-label-caps: "Space Grotesk";
+  --font-body-md: "Be Vietnam Pro";
+  --font-body-sm: "Be Vietnam Pro";
+
+  /* TerraPaw design system */
   --color-primary: #442a22;
   --color-on-primary: #ffffff;
   --color-primary-container: #5d4037;
   --color-on-primary-container: #d4ada1;
+  --color-primary-fixed: #ffdbd0;
+  --color-primary-fixed-dim: #e7bdb1;
+  --color-on-primary-fixed: #2c160e;
+  --color-on-primary-fixed-variant: #5d4037;
   --color-inverse-primary: #e7bdb1;
+  
   --color-secondary: #4c616c;
   --color-on-secondary: #ffffff;
   --color-secondary-container: #cfe6f2;
   --color-on-secondary-container: #526772;
+  --color-secondary-fixed: #cfe6f2;
+  --color-secondary-fixed-dim: #b4cad6;
+  --color-on-secondary-fixed: #071e27;
+  --color-on-secondary-fixed-variant: #354a53;
+
   --color-tertiary: #352f2c;
   --color-on-tertiary: #ffffff;
   --color-tertiary-container: #4c4542;
   --color-on-tertiary-container: #bdb3af;
+  --color-tertiary-fixed: #ece0dc;
+  --color-tertiary-fixed-dim: #cfc4c0;
+  --color-on-tertiary-fixed: #201a18;
+  --color-on-tertiary-fixed-variant: #4c4542;
+
   --color-surface: #faf9f5;
   --color-surface-dim: #dadad6;
   --color-surface-bright: #faf9f5;
@@ -32,9 +55,12 @@
   --color-on-surface-variant: #504441;
   --color-inverse-surface: #2f312e;
   --color-inverse-on-surface: #f1f1ed;
+  --color-surface-tint: #77574d;
+  --color-background: #faf9f5;
+  --color-on-background: #1a1c1a;
   --color-outline: #827470;
   --color-outline-variant: #d4c3be;
-  --color-surface-tint: #77574d;
+
   --color-error: #ba1a1a;
   --color-on-error: #ffffff;
   --color-error-container: #ffdad6;
@@ -138,4 +164,52 @@ body {
 .hide-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+/* New Prototype Aesthetics */
+.glass-card, .glass-panel {
+  background: rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 8px 32px 0 rgba(68, 42, 34, 0.08);
+}
+
+.tactile-button {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 4px 12px rgba(68, 42, 34, 0.2);
+  transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.tactile-button:active {
+  transform: scale(0.96);
+}
+
+.dog-float {
+  animation: dog-float 6s ease-in-out infinite;
+}
+@keyframes dog-float {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-15px) rotate(2deg); }
+}
+
+.animate-float {
+  animation: floating 6s ease-in-out infinite;
+}
+
+.mud-splatter {
+  position: absolute;
+  background: #442a22;
+  opacity: 0.15;
+  filter: blur(2px);
+  border-radius: 50%;
+  pointer-events: none;
+  transition: transform 0.3s ease;
+}
+
+.paw-print {
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  opacity: 0.1;
+  pointer-events: none;
 }

@@ -196,44 +196,44 @@ export default function Dashboard({
   };
 
   return (
-    <div className="w-full max-w-7xl mx-auto px-4 py-6 pb-24 font-sans text-on-surface">
+    <div className="w-full max-w-7xl mx-auto px-4 py-8 pb-24 font-sans text-on-surface pt-24">
       {/* Welcome & Daily Bonus Row */}
       <section className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         
         {/* Core welcome banner */}
-        <div className="md:col-span-2 relative overflow-hidden rounded-3xl bg-primary-container p-6 md:p-8 flex flex-col justify-between min-h-[180px] shadow-sm">
+        <div className="md:col-span-2 relative overflow-hidden rounded-3xl bg-primary-container/90 backdrop-blur-md p-8 flex flex-col justify-between min-h-[180px] shadow-lg border border-primary-container/20">
           <div className="relative z-10">
-            <h2 className="text-2xl md:text-3xl font-extrabold text-on-primary-container mb-2">
+            <h2 className="text-2xl md:text-3xl font-headline-xl font-extrabold text-on-primary-container mb-2">
               Hello, {userProfile.fullName ? userProfile.fullName.split(" ")[0] : "friend"}!
             </h2>
-            <p className="text-on-primary-container/90 text-sm md:text-base max-w-md leading-relaxed">
+            <p className="text-on-primary-container/90 text-sm md:text-base max-w-md leading-relaxed font-body-md">
               Your pet's legacy is growing. You have {creations.length - 3 > 0 ? creations.length - 3 : 3} pending memories ready to be crafted.
             </p>
           </div>
           {/* Ambient potted plant SVG/icon layout decoration */}
-          <div className="absolute -right-4 -bottom-4 opacity-10 text-on-primary-container">
+          <div className="absolute -right-4 -bottom-4 opacity-20 text-on-primary-container animate-float">
             <span className="text-[120px] md:text-[180px]">🌱</span>
           </div>
         </div>
 
         {/* Daily reward login card */}
-        <div className="bg-surface-container rounded-3xl p-6 border border-outline-variant/30 flex flex-col items-center justify-center text-center shadow-sm">
-          <div className="w-12 h-12 bg-secondary-container rounded-full flex items-center justify-center mb-3">
-            <Award size={24} className="text-on-secondary-container" />
+        <div className="glass-panel rounded-3xl p-6 flex flex-col items-center justify-center text-center">
+          <div className="w-16 h-16 bg-secondary-container/80 rounded-full flex items-center justify-center mb-4 shadow-sm border border-secondary-container/50 dog-float">
+            <Award size={28} className="text-on-secondary-container" />
           </div>
-          <h3 className="text-base font-bold text-on-surface font-sans">
+          <h3 className="text-base font-bold text-on-surface font-headline-lg-mobile">
             Daily Login Bonus
           </h3>
-          <p className="text-secondary font-extrabold text-lg mt-0.5">
+          <p className="text-secondary font-extrabold text-2xl mt-1 font-label-caps">
             +5cr
           </p>
           <button
             onClick={handleClaimDaily}
             disabled={dailyClaimed}
-            className={`mt-4 w-full py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 duration-150 cursor-pointer ${
+            className={`mt-4 w-full py-3 rounded-xl text-sm font-bold transition-all cursor-pointer ${
               dailyClaimed
-                ? "bg-outline-variant text-on-surface-variant/50 cursor-not-allowed"
-                : "bg-primary text-white hover:bg-primary/95"
+                ? "bg-outline-variant/30 text-on-surface-variant/50 cursor-not-allowed"
+                : "tactile-button bg-primary text-on-primary"
             }`}
           >
             {dailyClaimed ? "Claimed" : "Claim Reward"}
@@ -247,7 +247,7 @@ export default function Dashboard({
         {/* Transform a Photo / New Memory CTA */}
         <div
           onClick={onAddMemory}
-          className="group relative overflow-hidden rounded-3xl aspect-[16/9] md:aspect-auto md:min-h-[220px] cursor-pointer shadow-md hover:shadow-lg transition-all duration-300"
+          className="group relative overflow-hidden rounded-3xl aspect-[16/9] md:aspect-auto md:min-h-[240px] cursor-pointer shadow-lg transition-transform duration-300 hover:-translate-y-1 tactile-button"
         >
           {/* Background photograph with gold filters */}
           <div
@@ -256,17 +256,17 @@ export default function Dashboard({
               backgroundImage: "url('https://lh3.googleusercontent.com/aida-public/AB6AXuAqAa4J3NysFyIoGisXAMToWolhRfUBUwY-Npe7wW0ZpmCPjWdiiOD12qqINX4ZvlmVvykxoc591rZKr48xWtigKFMgeo09wLjFgcxPMjgX26eQDfb6wD6ND88z2fAvXMSFDCodHS3c1QPZDGvV5vol2hIFNhLmGP8b2P581b7FGNKlRG3zJ2m8LZDg1Dwd8dnKZqAg4L3iSdzpagbMcM3Dyfw0kCuaOtlwvd_kNgAyJY55VvgaXfN0wP9jmPi8MNSBmpXuoQtexIM')",
             }}
           ></div>
-          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent"></div>
+          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent"></div>
           
           <div className="absolute bottom-0 p-6 w-full flex justify-between items-end">
             <div>
               <span className="inline-block px-3 py-1 bg-secondary text-white rounded-full text-[10px] font-bold uppercase tracking-wider mb-2">
                 {userProfile.isAdmin ? "Admin AI" : "Handcrafted"}
               </span>
-              <h3 className="text-xl font-bold text-white mb-0.5">
+              <h3 className="text-2xl font-headline-lg text-white mb-1 drop-shadow-md">
                 {userProfile.isAdmin ? "New Memory" : "Request a Memory"}
               </h3>
-              <p className="text-white/80 text-xs font-medium">
+              <p className="text-white/90 text-sm font-medium font-body-md drop-shadow">
                 {userProfile.isAdmin
                   ? "Generate directly with AI — admin mode"
                   : "Submit a request & our team personally crafts it"}
@@ -274,11 +274,11 @@ export default function Dashboard({
             </div>
             
             <div className="flex flex-col items-end">
-              <span className="text-[11px] font-bold text-secondary-container mb-1 tracking-wider">
+              <span className="text-xs font-bold text-secondary-container mb-2 tracking-wider font-label-caps drop-shadow">
                 {userProfile.isAdmin ? "Admin" : "From $2.99"}
               </span>
-              <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center text-primary shadow-md group-hover:scale-110 transition-transform active:scale-95">
-                <Plus size={24} />
+              <div className="w-14 h-14 rounded-full bg-white flex items-center justify-center text-primary shadow-lg group-hover:scale-110 transition-transform active:scale-95">
+                <Plus size={28} />
               </div>
             </div>
           </div>
@@ -288,20 +288,20 @@ export default function Dashboard({
         {userProfile.isAdmin && onOpenAdminPanel && (
           <div
             onClick={onOpenAdminPanel}
-            className="group relative overflow-hidden rounded-3xl border-2 border-secondary/40 bg-secondary/5 shadow-sm flex flex-col justify-between p-6 cursor-pointer hover:border-secondary/70 hover:bg-secondary/10 transition-all"
+            className="group relative overflow-hidden rounded-3xl border-2 border-secondary/40 bg-secondary/5 shadow-sm flex flex-col justify-between p-6 cursor-pointer hover:border-secondary/70 hover:bg-secondary/10 transition-all tactile-button"
           >
             <div>
-              <div className="w-12 h-12 bg-secondary/15 rounded-2xl flex items-center justify-center mb-4 text-secondary">
-                <Sparkles size={24} />
+              <div className="w-14 h-14 bg-secondary/15 rounded-2xl flex items-center justify-center mb-4 text-secondary">
+                <Sparkles size={28} />
               </div>
-              <h3 className="text-xl font-bold text-on-surface">Review Requests</h3>
-              <p className="text-on-surface-variant text-xs mt-1 leading-relaxed">
+              <h3 className="text-xl font-headline-lg-mobile font-bold text-on-surface">Review Requests</h3>
+              <p className="text-on-surface-variant text-sm mt-2 leading-relaxed">
                 View pending user requests, generate their memories, and send results
               </p>
             </div>
             <div className="flex justify-between items-center mt-6">
-              <span className="text-sm font-bold text-secondary">Admin Panel</span>
-              <div className="px-4 py-2 bg-secondary text-white rounded-full text-xs font-bold shadow-sm group-hover:bg-secondary/90 transition-all">
+              <span className="text-sm font-bold text-secondary font-label-caps">Admin Panel</span>
+              <div className="px-5 py-2 bg-secondary text-white rounded-full text-xs font-bold shadow-sm group-hover:bg-secondary/90 transition-all">
                 Open →
               </div>
             </div>
@@ -309,22 +309,21 @@ export default function Dashboard({
         )}
 
         {/* New Album CTA */}
-        <div className="group relative overflow-hidden rounded-3xl border border-outline-variant/30 bg-surface-container shadow-sm flex flex-col justify-between p-6">
+        <div className="group relative overflow-hidden rounded-3xl glass-panel shadow-sm flex flex-col justify-between p-6 tactile-button cursor-pointer" onClick={handleCreateAlbum}>
           <div>
-            <div className="w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center mb-4 text-primary">
-              <FolderPlus size={24} />
+            <div className="w-14 h-14 bg-primary/10 rounded-2xl flex items-center justify-center mb-4 text-primary">
+              <FolderPlus size={28} />
             </div>
-            <h3 className="text-xl font-bold text-on-surface">New Album</h3>
-            <p className="text-on-surface-variant text-xs mt-1 leading-relaxed">
+            <h3 className="text-xl font-headline-lg-mobile font-bold text-on-surface">New Album</h3>
+            <p className="text-on-surface-variant text-sm mt-2 leading-relaxed">
               Curate a stunning personal scrapbook of custom memories
             </p>
           </div>
           
           <div className="flex justify-between items-center mt-6">
-            <span className="text-sm font-bold text-primary">10cr</span>
+            <span className="text-sm font-bold text-primary font-label-caps">10cr</span>
             <button
-              onClick={handleCreateAlbum}
-              className="px-6 py-2.5 bg-primary text-white rounded-full text-xs font-bold transition-all hover:bg-primary/95 active:scale-95 duration-150 cursor-pointer shadow-sm"
+              className="px-6 py-2.5 bg-primary text-on-primary rounded-full text-sm font-bold transition-all group-hover:bg-primary/90"
             >
               Create
             </button>
@@ -334,10 +333,10 @@ export default function Dashboard({
 
       {/* Social engagement sharing area */}
       <section className="mb-8">
-        <div className="bg-surface-container-low rounded-3xl p-6 border-2 border-dashed border-primary-container/40 flex flex-col md:flex-row items-center justify-between gap-6 shadow-sm">
+        <div className="glass-panel rounded-3xl p-6 border-2 border-dashed border-primary-container/30 flex flex-col md:flex-row items-center justify-between gap-6 shadow-sm">
           <div className="flex items-center gap-4">
             <div className="relative">
-              <div className="w-14 h-14 rounded-2xl bg-white flex items-center justify-center shadow-sm text-secondary">
+              <div className="w-14 h-14 rounded-2xl bg-white/70 backdrop-blur flex items-center justify-center shadow-sm text-secondary">
                 <Share2 size={28} />
               </div>
               <span className="absolute -top-2.5 -right-2.5 bg-secondary text-white px-2 py-0.5 rounded-full text-[9px] font-bold shadow-sm font-mono whitespace-nowrap">
@@ -345,24 +344,24 @@ export default function Dashboard({
               </span>
             </div>
             <div>
-              <h4 className="text-base font-bold text-on-surface">Share the Joy</h4>
-              <p className="text-on-surface-variant text-xs">Share your generated memories to earn free credits</p>
+              <h4 className="text-lg font-bold text-on-surface font-headline-lg-mobile">Share the Joy</h4>
+              <p className="text-on-surface-variant text-sm">Share your generated memories to earn free credits</p>
             </div>
           </div>
 
           <div className="flex items-center gap-3 w-full md:w-auto">
             <button
               onClick={() => onShareCompleted("TikTok", 10)}
-              className="flex-1 md:flex-none flex items-center justify-center gap-2 px-5 py-3 bg-white border border-outline-variant hover:bg-surface-container transition-colors rounded-xl text-xs font-bold cursor-pointer"
+              className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-white/80 border border-outline-variant/50 hover:bg-white transition-colors rounded-xl text-sm font-bold cursor-pointer tactile-button"
             >
-              <Video size={16} />
+              <Video size={18} />
               TikTok
             </button>
             <button
               onClick={() => onShareCompleted("Instagram", 10)}
-              className="flex-1 md:flex-none flex items-center justify-center gap-2 px-5 py-3 bg-white border border-outline-variant hover:bg-surface-container transition-colors rounded-xl text-xs font-bold cursor-pointer"
+              className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-white/80 border border-outline-variant/50 hover:bg-white transition-colors rounded-xl text-sm font-bold cursor-pointer tactile-button"
             >
-              <Camera size={16} />
+              <Camera size={18} />
               Instagram
             </button>
           </div>
@@ -595,17 +594,17 @@ export default function Dashboard({
             {albums.map((album) => (
               <div 
                 key={album.id} 
-                className="space-y-2 cursor-pointer group"
+                className="space-y-2 cursor-pointer group tactile-button"
                 onClick={() => onSelectAlbum(album)}
               >
-                <div className="aspect-square rounded-2xl overflow-hidden bg-surface-container relative shadow-sm border border-outline-variant/20">
+                <div className="aspect-square rounded-2xl overflow-hidden glass-card relative shadow-sm border border-outline-variant/50">
                   <img
                     alt={album.name}
                     className="w-full h-full object-cover group-hover:scale-103 transition-transform duration-500"
                     src={album.imageUrl}
                     referrerPolicy="no-referrer"
                   />
-                  <div className="absolute top-2.5 right-2.5 px-2.5 py-0.5 bg-black/50 backdrop-blur-md rounded-lg text-white text-[10px] font-bold">
+                  <div className="absolute top-2.5 right-2.5 px-3 py-1 bg-black/60 backdrop-blur-md rounded-lg text-white text-[10px] font-bold shadow">
                     {album.itemCount} Items
                   </div>
                 </div>
@@ -648,9 +647,9 @@ export default function Dashboard({
                     if ((e.target as HTMLElement).closest("button")) return;
                     onSelectCreation(creation);
                   }}
-                  className="flex gap-4 bg-white/70 p-3 rounded-2xl border border-outline-variant/30 hover:shadow-md transition-all group relative"
+                  className="flex gap-4 glass-card p-4 rounded-2xl border border-outline-variant/40 hover:shadow-lg transition-all group relative cursor-pointer tactile-button"
                 >
-                  <div className="w-20 h-20 rounded-xl overflow-hidden flex-shrink-0 shadow-sm border border-outline-variant/20 relative bg-black">
+                  <div className="w-24 h-24 rounded-xl overflow-hidden flex-shrink-0 shadow-md border border-outline-variant/20 relative bg-black">
                     {creation.media_type === "video" && creation.video_url ? (
                       <video
                         src={creation.video_url}
@@ -663,7 +662,7 @@ export default function Dashboard({
                     ) : (
                       <img
                         alt={creation.name || "Creation"}
-                        className="w-full h-full object-cover group-hover:scale-103 transition-transform duration-500"
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                         src={creation.image_url || ""}
                         referrerPolicy="no-referrer"
                       />
