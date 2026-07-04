@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Pawsome3D - Sign Up</title>
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@700;800&amp;family=Space+Grotesk:wght@600&amp;family=Be+Vietnam+Pro:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-variant": "#e2e3df",
+                        "secondary-fixed-dim": "#b4cad6",
+                        "error": "#ba1a1a",
+                        "on-surface-variant": "#504441",
+                        "background": "#faf9f5",
+                        "on-tertiary-fixed-variant": "#4c4542",
+                        "on-error-container": "#93000a",
+                        "primary-fixed": "#ffdbd0",
+                        "on-primary-fixed-variant": "#5d4037",
+                        "surface-container-high": "#e8e8e4",
+                        "on-secondary": "#ffffff",
+                        "tertiary-fixed": "#ece0dc",
+                        "on-background": "#1a1c1a",
+                        "error-container": "#ffdad6",
+                        "secondary-container": "#cfe6f2",
+                        "on-error": "#ffffff",
+                        "inverse-on-surface": "#f1f1ed",
+                        "primary-fixed-dim": "#e7bdb1",
+                        "on-secondary-container": "#526772",
+                        "on-tertiary-container": "#bdb3af",
+                        "secondary": "#4c616c",
+                        "secondary-fixed": "#cfe6f2",
+                        "on-surface": "#1a1c1a",
+                        "surface-tint": "#77574d",
+                        "surface-container": "#eeeeea",
+                        "outline-variant": "#d4c3be",
+                        "primary-container": "#5d4037",
+                        "surface-bright": "#faf9f5",
+                        "surface-container-highest": "#e2e3df",
+                        "on-tertiary-fixed": "#201a18",
+                        "on-secondary-fixed": "#071e27",
+                        "inverse-primary": "#e7bdb1",
+                        "on-primary-fixed": "#2c160e",
+                        "tertiary": "#352f2c",
+                        "on-secondary-fixed-variant": "#354a53",
+                        "tertiary-container": "#4c4542",
+                        "on-primary": "#ffffff",
+                        "inverse-surface": "#2f312e",
+                        "primary": "#442a22",
+                        "on-tertiary": "#ffffff",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-container-low": "#f4f4f0",
+                        "surface": "#faf9f5",
+                        "outline": "#827470",
+                        "tertiary-fixed-dim": "#cfc4c0",
+                        "surface-dim": "#dadad6",
+                        "on-primary-container": "#d4ada1"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "container-max": "1200px",
+                        "margin-mobile": "20px",
+                        "margin-desktop": "64px",
+                        "gutter": "16px",
+                        "unit": "4px"
+                    },
+                    "fontFamily": {
+                        "headline-lg-mobile": ["Plus Jakarta Sans"],
+                        "label-caps": ["Space Grotesk"],
+                        "body-md": ["Be Vietnam Pro"],
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "headline-xl": ["Plus Jakarta Sans"],
+                        "body-sm": ["Be Vietnam Pro"]
+                    },
+                    "fontSize": {
+                        "headline-lg-mobile": ["28px", {"lineHeight": "34px", "fontWeight": "700"}],
+                        "label-caps": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                        "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                        "headline-xl": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "800"}],
+                        "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body {
+            background-color: #faf9f5;
+            overflow-x: hidden;
+        }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.4);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            box-shadow: 0 8px 32px 0 rgba(68, 42, 34, 0.08);
+        }
+        .tactile-button {
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 4px 12px rgba(68, 42, 34, 0.2);
+            transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .tactile-button:active {
+            transform: scale(0.96);
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .dog-float {
+            animation: float 6s ease-in-out infinite;
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0px) rotate(0deg); }
+            50% { transform: translateY(-15px) rotate(2deg); }
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="font-body-md text-on-surface selection:bg-primary-fixed selection:text-on-primary-fixed">
+<!-- Background Layer: Soft Focus 3D Living Room -->
+<div class="fixed inset-0 z-0">
+<div class="w-full h-full bg-cover bg-center brightness-110" data-alt="A warm, cozy, high-fidelity 3D Pixar-style living room during golden hour. Soft sunbeams filter through a window onto a plush rug and a wooden coffee table. In the center, a friendly, hyper-detailed Golden Retriever avatar with big expressive eyes looks toward the camera. The background is softly blurred with a beautiful bokeh effect, using a color palette of warm browns, soft creams, and golden ambers to create an inviting atmosphere." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuCmslfv27LqlVMb1iuCR2TrSUwoT353IiT_gWKMl14O92VmFnHi2E8S929WES9WwP9GPma1pMS41leh3yt8b3fWbwxyAiiUnVWH1bo0JurybYizIl3gqDqt7QXuX_ROvOdMuNEXDDL6wROgii8esA6ZHcLveSz-KaMPGvrW1nohZmCDHgrYLS5rwnVioKaDY32yB5uN6cc2ssMxeVYbQDRcXGOq-u9eZa2k3n40WulEBsZ9d99kKU5RzhPvCobQsXyslauPvYhitU2s')">
+</div>
+<!-- Gradient Overlay for Legibility -->
+<div class="absolute inset-0 bg-gradient-to-b from-transparent via-background/20 to-background/90"></div>
+</div>
+<!-- Main Content Canvas -->
+<main class="relative z-10 min-h-screen flex flex-col justify-end px-margin-mobile pb-12 pt-8">
+<!-- Header Section -->
+<div class="mb-10 text-center">
+<div class="inline-flex items-center justify-center p-3 mb-6 bg-primary/10 rounded-2xl backdrop-blur-md dog-float">
+<span class="material-symbols-outlined text-primary text-4xl" style="font-variation-settings: 'FILL' 1;">pets</span>
+</div>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-primary mb-2">Join Pawsome3D</h1>
+<p class="font-body-md text-on-surface-variant px-4">Create an account to start your 3D pet adventure today.</p>
+</div>
+<!-- Sign Up Form Panel -->
+<div class="glass-panel rounded-3xl p-8 space-y-6">
+<!-- Email Field -->
+<div class="space-y-2">
+<label class="font-label-caps text-label-caps text-on-tertiary-fixed-variant ml-1" for="email">Email Address</label>
+<div class="relative">
+<div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+<span class="material-symbols-outlined text-outline">mail</span>
+</div>
+<input class="block w-full pl-12 pr-4 py-4 bg-tertiary-fixed/40 border-none rounded-xl focus:ring-2 focus:ring-primary text-on-surface placeholder:text-outline/60 transition-all" id="email" placeholder="hello@barkworld.com" type="email"/>
+</div>
+</div>
+<!-- Password Field -->
+<div class="space-y-2">
+<label class="font-label-caps text-label-caps text-on-tertiary-fixed-variant ml-1" for="password">Password</label>
+<div class="relative">
+<div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+<span class="material-symbols-outlined text-outline">lock</span>
+</div>
+<input class="block w-full pl-12 pr-12 py-4 bg-tertiary-fixed/40 border-none rounded-xl focus:ring-2 focus:ring-primary text-on-surface placeholder:text-outline/60 transition-all" id="password" placeholder="••••••••" type="password"/>
+<button class="absolute inset-y-0 right-0 pr-4 flex items-center text-outline hover:text-primary transition-colors" onclick="togglePassword()" type="button">
+<span class="material-symbols-outlined" id="password-toggle-icon">visibility</span>
+</button>
+</div>
+</div>
+<!-- Create Account Button -->
+<div class="pt-2">
+<a class="tactile-button w-full bg-primary text-on-primary font-headline-lg-mobile text-body-md py-4 rounded-xl flex items-center justify-center gap-2 group cursor-pointer" href="{{DATA:SCREEN:SCREEN_16}}">
+<span>Create Account</span>
+<span class="material-symbols-outlined group-hover:translate-x-1 transition-transform">arrow_forward</span>
+</a>
+</div>
+<!-- Terms and Social -->
+<div class="text-center space-y-6 pt-4">
+<p class="font-body-sm text-on-surface-variant">
+                    By signing up, you agree to our 
+                    <a class="text-primary font-medium underline underline-offset-4 decoration-primary/30" href="#">Terms of Service</a>
+</p>
+<div class="flex items-center gap-4">
+<div class="h-px flex-1 bg-outline-variant/30"></div>
+<span class="font-label-caps text-label-caps text-outline">OR CONTINUE WITH</span>
+<div class="h-px flex-1 bg-outline-variant/30"></div>
+</div>
+<div class="flex justify-center gap-4">
+<button class="p-4 bg-white/60 hover:bg-white rounded-2xl shadow-sm transition-all border border-white/40">
+<img alt="Google" class="w-6 h-6 object-contain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBfOKostbtF05EO8SDTIJ8x8CiLfBtwbbetuhM6WzbiTj5sP0qRMvi-K0ub0-I1vuFmOq7VULkZm8pbNcoKgf2HYyxGcso9d-1-si1TZCggxsOV01Ma2lehlGdObVVbfwAInZTLV2_snqIKd0aUdBGl1Xf9MtL1D5S1Ol8WgzFxFdFj7NCdsmlJECbhfzC-AWCoCmmLdoYmiANdrtG8BPZ6R4qaLCTFy_fje4P0oQ2A6PWsKeN2L7icdtMc4lJDMO6_YZ8gSGc52YXU"/>
+</button>
+<button class="p-4 bg-white/60 hover:bg-white rounded-2xl shadow-sm transition-all border border-white/40">
+<span class="material-symbols-outlined text-black">apps</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Footer Link -->
+<div class="mt-8 text-center">
+<p class="font-body-md text-on-surface-variant">
+                Already have an account? 
+                <a class="text-primary font-bold hover:underline underline-offset-4" href="{{DATA:SCREEN:SCREEN_26}}">Log In</a>
+</p>
+</div>
+</main>
+<!-- Custom Cursor Atmospheric Effect (Subtle) -->
+<div class="fixed top-0 left-0 w-64 h-64 bg-primary/5 rounded-full blur-[80px] pointer-events-none z-50 transition-opacity opacity-0" id="cursor-glow"></div>
+<script>
+        // Password toggle visibility
+        function togglePassword() {
+            const passwordInput = document.getElementById('password');
+            const toggleIcon = document.getElementById('password-toggle-icon');
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                toggleIcon.innerText = 'visibility_off';
+            } else {
+                passwordInput.type = 'password';
+                toggleIcon.innerText = 'visibility';
+            }
+        }
+
+        // Mouse follow effect for atmosphere
+        const glow = document.getElementById('cursor-glow');
+        document.addEventListener('mousemove', (e) => {
+            glow.style.left = e.clientX - 128 + 'px';
+            glow.style.top = e.clientY - 128 + 'px';
+            glow.style.opacity = '1';
+        });
+
+        // Form interaction feedback
+        const inputs = document.querySelectorAll('input');
+        inputs.forEach(input => {
+            input.addEventListener('focus', () => {
+                input.parentElement.parentElement.classList.add('scale-[1.02]');
+                input.parentElement.parentElement.style.transition = 'all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+            });
+            input.addEventListener('blur', () => {
+                input.parentElement.parentElement.classList.remove('scale-[1.02]');
+            });
+        });
+    </script>
+</body></html>

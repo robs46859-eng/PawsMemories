@@ -1,0 +1,355 @@
+<html class="light" lang="en"><head></head><body class="bg-background text-on-surface font-body-md selection:bg-primary-fixed selection:text-on-primary-fixed">```html
+
+
+
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Checkout | Pet Merch</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;700;800&amp;family=Be+Vietnam+Pro:wght@400;500;600&amp;family=Space+Grotesk:wght@600&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@100..900&amp;family=Plus+Jakarta+Sans:wght@100..900&amp;family=Space+Grotesk:wght@100..900&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-tertiary-fixed": "#201a18",
+                    "error": "#ba1a1a",
+                    "on-error": "#ffffff",
+                    "primary-fixed": "#ffdbd0",
+                    "surface-bright": "#faf9f5",
+                    "on-secondary-fixed": "#071e27",
+                    "surface-container-highest": "#e2e3df",
+                    "on-tertiary-fixed-variant": "#4c4542",
+                    "secondary-fixed": "#cfe6f2",
+                    "surface": "#faf9f5",
+                    "primary-fixed-dim": "#e7bdb1",
+                    "surface-container-low": "#f4f4f0",
+                    "on-primary-fixed-variant": "#5d4037",
+                    "on-surface": "#1a1c1a",
+                    "tertiary-fixed": "#ece0dc",
+                    "inverse-on-surface": "#f1f1ed",
+                    "tertiary": "#352f2c",
+                    "surface-variant": "#e2e3df",
+                    "outline": "#827470",
+                    "on-surface-variant": "#504441",
+                    "on-background": "#1a1c1a",
+                    "surface-container-high": "#e8e8e4",
+                    "secondary-fixed-dim": "#b4cad6",
+                    "surface-container-lowest": "#ffffff",
+                    "on-secondary-fixed-variant": "#354a53",
+                    "on-tertiary-container": "#bdb3af",
+                    "surface-container": "#eeeeea",
+                    "on-primary-fixed": "#2c160e",
+                    "on-primary": "#ffffff",
+                    "surface-dim": "#dadad6",
+                    "outline-variant": "#d4c3be",
+                    "on-tertiary": "#ffffff",
+                    "on-secondary-container": "#526772",
+                    "primary-container": "#5d4037",
+                    "primary": "#442a22",
+                    "on-primary-container": "#d4ada1",
+                    "secondary": "#4c616c",
+                    "on-error-container": "#93000a",
+                    "surface-tint": "#77574d",
+                    "secondary-container": "#cfe6f2",
+                    "tertiary-fixed-dim": "#cfc4c0",
+                    "error-container": "#ffdad6",
+                    "inverse-surface": "#2f312e",
+                    "tertiary-container": "#4c4542",
+                    "background": "#faf9f5",
+                    "on-secondary": "#ffffff",
+                    "inverse-primary": "#e7bdb1"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "unit": "4px",
+                    "margin-mobile": "20px",
+                    "margin-desktop": "64px",
+                    "container-max": "1200px",
+                    "gutter": "16px"
+            },
+            "fontFamily": {
+                    "headline-lg-mobile": ["Plus Jakarta Sans"],
+                    "headline-lg": ["Plus Jakarta Sans"],
+                    "body-md": ["Be Vietnam Pro"],
+                    "headline-xl": ["Plus Jakarta Sans"],
+                    "body-sm": ["Be Vietnam Pro"],
+                    "label-caps": ["Space Grotesk"]
+            },
+            "fontSize": {
+                    "headline-lg-mobile": ["28px", {"lineHeight": "34px", "fontWeight": "700"}],
+                    "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                    "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "headline-xl": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "800"}],
+                    "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                    "label-caps": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .tactile-button {
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 4px 12px rgba(68, 42, 34, 0.2);
+            transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        .tactile-button:active {
+            transform: scale(0.96) translateY(2px);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 4px rgba(68, 42, 34, 0.1);
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(212, 195, 190, 0.3);
+        }
+        .recessed-well {
+            background: #ece0dc; /* tertiary-fixed variant */
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);
+        }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #d4c3be; border-radius: 10px; }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+<!-- Top Navigation Bar (Context: Back Action Suppressed Shell) -->
+<header class="fixed top-0 w-full z-50 flex justify-between items-center px-margin-mobile h-16 bg-surface/80 backdrop-blur-md shadow-sm shadow-primary/10">
+<div class="flex items-center gap-4">
+<button aria-label="Go back" class="p-2 rounded-full hover:bg-surface-container-high transition-colors active:scale-90" onclick="window.location.href='{{DATA:SCREEN:SCREEN_5}}'">
+<span class="material-symbols-outlined text-primary">arrow_back</span>
+</button>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-primary font-extrabold tracking-tight">Checkout</h1>
+</div>
+<div class="flex items-center gap-2 text-primary font-bold">
+<span class="material-symbols-outlined">shopping_bag</span>
+<span class="text-label-caps">3 ITEMS</span>
+</div>
+</header>
+<main class="pt-24 pb-32 px-margin-mobile md:px-margin-desktop max-w-container-max mx-auto">
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+<!-- Left Column: Shipping & Payment -->
+<div class="lg:col-span-7 space-y-8">
+<!-- Shipping Section -->
+<section class="space-y-6">
+<div class="flex items-center gap-3">
+<span class="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-white font-bold text-body-sm">1</span>
+<h2 class="font-headline-lg text-headline-lg text-primary">Shipping Address</h2>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+<div class="md:col-span-2">
+<label class="block text-label-caps text-on-surface-variant mb-2 ml-1">Full Name</label>
+<input class="w-full h-14 px-4 rounded-lg bg-tertiary-fixed border-none focus:ring-2 focus:ring-primary text-on-surface font-body-md transition-all" placeholder="Explorer Max" type="text"/>
+</div>
+<div class="md:col-span-2">
+<label class="block text-label-caps text-on-surface-variant mb-2 ml-1">Street Address</label>
+<input class="w-full h-14 px-4 rounded-lg bg-tertiary-fixed border-none focus:ring-2 focus:ring-primary text-on-surface font-body-md transition-all" placeholder="123 Puppy Trail" type="text"/>
+</div>
+<div>
+<label class="block text-label-caps text-on-surface-variant mb-2 ml-1">City</label>
+<input class="w-full h-14 px-4 rounded-lg bg-tertiary-fixed border-none focus:ring-2 focus:ring-primary text-on-surface font-body-md transition-all" placeholder="Barksville" type="text"/>
+</div>
+<div>
+<label class="block text-label-caps text-on-surface-variant mb-2 ml-1">Postal Code</label>
+<input class="w-full h-14 px-4 rounded-lg bg-tertiary-fixed border-none focus:ring-2 focus:ring-primary text-on-surface font-body-md transition-all" placeholder="10101" type="text"/>
+</div>
+</div>
+</section>
+<hr class="border-outline-variant/30"/>
+<!-- Payment Method Toggle -->
+<section class="space-y-6">
+<div class="flex items-center gap-3">
+<span class="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-white font-bold text-body-sm">2</span>
+<h2 class="font-headline-lg text-headline-lg text-primary">Payment Method</h2>
+</div>
+<div class="p-1 bg-surface-container-low rounded-xl flex gap-1">
+<button class="flex-1 py-3 px-4 rounded-lg flex items-center justify-center gap-2 font-label-caps bg-primary text-white shadow-sm transition-all duration-300" id="pay-paw-btn" onclick="togglePayment('paw')">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">pets</span>
+                            Paw-Points
+                        </button>
+<button class="flex-1 py-3 px-4 rounded-lg flex items-center justify-center gap-2 font-label-caps text-on-surface-variant hover:bg-surface-container-high transition-all duration-300" id="pay-card-btn" onclick="togglePayment('card')">
+<span class="material-symbols-outlined">credit_card</span>
+                            Credit Card
+                        </button>
+</div>
+<!-- Paw Points Display (Active by Default) -->
+<div class="p-6 rounded-xl border border-primary/20 bg-primary-fixed/30 flex items-center justify-between" id="paw-content">
+<div>
+<p class="text-label-caps text-primary font-bold">Your Balance</p>
+<p class="font-headline-lg text-headline-lg text-on-primary-fixed">1,250 <span class="text-body-sm">Points</span></p>
+</div>
+<div class="text-right">
+<p class="text-body-sm text-on-primary-fixed-variant">This order: 850 Points</p>
+<p class="text-label-caps text-primary font-bold mt-1">✓ Sufficient Funds</p>
+</div>
+</div>
+<!-- Credit Card Form (Hidden) -->
+<div class="hidden space-y-4" id="card-content">
+<div class="recessed-well p-6 rounded-xl space-y-4">
+<div>
+<label class="block text-label-caps text-on-surface-variant mb-2">Card Number</label>
+<div class="relative">
+<input class="w-full h-12 bg-white/50 border-none rounded-lg pl-4 pr-12 focus:ring-primary" placeholder="•••• •••• •••• ••••" type="text"/>
+<span class="material-symbols-outlined absolute right-4 top-3 text-on-surface-variant">lock</span>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<div>
+<label class="block text-label-caps text-on-surface-variant mb-2">Expiry</label>
+<input class="w-full h-12 bg-white/50 border-none rounded-lg px-4 focus:ring-primary" placeholder="MM/YY" type="text"/>
+</div>
+<div>
+<label class="block text-label-caps text-on-surface-variant mb-2">CVV</label>
+<input class="w-full h-12 bg-white/50 border-none rounded-lg px-4 focus:ring-primary" placeholder="•••" type="password"/>
+</div>
+</div>
+</div>
+</div>
+</section>
+</div>
+<!-- Right Column: Order Summary (Bento/Sticky style) -->
+<aside class="lg:col-span-5">
+<div class="sticky top-24 space-y-6">
+<div class="glass-card p-6 rounded-2xl shadow-xl shadow-primary/5 space-y-6">
+<h3 class="font-headline-lg text-headline-lg text-primary">Order Summary</h3>
+<div class="space-y-4">
+<!-- Item 1 -->
+<div class="flex gap-4 items-center">
+<div class="w-20 h-20 rounded-xl bg-surface-container-highest overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="A high-quality 3D render of a personalized dog avatar printed in biodegradable sandstone. The model features intricate fur textures and a soft color palette of sienna and cream, placed in a well-lit minimalist studio setting with soft ambient shadows and a grounded, tactile aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAJMcxDZRMD1k3uExEL-nEQNQaNROX69od5s5z5qZ35UWZnXbRndhPOzfNnwolSeabr5_iatQbIuxXlhOp9nBBqxBztOENIv2wSIb1Q5V7hqheI2NxWQoIaZq74DHo_cRuxp26Ub3HQOMaiCr3bfwlffnnULhwOYyqGBJzaesucBvo1gchM2-2bhXsjrTR4Y4vixQU7tLsW3R6usHRGUl-Oe0XyFYxtSFbqu_vkUt43yEE45KciDmzmcDmJrrBMNhTdhSeFIYXKFAYG"/>
+</div>
+<div class="flex-1">
+<p class="font-bold text-primary">Custom 3D Print</p>
+<p class="text-body-sm text-on-surface-variant">L-Size, Matte Finish</p>
+<p class="text-label-caps text-primary mt-1">450 Points</p>
+</div>
+</div>
+<!-- Item 2 -->
+<div class="flex gap-4 items-center">
+<div class="w-20 h-20 rounded-xl bg-surface-container-highest overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="A premium dog hat made of recycled wool in a sophisticated slate grey color with a small embroidered bone emblem. The hat is displayed on a rustic wooden stand with warm, natural sunlight casting soft shadows, emphasizing the tactile knit texture and earthy, adventurous vibe." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAAS2Y81oXQU4-J478P-B0ehirVmcSY43fNDdfLx6HRntkrWwiabgRy0Ap7cP_QIfxR9Urk0zR_LTy0uAFufWNw4Kel6CyOXG7HJOTKITttOk_3q1jIZ-WZy9yLDD7fLy9McwFMzyGiCNo00N9ya0093x1gDVw-BGwoPyV1SMSCIiRoJbwOn7rTCy4d5JWszhZkgGaP8XUG4PC64UH9zgJP3E5dQ9MN0IKRZmbPwB_idGU-8Zr4N7_ZwqsrEXhak6aU-5ZgeJOoCw_j"/>
+</div>
+<div class="flex-1">
+<p class="font-bold text-primary">Premium Hat</p>
+<p class="text-body-sm text-on-surface-variant">Adventure Slate</p>
+<p class="text-label-caps text-primary mt-1">400 Points</p>
+</div>
+</div>
+</div>
+<hr class="border-outline-variant/30"/>
+<div class="space-y-3">
+<div class="flex justify-between text-body-sm">
+<span class="text-on-surface-variant">Subtotal</span>
+<span class="font-bold">850 Points</span>
+</div>
+<div class="flex justify-between text-body-sm">
+<span class="text-on-surface-variant">Shipping</span>
+<span class="text-secondary font-bold">FREE</span>
+</div>
+<div class="pt-2 flex justify-between items-baseline">
+<span class="font-headline-lg text-headline-lg text-primary">Total</span>
+<span class="font-headline-xl text-headline-xl text-primary">850 Pts</span>
+</div>
+</div>
+<button class="tactile-button w-full py-5 rounded-xl bg-primary text-white font-bold text-headline-lg-mobile flex items-center justify-center gap-3" onclick="simulateOrder()">
+                            Place Order
+                            <span class="material-symbols-outlined">arrow_forward</span>
+</button>
+<p class="text-center text-body-sm text-on-surface-variant">
+                            By placing your order, you agree to the 
+                            <a class="underline decoration-primary/30" href="#">Terms of Service</a>
+</p>
+</div>
+<!-- Promo Card -->
+<div class="bg-secondary-container p-5 rounded-2xl flex items-center gap-4">
+<div class="bg-white/50 w-12 h-12 rounded-full flex items-center justify-center text-on-secondary-container">
+<span class="material-symbols-outlined">local_offer</span>
+</div>
+<div>
+<p class="font-bold text-on-secondary-container">Explorer Perk</p>
+<p class="text-body-sm text-on-secondary-container/80">You're earning 50 Bonus Points!</p>
+</div>
+</div>
+</div>
+</aside>
+</div>
+</main>
+<!-- Haptic Feedback Overlay (Simulated) -->
+<div class="fixed inset-0 z-[100] bg-primary flex items-center justify-center opacity-0 pointer-events-none transition-opacity duration-500" id="success-overlay">
+<div class="text-center text-white scale-90 transition-transform duration-500" id="success-content">
+<div class="w-32 h-32 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-8 animate-pulse">
+<span class="material-symbols-outlined text-6xl" style="font-variation-settings: 'wght' 700;">check</span>
+</div>
+<h2 class="font-headline-xl text-headline-xl mb-4">Order Confirmed!</h2>
+<p class="font-body-md opacity-80">Fetching your receipt...</p>
+</div>
+</div>
+<script>
+        function togglePayment(type) {
+            const pawBtn = document.getElementById('pay-paw-btn');
+            const cardBtn = document.getElementById('pay-card-btn');
+            const pawContent = document.getElementById('paw-content');
+            const cardContent = document.getElementById('card-content');
+
+            if (type === 'paw') {
+                pawBtn.classList.add('bg-primary', 'text-white', 'shadow-sm');
+                pawBtn.classList.remove('text-on-surface-variant');
+                cardBtn.classList.add('text-on-surface-variant');
+                cardBtn.classList.remove('bg-primary', 'text-white', 'shadow-sm');
+                
+                pawContent.classList.remove('hidden');
+                cardContent.classList.add('hidden');
+            } else {
+                cardBtn.classList.add('bg-primary', 'text-white', 'shadow-sm');
+                cardBtn.classList.remove('text-on-surface-variant');
+                pawBtn.classList.add('text-on-surface-variant');
+                pawBtn.classList.remove('bg-primary', 'text-white', 'shadow-sm');
+
+                cardContent.classList.remove('hidden');
+                pawContent.classList.add('hidden');
+            }
+        }
+
+        function simulateOrder() {
+            // Haptic style confirmation
+            const overlay = document.getElementById('success-overlay');
+            const content = document.getElementById('success-content');
+            
+            overlay.classList.remove('opacity-0', 'pointer-events-none');
+            overlay.classList.add('opacity-100');
+            
+            setTimeout(() => {
+                content.classList.remove('scale-90');
+                content.classList.add('scale-100');
+            }, 100);
+
+            // Redirect to Order Confirmed page after short delay
+            setTimeout(() => {
+                window.location.href = '{{DATA:SCREEN:SCREEN_27}}';
+            }, 1500);
+        }
+
+        // Simple parallax on scroll for cards
+        window.addEventListener('scroll', () => {
+            const cards = document.querySelectorAll('.glass-card');
+            const scrolled = window.pageYOffset;
+            cards.forEach(card => {
+                const speed = 0.05;
+                card.style.transform = `translateY(${scrolled * speed}px)`;
+            });
+        });
+    </script>
+```</body></html>

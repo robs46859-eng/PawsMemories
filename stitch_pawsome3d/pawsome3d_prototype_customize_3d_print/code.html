@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Pet Merch - Custom Avatar Creator</title>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;700;800&amp;family=Be+Vietnam+Pro:wght@400;600&amp;family=Space+Grotesk:wght@600&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-panel {
+            background: rgba(250, 249, 245, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(130, 116, 112, 0.1);
+        }
+        .preview-glow {
+            filter: drop-shadow(0 0 30px rgba(68, 42, 34, 0.15));
+        }
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        @keyframes float {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+            100% { transform: translateY(0px); }
+        }
+        .avatar-float {
+            animation: float 4s ease-in-out infinite;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-tertiary-fixed": "#201a18",
+                        "error": "#ba1a1a",
+                        "on-error": "#ffffff",
+                        "primary-fixed": "#ffdbd0",
+                        "surface-bright": "#faf9f5",
+                        "on-secondary-fixed": "#071e27",
+                        "surface-container-highest": "#e2e3df",
+                        "on-tertiary-fixed-variant": "#4c4542",
+                        "secondary-fixed": "#cfe6f2",
+                        "surface": "#faf9f5",
+                        "primary-fixed-dim": "#e7bdb1",
+                        "surface-container-low": "#f4f4f0",
+                        "on-primary-fixed-variant": "#5d4037",
+                        "on-surface": "#1a1c1a",
+                        "tertiary-fixed": "#ece0dc",
+                        "inverse-on-surface": "#f1f1ed",
+                        "tertiary": "#352f2c",
+                        "surface-variant": "#e2e3df",
+                        "outline": "#827470",
+                        "on-surface-variant": "#504441",
+                        "on-background": "#1a1c1a",
+                        "surface-container-high": "#e8e8e4",
+                        "secondary-fixed-dim": "#b4cad6",
+                        "surface-container-lowest": "#ffffff",
+                        "on-secondary-fixed-variant": "#354a53",
+                        "on-tertiary-container": "#bdb3af",
+                        "surface-container": "#eeeeea",
+                        "on-primary-fixed": "#2c160e",
+                        "on-primary": "#ffffff",
+                        "surface-dim": "#dadad6",
+                        "outline-variant": "#d4c3be",
+                        "on-tertiary": "#ffffff",
+                        "on-secondary-container": "#526772",
+                        "primary-container": "#5d4037",
+                        "primary": "#442a22",
+                        "on-primary-container": "#d4ada1",
+                        "secondary": "#4c616c",
+                        "on-error-container": "#93000a",
+                        "surface-tint": "#77574d",
+                        "secondary-container": "#cfe6f2",
+                        "tertiary-fixed-dim": "#cfc4c0",
+                        "error-container": "#ffdad6",
+                        "inverse-surface": "#2f312e",
+                        "tertiary-container": "#4c4542",
+                        "background": "#faf9f5",
+                        "on-secondary": "#ffffff",
+                        "inverse-primary": "#e7bdb1"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "unit": "4px",
+                        "margin-mobile": "20px",
+                        "margin-desktop": "64px",
+                        "container-max": "1200px",
+                        "gutter": "16px"
+                    },
+                    "fontFamily": {
+                        "headline-lg-mobile": ["Plus Jakarta Sans"],
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "body-md": ["Be Vietnam Pro"],
+                        "headline-xl": ["Plus Jakarta Sans"],
+                        "body-sm": ["Be Vietnam Pro"],
+                        "label-caps": ["Space Grotesk"]
+                    },
+                    "fontSize": {
+                        "headline-lg-mobile": ["28px", {"lineHeight": "34px", "fontWeight": "700"}],
+                        "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                        "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "headline-xl": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "800"}],
+                        "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                        "label-caps": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background text-on-background font-body-md min-h-screen pb-32">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 flex justify-between items-center px-margin-mobile h-16 bg-surface/80 backdrop-blur-md shadow-sm shadow-primary/10">
+<div class="flex items-center gap-4">
+<button class="text-primary active:scale-95 duration-150" onclick="window.location.href='{{DATA:SCREEN:SCREEN_21}}'">
+<span class="material-symbols-outlined">menu</span>
+</button>
+<h1 class="font-headline-xl text-headline-xl text-primary tracking-tight">Pet Merch</h1>
+</div>
+<div class="flex items-center gap-6">
+<nav class="hidden md:flex gap-8">
+<a class="text-on-surface-variant hover:bg-surface-container-high transition-colors px-2 py-1 rounded" href="{{DATA:SCREEN:SCREEN_21}}">Store</a>
+<a class="text-primary font-bold transition-colors" href="#">Custom</a>
+<a class="text-on-surface-variant hover:bg-surface-container-high transition-colors px-2 py-1 rounded" href="#">Orders</a>
+</nav>
+<button class="text-primary active:scale-95 duration-150">
+<span class="material-symbols-outlined">shopping_bag</span>
+</button>
+</div>
+</header>
+<main class="pt-20 px-margin-mobile max-w-container-max mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8">
+<!-- Interactive 3D Preview Column -->
+<section class="lg:col-span-7 relative flex flex-col items-center justify-center min-h-[500px] lg:min-h-[700px] lg:sticky lg:top-24">
+<div class="absolute inset-0 z-0 overflow-hidden rounded-3xl bg-surface-container-low border border-outline-variant/30">
+</div>
+<!-- Avatar Canvas Placeholder -->
+<div class="relative z-10 w-full h-full flex flex-col items-center justify-center p-8">
+<div class="avatar-float preview-glow w-64 h-64 md:w-96 md:h-96 flex items-center justify-center">
+<img class="max-w-full max-h-full object-contain" data-alt="A highly detailed 3D rendered Golden Retriever avatar for 3D printing. The model is presented in a professional studio environment with soft, warm key lighting. The pet is wearing a vibrant orange collar. The surface texture shows high-quality 3D printing layers and a tactile, matte finish. The overall aesthetic is clean, modern, and high-end pet merch." id="avatar-preview" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCVof0YS5YXpS1hszENpyHF45fQ6lui60y916sHX_ZpkSJfaUja5IOuCBCR19FNUppWO6mm5k7k0C-NYFHg8QXPD1Yir02Qj4ClWmLvbaoWCfGS7tH2tmHJX8CmFF-Kiv7u6nX2Enc6xy3_6H6xjbnDPAlYziFFH0W_Y-ysWkeFI6qbtwJqm1SyN3m85bmXz-mxObFw5o6Blt8_-sa9agkVY4HlChtTPisDZOEDw9QPSocYsRXy8vn8ZMBjc42ZdCetkXVY543Ey1NW"/>
+</div>
+<!-- Floating Info Badges -->
+<div class="absolute bottom-8 left-8 right-8 flex justify-between items-end">
+<div class="glass-panel p-4 rounded-xl flex flex-col gap-1">
+<span class="font-label-caps text-label-caps text-on-surface-variant">CURRENT SCALE</span>
+<span class="font-headline-lg-mobile text-headline-lg-mobile text-primary" id="scale-display">Medium</span>
+</div>
+<div class="glass-panel p-4 rounded-xl flex flex-col gap-1 items-end">
+<span class="font-label-caps text-label-caps text-on-surface-variant">EST. PRINT TIME</span>
+<span class="font-headline-lg-mobile text-headline-lg-mobile text-primary">4h 20m</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Customization Controls Column -->
+<section class="lg:col-span-5 flex flex-col gap-8 pb-20">
+<!-- Header Text -->
+<div class="flex flex-col gap-2">
+<h2 class="font-headline-lg text-headline-lg text-primary">Customize Your Avatar</h2>
+<p class="font-body-md text-on-surface-variant">Design a one-of-a-kind 3D printed keepsake of your favorite companion.</p>
+</div>
+<!-- Size Selection -->
+<div class="flex flex-col gap-4">
+<h3 class="font-label-caps text-label-caps text-primary border-b border-outline-variant/30 pb-2">1. SELECT SIZE</h3>
+<div class="grid grid-cols-4 gap-3">
+<button class="flex flex-col items-center gap-2 p-3 rounded-xl border border-outline-variant hover:bg-surface-container-high transition-all active:scale-95" onclick="updateScale('Miniature', 0.6)">
+<span class="material-symbols-outlined text-[16px]">pets</span>
+<span class="font-label-caps text-[10px]">MINI</span>
+</button>
+<button class="flex flex-col items-center gap-2 p-3 rounded-xl border border-outline-variant hover:bg-surface-container-high transition-all active:scale-95" onclick="updateScale('Small', 0.8)">
+<span class="material-symbols-outlined text-[20px]">pets</span>
+<span class="font-label-caps text-[10px]">SMALL</span>
+</button>
+<button class="flex flex-col items-center gap-2 p-3 rounded-xl border-2 border-primary bg-primary-container text-on-primary-container transition-all active:scale-95" onclick="updateScale('Medium', 1.0)">
+<span class="material-symbols-outlined text-[24px]">pets</span>
+<span class="font-label-caps text-[10px]">MEDIUM</span>
+</button>
+<button class="flex flex-col items-center gap-2 p-3 rounded-xl border border-outline-variant hover:bg-surface-container-high transition-all active:scale-95" onclick="updateScale('Large', 1.2)">
+<span class="material-symbols-outlined text-[32px]">pets</span>
+<span class="font-label-caps text-[10px]">LARGE</span>
+</button>
+</div>
+</div>
+<!-- Free Poses -->
+<div class="flex flex-col gap-4">
+<h3 class="font-label-caps text-label-caps text-primary border-b border-outline-variant/30 pb-2">2. CHOOSE POSE</h3>
+<div class="flex overflow-x-auto gap-4 hide-scrollbar snap-x snap-mandatory">
+<div class="snap-start min-w-[140px] glass-panel rounded-xl p-4 flex flex-col items-center gap-3 border-2 border-primary cursor-pointer">
+<div class="w-12 h-12 rounded-full bg-surface-container-highest flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">weekend</span>
+</div>
+<span class="font-body-sm font-semibold">The Sit</span>
+</div>
+<div class="snap-start min-w-[140px] glass-panel rounded-xl p-4 flex flex-col items-center gap-3 border border-outline-variant/30 hover:border-outline cursor-pointer transition-all">
+<div class="w-12 h-12 rounded-full bg-surface-container-highest flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">directions_run</span>
+</div>
+<span class="font-body-sm font-semibold">The Zoomie</span>
+</div>
+<div class="snap-start min-w-[140px] glass-panel rounded-xl p-4 flex flex-col items-center gap-3 border border-outline-variant/30 hover:border-outline cursor-pointer transition-all">
+<div class="w-12 h-12 rounded-full bg-surface-container-highest flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">hotel</span>
+</div>
+<span class="font-body-sm font-semibold">The Nap</span>
+</div>
+</div>
+</div>
+<!-- Free Accessory: Collar -->
+<div class="flex flex-col gap-4">
+<div class="flex justify-between items-center border-b border-outline-variant/30 pb-2">
+<h3 class="font-label-caps text-label-caps text-primary">3. ACCESSORIES</h3>
+<span class="font-label-caps text-[10px] text-on-surface-variant bg-surface-container-highest px-2 py-0.5 rounded-full">INCLUDED</span>
+</div>
+<div class="p-6 rounded-2xl glass-panel flex flex-col gap-6">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary">circle_notifications</span>
+<span class="font-body-md font-bold">Standard Collar</span>
+</div>
+<div class="flex gap-2">
+<button class="w-6 h-6 rounded-full bg-primary border-2 border-surface-bright ring-1 ring-primary"></button>
+<button class="w-6 h-6 rounded-full bg-secondary border-2 border-surface-bright"></button>
+<button class="w-6 h-6 rounded-full bg-error border-2 border-surface-bright"></button>
+<button class="w-6 h-6 rounded-full bg-[#f4a261] border-2 border-surface-bright"></button>
+</div>
+</div>
+</div>
+</div>
+<!-- Premium Apparel -->
+<div class="flex flex-col gap-4">
+<div class="flex justify-between items-center border-b border-outline-variant/30 pb-2">
+<h3 class="font-label-caps text-label-caps text-primary">4. PREMIUM APPAREL</h3>
+<span class="material-symbols-outlined text-sm text-primary">verified</span>
+</div>
+<div class="grid grid-cols-1 gap-3">
+<div class="flex items-center justify-between p-4 rounded-xl glass-panel border border-outline-variant/30 hover:border-primary/50 transition-all cursor-pointer group">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded-lg bg-surface-container flex items-center justify-center group-hover:bg-primary-container group-hover:text-on-primary-container transition-colors">
+<span class="material-symbols-outlined">comedy_mask</span>
+</div>
+<div>
+<h4 class="font-body-md font-bold">Party Hat</h4>
+<p class="text-body-sm text-on-surface-variant">Perfect for birthdays</p>
+</div>
+</div>
+<span class="font-label-caps text-on-primary-container bg-primary-container px-3 py-1 rounded-lg">+$5.00</span>
+</div>
+<div class="flex items-center justify-between p-4 rounded-xl glass-panel border border-outline-variant/30 hover:border-primary/50 transition-all cursor-pointer group">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded-lg bg-surface-container flex items-center justify-center group-hover:bg-primary-container group-hover:text-on-primary-container transition-colors">
+<span class="material-symbols-outlined">checkroom</span>
+</div>
+<div>
+<h4 class="font-body-md font-bold">Winter Sweater</h4>
+<p class="text-body-sm text-on-surface-variant">Knitted texture detail</p>
+</div>
+</div>
+<span class="font-label-caps text-on-primary-container bg-primary-container px-3 py-1 rounded-lg">+$12.00</span>
+</div>
+<div class="flex items-center justify-between p-4 rounded-xl glass-panel border border-outline-variant/30 hover:border-primary/50 transition-all cursor-pointer group">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded-lg bg-surface-container flex items-center justify-center group-hover:bg-primary-container group-hover:text-on-primary-container transition-colors">
+<span class="material-symbols-outlined">apparel</span>
+</div>
+<div>
+<h4 class="font-body-md font-bold">Hero Cape</h4>
+<p class="text-body-sm text-on-surface-variant">Dynamic flowing mesh</p>
+</div>
+</div>
+<span class="font-label-caps text-on-primary-container bg-primary-container px-3 py-1 rounded-lg">+$8.50</span>
+</div>
+</div>
+</div>
+<!-- Action Button -->
+<button class="mt-4 w-full bg-primary text-on-primary py-4 rounded-xl font-bold font-headline-lg-mobile shadow-xl active:scale-95 duration-150 flex items-center justify-center gap-3" onclick="window.location.href='{{DATA:SCREEN:SCREEN_28}}'">
+<span class="material-symbols-outlined">print</span>
+                Add to Cart — $24.99
+            </button>
+</section>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 w-full z-50 flex justify-around items-center px-4 pb-6 pt-3 bg-surface dark:bg-surface-container-lowest shadow-[0_-4px_24px_rgba(68,42,34,0.08)] rounded-t-xl md:hidden">
+<a class="flex flex-col items-center justify-center text-on-secondary-fixed-variant hover:bg-secondary-container/50 transition-all rounded-xl px-4 py-1" href="{{DATA:SCREEN:SCREEN_21}}">
+<span class="material-symbols-outlined">storefront</span>
+<span class="font-label-caps text-label-caps">Store</span>
+</a>
+<a class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-xl px-4 py-1 transition-all" href="#">
+<span class="material-symbols-outlined">potted_plant</span>
+<span class="font-label-caps text-label-caps">Custom</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-secondary-fixed-variant hover:bg-secondary-container/50 transition-all rounded-xl px-4 py-1" href="#">
+<span class="material-symbols-outlined">package_2</span>
+<span class="font-label-caps text-label-caps">Orders</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-secondary-fixed-variant hover:bg-secondary-container/50 transition-all rounded-xl px-4 py-1" href="#">
+<span class="material-symbols-outlined">person</span>
+<span class="font-label-caps text-label-caps">Profile</span>
+</a>
+</nav>
+<script>
+        function updateScale(size, scale) {
+            document.getElementById('scale-display').innerText = size;
+            const preview = document.getElementById('avatar-preview');
+            preview.style.transform = `scale(${scale})`;
+            preview.style.transition = 'transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)';
+        }
+
+        // Add visual feedback to clicked buttons
+        const buttons = document.querySelectorAll('button');
+        buttons.forEach(btn => {
+            btn.addEventListener('click', function() {
+                const ripples = this.getElementsByClassName('ripple');
+                if (ripples.length > 0) ripples[0].remove();
+            });
+        });
+
+        // Simulating 3D preview interactivity
+        let isMouseDown = false;
+        let lastX = 0;
+        const previewContainer = document.querySelector('.lg\\:col-span-7');
+        
+        previewContainer.addEventListener('mousedown', (e) => {
+            isMouseDown = true;
+            lastX = e.clientX;
+        });
+
+        window.addEventListener('mouseup', () => {
+            isMouseDown = false;
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isMouseDown) return;
+            const deltaX = e.clientX - lastX;
+            const rotation = deltaX * 0.5;
+            const img = document.getElementById('avatar-preview');
+            const currentTransform = img.style.transform;
+            // Simplified rotation effect
+            img.style.filter = `brightness(${1 + Math.abs(deltaX)/1000})`;
+            lastX = e.clientX;
+        });
+    </script>
+</body></html>

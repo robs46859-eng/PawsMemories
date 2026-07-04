@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>BarkWorld - My Avatars</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@700;800&amp;family=Space+Grotesk:wght@600&amp;family=Be+Vietnam+Pro:wght@400;600&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@100..900&amp;family=Plus+Jakarta+Sans:wght@100..900&amp;family=Space+Grotesk:wght@100..900&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .active-nav-icon {
+            font-variation-settings: 'FILL' 1;
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+        .avatar-selected {
+            outline: 3px solid #442a22;
+            outline-offset: 2px;
+        }
+        @keyframes float {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+            100% { transform: translateY(0px); }
+        }
+        .animate-float {
+            animation: float 4s ease-in-out infinite;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-variant": "#e2e3df",
+                        "secondary-fixed-dim": "#b4cad6",
+                        "error": "#ba1a1a",
+                        "on-surface-variant": "#504441",
+                        "background": "#faf9f5",
+                        "on-tertiary-fixed-variant": "#4c4542",
+                        "on-error-container": "#93000a",
+                        "primary-fixed": "#ffdbd0",
+                        "on-primary-fixed-variant": "#5d4037",
+                        "surface-container-high": "#e8e8e4",
+                        "on-secondary": "#ffffff",
+                        "tertiary-fixed": "#ece0dc",
+                        "on-background": "#1a1c1a",
+                        "error-container": "#ffdad6",
+                        "secondary-container": "#cfe6f2",
+                        "on-error": "#ffffff",
+                        "inverse-on-surface": "#f1f1ed",
+                        "primary-fixed-dim": "#e7bdb1",
+                        "on-secondary-container": "#526772",
+                        "on-tertiary-container": "#bdb3af",
+                        "secondary": "#4c616c",
+                        "secondary-fixed": "#cfe6f2",
+                        "on-surface": "#1a1c1a",
+                        "surface-tint": "#77574d",
+                        "surface-container": "#eeeeea",
+                        "outline-variant": "#d4c3be",
+                        "primary-container": "#5d4037",
+                        "surface-bright": "#faf9f5",
+                        "surface-container-highest": "#e2e3df",
+                        "on-tertiary-fixed": "#201a18",
+                        "on-secondary-fixed": "#071e27",
+                        "inverse-primary": "#e7bdb1",
+                        "on-primary-fixed": "#2c160e",
+                        "tertiary": "#352f2c",
+                        "on-secondary-fixed-variant": "#354a53",
+                        "tertiary-container": "#4c4542",
+                        "on-primary": "#ffffff",
+                        "inverse-surface": "#2f312e",
+                        "primary": "#442a22",
+                        "on-tertiary": "#ffffff",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-container-low": "#f4f4f0",
+                        "surface": "#faf9f5",
+                        "outline": "#827470",
+                        "tertiary-fixed-dim": "#cfc4c0",
+                        "surface-dim": "#dadad6",
+                        "on-primary-container": "#d4ada1"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "container-max": "1200px",
+                        "margin-mobile": "20px",
+                        "margin-desktop": "64px",
+                        "gutter": "16px",
+                        "unit": "4px"
+                    },
+                    "fontFamily": {
+                        "headline-lg-mobile": ["Plus Jakarta Sans"],
+                        "label-caps": ["Space Grotesk"],
+                        "body-md": ["Be Vietnam Pro"],
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "headline-xl": ["Plus Jakarta Sans"],
+                        "body-sm": ["Be Vietnam Pro"]
+                    },
+                    "fontSize": {
+                        "headline-lg-mobile": ["28px", {"lineHeight": "34px", "fontWeight": "700"}],
+                        "label-caps": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                        "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                        "headline-xl": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "800"}],
+                        "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background text-on-background min-h-screen font-body-md text-body-md overflow-x-hidden">
+<!-- TopAppBar -->
+<header class="fixed top-0 left-0 w-full z-50 bg-surface/80 dark:bg-surface-dim/80 backdrop-blur-xl shadow-sm shadow-primary/10 flex justify-between items-center px-margin-mobile py-4">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full overflow-hidden border-2 border-primary">
+<img class="w-full h-full object-cover" data-alt="A profile avatar photo of a cheerful dog owner, styled in a vibrant, high-fidelity Pixar-like 3D animation style. The lighting is warm and golden-hour inspired, reflecting a friendly and professional character. The background is a soft-focus forest trail, emphasizing an outdoor lifestyle consistent with the BarkWorld brand." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCKBertyg5InJtg4hHFNdedinIUZ3LjvmlS_rfGWLts9Pub-FkxRSUwHXangAGTkLzrhTXQvQ3aQM6lOEYgO24K2pd4bXwlYpwVOZohYgezw5IVpVfdW0o3_tjTtiD8LbvAPmhM4wPBk08hcZ3AoTaHjK3BDQdvGCJbhP2bJE0FcBk3CegdlltaG9S3X0oHLhFt1VhGYxyDBVK5oFQc7-PLw1_Y1l4r9yP7SU1d35s14S4J0R2UDGNwGqA6YdYonBTBcJS1sinweYgH"/>
+</div>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile font-bold text-primary">BarkWorld</h1>
+</div>
+<button class="w-10 h-10 flex items-center justify-center rounded-full hover:scale-105 active:scale-95 transition-all text-primary">
+<span class="material-symbols-outlined text-[24px]">settings</span>
+</button>
+</header>
+<main class="pt-24 pb-32 px-margin-mobile max-w-md mx-auto relative">
+<!-- Hero Section: Selected Avatar Showcase -->
+<section class="relative mb-8">
+<div class="w-full aspect-square rounded-3xl overflow-hidden bg-gradient-to-br from-secondary-container to-surface-container-highest relative shadow-2xl">
+<div class="absolute inset-0 flex items-center justify-center p-8">
+<img class="w-full h-full object-contain animate-float drop-shadow-2xl" data-alt="A full-body 3D Pixar-style render of a Golden Retriever named Cooper. He has expressive, large eyes, a wet nose, and beautifully textured fur that looks soft to the touch. He is wearing a stylish leather scout collar. The character is posed in a playful crouch on a floating grass platform with soft cinematic lighting." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAyuN73AskyJ_-BVwRbNzHbU7k7IpbBrsk7wy54_ObHhycTec2Ta8vBCHEAD7uJhEy3wi3fG0CvS9YllnZjCAMsAivkBslTVFb_FjfaetFP-JLPAxmUTV8X80l6R0Xep2hdNt3XA7fXH3Ys6lj5jIfaIhUjX7IncKcua36AeS6VieueOsyJAoPgOcVFkcP2L_29PT04LdgX62rLGDV6RrXUpZ-uJXZmEHSHpC5FncyTDpqx8ssI9GIWhypOtdkx2cCWhyy7bJR9B61B"/>
+</div>
+<div class="absolute bottom-4 left-4 right-4 glass-card p-4 rounded-2xl border border-white/20">
+<div class="flex justify-between items-end">
+<div>
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-primary leading-none">Cooper</h2>
+<p class="text-on-surface-variant font-label-caps mt-1">Golden Retriever • Scout Class</p>
+</div>
+<div class="flex flex-col items-end">
+<span class="bg-primary text-on-primary text-[10px] px-2 py-1 rounded-full font-label-caps mb-1">SELECTED</span>
+<div class="flex gap-1">
+<span class="w-2 h-2 rounded-full bg-primary"></span>
+<span class="w-2 h-2 rounded-full bg-primary/30"></span>
+<span class="w-2 h-2 rounded-full bg-primary/30"></span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Detailed Stats Bento -->
+<div class="grid grid-cols-2 gap-3 mt-4">
+<div class="bg-tertiary-container p-4 rounded-2xl flex flex-col justify-between border border-outline-variant/10">
+<span class="text-on-tertiary-container font-label-caps opacity-70">MESH DETAIL</span>
+<p class="text-on-tertiary text-xl font-bold mt-1">Polygons: 42.5k</p>
+</div>
+<div class="bg-secondary-container p-4 rounded-2xl flex flex-col justify-between border border-outline-variant/10">
+<span class="text-on-secondary-container font-label-caps opacity-70">TEXTURE RES</span>
+<p class="text-on-secondary-fixed-variant text-xl font-bold mt-1">Textures: 4K HD</p>
+</div>
+</div>
+</section>
+<!-- Avatar Selection Grid -->
+<section class="mb-8">
+<div class="flex justify-between items-center mb-4">
+<h3 class="font-headline-lg-mobile text-xl text-primary">Your Pack</h3>
+<span class="text-on-surface-variant font-label-caps">3 / 10 USED</span>
+</div>
+<div class="grid grid-cols-3 gap-3">
+<!-- Selected Item -->
+<div class="aspect-square rounded-2xl bg-surface-container-high border-2 border-primary overflow-hidden relative group cursor-pointer transition-transform active:scale-95 shadow-lg">
+<img class="w-full h-full object-cover" data-alt="A close-up Pixar-style portrait of Cooper the Golden Retriever with a friendly smile, high-quality fur shaders, and reflective brown eyes. Light mode aesthetic with earthy Bark Brown accents." src="https://lh3.googleusercontent.com/aida-public/AB6AXuC3zpMBMaedJEiwMeQoJRXXJqNbXAyFvMqMBp2LIX9_jxpq3zHDWh1nPsL3ts2qQhg82wcJlmfGVVgPyy3Nkit-dRHukN9mi6tAhwTgDs7ubKwHLxmX6dMOcaqyHdGYUz3l7Wx8OkAXirYxS1CVtgYdZ7EE1wXXwqEcCqcWTEqy1zlHocSsr_nMnv6OwtSwj53-wKCLMfJjjRoMa00szOIECGiTVqS9JHQikVnfPL6_IVAg62VPUnG4R7Q-Bkvz7j8AEKGWd80OhHCP"/>
+<div class="absolute inset-0 bg-primary/10"></div>
+</div>
+<!-- Luna -->
+<div class="aspect-square rounded-2xl bg-surface-container-low border border-outline-variant overflow-hidden relative group cursor-pointer transition-transform hover:scale-105 active:scale-95">
+<img class="w-full h-full object-cover" data-alt="A Pixar-style 3D avatar of Luna, a sleek Siberian Husky with striking blue eyes and a gray and white coat. She has a curious expression and is wearing a slate-blue bandana. Cinematic lighting with cool tones." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDA8rnVMuZVR7FvvG32oTXJFfXyFELG6D8GcwF6frQpdkWvnAK1ZMXKBBIyzO93guC9YWO5fmtXpaWxqDdZBK3H-CP6zA-HPkRdcVExUbp9LAkNrA8nzjn75AqS-a7sWIzblOlOCY2mCtKzivin6nlOJXMZF5RAmO8w8XNDuahlj8xdAZdQt1J3hJ3rmPWjvSJpJak6bePJjRaqt7T6rsN5ef89JVsUWuKidhme-U1KXSCLAkd4TVwLdfAmtVkjpdnAgR3VP9e11DdW"/>
+<div class="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors"></div>
+</div>
+<!-- Mochi -->
+<div class="aspect-square rounded-2xl bg-surface-container-low border border-outline-variant overflow-hidden relative group cursor-pointer transition-transform hover:scale-105 active:scale-95">
+<img class="w-full h-full object-cover" data-alt="A tiny, adorable Pixar-style 3D Pomeranian named Mochi. She is extremely fluffy with cream-colored fur and a playful tongue sticking out. Vibrant, high-contrast digital art style with warm cream background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuA7-TfFVjAUD0q36JSh37qpGKK4bGMCf8-P6ebflvfTvw4W4ON4rVJdZ-Q9E9ggHuDOc6d1E3KiotsVPxjeiD0-SAEsfcR5vYUp5Exz2_d9CxDMRFxLZgGULUvzOYe6b10HOnSMxIsDsYYwyqC6GJHf1YfrX7A1Zes6ErtZh6qnPXA8VJAsepWfTjxmHbFH9tK3FSE3HyT2k0mSI7FbCjMpqwKAeJWIw8vJ2VfjlFZnRNHR2qPGXmkGDELW7DUpQDvV4k1Uz4JaSzeq"/>
+<div class="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors"></div>
+</div>
+<!-- Create New Button -->
+<a class="aspect-square rounded-2xl border-2 border-dashed border-outline flex flex-col items-center justify-center gap-1 group hover:bg-primary/5 transition-colors cursor-pointer" href="{{DATA:SCREEN:SCREEN_14}}">
+<span class="material-symbols-outlined text-primary text-3xl group-hover:scale-110 transition-transform">add_circle</span>
+<span class="font-label-caps text-[10px] text-primary uppercase">Create New</span>
+</a>
+</div>
+</section>
+<!-- CTA Action -->
+<div class="flex gap-4">
+<a class="flex-1 py-4 bg-primary text-on-primary rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg hover:shadow-primary/20 active:scale-95 transition-all" href="{{DATA:SCREEN:SCREEN_5}}">
+<span class="material-symbols-outlined">edit</span>
+                Modify Avatar
+            </a>
+</div>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 w-full z-50 flex justify-around items-center px-4 pb-6 pt-2 bg-surface-container/90 dark:bg-surface-container-highest/90 backdrop-blur-xl rounded-t-xl shadow-[0_-4px_24px_rgba(68,42,34,0.12)]">
+<!-- Home -->
+<a class="flex flex-col items-center justify-center text-on-secondary-container dark:text-on-secondary-fixed-variant px-4 py-2 hover:bg-surface-variant/50 dark:hover:bg-surface-variant/20 rounded-xl active:scale-90 transition-all duration-300 ease-out" href="{{DATA:SCREEN:SCREEN_26}}">
+<span class="material-symbols-outlined">home</span>
+<span class="font-label-caps text-label-caps mt-1">Home</span>
+</a>
+<!-- Avatars (ACTIVE) -->
+<a class="flex flex-col items-center justify-center bg-primary dark:bg-primary-container text-on-primary dark:text-on-primary-container rounded-xl px-4 py-2 active:scale-90 transition-all duration-300 ease-out" href="#">
+<span class="material-symbols-outlined active-nav-icon">pets</span>
+<span class="font-label-caps text-label-caps mt-1">Avatars</span>
+</a>
+<!-- AR Mode -->
+<a class="flex flex-col items-center justify-center text-on-secondary-container dark:text-on-secondary-fixed-variant px-4 py-2 hover:bg-surface-variant/50 dark:hover:bg-surface-variant/20 rounded-xl active:scale-90 transition-all duration-300 ease-out" href="#">
+<span class="material-symbols-outlined">view_in_ar</span>
+<span class="font-label-caps text-label-caps mt-1">AR Mode</span>
+</a>
+<!-- Community -->
+<a class="flex flex-col items-center justify-center text-on-secondary-container dark:text-on-secondary-fixed-variant px-4 py-2 hover:bg-surface-variant/50 dark:hover:bg-surface-variant/20 rounded-xl active:scale-90 transition-all duration-300 ease-out" href="#">
+<span class="material-symbols-outlined">groups</span>
+<span class="font-label-caps text-label-caps mt-1">Community</span>
+</a>
+</nav>
+<script>
+        // Simple micro-interactions for avatar selection
+        const avatarGridItems = document.querySelectorAll('.grid.grid-cols-3 .aspect-square:not(a)');
+        avatarGridItems.forEach(item => {
+            item.addEventListener('click', () => {
+                avatarGridItems.forEach(i => i.classList.remove('border-primary', 'border-2', 'shadow-lg'));
+                avatarGridItems.forEach(i => i.classList.add('border-outline-variant', 'border'));
+                
+                item.classList.remove('border-outline-variant', 'border');
+                item.classList.add('border-primary', 'border-2', 'shadow-lg');
+                
+                // Feedback vibration if supported
+                if ('vibrate' in navigator) {
+                    navigator.vibrate(10);
+                }
+            });
+        });
+
+        // Dynamic header shrink on scroll
+        window.addEventListener('scroll', () => {
+            const header = document.querySelector('header');
+            if (window.scrollY > 20) {
+                header.classList.add('py-2', 'shadow-md');
+                header.classList.remove('py-4', 'shadow-sm');
+            } else {
+                header.classList.add('py-4', 'shadow-sm');
+                header.classList.remove('py-2', 'shadow-md');
+            }
+        });
+    </script>
+</body></html>

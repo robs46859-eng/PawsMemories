@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Pawsome3D: Avatar Management</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;700;800&amp;family=Space+Grotesk:wght@600&amp;family=Be+Vietnam+Pro:wght@400;600&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@100..900&amp;family=Plus+Jakarta+Sans:wght@100..900&amp;family=Space+Grotesk:wght@100..900&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-dim": "#dadad6",
+                        "outline": "#827470",
+                        "secondary-container": "#cfe6f2",
+                        "surface-tint": "#77574d",
+                        "surface-container-lowest": "#ffffff",
+                        "tertiary": "#352f2c",
+                        "on-primary": "#ffffff",
+                        "on-error": "#ffffff",
+                        "on-error-container": "#93000a",
+                        "inverse-on-surface": "#f1f1ed",
+                        "on-tertiary-container": "#bdb3af",
+                        "inverse-surface": "#2f312e",
+                        "surface-container": "#eeeeea",
+                        "on-secondary-container": "#526772",
+                        "on-primary-container": "#d4ada1",
+                        "tertiary-fixed": "#ece0dc",
+                        "secondary-fixed-dim": "#b4cad6",
+                        "primary-fixed-dim": "#e7bdb1",
+                        "error-container": "#ffdad6",
+                        "on-secondary": "#ffffff",
+                        "inverse-primary": "#e7bdb1",
+                        "surface": "#faf9f5",
+                        "outline-variant": "#d4c3be",
+                        "primary": "#442a22",
+                        "on-surface-variant": "#504441",
+                        "on-tertiary-fixed": "#201a18",
+                        "on-surface": "#1a1c1a",
+                        "secondary-fixed": "#cfe6f2",
+                        "surface-container-low": "#f4f4f0",
+                        "error": "#ba1a1a",
+                        "background": "#faf9f5",
+                        "on-secondary-fixed-variant": "#354a53",
+                        "on-tertiary-fixed-variant": "#4c4542",
+                        "secondary": "#4c616c",
+                        "primary-container": "#5d4037",
+                        "tertiary-container": "#4c4542",
+                        "on-secondary-fixed": "#071e27",
+                        "on-primary-fixed": "#2c160e",
+                        "on-background": "#1a1c1a",
+                        "surface-variant": "#e2e3df",
+                        "surface-container-highest": "#e2e3df",
+                        "tertiary-fixed-dim": "#cfc4c0",
+                        "on-tertiary": "#ffffff",
+                        "surface-bright": "#faf9f5",
+                        "on-primary-fixed-variant": "#5d4037"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "gutter": "16px",
+                        "margin-mobile": "20px",
+                        "container-max": "1200px",
+                        "unit": "4px",
+                        "margin-desktop": "64px"
+                    },
+                    "fontFamily": {
+                        "headline-xl": ["Plus Jakarta Sans"],
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "label-caps": ["Space Grotesk"],
+                        "body-md": ["Be Vietnam Pro"],
+                        "body-sm": ["Be Vietnam Pro"]
+                    },
+                    "fontSize": {
+                        "headline-xl": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "800"}],
+                        "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                        "label-caps": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                        "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        .glass-card {
+            background: rgba(250, 249, 245, 0.6);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(130, 116, 112, 0.1);
+        }
+        .mud-pulse {
+            animation: mud-glow 3s infinite ease-in-out;
+        }
+        @keyframes mud-glow {
+            0%, 100% { filter: drop-shadow(0 0 5px rgba(68, 42, 34, 0.2)); }
+            50% { filter: drop-shadow(0 0 15px rgba(68, 42, 34, 0.5)); }
+        }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #827470; border-radius: 10px; }
+        
+        /* Interactive scale effect */
+        .interactive-hover { transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1); }
+        .interactive-hover:hover { transform: scale(1.02); }
+    </style>
+</head>
+<body class="bg-background text-on-surface font-body-md selection:bg-primary/20">
+<!-- TopNavBar -->
+<nav class="fixed top-0 w-full z-50 bg-surface/60 backdrop-blur-xl shadow-[0_8px_32px_0_rgba(68,42,34,0.08)]">
+<div class="flex justify-between items-center px-gutter py-4 w-full max-w-container-max mx-auto">
+<div class="flex items-center gap-2">
+<span class="text-headline-lg font-headline-xl font-extrabold text-primary tracking-tight">Pawsome3D</span>
+</div>
+<div class="hidden md:flex items-center gap-8">
+<a class="text-primary font-bold border-b-2 border-primary py-1" href="{{DATA:SCREEN:SCREEN_39}}">Dashboard</a>
+<a class="text-on-surface-variant font-medium hover:bg-primary/5 transition-colors px-3 py-1 rounded-lg" href="{{DATA:SCREEN:SCREEN_21}}">Marketplace</a>
+<a class="text-on-surface-variant font-medium hover:bg-primary/5 transition-colors px-3 py-1 rounded-lg" href="#">Tutorials</a>
+</div>
+<div class="flex items-center gap-4">
+<button class="material-symbols-outlined text-primary p-2 rounded-full hover:bg-primary/5 transition-colors active:scale-95 duration-200" data-icon="notifications">notifications</button>
+<button class="material-symbols-outlined text-primary p-2 rounded-full hover:bg-primary/5 transition-colors active:scale-95 duration-200" data-icon="settings">settings</button>
+<div class="w-10 h-10 rounded-full border-2 border-primary overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="A close-up 3D portrait of a friendly cartoon golden retriever wearing a stylish blue collar, rendered in a soft, cinematic Pixar-style lighting with high detail in the fur textures and warm ambient highlights." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBXfiKD_5sDH_0ZyqtHOu77CO_0R5hTaiAFVNAcXzJxSe-3XAw-8SLUtp5wXhqVuusDzZV043Zxh6CvY4ZAplUBlchyzvSInH7PE5CguH7erVjQ7x78sfMOZvf24YRk9ii0kBSfG5ncVrg2HxToPvX52OkhPo-K9ZLYQvERR_14twJ4KCdEVotDW9ebrFttael0lTD4V7O9LG5G0hYspMCUatpcCo35Dfqq8gZgU_ESB3edfO31n9oKvkR9zYcH6e9BgMWzswxTKRGs"/>
+</div>
+</div>
+</div>
+</nav>
+<!-- SideNavBar (Web only as per system requirements) -->
+<aside class="hidden md:flex fixed left-0 top-0 h-full w-64 z-40 bg-surface-container-low/80 backdrop-blur-md shadow-xl shadow-primary/10 flex-col p-gutter gap-4 pt-24">
+<div class="mb-4">
+<h2 class="text-primary font-headline-lg text-headline-lg">TerraPaw</h2>
+<p class="text-on-surface-variant text-body-sm">Immersive Adventure</p>
+</div>
+<nav class="flex flex-col gap-2">
+<a class="flex items-center gap-3 text-on-surface-variant hover:bg-surface-variant/50 rounded-lg px-4 py-3 transition-all hover:translate-x-1 duration-300" href="{{DATA:SCREEN:SCREEN_2}}">
+<span class="material-symbols-outlined" data-icon="home">home</span>
+<span class="font-label-caps text-label-caps">Home</span>
+</a>
+<a class="flex items-center gap-3 bg-primary text-on-primary rounded-lg px-4 py-3 shadow-md transition-all hover:translate-x-1 duration-300" href="{{DATA:SCREEN:SCREEN_37}}">
+<span class="material-symbols-outlined" data-icon="pets">pets</span>
+<span class="font-label-caps text-label-caps">Avatars</span>
+</a>
+<a class="flex items-center gap-3 text-on-surface-variant hover:bg-surface-variant/50 rounded-lg px-4 py-3 transition-all hover:translate-x-1 duration-300" href="#">
+<span class="material-symbols-outlined" data-icon="view_in_ar">view_in_ar</span>
+<span class="font-label-caps text-label-caps">AR Mode</span>
+</a>
+<a class="flex items-center gap-3 text-on-surface-variant hover:bg-surface-variant/50 rounded-lg px-4 py-3 transition-all hover:translate-x-1 duration-300" href="{{DATA:SCREEN:SCREEN_18}}">
+<span class="material-symbols-outlined" data-icon="group">group</span>
+<span class="font-label-caps text-label-caps">Community</span>
+</a>
+</nav>
+<button class="mt-4 bg-primary text-on-primary rounded-lg py-3 font-bold shadow-lg hover:shadow-primary/20 active:scale-95 transition-all">
+            Create 3D Avatar
+        </button>
+<div class="mt-auto flex flex-col gap-2">
+<a class="flex items-center gap-3 text-on-surface-variant hover:bg-surface-variant/50 rounded-lg px-4 py-3" href="#">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+<span class="font-label-caps text-label-caps">Help</span>
+</a>
+<a class="flex items-center gap-3 text-on-surface-variant hover:bg-surface-variant/50 rounded-lg px-4 py-3" href="#">
+<span class="material-symbols-outlined" data-icon="logout">logout</span>
+<span class="font-label-caps text-label-caps">Logout</span>
+</a>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="md:ml-64 pt-24 min-h-screen relative overflow-hidden bg-cover bg-center" style="background-image: url('https://lh3.googleusercontent.com/aida/AP1WRLvt8lFxJgHJ9uP3j6iyhqJUtsv1lxYplq8f-d6xh9dMKZt8nDB1YMz45La6Y2Nasn42O8MypImZtJWIX0to6wkpFZGfOR_zfUBzjMH_HO4zzbwtfIuqq8l14CtfbEF5orZj6ZeJcNw7oNmkMlMNZgo3hPGaP0FR1kcMPFoy1LqbahDJf1vo6dH3v8oGnFTp4BOenijUglfJb97YY6Pq7-5eZGCmaDOFUMkg8sjqGrkpFLK05dGpeNaU5Emr')">
+<!-- Dashboard Overlays -->
+<div class="relative z-10 p-8 max-w-container-max mx-auto h-full flex flex-col gap-8">
+<!-- Header Section -->
+<div class="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+<div>
+<h1 class="font-headline-xl text-headline-xl text-primary drop-shadow-sm">Avatar Management</h1>
+<p class="text-primary-container font-medium">Refining your virtual companion for the next adventure.</p>
+</div>
+<div class="glass-card rounded-xl p-4 flex items-center gap-4 w-full md:w-auto">
+<div class="flex-1 md:w-48 h-2 bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-primary rounded-full transition-all duration-1000" id="creation-progress" style="width: 82%"></div>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-primary font-bold">82%</span>
+<span class="material-symbols-outlined text-primary mud-pulse" data-icon="cloud_sync">cloud_sync</span>
+</div>
+</div>
+</div>
+<!-- Central Hub (Bento-ish Grid) -->
+<div class="grid grid-cols-12 gap-8">
+<!-- Main Viewport (7 Columns) -->
+<div class="col-span-12 lg:col-span-8 flex flex-col gap-6">
+<div class="glass-card rounded-2xl p-6 relative aspect-video flex flex-col items-center justify-center overflow-hidden border-2 border-primary/10 shadow-2xl">
+<!-- Simulated 3D Environment -->
+<div class="absolute inset-0 z-0 bg-gradient-to-b from-primary/5 to-transparent"></div>
+<div class="relative z-10 w-full h-full flex items-center justify-center">
+<!-- Placeholder for Buddy 3D Model -->
+<img class="h-full object-contain drop-shadow-2xl interactive-hover" data-alt="A highly detailed 3D model of a Golden Retriever named Buddy, shown in a three-quarter view standing on a stylized wooden platform. The dog has hyper-realistic fur textures, expressive dark eyes, and a slightly open mouth. The lighting is warm and cinematic, emphasizing the golden tones of the coat against a soft-focus background of a cozy modern living room." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDuPETMglt4U6O_VWoFGdH29PXR-c1nxNPvF0aGzIKEuZFC37MWkBtqH4lFotii3WLqiVaAG-KnZXOZ2qE0g-Uc9FiLQaM_G_2nSP3THTVf6mXFnS1TRfhDhs6yCLP6ou5QpGUPaTH-64H04nKqPnzrvtjR2JIxucJ0mPt8lkxJUtzi39ltmbSlR8JMvKHpXFV4ie4USubJIYgSWnBzoc1fwj9qOzw9JoYDyG5oQ5Wr0hUJsYdVacFGm-fjNkr7pryIT4KYqlsROigt"/>
+</div>
+<!-- HUD Overlays -->
+<div class="absolute bottom-6 left-6 flex flex-col gap-2">
+<div class="bg-primary/90 text-on-primary px-3 py-1.5 rounded-lg text-body-sm font-bold flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]" data-icon="verified">verified</span>
+                                ACTIVE: Buddy
+                            </div>
+<div class="glass-card px-3 py-1.5 rounded-lg text-body-sm font-medium flex flex-col gap-1 border-primary/20">
+<div class="flex justify-between gap-4">
+<span class="text-on-surface-variant">Polygon Count</span>
+<span class="text-primary font-bold">48.2k</span>
+</div>
+<div class="flex justify-between gap-4">
+<span class="text-on-surface-variant">Texture Res</span>
+<span class="text-primary font-bold">4K (8bit)</span>
+</div>
+</div>
+</div>
+<!-- Action Controls Overlay -->
+<div class="absolute right-6 top-1/2 -translate-y-1/2 flex flex-col gap-4">
+<button class="w-12 h-12 rounded-full glass-card flex items-center justify-center hover:bg-primary hover:text-on-primary transition-all shadow-lg group">
+<span class="material-symbols-outlined group-hover:rotate-45 transition-transform" data-icon="zoom_in">zoom_in</span>
+</button>
+<button class="w-12 h-12 rounded-full glass-card flex items-center justify-center hover:bg-primary hover:text-on-primary transition-all shadow-lg">
+<span class="material-symbols-outlined" data-icon="360">360</span>
+</button>
+<button class="w-12 h-12 rounded-full glass-card flex items-center justify-center hover:bg-primary hover:text-on-primary transition-all shadow-lg">
+<span class="material-symbols-outlined" data-icon="light_mode">light_mode</span>
+</button>
+</div>
+</div>
+<!-- Footer Actions -->
+<div class="grid grid-cols-3 gap-4">
+<button class="flex items-center justify-center gap-3 bg-surface text-primary border-2 border-primary/10 rounded-xl py-4 font-bold hover:bg-primary/5 transition-all shadow-md active:scale-95">
+<span class="material-symbols-outlined" data-icon="edit">edit</span>
+                            Edit Avatar
+                        </button>
+<button class="flex items-center justify-center gap-3 bg-surface text-primary border-2 border-primary/10 rounded-xl py-4 font-bold hover:bg-primary/5 transition-all shadow-md active:scale-95">
+<span class="material-symbols-outlined" data-icon="animation">animation</span>
+                            Animate
+                        </button>
+<button class="flex items-center justify-center gap-3 bg-primary text-on-primary rounded-xl py-4 font-bold hover:bg-primary-container transition-all shadow-xl shadow-primary/20 active:scale-95">
+<span class="material-symbols-outlined" data-icon="view_in_ar">view_in_ar</span>
+                            Launch AR Mode
+                        </button>
+</div>
+</div>
+<!-- Recent Avatars Grid (4 Columns) -->
+<div class="col-span-12 lg:col-span-4 flex flex-col gap-6">
+<div class="glass-card rounded-2xl p-6 h-full flex flex-col gap-6">
+<div class="flex justify-between items-center">
+<h3 class="text-headline-lg font-headline-lg text-primary text-[24px]">Recent Avatars</h3>
+<button class="text-primary font-bold text-body-sm hover:underline">View All</button>
+</div>
+<div class="flex flex-col gap-4 overflow-y-auto pr-2 custom-scrollbar max-h-[600px]">
+<!-- Avatar Item 1 -->
+<div class="group bg-white/40 rounded-xl p-3 border border-transparent hover:border-primary/20 hover:bg-white/80 transition-all cursor-pointer flex items-center gap-4">
+<div class="w-20 h-20 bg-surface-container rounded-lg overflow-hidden flex-shrink-0">
+<img class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" data-alt="A stylized 3D rendered profile of a fluffy white Samoyed named Luna, wearing a small pink bandana. The lighting is cool and bright, emphasizing the soft texture of the white fur against a minimal pastel background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBscpC7_MgIdffEIJR3cxjpCgOw2jbcW-DOqqYW5NwrRQAyh1D4Ca9CGC2f0DhZ8mHUAIznGfHkY66vOlaFBZc9DhTZaS_Oc3sl96Rg8HErbe0VciauYsdNZ-2aJFqWJoMZYjhvXkkqTe1dvATZvRRFaj-t54-AJ4B4Z8-KKOhiXlGhKLeQ_Lotb4s8wzvGu7RvbMaETlRq_RBMKE06aQUDI4mrYHqU9WGQdjq6Jfm3FTD9x-yGxWtXMEb_gpnt7HXMwi8co5gPmmhA"/>
+</div>
+<div class="flex-1">
+<h4 class="font-bold text-primary">Luna</h4>
+<p class="text-body-sm text-on-surface-variant">Samoyed • Lv. 12</p>
+<div class="mt-1 flex gap-2">
+<span class="text-[10px] bg-secondary-container text-on-secondary-container px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">Fluffy</span>
+<span class="text-[10px] bg-tertiary-fixed text-on-tertiary-fixed-variant px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">Social</span>
+</div>
+</div>
+<span class="material-symbols-outlined text-outline group-hover:text-primary" data-icon="chevron_right">chevron_right</span>
+</div>
+<!-- Avatar Item 2 -->
+<div class="group bg-white/40 rounded-xl p-3 border border-transparent hover:border-primary/20 hover:bg-white/80 transition-all cursor-pointer flex items-center gap-4">
+<div class="w-20 h-20 bg-surface-container rounded-lg overflow-hidden flex-shrink-0">
+<img class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" data-alt="A cute 3D character design of a Shiba Inu named Mochi, featuring a rounded, squishy head and a curious expression. The lighting is bright and cheerful, highlighting the cream-colored markings on its face." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDFiD8ZFpoq_EPF8bD5HSBBsrtqE6PIbymyvDOcrwWN4C_7BWCPvakRIWe1DPOHinSGNRk95FthmpIec9GOCIBViWY6ChykSUpL4a2Wl2U9vqwBlj_vsWzgZwb82APG_m97aqb5qXP8S3OjGHd02tEbddtIP_5yuwRtcgQk5SaPstD3-MBJ5sL21EDYVXdvU1YqAID_mjyuOOLxU9XMH73tIj8z1cgR_YWX6x-_yD47zqTM1_NZQOnbaGDeixuE-iL3JZ5T8oF_28rx"/>
+</div>
+<div class="flex-1">
+<h4 class="font-bold text-primary">Mochi</h4>
+<p class="text-body-sm text-on-surface-variant">Shiba Inu • Lv. 8</p>
+<div class="mt-1 flex gap-2">
+<span class="text-[10px] bg-secondary-container text-on-secondary-container px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">Agile</span>
+</div>
+</div>
+<span class="material-symbols-outlined text-outline group-hover:text-primary" data-icon="chevron_right">chevron_right</span>
+</div>
+<!-- Avatar Item 3 -->
+<div class="group bg-white/40 rounded-xl p-3 border border-transparent hover:border-primary/20 hover:bg-white/80 transition-all cursor-pointer flex items-center gap-4">
+<div class="w-20 h-20 bg-surface-container rounded-lg overflow-hidden flex-shrink-0">
+<img class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" data-alt="A detailed 3D avatar of a Beagle named Cooper, shown in profile with big, drooping ears and a wagging tail. The scene is lit with warm afternoon sun, creating long shadows and rich textures on the brown and white coat." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBeMPaIUoV-sIBrNU7b8m6X6EJS5dR8Hj5LnBPzTtRCBKumPkRnz33xoFNcJxW0iAXm_q7jwZEYqsSQxoTgwnUQOHJ5SsXWfzOtlQmA2J9i20zi64xuoUdcam8eoBrmyFHcNGTEeD1yKBMuuMNZBEmqRbIhPPagda5nl9nTEcafqIQovHuQQvQEQSAoVgNKnnrgWugo1ft61WGmICTLQoU37Ns6jNMU-8gqsW7uh5VXKr3ix-rUefEoVAcGZlriSVheFLilrRubWGvD"/>
+</div>
+<div class="flex-1">
+<h4 class="font-bold text-primary">Cooper</h4>
+<p class="text-body-sm text-on-surface-variant">Beagle • Lv. 15</p>
+<div class="mt-1 flex gap-2">
+<span class="text-[10px] bg-secondary-container text-on-secondary-container px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">Tracker</span>
+<span class="text-[10px] bg-tertiary-fixed text-on-tertiary-fixed-variant px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">Active</span>
+</div>
+</div>
+<span class="material-symbols-outlined text-outline group-hover:text-primary" data-icon="chevron_right">chevron_right</span>
+</div>
+<!-- Add New Placeholder -->
+<a class="border-2 border-dashed border-primary/20 rounded-xl p-6 flex flex-col items-center justify-center gap-2 hover:bg-primary/5 transition-all cursor-pointer group mt-4" href="{{DATA:SCREEN:SCREEN_24}}">
+<span class="material-symbols-outlined text-primary text-[32px] group-hover:scale-110 transition-transform" data-icon="add_circle">add_circle</span>
+<span class="font-bold text-primary">Create New</span>
+</a>
+</div>
+</div>
+</div>
+</div>
+<!-- Stats & World Map Section (Bento Bottom) -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+<div class="glass-card rounded-2xl p-6 flex items-center gap-6">
+<div class="w-12 h-12 bg-primary rounded-xl flex items-center justify-center shadow-lg">
+<span class="material-symbols-outlined text-on-primary" data-icon="query_stats">query_stats</span>
+</div>
+<div>
+<p class="text-on-surface-variant text-body-sm font-bold uppercase tracking-widest">Active Time</p>
+<h5 class="text-headline-lg font-headline-lg text-[24px] text-primary">42.5 hrs</h5>
+</div>
+</div>
+<div class="glass-card rounded-2xl p-6 flex items-center gap-6">
+<div class="w-12 h-12 bg-secondary text-on-secondary rounded-xl flex items-center justify-center shadow-lg">
+<span class="material-symbols-outlined" data-icon="share_location">share_location</span>
+</div>
+<div>
+<p class="text-on-surface-variant text-body-sm font-bold uppercase tracking-widest">World Rank</p>
+<h5 class="text-headline-lg font-headline-lg text-[24px] text-primary">#1,204</h5>
+</div>
+</div>
+<div class="glass-card rounded-2xl p-6 flex items-center gap-6">
+<div class="w-12 h-12 bg-surface-tint text-on-primary rounded-xl flex items-center justify-center shadow-lg">
+<span class="material-symbols-outlined" data-icon="social_distance">social_distance</span>
+</div>
+<div>
+<p class="text-on-surface-variant text-body-sm font-bold uppercase tracking-widest">AR Sessions</p>
+<h5 class="text-headline-lg font-headline-lg text-[24px] text-primary">89 Completed</h5>
+</div>
+</div>
+</div>
+</div>
+<!-- Atmospheric Mud Spatters (Decorative) -->
+<div class="absolute bottom-[-20px] right-[-20px] opacity-30 select-none pointer-events-none">
+<span class="material-symbols-outlined text-[300px] text-primary/40 rotate-12" data-icon="pets">pets</span>
+</div>
+<div class="absolute top-[20%] left-[-50px] opacity-10 select-none pointer-events-none">
+<span class="material-symbols-outlined text-[200px] text-primary/40 -rotate-45" data-icon="footprint">footprint</span>
+</div>
+</main>
+<!-- Floating Mud Particle Script for Pulse effect -->
+<script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const progressBar = document.getElementById('creation-progress');
+            let progress = 82;
+            
+            // Subtle pulse logic for the progress bar
+            setInterval(() => {
+                const pulse = Math.sin(Date.now() / 500) * 0.5 + 82;
+                progressBar.style.width = `${pulse}%`;
+            }, 50);
+
+            // Simple click feedback on all buttons
+            const buttons = document.querySelectorAll('button');
+            buttons.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    btn.classList.add('scale-90');
+                    setTimeout(() => btn.classList.remove('scale-90'), 100);
+                });
+            });
+        });
+    </script>
+</body></html>

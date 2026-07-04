@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Pawsome3D - Confirm Shoot</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;700;800&amp;family=Be+Vietnam+Pro:wght@400;600&amp;family=Space+Grotesk:wght@600&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@100..900&amp;family=Plus+Jakarta+Sans:wght@100..900&amp;family=Space+Grotesk:wght@100..900&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "tertiary-fixed-dim": "#cfc4c0",
+                        "outline": "#827470",
+                        "on-secondary": "#ffffff",
+                        "on-secondary-container": "#526772",
+                        "tertiary-container": "#4c4542",
+                        "surface-container-low": "#f4f4f0",
+                        "surface-container-highest": "#e2e3df",
+                        "surface-container": "#eeeeea",
+                        "secondary-fixed": "#cfe6f2",
+                        "on-primary": "#ffffff",
+                        "secondary-fixed-dim": "#b4cad6",
+                        "on-tertiary-container": "#bdb3af",
+                        "on-primary-fixed": "#2c160e",
+                        "surface-tint": "#77574d",
+                        "surface-bright": "#faf9f5",
+                        "outline-variant": "#d4c3be",
+                        "error-container": "#ffdad6",
+                        "primary": "#442a22",
+                        "on-primary-fixed-variant": "#5d4037",
+                        "tertiary": "#352f2c",
+                        "inverse-on-surface": "#f1f1ed",
+                        "primary-fixed": "#ffdbd0",
+                        "surface-container-high": "#e8e8e4",
+                        "surface-variant": "#e2e3df",
+                        "error": "#ba1a1a",
+                        "on-primary-container": "#d4ada1",
+                        "surface-dim": "#dadad6",
+                        "background": "#faf9f5",
+                        "on-surface-variant": "#504441",
+                        "primary-fixed-dim": "#e7bdb1",
+                        "on-secondary-fixed-variant": "#354a53",
+                        "on-secondary-fixed": "#071e27",
+                        "on-error-container": "#93000a",
+                        "secondary-container": "#cfe6f2",
+                        "on-tertiary": "#ffffff",
+                        "secondary": "#4c616c",
+                        "on-background": "#1a1c1a",
+                        "tertiary-fixed": "#ece0dc",
+                        "primary-container": "#5d4037",
+                        "on-tertiary-fixed-variant": "#4c4542",
+                        "surface": "#faf9f5",
+                        "inverse-primary": "#e7bdb1",
+                        "on-tertiary-fixed": "#201a18",
+                        "surface-container-lowest": "#ffffff",
+                        "on-error": "#ffffff",
+                        "on-surface": "#1a1c1a",
+                        "inverse-surface": "#2f312e"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "container-max": "1200px",
+                        "margin-mobile": "20px",
+                        "unit": "4px",
+                        "margin-desktop": "64px",
+                        "gutter": "16px"
+                    },
+                    "fontFamily": {
+                        "headline-xl": ["Plus Jakarta Sans"],
+                        "headline-lg-mobile": ["Plus Jakarta Sans"],
+                        "body-md": ["Be Vietnam Pro"],
+                        "label-caps": ["Space Grotesk"],
+                        "body-sm": ["Be Vietnam Pro"],
+                        "headline-lg": ["Plus Jakarta Sans"]
+                    },
+                    "fontSize": {
+                        "headline-xl": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "800"}],
+                        "headline-lg-mobile": ["28px", {"lineHeight": "34px", "fontWeight": "700"}],
+                        "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "label-caps": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                        "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                        "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .premium-ribbon {
+            clip-path: polygon(100% 0, 100% 100%, 50% 85%, 0 100%, 0 0);
+        }
+        .frosted-earth {
+            backdrop-filter: blur(12px);
+            background: rgba(250, 249, 245, 0.7);
+            border: 1px solid rgba(130, 116, 112, 0.1);
+        }
+        .squishy-press:active {
+            transform: scale(0.96);
+            transition: transform 0.1s ease;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background text-on-surface font-body-md min-h-screen relative overflow-x-hidden">
+<!-- Atmospheric Shader Background (Mud Splatter) -->
+<div class="fixed inset-0 z-0 pointer-events-none opacity-40">
+</div>
+<!-- Background Soft Focus Image -->
+<div class="fixed inset-0 z-[-1] blur-md brightness-90">
+<div class="w-full h-full bg-cover bg-center" data-alt="A cinematic, shallow depth-of-field photograph of a grand European landmark like the Eiffel Tower or Big Ben at dusk. The foreground is intentionally soft and out of focus, showing textured park ground and cobblestones. Warm amber lights glow from the landmark against a deep indigo sky. The overall aesthetic is professional and high-end, matching an adventurous pet photography brand." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuCgPgSPbugIw7F_e3S1ovxk0kXUcFRdPskoy_9PfWa9WhHYuW2cIC31iOs3emo4xn_LchV70fYyBJyZjGcv-NqNLC2LUFBSsVkVQbql0-tUGkqrb7gyqk4b9S9MT9R907oQt79H06ENI2Yg9GuyCW1jGRdXzTPNcMgPQ_4l0wtcGzp_PUW9yIrcj5iLfNy1f_FvOPou2R8Q9Hs74deUI9WpFfY_O2hBsKYlwPjlxU0YEtRiCWZTKWa0miFhM7ElBCe2V1_al1DgDeqS')"></div>
+</div>
+<!-- Header (TopAppBar) -->
+<header class="fixed top-0 w-full z-50 bg-surface/80 dark:bg-inverse-surface/80 backdrop-blur-xl shadow-sm shadow-primary/10 px-margin-mobile py-4 flex justify-between items-center">
+<div class="flex items-center gap-3">
+<a class="material-symbols-outlined text-primary squishy-press inline-block" href="#" onclick="event.preventDefault(); window.parent.postMessage({type: 'navigation', screen: 'SCREEN_31'}, '*')">arrow_back_ios</a>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile font-extrabold text-primary">Confirm Shoot</h1>
+</div>
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-full bg-primary-fixed-dim border-2 border-primary/20 flex items-center justify-center overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="A clean profile portrait of a modern dog owner wearing outdoor gear. The lighting is soft and natural, emphasizing a friendly and approachable personality. The background is a simple, textured studio wall in warm cream tones to match the Pawsome3D brand identity." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDJN6A-5edGnjUK3kfrQwP53d1u3GVPZjsxPeg8DRMIScOtUH1P1H2pNq9Ex0-U-Hcxib4PB8DeZvD1gZLn16CQ8vlUQJrRkTwLISytEqhV-e06LIbx1dNhJYq2LgPYrTuovEWKDA0QjBIsVgKPmdbXWkS5OgHDj0TAuDS4lOmsXQCjtzH_aF1wL-LagkqL7sq9TkxOlR4pefk46ORmECfhCVzQSbUb5_bVoeJjRyPOkqa3oMdXr4FdH_WJk00AtxXShGqwMZC3z60k"/>
+</div>
+</div>
+</header>
+<main class="relative z-10 pt-24 pb-12 px-margin-mobile max-w-lg mx-auto">
+<!-- Main Booking Card -->
+<div class="frosted-earth rounded-xl overflow-hidden shadow-2xl relative mb-6">
+<!-- Premium Member Ribbon -->
+<div class="absolute top-0 right-6 z-20">
+<div class="premium-ribbon bg-primary text-white font-label-caps pt-3 pb-5 px-3 flex flex-col items-center">
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="mt-1">PLUS</span>
+</div>
+</div>
+<!-- Visual Preview Section -->
+<div class="relative h-56 w-full">
+<img class="w-full h-full object-cover" data-alt="A high-quality 3D render of a Golden Retriever in a 'proud sitting' pose positioned in front of the Arc de Triomphe. The lighting is dramatic and warm, mimicking a professional sunset photoshoot. The textures on the dog's fur are detailed and realistic. The composition follows the rule of thirds, looking elegant and premium." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAwp3Pi9efFw9Wr9CnHvLY4MMIkGWJTq6lR99E9oxRO67vzQriqDD2vVLhbAd2p-GtEfXwtP1g-saQxO2aFa6pqFWdOVubBdGIu-vDffQiOXLSOq5_3x64MfHWvVMP6oHEg7eFr61UX9HNlG3jP4w2cZSXyOkmCSrV3ver0Q1glns4AhQWb_LRJScc5sRgOei7807w21BlfGa8nDrGpV1Bg5Y12LsmVS8VkC-89lrGNnyPNsY2EJlDu3EfWZwNMOktw0AxdgTJSelwx"/>
+<div class="absolute bottom-0 left-0 w-full p-4 bg-gradient-to-t from-black/60 to-transparent">
+<p class="font-label-caps text-white/90">SELECTED LANDMARK</p>
+<h2 class="font-headline-lg-mobile text-white leading-none">Arc de Triomphe</h2>
+</div>
+</div>
+<!-- Content Details -->
+<div class="p-6 space-y-6">
+<!-- Summary Grid -->
+<div class="grid grid-cols-2 gap-4">
+<div class="bg-surface-container/50 p-4 rounded-lg border border-outline-variant/30">
+<span class="font-label-caps text-on-surface-variant block mb-1">POSE</span>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">pets</span>
+<span class="font-body-md font-semibold">Proud Sitting</span>
+</div>
+</div>
+<div class="bg-surface-container/50 p-4 rounded-lg border border-outline-variant/30">
+<span class="font-label-caps text-on-surface-variant block mb-1">HOST</span>
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 rounded-full bg-secondary-fixed overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="A friendly close-up of Bubba, a charismatic canine host. He is a happy-looking Border Collie with bright eyes. The image is cropped in a circle, looking like a professional social media avatar." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAHyqe4AVBaD6azQROPeF7nWJrjT3ihvdLqbOsGaKtYMtHCWNnoh1Oo9B8-0r1vk-3FTTB4tsRdrNCsqGGsDZnvOjVLSLVofneYGywA8WC5r4st7vQQfZ5vzECEiWiALHcpXjNFUxUWDgGgxCtdukO37kZD-T9VUnNFv2-xDmZ0uK8D_CW7BQ2XGUb6tFmldzmyB62mrPNjhak3eqISglzD__1LtDP9FFLctCzW5Fi3uzs4RaSEQObaDdalbmB9o69VYyeID3ptx4a1"/>
+</div>
+<span class="font-body-md font-semibold">Bubba</span>
+</div>
+</div>
+</div>
+<!-- HD Toggle Section -->
+<div class="flex items-center justify-between p-4 bg-tertiary-fixed/30 rounded-lg border border-tertiary-fixed-dim/20">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary text-2xl">hd</span>
+<div>
+<p class="font-body-md font-semibold text-primary">HD Render Export</p>
+<p class="text-[10px] font-label-caps text-on-surface-variant">4K RESOLUTION • TIFF FORMAT</p>
+</div>
+</div>
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-12 h-7 bg-outline-variant peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-primary"></div>
+</label>
+</div>
+<!-- Price Breakdown -->
+<div class="space-y-2 border-t border-outline-variant/20 pt-4">
+<div class="flex justify-between items-center text-on-surface-variant">
+<span class="font-body-sm">Base Shoot Fee</span>
+<span class="font-body-sm">850 PP</span>
+</div>
+<div class="flex justify-between items-center text-on-surface-variant">
+<span class="font-body-sm">HD Render Add-on</span>
+<span class="font-body-sm">150 PP</span>
+</div>
+<div class="flex justify-between items-center text-on-surface-variant">
+<span class="font-body-sm">Premium Discount (15%)</span>
+<span class="font-body-sm text-error">-150 PP</span>
+</div>
+<div class="flex justify-between items-center pt-2">
+<span class="font-headline-lg-mobile text-primary">Total Price</span>
+<div class="flex flex-col items-end">
+<span class="font-headline-lg-mobile text-primary">850 Paw-Points</span>
+<span class="font-label-caps text-on-surface-variant">≈ $12.50 USD</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Call to Action -->
+<div class="space-y-4">
+<button class="w-full bg-primary text-on-primary py-5 rounded-lg font-headline-lg-mobile squishy-press shadow-xl shadow-primary/20 flex items-center justify-center gap-3" onclick="window.parent.postMessage({type: 'navigation', screen: 'SCREEN_27'}, '*')">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">bolt</span>
+                Book Now
+            </button>
+<p class="text-center text-on-surface-variant text-[11px] font-label-caps px-4 leading-relaxed">
+                BY CLICKING 'BOOK NOW', YOU AGREE TO OUR VIRTUAL ASSET LICENSING TERMS. RENDERS TYPICALLY TAKE 2-3 MINUTES TO PROCESS.
+            </p>
+</div>
+</main>
+<!-- Interactive micro-interaction for the Mud Shader -->
+<script>
+        document.addEventListener('mousemove', (e) => {
+            const x = e.clientX / window.innerWidth;
+            const y = e.clientY / window.innerHeight;
+            // This is a placeholder logic for micro-interactions if the shader allows uniform updates
+        });
+
+        // Simple button active state visual feedback
+        const buttons = document.querySelectorAll('.squishy-press');
+        buttons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                // Actions handled via onclick or parent communication
+                console.log('Action triggered');
+            });
+        });
+    </script>
+</body></html>

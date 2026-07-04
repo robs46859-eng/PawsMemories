@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Pawsome3D - Pose Selection</title>
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600&amp;family=Plus+Jakarta+Sans:wght@700;800&amp;family=Space+Grotesk:wght@600&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    }
+    .scrollbar-hide::-webkit-scrollbar {
+      display: none;
+    }
+    .scrollbar-hide {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+    .bouncy-hover:active {
+      transform: scale(0.95);
+      transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .glass-card {
+      background: rgba(250, 249, 245, 0.7);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(130, 116, 112, 0.1);
+    }
+    @keyframes float {
+      0% { transform: translateY(0px); }
+      50% { transform: translateY(-10px); }
+      100% { transform: translateY(0px); }
+    }
+    .float-animation {
+      animation: float 4s ease-in-out infinite;
+    }
+  </style>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "tertiary-fixed-dim": "#cfc4c0",
+            "outline": "#827470",
+            "on-secondary": "#ffffff",
+            "on-secondary-container": "#526772",
+            "tertiary-container": "#4c4542",
+            "surface-container-low": "#f4f4f0",
+            "surface-container-highest": "#e2e3df",
+            "surface-container": "#eeeeea",
+            "secondary-fixed": "#cfe6f2",
+            "on-primary": "#ffffff",
+            "secondary-fixed-dim": "#b4cad6",
+            "on-tertiary-container": "#bdb3af",
+            "on-primary-fixed": "#2c160e",
+            "surface-tint": "#77574d",
+            "surface-bright": "#faf9f5",
+            "outline-variant": "#d4c3be",
+            "error-container": "#ffdad6",
+            "primary": "#442a22",
+            "on-primary-fixed-variant": "#5d4037",
+            "tertiary": "#352f2c",
+            "inverse-on-surface": "#f1f1ed",
+            "primary-fixed": "#ffdbd0",
+            "surface-container-high": "#e8e8e4",
+            "surface-variant": "#e2e3df",
+            "error": "#ba1a1a",
+            "on-primary-container": "#d4ada1",
+            "surface-dim": "#dadad6",
+            "background": "#faf9f5",
+            "on-surface-variant": "#504441",
+            "primary-fixed-dim": "#e7bdb1",
+            "on-secondary-fixed-variant": "#354a53",
+            "on-secondary-fixed": "#071e27",
+            "on-error-container": "#93000a",
+            "secondary-container": "#cfe6f2",
+            "on-tertiary": "#ffffff",
+            "secondary": "#4c616c",
+            "on-background": "#1a1c1a",
+            "tertiary-fixed": "#ece0dc",
+            "primary-container": "#5d4037",
+            "on-tertiary-fixed-variant": "#4c4542",
+            "surface": "#faf9f5",
+            "inverse-primary": "#e7bdb1",
+            "on-tertiary-fixed": "#201a18",
+            "surface-container-lowest": "#ffffff",
+            "on-error": "#ffffff",
+            "on-surface": "#1a1c1a",
+            "inverse-surface": "#2f312e"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "container-max": "1200px",
+            "margin-mobile": "20px",
+            "unit": "4px",
+            "margin-desktop": "64px",
+            "gutter": "16px"
+          },
+          "fontFamily": {
+            "headline-xl": ["Plus Jakarta Sans"],
+            "headline-lg-mobile": ["Plus Jakarta Sans"],
+            "body-md": ["Be Vietnam Pro"],
+            "label-caps": ["Space Grotesk"],
+            "body-sm": ["Be Vietnam Pro"],
+            "headline-lg": ["Plus Jakarta Sans"]
+          },
+          "fontSize": {
+            "headline-xl": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "800"}],
+            "headline-lg-mobile": ["28px", {"lineHeight": "34px", "fontWeight": "700"}],
+            "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+            "label-caps": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+            "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+            "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700"}]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background text-on-surface font-body-md min-h-screen pb-32">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 bg-surface/80 backdrop-blur-xl shadow-sm shadow-primary/10">
+<div class="flex justify-between items-center w-full px-margin-mobile py-4">
+<div class="flex items-center gap-3">
+<a class="p-1 -ml-1 text-primary active:scale-95 transition-transform" href="{{DATA:SCREEN:SCREEN_14}}">
+<span class="material-symbols-outlined">arrow_back</span>
+</a>
+<div class="w-10 h-10 rounded-full overflow-hidden border-2 border-primary/20">
+<img class="w-full h-full object-cover" data-alt="A high-resolution 3D render of a stylized user profile avatar with a warm, friendly expression. The lighting is soft and directional, typical of a professional studio setup, with a color palette of soft creams, barks, and mist slates. The background is a clean, neutral studio setting." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCeL9TLQcFqnilVV_2SQUizgPyjxjOZztgTtUNd7Brmwpt7IXcrbX8t7zw-L3jiqq3NWwKnDHbPQhDajB29P2aoYlKafU34gD5QyIgcVTzn5qvfXug5kuA8iu2T0MTLf8Vbf6Kao_vJYrEKEjkxCFk86wAuQJb8sv7cVD8fg1I9uQ2-RnaAaPg6AqaVLbW99vsA9TbY63utcY2L3ybqrpPUY9B0zNKGWX-_ViwKDeb1RrOjVQ9wL2HHpprFk098HSe8a_AdX1GRpP2N"/>
+</div>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile font-extrabold text-primary">Pawsome3D</h1>
+</div>
+<button class="w-10 h-10 flex items-center justify-center text-on-surface-variant hover:opacity-80 transition-opacity active:scale-95 duration-200">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</button>
+</div>
+</header>
+<main class="pt-24 px-margin-mobile max-w-container-max mx-auto">
+<!-- Hero Header -->
+<div class="mb-6">
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-primary mb-1">Choose Your Pose</h2>
+<p class="text-on-surface-variant font-body-sm">Select a master artist pack to bring Bubba and your avatar to life.</p>
+</div>
+<!-- 3D Preview Canvas -->
+<div class="relative w-full aspect-[4/5] rounded-[32px] overflow-hidden shadow-2xl shadow-primary/10 mb-8 group">
+<!-- Scene Content -->
+<div class="absolute inset-0 z-10 flex flex-col justify-end p-8">
+<div class="relative h-full w-full flex items-center justify-center">
+<!-- The Dog: Bubba -->
+<div class="float-animation relative z-20 w-4/5 h-4/5 flex items-center justify-center">
+<img class="w-full h-full object-contain" data-alt="A high-quality 3D digital sculpture of a muscular yet friendly English Bulldog named Bubba. He is rendered with realistic fur textures but stylized features, sitting proudly in a hero pose. The lighting is warm and golden, casting soft shadows on a warm cream floor. The style is modern tactile 3D art, similar to high-end character design for cinematic animation." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCzy2WMwCwqxZHFLxi-C5hQKMkQGFYuJcaXtwP_k9rVpENTmCH3xcykAoz0Rlp7g1ycvqAA8EFvoSfajI9hwtdC59HGl0l7dFMwVbwpUbz7WZ1rkV7gXtJ7jDLSCrUByS8ArM-guV1J415L3M_tcwPeKMUYvIccCftWcyYifbOjIjnNGkjOg1F2RqZ2zbKm7q1xTqz9Qp5_1P5HrocZezN61m4jV0oJYwEBvROjvjePxFkjDGXRUjzYWrZMx6peEs-DsGjNrQO54oyU"/>
+</div>
+<!-- Avatar Placeholder (Ghost Effect) -->
+<div class="absolute right-0 bottom-12 w-48 h-64 border-2 border-dashed border-primary/30 rounded-3xl bg-surface/30 backdrop-blur-md flex flex-col items-center justify-center z-30 transition-transform duration-500 hover:scale-105">
+<span class="material-symbols-outlined text-primary/40 text-4xl mb-2" data-icon="person_add">person_add</span>
+<span class="font-label-caps text-primary/40 text-center px-4">YOUR AVATAR HERE</span>
+</div>
+</div>
+<!-- Float Control Bar -->
+<div class="glass-card rounded-2xl p-4 flex justify-between items-center w-full mt-4">
+<div class="flex gap-2">
+<button class="p-2 rounded-lg bg-surface-container-high text-primary active:scale-90 transition-transform">
+<span class="material-symbols-outlined" data-icon="zoom_in">zoom_in</span>
+</button>
+<button class="p-2 rounded-lg bg-surface-container-high text-primary active:scale-90 transition-transform">
+<span class="material-symbols-outlined" data-icon="3d_rotation">3d_rotation</span>
+</button>
+</div>
+<button class="bg-primary text-white px-6 py-2 rounded-xl font-label-caps active:scale-95 transition-all shadow-lg shadow-primary/20">
+            REFRESH VIEW
+          </button>
+</div>
+</div>
+<!-- Lighting Hint -->
+<div class="absolute top-6 right-6 z-20 flex flex-col gap-2">
+<div class="w-2 h-2 rounded-full bg-orange-400 animate-pulse"></div>
+<div class="w-2 h-2 rounded-full bg-orange-200/50"></div>
+</div>
+</div>
+<!-- Pose Packs Carousel -->
+<section class="mb-12">
+<div class="flex justify-between items-end mb-4">
+<h3 class="font-headline-lg text-primary text-xl">Master Artist Packs</h3>
+<button class="text-primary font-label-caps text-xs border-b border-primary/30 pb-1">VIEW ALL</button>
+</div>
+<div class="flex overflow-x-auto gap-4 pb-6 scrollbar-hide snap-x snap-mandatory -mx-margin-mobile px-margin-mobile">
+<!-- Pose Card 1: Selected -->
+<div class="snap-start flex-shrink-0 w-44">
+<div class="relative w-full aspect-square rounded-3xl bg-primary border-4 border-primary-fixed shadow-xl mb-3 flex items-center justify-center overflow-hidden transition-all duration-300 transform scale-105">
+<div class="absolute inset-0 bg-gradient-to-tr from-primary via-primary-container to-primary-fixed-dim opacity-40"></div>
+<span class="material-symbols-outlined text-white text-6xl relative z-10" data-icon="front_hand" style="font-variation-settings: 'FILL' 1;">front_hand</span>
+<div class="absolute top-3 right-3 bg-on-primary text-primary w-6 h-6 rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined text-sm" data-icon="check" style="font-variation-settings: 'wght' 700;">check</span>
+</div>
+</div>
+<p class="font-headline-lg text-sm text-center text-primary">The High Five</p>
+<p class="font-label-caps text-[10px] text-center text-on-surface-variant uppercase tracking-widest mt-1">CLASSIC HERO</p>
+</div>
+<!-- Pose Card 2 -->
+<div class="snap-start flex-shrink-0 w-44 opacity-70 hover:opacity-100 transition-opacity">
+<div class="w-full aspect-square rounded-3xl bg-tertiary-fixed-dim mb-3 flex items-center justify-center overflow-hidden bouncy-hover">
+<span class="material-symbols-outlined text-primary text-5xl" data-icon="groups">groups</span>
+</div>
+<p class="font-headline-lg text-sm text-center text-primary">Back-to-Back Heroes</p>
+<p class="font-label-caps text-[10px] text-center text-on-surface-variant uppercase tracking-widest mt-1">ACTION PACK</p>
+</div>
+<!-- Pose Card 3 -->
+<div class="snap-start flex-shrink-0 w-44 opacity-70 hover:opacity-100 transition-opacity">
+<div class="w-full aspect-square rounded-3xl bg-secondary-fixed mb-3 flex items-center justify-center overflow-hidden bouncy-hover">
+<span class="material-symbols-outlined text-secondary text-5xl" data-icon="bedtime">bedtime</span>
+</div>
+<p class="font-headline-lg text-sm text-center text-primary">Nap Time</p>
+<p class="font-label-caps text-[10px] text-center text-on-surface-variant uppercase tracking-widest mt-1">ZEN MODE</p>
+</div>
+<!-- Pose Card 4 -->
+<div class="snap-start flex-shrink-0 w-44 opacity-70 hover:opacity-100 transition-opacity">
+<div class="w-full aspect-square rounded-3xl bg-surface-container-high mb-3 flex items-center justify-center overflow-hidden bouncy-hover">
+<span class="material-symbols-outlined text-primary text-5xl" data-icon="restaurant">restaurant</span>
+</div>
+<p class="font-headline-lg text-sm text-center text-primary">Dinner Duo</p>
+<p class="font-label-caps text-[10px] text-center text-on-surface-variant uppercase tracking-widest mt-1">FUN &amp; FOOD</p>
+</div>
+</div>
+</section>
+<!-- Detailed Selection Info (Bento Style) -->
+<div class="grid grid-cols-2 gap-4 mb-12">
+<div class="col-span-2 glass-card rounded-3xl p-6 flex items-center gap-4">
+<div class="bg-primary/10 p-4 rounded-2xl">
+<span class="material-symbols-outlined text-primary text-3xl" data-icon="auto_fix_high">auto_fix_high</span>
+</div>
+<div>
+<h4 class="font-headline-lg text-lg text-primary">Smart Alignment</h4>
+<p class="text-on-surface-variant text-sm">Bubba automatically adjusts his height to match your avatar's scale.</p>
+</div>
+</div>
+<div class="glass-card rounded-3xl p-6 flex flex-col gap-2">
+<span class="material-symbols-outlined text-primary" data-icon="videocam">videocam</span>
+<h4 class="font-headline-lg text-base text-primary leading-tight">Animated<br/>Preview</h4>
+<div class="mt-auto">
+<div class="w-full h-1 bg-primary/20 rounded-full overflow-hidden">
+<div class="w-2/3 h-full bg-primary rounded-full"></div>
+</div>
+</div>
+</div>
+<div class="bg-primary-container text-on-primary-container rounded-3xl p-6 flex flex-col justify-between">
+<span class="material-symbols-outlined" data-icon="verified" style="font-variation-settings: 'FILL' 1;">verified</span>
+<p class="font-label-caps text-xs">PREMIUM POSE UNLOCKED</p>
+</div>
+</div>
+<!-- CTA Section -->
+<div class="fixed bottom-24 left-0 w-full px-margin-mobile z-40">
+<a class="w-full py-5 bg-primary text-white rounded-2xl font-headline-lg text-lg shadow-2xl shadow-primary/40 active:scale-[0.98] transition-all flex items-center justify-center gap-3 decoration-none" href="{{DATA:SCREEN:SCREEN_13}}">
+        Confirm Selection
+        <span class="material-symbols-outlined" data-icon="arrow_forward">arrow_forward</span>
+</a>
+</div>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 pb-6 pt-3 bg-surface-container/90 backdrop-blur-lg shadow-[0_-4px_24px_rgba(68,42,34,0.08)] rounded-t-xl">
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-4 py-2 hover:bg-surface-container-high/50 rounded-lg active:scale-90 transition-transform duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="home">home</span>
+<span class="font-label-caps text-label-caps mt-1">Home</span>
+</a>
+<a class="flex flex-col items-center justify-center bg-primary text-on-primary rounded-lg px-4 py-2 active:scale-90 transition-transform duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="pets" style="font-variation-settings: 'FILL' 1;">pets</span>
+<span class="font-label-caps text-label-caps mt-1">Avatars</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-4 py-2 hover:bg-surface-container-high/50 rounded-lg active:scale-90 transition-transform duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="view_in_ar">view_in_ar</span>
+<span class="font-label-caps text-label-caps mt-1">AR Mode</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-4 py-2 hover:bg-surface-container-high/50 rounded-lg active:scale-90 transition-transform duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="group">group</span>
+<span class="font-label-caps text-label-caps mt-1">Community</span>
+</a>
+</nav>
+<!-- Interaction Script -->
+<script>
+    document.querySelectorAll('.snap-start').forEach(card => {
+      card.addEventListener('click', function() {
+        // Simple selection toggle logic
+        document.querySelectorAll('.snap-start').forEach(c => {
+          c.classList.add('opacity-70');
+          c.querySelector('.relative')?.classList.remove('scale-105', 'border-primary-fixed');
+          const check = c.querySelector('.absolute.top-3');
+          if (check) check.remove();
+        });
+        
+        this.classList.remove('opacity-70');
+        const imgDiv = this.querySelector('div');
+        imgDiv.classList.add('scale-105', 'border-4', 'border-primary-fixed', 'border-primary');
+        
+        // Add checkmark back
+        const checkHtml = `<div class="absolute top-3 right-3 bg-on-primary text-primary w-6 h-6 rounded-full flex items-center justify-center">
+          <span class="material-symbols-outlined text-sm" data-icon="check" style="font-variation-settings: 'wght' 700;">check</span>
+        </div>`;
+        imgDiv.insertAdjacentHTML('beforeend', checkHtml);
+      });
+    });
+  </script>
+</body></html>

@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+
+<html class="scroll-smooth" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Pet Merch | Pawsome3D</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&amp;family=Be+Vietnam+Pro:wght@400;500;600&amp;family=Space+Grotesk:wght@600&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@100..900&amp;family=Plus+Jakarta+Sans:wght@100..900&amp;family=Space+Grotesk:wght@100..900&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .tactile-card {
+            background: linear-gradient(145deg, #ffffff, #eeeeea);
+            box-shadow: 8px 8px 16px rgba(68, 42, 34, 0.05), -8px -8px 16px #ffffff;
+            transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        .tactile-card:hover {
+            transform: translateY(-8px);
+        }
+        .inner-glow {
+            box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.4), inset 0 -2px 4px rgba(0, 0, 0, 0.05);
+        }
+        .frosted-earth {
+            backdrop-filter: blur(12px);
+            background: rgba(250, 249, 245, 0.7);
+            border: 1px solid rgba(212, 195, 190, 0.3);
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-tertiary-fixed": "#201a18",
+                        "error": "#ba1a1a",
+                        "on-error": "#ffffff",
+                        "primary-fixed": "#ffdbd0",
+                        "surface-bright": "#faf9f5",
+                        "on-secondary-fixed": "#071e27",
+                        "surface-container-highest": "#e2e3df",
+                        "on-tertiary-fixed-variant": "#4c4542",
+                        "secondary-fixed": "#cfe6f2",
+                        "surface": "#faf9f5",
+                        "primary-fixed-dim": "#e7bdb1",
+                        "surface-container-low": "#f4f4f0",
+                        "on-primary-fixed-variant": "#5d4037",
+                        "on-surface": "#1a1c1a",
+                        "tertiary-fixed": "#ece0dc",
+                        "inverse-on-surface": "#f1f1ed",
+                        "tertiary": "#352f2c",
+                        "surface-variant": "#e2e3df",
+                        "outline": "#827470",
+                        "on-surface-variant": "#504441",
+                        "on-background": "#1a1c1a",
+                        "surface-container-high": "#e8e8e8",
+                        "secondary-fixed-dim": "#b4cad6",
+                        "surface-container-lowest": "#ffffff",
+                        "on-secondary-fixed-variant": "#354a53",
+                        "on-tertiary-container": "#bdb3af",
+                        "surface-container": "#eeeeea",
+                        "on-primary-fixed": "#2c160e",
+                        "on-primary": "#ffffff",
+                        "surface-dim": "#dadad6",
+                        "outline-variant": "#d4c3be",
+                        "on-tertiary": "#ffffff",
+                        "on-secondary-container": "#526772",
+                        "primary-container": "#5d4037",
+                        "primary": "#442a22",
+                        "on-primary-container": "#d4ada1",
+                        "secondary": "#4c616c",
+                        "on-error-container": "#93000a",
+                        "surface-tint": "#77574d",
+                        "secondary-container": "#cfe6f2",
+                        "tertiary-fixed-dim": "#cfc4c0",
+                        "error-container": "#ffdad6",
+                        "inverse-surface": "#2f312e",
+                        "tertiary-container": "#4c4542",
+                        "background": "#faf9f5",
+                        "on-secondary": "#ffffff",
+                        "inverse-primary": "#e7bdb1"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "unit": "4px",
+                        "margin-mobile": "20px",
+                        "margin-desktop": "64px",
+                        "container-max": "1200px",
+                        "gutter": "16px"
+                    },
+                    "fontFamily": {
+                        "headline-lg-mobile": ["Plus Jakarta Sans"],
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "body-md": ["Be Vietnam Pro"],
+                        "headline-xl": ["Plus Jakarta Sans"],
+                        "body-sm": ["Be Vietnam Pro"],
+                        "label-caps": ["Space Grotesk"]
+                    },
+                    "fontSize": {
+                        "headline-lg-mobile": ["28px", {"lineHeight": "34px", "fontWeight": "700"}],
+                        "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                        "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "headline-xl": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "800"}],
+                        "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                        "label-caps": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background text-on-surface font-body-md min-h-screen pb-24 md:pb-0">
+<!-- Top Navigation -->
+<header class="fixed top-0 w-full z-50 flex justify-between items-center px-margin-mobile md:px-margin-desktop h-16 bg-surface/80 backdrop-blur-md shadow-sm shadow-primary/10">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-2xl" data-icon="menu">menu</span>
+<h1 class="font-headline-xl text-headline-xl text-primary dark:text-primary-fixed leading-none">Pet Merch</h1>
+</div>
+<div class="hidden md:flex gap-8 items-center">
+<a class="text-primary font-bold transition-colors" href="#">Store</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors" href="#">Custom</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors" href="#">Orders</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors" href="#">Profile</a>
+</div>
+<div class="flex items-center gap-4">
+<button class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-container-high transition-colors">
+<span class="material-symbols-outlined text-primary" data-icon="shopping_bag">shopping_bag</span>
+</button>
+</div>
+</header>
+<!-- Hero Section with Animated Shader -->
+<section class="relative pt-32 pb-20 overflow-hidden">
+<div class="absolute inset-0 z-0">
+</div>
+<div class="relative z-10 max-w-[1200px] mx-auto px-margin-mobile md:px-margin-desktop flex flex-col md:flex-row items-center gap-12">
+<div class="flex-1 text-center md:text-left">
+<span class="inline-block px-4 py-1 rounded-full bg-secondary-container text-on-secondary-fixed-variant font-label-caps text-label-caps mb-4 uppercase tracking-widest">Premium 3D Collective</span>
+<h2 class="font-headline-xl text-headline-xl text-primary mb-6 leading-tight">Bring Your Digital <br class="hidden md:block"/>Best Friend to Life.</h2>
+<p class="text-on-surface-variant font-body-md mb-8 max-w-lg">Transform your unique dog avatar into high-fidelity physical keepsakes, from tactile 3D prints to cuddly custom plush dolls.</p>
+<div class="flex flex-wrap justify-center md:justify-start gap-4">
+<button class="bg-primary text-on-primary px-8 py-3 rounded-lg font-bold inner-glow hover:scale-[1.02] active:scale-95 transition-all">Start Designing</button>
+<button class="bg-surface-container-high text-primary px-8 py-3 rounded-lg font-bold hover:bg-surface-container-highest transition-all">Explore Gallery</button>
+</div>
+</div>
+<div class="flex-1 w-full max-w-md">
+<div class="tactile-card rounded-2xl overflow-hidden aspect-square flex items-center justify-center relative">
+<div class="absolute top-4 right-4 bg-primary/10 px-3 py-1 rounded-full backdrop-blur-md">
+<span class="text-primary font-bold text-sm">Best Seller</span>
+</div>
+<img class="w-full h-full object-cover" data-alt="A high-fidelity Pixar-style 3D rendered scene of a friendly Golden Retriever avatar model standing on a minimalist wooden pedestal. The lighting is warm and soft, accentuating the tactile, semi-matte finish of the 3D printed material. The background is a clean, modern studio setting with soft earth-toned gradients of Bark Brown and Warm Cream." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAnQAujN7ZsARR_u1Rz0vKRmXiQq_860T57BSI7lPQm5W7MeahCWG96judhsM5xatBRmI_7ZQP7VcVOHOES29GLG_qGbalFk4N8F_Mc1RjbJPejq0d4o6dAMh1B2inYEnTjwuD9TrW15eLX1uxsEoTtumxCMtA6dj7VUx3Zb_R65gmOcbKlkRC3U2pJD_9mssLcjlxZTQtS697t6L6YHBDmBIs0FrcqBXXryMKyGwLlXWliclaqMCFq28oO4hsz6HJqZdw5jYrB6Bps"/>
+</div>
+</div>
+</div>
+</section>
+<!-- Main Storefront Grid -->
+<main class="max-w-[1200px] mx-auto px-margin-mobile md:px-margin-desktop py-12">
+<div class="flex justify-between items-end mb-10">
+<div>
+<h3 class="font-headline-lg text-headline-lg text-primary">Featured Products</h3>
+<p class="text-on-surface-variant">Precision engineered, artisan finished.</p>
+</div>
+<button class="text-primary font-bold flex items-center gap-1 hover:underline">
+                View All <span class="material-symbols-outlined text-sm" data-icon="arrow_forward">arrow_forward</span>
+</button>
+</div>
+<!-- Bento-style Product Grid -->
+<div class="grid grid-cols-1 md:grid-cols-12 gap-gutter">
+<!-- 3D Printed Avatar - Large Card -->
+<div class="md:col-span-8 tactile-card rounded-2xl p-8 flex flex-col md:flex-row gap-8 relative overflow-hidden group">
+<div class="flex-1 flex flex-col justify-between relative z-10">
+<div>
+<h4 class="font-headline-lg text-headline-lg text-primary mb-2">3D Avatar Models</h4>
+<p class="text-on-surface-variant font-body-md mb-6">Ultra-detailed resin prints of your custom avatar with hand-painted accents.</p>
+</div>
+<div class="flex items-center gap-4">
+<span class="text-2xl font-bold text-primary">$89.00</span>
+<a class="bg-primary text-on-primary w-12 h-12 rounded-lg flex items-center justify-center inner-glow group-hover:scale-110 transition-transform cursor-pointer" href="{{DATA:SCREEN:SCREEN_5}}">
+<span class="material-symbols-outlined" data-icon="add_shopping_cart">add_shopping_cart</span>
+</a>
+</div>
+</div>
+<div class="flex-1 h-64 md:h-auto rounded-xl overflow-hidden relative">
+<img class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" data-alt="A macro shot of a 3D printed dog avatar, showing incredible detail in the fur texture and expressive eyes. The style is charming and Pixar-like, with vibrant colors against a soft-focus workshop background. The lighting highlights the tactile quality of the resin and the smooth, professional finish of the paint job." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAqvLglddExH0_QXdnHXjBE2CGhn8FzoPksPzMagVYPTunBXyzuHgV5LgVp9W5LSIWtH0EAt7tt7_Hgnl6R6qQpR2bBW3ohavN1e1kuHSrSbA1TeVge4-tfHKkjD65pXvc27WDG4aAJJWdpSpwAD3bBwXxErjP6_JCHilYfCYih-rgNVRRaMbVX07W6z8xuonDsakajAAcOAx1jdVfwU4Q1yAL-nN8AwWX-hI3WE6KLqECuonEE7RLQaRapSByCAb1SlxTsMiVhKBRd"/>
+</div>
+</div>
+<!-- Custom Plush - Small Card -->
+<div class="md:col-span-4 tactile-card rounded-2xl p-6 flex flex-col group">
+<div class="h-48 rounded-xl overflow-hidden mb-4">
+<img class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="A soft, cuddly custom plush doll designed to look like a stylized 3D dog avatar. The plush has large, friendly eyes and high-quality fabric textures. It is sitting on a cozy, knit blanket in a sunlit room, emphasizing its warmth and tactile softness. The color palette features rich browns and soft creams." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAQvT2Zc16lcD9umH9QZWEOcOOoYMMgsEzdcoRJYrcXbLMn7hXW0yGDpQvoCnBG-JBo4GdOyQiwKXI2R7GKM_qvHy0xhMsgziGl6rYt4v_Z4rw0RvqY-iUQexSMfK5LunUjV201v0a3He6cu2KGP8HV_YycwHR5dnwYURaYfah0-0fIKwnwq_XVl0InNmswrI4z39sL0E8uvpqZ7jeIpDOBokGeD21xSyp4ENEI6GQ5qSOFcuPiSR--Aqz8gmmykuPeq6jGbzG-v6sV"/>
+</div>
+<h4 class="font-bold text-lg text-primary">Custom Plush Dolls</h4>
+<p class="text-on-surface-variant text-sm mb-4">Hand-sewn with premium hypoallergenic soft-fur fabrics.</p>
+<div class="mt-auto flex justify-between items-center">
+<span class="font-bold text-primary">$45.00</span>
+<button class="text-primary font-bold hover:underline">Customize</button>
+</div>
+</div>
+<!-- Engraved Bowls - Small Card -->
+<div class="md:col-span-4 tactile-card rounded-2xl p-6 flex flex-col group">
+<div class="h-48 rounded-xl overflow-hidden mb-4">
+<img class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" data-alt="A premium ceramic dog bowl in a deep Bark Brown matte finish with an elegant, precision-engraved name and avatar silhouette on the side. The bowl is displayed on a clean white kitchen tile, with soft, natural morning light casting gentle shadows. The aesthetic is sophisticated, minimalist, and high-end." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCAEff1LIjotodjFBiBZE7Vapnqepfp9QNIHvIbtJaMPVsTe_abNrUQAhyBjmb3mO8Kh7YPOOyKvc4vTymhgtpV2delY0iUXER0SLUfGEucvsd4Icq62ktTcWS1BmLaTW_mRDehvjJKRHgq5h42qmRG3vnY0OMTjMCBUmoUsxPj4hvnwFNb1T1KUCrdqp-pkrK-Z67UrvYLpyub0M_kaZkSxD2dYTED7cxFSiyeJBzjrL3M3u4zjJ5Lbt1HQirRV7WdJ2wBRLbj1pWO"/>
+</div>
+<h4 class="font-bold text-lg text-primary">Engraved Bowls</h4>
+<p class="text-on-surface-variant text-sm mb-4">Ceramic bowls with laser-etched portraits.</p>
+<div class="mt-auto flex justify-between items-center">
+<span class="font-bold text-primary">$32.00</span>
+<button class="text-primary font-bold hover:underline">Design</button>
+</div>
+</div>
+<!-- 3D Printed Houses - Large Card -->
+<div class="md:col-span-8 tactile-card rounded-2xl p-8 flex flex-col-reverse md:flex-row gap-8 relative overflow-hidden group">
+<div class="flex-1 h-64 md:h-auto rounded-xl overflow-hidden relative">
+<img class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" data-alt="A futuristic, architecturally-inspired 3D printed dog house featuring organic, flowing curves and a sleek modern aesthetic. The house is placed in a stylish living room with lush green plants. The material has a subtle textured gradient of Slate Mist and Bark Brown. Soft ambient lighting creates a cozy, inviting interior for the pet." src="https://lh3.googleusercontent.com/aida-public/AB6AXuD4D9iLmgR_VCOMbTDhhxn-BwY9JpCrdtGCRGHj9QzkCGj4jgB4wmavq8bUjbvt545O-RqaEij9o4Rg4TgzWghAGWzeVS_PkPzRY4OHndTSJFcgOXdWqRwch2ItkT8s8Id4AEfxtlnqZ6Ea5BXOT45wpxDWpIWQI2crZZVhFpMMgiMQp_mIUBX_9YOloxE6zkalrTZuKWryszr5Mala8H7_sR0tYsyc0NaCmeA7KEbH2-pbJPZS5WXR3_IhK5S3f7A0u7P9iNZn5bNy"/>
+</div>
+<div class="flex-1 flex flex-col justify-between relative z-10 text-right md:text-left">
+<div>
+<div class="inline-block px-3 py-1 rounded-full bg-error-container text-on-error-container text-[10px] font-bold uppercase mb-2">New Release</div>
+<h4 class="font-headline-lg text-headline-lg text-primary mb-2">Designer Dog Houses</h4>
+<p class="text-on-surface-variant font-body-md mb-6">Eco-friendly biopolymer structures custom-sized for your breed.</p>
+</div>
+<div class="flex items-center justify-end md:justify-start gap-4">
+<span class="text-2xl font-bold text-primary">From $299</span>
+<button class="bg-primary text-on-primary px-6 py-2 rounded-lg font-bold inner-glow hover:scale-105 transition-all">Configure</button>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- 'Customized for You' Section -->
+<section class="bg-surface-container-low py-20 mt-12 relative overflow-hidden">
+<div class="max-w-[1200px] mx-auto px-margin-mobile md:px-margin-desktop relative z-10">
+<div class="text-center mb-16">
+<h3 class="font-headline-lg text-headline-lg text-primary mb-4">Customized for Explorer Max</h3>
+<p class="text-on-surface-variant max-w-2xl mx-auto">We've applied your current active avatar to these premium physical goods. One click to turn your digital creation into a reality.</p>
+</div>
+<div class="grid grid-cols-2 md:grid-cols-4 gap-gutter">
+<!-- Mini Preview Item 1 -->
+<div class="frosted-earth p-4 rounded-xl flex flex-col items-center text-center">
+<div class="w-full aspect-square rounded-lg overflow-hidden mb-4 bg-white/50 p-2">
+<img class="w-full h-full object-contain" data-alt="A preview of a 3D dog avatar silhouette engraved on a polished bronze pet tag. The tag is held by a hand to show scale, with soft outdoor forest lighting creating a warm, earthy glint off the metal. The mood is adventurous and high-quality." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCvlpT2qPu2O1Es-sLx3-vi_jRkMiFUGTrW2ys5hrHtr-5iKb9guRrWcYsUNsi0tkaQfcd5mQQdCOdkNO42qUfvOwHj38U8Es-gAWWMNnT7g2JsHt9eO3SY7nPovIUtQYaJojr94XtLw3Vkqr96X67GujOAidoa6johlkGqxlxKY8cdai-OBdRScutA2D8UavLfENWs-SbzK_cXsexOSUHc_Te7ixTE9LDIcMjUf1wfH8nLL1JdELzh91waLtqiuhzwzHRwqAhcsJAc"/>
+</div>
+<p class="font-label-caps text-label-caps text-on-surface-variant uppercase">Bronze ID Tag</p>
+<span class="text-primary font-bold">$18.00</span>
+</div>
+<!-- Mini Preview Item 2 -->
+<div class="frosted-earth p-4 rounded-xl flex flex-col items-center text-center">
+<div class="w-full aspect-square rounded-lg overflow-hidden mb-4 bg-white/50 p-2">
+<img class="w-full h-full object-contain" data-alt="A mockup of a canvas tote bag featuring a high-quality Pixar-style dog avatar print in the center. The bag is high-grade natural cotton, hung on a wooden peg against a warm cream wall. Minimalist and stylish merchandise design." src="https://lh3.googleusercontent.com/aida-public/AB6AXuASEkarZqj2R9zPmh61Dt4-uWWPhCOJ79Dgqbu5c6juAe0fcZWq_u9BFlAhbHWxG3TRztTFkn65NSx5cIK6LZRSxrSh1iVctnTPFEDflgzLg1nqhm5FD6iB_P7aDsK3NYX-CFbd2FMdMY6QcJCZHRd1cO7bnZDrGN1une21usjVJSN0JUt6JCFysk5rm86WS--0rViC77KtfTBMlSZvfKzJnmXpIET1S7gdB1DuWKQanEWFegwQ9MrdiMAoIPI6Y9AxGip1su-n9oTN"/>
+</div>
+<p class="font-label-caps text-label-caps text-on-surface-variant uppercase">Avatar Tote</p>
+<span class="text-primary font-bold">$24.00</span>
+</div>
+<!-- Mini Preview Item 3 -->
+<div class="frosted-earth p-4 rounded-xl flex flex-col items-center text-center">
+<div class="w-full aspect-square rounded-lg overflow-hidden mb-4 bg-white/50 p-2">
+<img class="w-full h-full object-contain" data-alt="A custom ceramic mug with a wraparound 3D illustration of a dog avatar. The mug is matte black with a bright, colorful avatar graphic. Steam rises from the top, suggesting a cozy morning at home with your pet. High-contrast and vibrant." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBWDJcPv2izomSDrueKCOtBaqYFfFI0bm0CTmWiPYTpujYzcLxf8B3O3i3r_-Se3QApGjt6EHCr24Ix55i2L9Yda9fuKSR8BQNi7aDv-d2xrc-VwXARTumMji2CxH1yJy95pXfDjaFgYvqKdjCL8b2rtKFBXINntPiQwyLir4R8n41NslZZ4zgHVODOWyOdAdKkZg08CVI_w5WTGAAMd-qBiFIdHYfC5ksmRnJXqGrr8QrLqVpyQmfqXtaifnwlJ2F7BnBBpS8snq3U"/>
+</div>
+<p class="font-label-caps text-label-caps text-on-surface-variant uppercase">Ceramic Mug</p>
+<span class="text-primary font-bold">$15.00</span>
+</div>
+<!-- Mini Preview Item 4 -->
+<div class="frosted-earth p-4 rounded-xl flex flex-col items-center text-center">
+<div class="w-full aspect-square rounded-lg overflow-hidden mb-4 bg-white/50 p-2">
+<img class="w-full h-full object-contain" data-alt="A high-quality laptop sticker set featuring various poses of the same 3D dog avatar. The stickers have a premium vinyl sheen and are displayed on a sleek gray laptop lid. Modern, playful, and tactile pet owner merchandise." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDqvJACOi5hiIGJFWtY9Nr72xzGDhmz2Nnp2RhjUdFlVXg3XpvWwnXcYWuzxwBzcdR4_JL8T6kWwv5gK5ZfT_1eHCZV2IIkdpdFLwlD9HMa9sakZCPvZ4N7ig-B17XeXRnlBHZpSXnyjEuHZ1tePRBgEy7pNzvfjiXBRM4hAA9DklSI3cZ8YoPRfHpF1ibgsruUA9i_foOql1vCgZ03GzKRajL1n2xGy3ie3fK84rrQk18rcoZ-i8Gb4tWqKHuEkvUFN_ddZ3avvdq3"/>
+</div>
+<p class="font-label-caps text-label-caps text-on-surface-variant uppercase">Vinyl Sticker Pack</p>
+<span class="text-primary font-bold">$12.00</span>
+</div>
+</div>
+<div class="mt-12 flex justify-center">
+<a class="bg-primary-container text-on-primary-container px-10 py-4 rounded-xl font-bold flex items-center gap-3 hover:bg-primary transition-all group cursor-pointer" href="{{DATA:SCREEN:SCREEN_5}}">
+                    View Entire Custom Collection
+                    <span class="material-symbols-outlined transition-transform group-hover:translate-x-1" data-icon="auto_awesome">auto_awesome</span>
+</a>
+</div>
+</div>
+</section>
+<!-- Navigation Drawer (Side Nav for Desktop/Menu) -->
+<aside class="fixed inset-y-0 left-0 z-[60] flex flex-col h-full w-80 rounded-r-xl bg-surface-bright border-r border-outline-variant/30 shadow-2xl shadow-primary/20 -translate-x-full transition-transform duration-300 ease-in-out" id="sideNav">
+<div class="p-6 flex flex-col items-start">
+<div class="w-16 h-16 rounded-full overflow-hidden bg-primary mb-4">
+<img class="w-full h-full object-cover" data-alt="A charming profile portrait of a smiling user named Explorer Max, styled as a high-quality 3D avatar that matches the app's Pixar-inspired aesthetic. He is wearing outdoor gear and has a friendly, energetic expression." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAS9ppxzMp2wGPp9KdTTtHNcIvDMZVvzqoCGxzZ1EXBYyUqinNoOaLz4ULmOCW1tBYKTuXvS1hfp0Wv9-9e_dwG3T1M5Tj5NU8WClWLRaTk0BYA3AH-Ro43HVX97iQcjDo-dFnr9c1am7WnqZP0Jv7Elx4r-Wi80mWaj_8gBAzhjDo3Ic1Jp1ipvwat28nSUwt14F-Wn9ER2phIMBAPb4TJ773RekNvkjtJ5N2dX6Hzrv42SH2noZizNY1to1OrYaEFlFu5cIHHvBL5"/>
+</div>
+<h3 class="font-headline-lg text-primary leading-tight">Explorer Max</h3>
+<p class="text-on-surface-variant text-sm">3 Orders in Progress</p>
+<span class="text-xs text-primary/60 mt-1 uppercase font-bold tracking-widest">Level 12 Collector</span>
+</div>
+<nav class="flex-1 px-4 py-2 flex flex-col gap-1">
+<a class="flex items-center gap-4 p-4 text-on-surface-variant hover:bg-surface-container-high rounded-lg transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="pets">pets</span>
+<span class="font-body-md">My Avatars</span>
+</a>
+<a class="flex items-center gap-4 p-4 text-on-surface-variant hover:bg-surface-container-high rounded-lg transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="palette">palette</span>
+<span class="font-body-md">Style Guide</span>
+</a>
+<a class="flex items-center gap-4 p-4 text-on-surface-variant hover:bg-surface-container-high rounded-lg transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="local_shipping">local_shipping</span>
+<span class="font-body-md">Shipping Info</span>
+</a>
+<div class="my-4 border-t border-outline-variant/30"></div>
+<a class="flex items-center gap-4 p-4 text-on-surface-variant hover:bg-surface-container-high rounded-lg transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+<span class="font-body-md">Support</span>
+</a>
+<a class="flex items-center gap-4 p-4 text-on-surface-variant hover:bg-surface-container-high rounded-lg transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="font-body-md">Settings</span>
+</a>
+</nav>
+</aside>
+<!-- Bottom Nav for Mobile -->
+<nav class="md:hidden fixed bottom-0 w-full z-50 flex justify-around items-center px-4 pb-6 pt-3 bg-surface shadow-[0_-4px_24px_rgba(68,42,34,0.08)] rounded-t-xl">
+<a class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-xl px-4 py-1" href="{{DATA:SCREEN:SCREEN_26}}">
+<span class="material-symbols-outlined" data-icon="storefront">storefront</span>
+<span class="font-label-caps text-[10px] mt-1">Home</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-secondary-fixed-variant p-2" href="#">
+<span class="material-symbols-outlined" data-icon="potted_plant">potted_plant</span>
+<span class="font-label-caps text-[10px] mt-1">Custom</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-secondary-fixed-variant p-2" href="#">
+<span class="material-symbols-outlined" data-icon="package_2">package_2</span>
+<span class="font-label-caps text-[10px] mt-1">Orders</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-secondary-fixed-variant p-2" href="#">
+<span class="material-symbols-outlined" data-icon="person">person</span>
+<span class="font-label-caps text-[10px] mt-1">Profile</span>
+</a>
+</nav>
+<!-- Footer -->
+<footer class="bg-primary text-on-primary-container py-12 md:py-20 mt-12">
+<div class="max-w-[1200px] mx-auto px-margin-mobile md:px-margin-desktop grid grid-cols-1 md:grid-cols-4 gap-12">
+<div class="col-span-1 md:col-span-2">
+<h2 class="font-headline-xl text-headline-xl text-on-primary-container mb-4">Pet Merch</h2>
+<p class="max-w-md opacity-80">The premier destination for turning your digital pet experiences into tangible memories. Built for the modern, adventurous dog owner.</p>
+</div>
+<div>
+<h5 class="font-bold mb-4">Shop</h5>
+<ul class="flex flex-col gap-2 opacity-70">
+<li><a class="hover:text-on-primary transition-colors" href="#">3D Models</a></li>
+<li><a class="hover:text-on-primary transition-colors" href="#">Custom Plush</a></li>
+<li><a class="hover:text-on-primary transition-colors" href="#">Home Goods</a></li>
+<li><a class="hover:text-on-primary transition-colors" href="#">Pet Apparel</a></li>
+</ul>
+</div>
+<div>
+<h5 class="font-bold mb-4">Help</h5>
+<ul class="flex flex-col gap-2 opacity-70">
+<li><a class="hover:text-on-primary transition-colors" href="#">Order Tracking</a></li>
+<li><a class="hover:text-on-primary transition-colors" href="#">Shipping FAQ</a></li>
+<li><a class="hover:text-on-primary transition-colors" href="#">Customization Guide</a></li>
+<li><a class="hover:text-on-primary transition-colors" href="#">Contact Us</a></li>
+</ul>
+</div>
+</div>
+<div class="max-w-[1200px] mx-auto px-margin-mobile md:px-margin-desktop mt-16 pt-8 border-t border-on-primary-container/20 flex flex-col md:flex-row justify-between items-center gap-4 text-sm opacity-60">
+<p>© 2024 Pawsome3D Collective. All rights reserved.</p>
+<div class="flex gap-8">
+<a href="#">Privacy Policy</a>
+<a href="#">Terms of Service</a>
+</div>
+</div>
+</footer>
+<script>
+        // Simple micro-interaction for the side nav toggle
+        const menuIcon = document.querySelector('[data-icon="menu"]');
+        const sideNav = document.getElementById('sideNav');
+        let isOpen = false;
+
+        menuIcon.addEventListener('click', () => {
+            isOpen = !isOpen;
+            if (isOpen) {
+                sideNav.classList.remove('-translate-x-full');
+                menuIcon.innerText = 'close';
+            } else {
+                sideNav.classList.add('-translate-x-full');
+                menuIcon.innerText = 'menu';
+            }
+        });
+
+        // Close sidebar when clicking outside
+        document.addEventListener('click', (e) => {
+            if (isOpen && !sideNav.contains(e.target) && e.target !== menuIcon) {
+                isOpen = false;
+                sideNav.classList.add('-translate-x-full');
+                menuIcon.innerText = 'menu';
+            }
+        });
+
+        // Add subtle scroll reveal logic
+        const observerOptions = {
+            threshold: 0.1
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('opacity-100', 'translate-y-0');
+                    entry.target.classList.remove('opacity-0', 'translate-y-10');
+                }
+            });
+        }, observerOptions);
+
+        document.querySelectorAll('.tactile-card').forEach(card => {
+            card.classList.add('opacity-0', 'translate-y-10', 'transition-all', 'duration-700');
+            observer.observe(card);
+        });
+    </script>
+</body></html>

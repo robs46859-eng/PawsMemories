@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Pawsome3D: Immersive Landing Page</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&amp;family=Space+Grotesk:wght@500;600;700&amp;family=Be+Vietnam+Pro:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-dim": "#dadad6",
+                        "outline": "#827470",
+                        "secondary-container": "#cfe6f2",
+                        "surface-tint": "#77574d",
+                        "surface-container-lowest": "#ffffff",
+                        "tertiary": "#352f2c",
+                        "on-primary": "#ffffff",
+                        "on-error": "#ffffff",
+                        "on-error-container": "#93000a",
+                        "inverse-on-surface": "#f1f1ed",
+                        "on-tertiary-container": "#bdb3af",
+                        "inverse-surface": "#2f312e",
+                        "surface-container": "#eeeeea",
+                        "on-secondary-container": "#526772",
+                        "on-primary-container": "#d4ada1",
+                        "tertiary-fixed": "#ece0dc",
+                        "secondary-fixed-dim": "#b4cad6",
+                        "primary-fixed-dim": "#e7bdb1",
+                        "error-container": "#ffdad6",
+                        "on-secondary": "#ffffff",
+                        "inverse-primary": "#e7bdb1",
+                        "surface": "#faf9f5",
+                        "outline-variant": "#d4c3be",
+                        "primary": "#442a22",
+                        "on-surface-variant": "#504441",
+                        "on-tertiary-fixed": "#201a18",
+                        "on-surface": "#1a1c1a",
+                        "secondary-fixed": "#cfe6f2",
+                        "surface-container-low": "#f4f4f0",
+                        "error": "#ba1a1a",
+                        "background": "#faf9f5",
+                        "on-secondary-fixed-variant": "#354a53",
+                        "on-tertiary-fixed-variant": "#4c4542",
+                        "secondary": "#4c616c",
+                        "primary-container": "#5d4037",
+                        "tertiary-container": "#4c4542",
+                        "on-secondary-fixed": "#071e27",
+                        "on-primary-fixed": "#2c160e",
+                        "on-background": "#1a1c1a",
+                        "surface-variant": "#e2e3df",
+                        "surface-container-highest": "#e2e3df",
+                        "tertiary-fixed-dim": "#cfc4c0",
+                        "on-tertiary": "#ffffff",
+                        "surface-bright": "#faf9f5",
+                        "on-primary-fixed-variant": "#5d4037"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "gutter": "16px",
+                        "margin-mobile": "20px",
+                        "container-max": "1200px",
+                        "unit": "4px",
+                        "margin-desktop": "64px"
+                    },
+                    "fontFamily": {
+                        "headline-xl": ["Plus Jakarta Sans"],
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "label-caps": ["Space Grotesk"],
+                        "body-md": ["Be Vietnam Pro"],
+                        "body-sm": ["Be Vietnam Pro"],
+                        "headline-lg-mobile": ["Plus Jakarta Sans"]
+                    },
+                    "fontSize": {
+                        "headline-xl": ["40px", { "lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "800" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                        "label-caps": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "body-sm": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-lg-mobile": ["28px", { "lineHeight": "34px", "fontWeight": "700" }]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        
+        .glass-card {
+            background: rgba(255, 255, 255, 0.4);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        @keyframes float {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+            100% { transform: translateY(0px); }
+        }
+
+        .animate-float {
+            animation: float 6s ease-in-out infinite;
+        }
+
+        .mud-splatter {
+            position: absolute;
+            background: #442a22;
+            opacity: 0.15;
+            filter: blur(2px);
+            border-radius: 50%;
+            pointer-events: none;
+            transition: transform 0.3s ease;
+        }
+
+        .paw-print {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            opacity: 0.1;
+            pointer-events: none;
+        }
+
+        body {
+            cursor: default;
+            background-color: #faf9f5;
+        }
+    </style>
+</head>
+<body class="font-body-md text-on-surface overflow-x-hidden">
+<!-- Top Navigation Bar -->
+<header class="fixed top-0 w-full z-50 bg-surface/60 backdrop-blur-xl shadow-[0_8px_32px_0_rgba(68,42,34,0.08)]">
+<nav class="flex justify-between items-center px-6 md:px-margin-desktop py-4 w-full max-w-container-max mx-auto">
+<div class="flex items-center gap-2">
+<span class="text-headline-lg font-headline-xl font-extrabold text-primary tracking-tight">Pawsome3D</span>
+</div>
+<div class="hidden md:flex items-center gap-8">
+<a class="text-primary font-bold border-b-2 border-primary py-1" href="#">Home</a>
+<a class="text-on-surface-variant font-medium hover:bg-primary/5 transition-colors px-3 py-1 rounded-lg" href="{{DATA:SCREEN:SCREEN_37}}">Avatars</a>
+<a class="text-on-surface-variant font-medium hover:bg-primary/5 transition-colors px-3 py-1 rounded-lg" href="{{DATA:SCREEN:SCREEN_26}}">AR Mode</a>
+<a class="text-on-surface-variant font-medium hover:bg-primary/5 transition-colors px-3 py-1 rounded-lg" href="{{DATA:SCREEN:SCREEN_18}}">Community</a>
+</div>
+<div class="flex items-center gap-4">
+<button class="material-symbols-outlined text-primary p-2 hover:bg-primary/5 rounded-full transition-colors active:scale-95 duration-200">notifications</button>
+<button class="material-symbols-outlined text-primary p-2 hover:bg-primary/5 rounded-full transition-colors active:scale-95 duration-200">settings</button>
+<div class="w-10 h-10 rounded-full bg-primary-container/20 flex items-center justify-center overflow-hidden border border-outline-variant">
+<img class="w-full h-full object-cover" data-alt="A stylized 3D avatar profile picture of a cheerful golden retriever puppy in a Pixar-like aesthetic, soft lighting, warm brown background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDdR4rv-bqOVpf64ZHaCWCJ7Sull4snmC6zkLvsHl4rW7p3DTAgzFRDYOFsB4dCkaf9FlR1wsQxlfKBdS1pbp8tKREBw1Q3c6wBEDMFIv_KsyicsOcxHiVt7XlrD_hhcEeecMeQkl68ECt90yobIuGSDg9rILwb9YqaeBKsVgVD7SlAB0zPJ1NXW38I45tXrrnMZRZiqvlzBaLB6KgzMPQY7ehqa90HLc9qLep6n2LjQ267_vyij8z9O1I8LmfD_54WrXT01ySB7vzJ"/>
+</div>
+</div>
+</nav>
+</header>
+<!-- Side Navigation Bar (Hidden on mobile) -->
+<aside class="hidden lg:flex fixed left-0 top-0 h-full w-64 z-40 bg-surface-container-low/80 backdrop-blur-md flex-col p-gutter gap-4 shadow-xl shadow-primary/10 pt-24">
+<div class="mb-4">
+<h3 class="font-label-caps text-label-caps text-primary px-4 mb-2">Immersive Adventure</h3>
+</div>
+<nav class="flex flex-col gap-2">
+<a class="flex items-center gap-3 bg-primary text-on-primary rounded-lg px-4 py-3 shadow-md hover:translate-x-1 transition-transform duration-300" href="#">
+<span class="material-symbols-outlined">home</span>
+<span class="font-label-caps text-label-caps">Home</span>
+</a>
+<a class="flex items-center gap-3 text-on-surface-variant hover:bg-surface-variant/50 rounded-lg px-4 py-3 hover:translate-x-1 transition-transform duration-300 transition-all" href="{{DATA:SCREEN:SCREEN_37}}">
+<span class="material-symbols-outlined">pets</span>
+<span class="font-label-caps text-label-caps">Avatars</span>
+</a>
+<a class="flex items-center gap-3 text-on-surface-variant hover:bg-surface-variant/50 rounded-lg px-4 py-3 hover:translate-x-1 transition-transform duration-300 transition-all" href="{{DATA:SCREEN:SCREEN_26}}">
+<span class="material-symbols-outlined">view_in_ar</span>
+<span class="font-label-caps text-label-caps">AR Mode</span>
+</a>
+<a class="flex items-center gap-3 text-on-surface-variant hover:bg-surface-variant/50 rounded-lg px-4 py-3 hover:translate-x-1 transition-transform duration-300 transition-all" href="{{DATA:SCREEN:SCREEN_18}}">
+<span class="material-symbols-outlined">group</span>
+<span class="font-label-caps text-label-caps">Community</span>
+</a>
+</nav>
+<div class="mt-auto flex flex-col gap-2">
+<a class="bg-primary text-center text-on-primary rounded-lg py-4 px-4 font-label-caps text-label-caps font-bold shadow-lg hover:brightness-110 active:scale-95 transition-all" href="{{DATA:SCREEN:SCREEN_24}}">
+                Create 3D Avatar
+            </a>
+<div class="h-px bg-outline-variant/30 my-4"></div>
+<a class="flex items-center gap-3 text-on-surface-variant hover:bg-surface-variant/50 rounded-lg px-4 py-3 transition-all" href="#">
+<span class="material-symbols-outlined">help</span>
+<span class="font-label-caps text-label-caps">Help</span>
+</a>
+<a class="flex items-center gap-3 text-on-surface-variant hover:bg-surface-variant/50 rounded-lg px-4 py-3 transition-all" href="#">
+<span class="material-symbols-outlined">logout</span>
+<span class="font-label-caps text-label-caps">Logout</span>
+</a>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="lg:pl-64 min-h-screen pt-20 relative">
+<!-- Hero Section with Background -->
+<section class="relative h-[85vh] w-full overflow-hidden flex items-center justify-center px-6">
+<!-- Cinematic Background -->
+<div class="absolute inset-0 z-0 overflow-hidden">
+<img alt="Cinematic living room background" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida/AP1WRLvt8lFxJgHJ9uP3j6iyhqJUtsv1lxYplq8f-d6xh9dMKZt8nDB1YMz45La6Y2Nasn42O8MypImZtJWIX0to6wkpFZGfOR_zfUBzjMH_HO4zzbwtfIuqq8l14CtfbEF5orZj6ZeJcNw7oNmkMlMNZgo3hPGaP0FR1kcMPFoy1LqbahDJf1vo6dH3v8oGnFTp4BOenijUglfJb97YY6Pq7-5eZGCmaDOFUMkg8sjqGrkpFLK05dGpeNaU5Emr"/>
+<div class="absolute inset-0 bg-gradient-to-t from-surface/80 via-transparent to-transparent"></div>
+</div>
+<!-- Animated Mud Splatters Overlay -->
+<div class="absolute inset-0 z-10 pointer-events-none" id="splatter-layer"></div>
+<!-- Content Canvas -->
+<div class="relative z-20 max-w-4xl text-center flex flex-col items-center">
+<div class="inline-flex items-center gap-2 px-4 py-2 bg-primary/10 backdrop-blur-md rounded-full text-primary mb-6 border border-primary/20 animate-float">
+<span class="material-symbols-outlined text-[18px]">auto_awesome</span>
+<span class="font-label-caps text-label-caps">Next-Gen Pet Technology</span>
+</div>
+<h1 class="font-headline-xl text-headline-xl text-primary mb-6 leading-tight drop-shadow-sm md:text-[64px] md:leading-[1.1]">
+                    Bring Your Best Friend <br/> to Life in <span class="bg-primary text-on-primary px-4 rounded-xl">3D</span>
+</h1>
+<p class="text-body-md text-on-surface-variant mb-10 max-w-2xl font-medium">
+                    Transform snapshots of your dog into immersive, high-fidelity 3D avatars. Explore augmented reality adventures, health tracking in 3D, and connect with a global community of pet lovers.
+                </p>
+<div class="flex flex-col sm:flex-row gap-4 items-center">
+<a class="bg-primary text-on-primary px-10 py-5 rounded-lg font-headline-lg text-body-md shadow-2xl hover:translate-y-[-2px] transition-all hover:shadow-primary/30 active:scale-95 group flex items-center" href="{{DATA:SCREEN:SCREEN_24}}">
+                        Start Creating
+                        <span class="material-symbols-outlined align-middle ml-2 group-hover:translate-x-1 transition-transform">arrow_forward</span>
+</a>
+<a class="glass-card text-primary px-10 py-5 rounded-lg font-headline-lg text-body-md hover:bg-surface/80 transition-all border border-primary/10 flex items-center" href="{{DATA:SCREEN:SCREEN_26}}">
+                        View Demo
+                    </a>
+</div>
+</div>
+<!-- Floating UI Elements -->
+<div class="absolute bottom-12 right-12 hidden md:block z-30 animate-float" style="animation-delay: -1s;">
+<div class="glass-card p-4 rounded-xl shadow-2xl flex items-center gap-4 max-w-[280px]">
+<div class="w-12 h-12 rounded-full bg-secondary-container flex items-center justify-center">
+<span class="material-symbols-outlined text-secondary" style="font-variation-settings: 'FILL' 1;">view_in_ar</span>
+</div>
+<div>
+<p class="font-label-caps text-[10px] text-on-surface-variant uppercase tracking-widest">AR Status</p>
+<p class="font-headline-lg text-body-md text-primary">Live Tracking Active</p>
+</div>
+</div>
+</div>
+<div class="absolute top-32 left-8 hidden lg:block z-30 animate-float" style="animation-delay: -3s;">
+<div class="glass-card p-4 rounded-xl shadow-2xl flex flex-col gap-2 min-w-[200px]">
+<div class="flex justify-between items-center">
+<span class="font-label-caps text-label-caps text-on-surface-variant">Generation Progress</span>
+<span class="font-label-caps text-label-caps text-primary">82%</span>
+</div>
+<div class="w-full bg-surface-container h-2 rounded-full overflow-hidden">
+<div class="bg-primary h-full w-[82%] rounded-full shadow-[0_0_8px_rgba(68,42,34,0.5)]"></div>
+</div>
+<p class="text-[11px] text-on-surface-variant mt-1 italic">Mapping neural texture mesh...</p>
+</div>
+</div>
+</section>
+<!-- Value Propositions (Bento Grid) -->
+<section class="py-24 px-6 md:px-margin-desktop bg-surface relative">
+<div class="max-w-container-max mx-auto">
+<div class="mb-16 text-center">
+<h2 class="font-headline-lg text-headline-lg text-primary mb-4">Unleash the Potential</h2>
+<p class="text-on-surface-variant max-w-xl mx-auto">Our cutting-edge technology bridge the gap between physical and digital pet parenting.</p>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-12 gap-6">
+<!-- Feature 1: AI Generation -->
+<div class="md:col-span-8 group relative overflow-hidden bg-surface-container-low rounded-3xl p-10 hover:shadow-xl transition-all duration-500 flex flex-col md:flex-row gap-8 items-center border border-outline-variant/20">
+<div class="md:w-1/2">
+<div class="w-12 h-12 rounded-xl bg-primary text-on-primary flex items-center justify-center mb-6">
+<span class="material-symbols-outlined">auto_fix_high</span>
+</div>
+<h3 class="font-headline-lg text-[24px] text-primary mb-4">AI-Powered 3D Generation</h3>
+<p class="text-on-surface-variant text-body-md mb-6 leading-relaxed">
+                                Upload 5 photos, get a 1:1 digital twin. Our proprietary neural rendering engine captures every whisker, spot, and wag with cinematic precision.
+                            </p>
+<a class="text-primary font-bold inline-flex items-center gap-2 group-hover:gap-4 transition-all" href="#">
+                                Learn the science
+                                <span class="material-symbols-outlined">east</span>
+</a>
+</div>
+<div class="md:w-1/2 relative h-64 w-full">
+<img class="rounded-2xl shadow-lg w-full h-full object-cover" data-alt="A split screen image showing a real life labradoodle sitting on a rug and its corresponding high-fidelity 3D Pixar-style digital model, bright lighting, warm colors, detailed fur texture." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBlBydxoYJSoeQ693gMiVZSi86XxwrMwLFhawUGdlRNTgGVlxSCYskyhft1RViCAva-PVmHlg2IA9ooaL00-n8sXHvHSOPgBlBt6l4JCVoGNDPgYaSpbZuyCuOXFaClkuBsz6RHUz-hHQwuSHdhZGQMsayR6J-OoanKeIfL0FNs6upO8WKhjf-2hTgXbJhoJNr7VnCLOcySvw9Qk3p8qV4Zr0zSJLjvWUQp1K5CM6MgXwz42DBRhlvGwbYpEdHAQdwVHPiPK9BMlkhq"/>
+</div>
+</div>
+<!-- Feature 2: Global Paw-mmunity -->
+<div class="md:col-span-4 bg-tertiary text-tertiary-fixed rounded-3xl p-10 flex flex-col justify-between hover:shadow-xl transition-all duration-500 border border-tertiary-container">
+<div>
+<div class="w-12 h-12 rounded-xl bg-tertiary-fixed text-tertiary flex items-center justify-center mb-6">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">group</span>
+</div>
+<h3 class="font-headline-lg text-[24px] mb-4">Global Paw-mmunity</h3>
+<p class="opacity-80 text-body-sm leading-relaxed">
+                                Join a digital neighborhood of 50k+ creators. Share avatars, trade 3D accessories, and compete in weekly beauty pageants.
+                            </p>
+</div>
+<div class="mt-8 flex -space-x-4">
+<!-- Avatar Stacks -->
+<div class="w-10 h-10 rounded-full border-2 border-tertiary overflow-hidden"><img class="w-full h-full object-cover" data-alt="A portrait of a tiny pomeranian 3D avatar with big eyes." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCRA3Bca415qKmroWdlfQjW12ak_XXYdU6bVd-A49IgBcwROtAhBdLMcnUgV4DHwJpB5Ss2Rr6QX6dCO16qScA-CacpbB0mwJrpKaJnoAfcdXG6QNXg1G2lBo0VSMByEP7Hnf6MTjl_tnTM1IIKKRGvNYDApAQf78aHJlFqF-Ou5OjfgrehFfbEB6VQxJo8EzdSybj-EF6av9r_BOoFwIMT-8Fm968ud7ehIYH-8tuQNJwC6p8VXZCntCKB3op1jGgRgdCLj7jvgVfJ"/></div>
+<div class="w-10 h-10 rounded-full border-2 border-tertiary overflow-hidden"><img class="w-full h-full object-cover" data-alt="A 3D render of a cool husky wearing digital sunglasses." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBAkfdQuaxsZLT2PvvaipPiudbUhhDm87-NKt3DD7Yy3FpkQdVD4KZ84fHhcgLcpqGDQHTn0rxFRVHmP5gzKi9GMXx-B-Odp5PNSAQJZUsT-DsMDoMVzUkH2z2vxi6A3-0sVxz5sycEhAhMw5JiQrIc8VnlE5dbdbPnEhrIQVgfP6Wi41o3UVlXVf8Lee4jnWct-EbeQlaazRn4mqvcLO5kq1LXIKGkX1wpKeenoF-P8UesN82QPD7XE5mWF3BmfUnVEi0unuNt1oY7"/></div>
+<div class="w-10 h-10 rounded-full border-2 border-tertiary overflow-hidden"><img class="w-full h-full object-cover" data-alt="A cute 3D beagle model looking happy." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBQzqyUbJ7-0-3QFypAQPmwK4YZBC5xTqHV6bqG6x4gHJ_tEPXMeujkse-0B1hX66TMgvr4NF42bvME4fNtuff-deY_xFkw3JluTPlRFttmkdGILhRVfArH6b2z5BRIbXLnBqkaOdhfbjcBaWkxtwtOwrODFrDwlaVgbGMdl8ImbJvWNQp13IsbqT3Zlia09MyuD6BltZ9J6B8m_BPRmO4BdPdSUWt2ToCrZbOxbavH83xQ3cepKWcIuU3bMibm3RO8OzOZ0TaiIPGN"/></div>
+<div class="w-10 h-10 rounded-full bg-on-tertiary-fixed text-tertiary-fixed flex items-center justify-center text-[10px] font-bold">+12k</div>
+</div>
+</div>
+<!-- Feature 3: Neural AR -->
+<div class="md:col-span-4 bg-secondary-container text-on-secondary-container rounded-3xl p-10 flex flex-col justify-between hover:shadow-xl transition-all duration-500">
+<div>
+<div class="w-12 h-12 rounded-xl bg-secondary text-on-secondary flex items-center justify-center mb-6">
+<span class="material-symbols-outlined">view_in_ar</span>
+</div>
+<h3 class="font-headline-lg text-[24px] mb-4">Immersive Neural AR</h3>
+<p class="opacity-80 text-body-sm leading-relaxed">
+                                See your 3D pet interact with your real living room through any smartphone. 120fps motion tracking ensures seamless realism.
+                            </p>
+</div>
+<a class="mt-8 py-3 bg-secondary text-on-secondary rounded-lg font-label-caps text-label-caps font-bold text-center" href="{{DATA:SCREEN:SCREEN_26}}">Try AR Demo</a>
+</div>
+<!-- Feature 4: Interactive Card -->
+<div class="md:col-span-8 bg-surface-container-highest rounded-3xl p-10 flex flex-col md:flex-row gap-8 items-center border border-outline-variant/30 overflow-hidden">
+<div class="flex-1">
+<h3 class="font-headline-lg text-[24px] text-primary mb-2">3D Pet Health Sync</h3>
+<p class="text-on-surface-variant text-body-sm">
+                                Link your smart collar to see a 3D visualization of your pet's metabolic health and activity levels in real-time.
+                            </p>
+<div class="mt-6 space-y-3">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-green-600 text-sm">check_circle</span>
+<span class="text-body-sm font-medium">Daily Steps: 12,402</span>
+</div>
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-green-600 text-sm">check_circle</span>
+<span class="text-body-sm font-medium">Sleep Quality: Rested</span>
+</div>
+</div>
+</div>
+<div class="flex-1 w-full flex justify-center relative">
+<div class="w-48 h-48 bg-primary/5 rounded-full flex items-center justify-center border-2 border-dashed border-primary/20">
+<span class="material-symbols-outlined text-primary text-6xl animate-pulse">monitor_heart</span>
+</div>
+<!-- Small floating heart rate nodes -->
+<div class="absolute top-0 right-1/4 animate-float bg-white p-2 rounded-lg shadow-md border border-primary/5 text-[10px] font-bold">110 BPM</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- CTA Footer Section -->
+<section class="py-20 px-6 md:px-margin-desktop bg-surface-container-low border-t border-outline-variant/20 overflow-hidden">
+<div class="max-w-container-max mx-auto glass-card p-12 md:p-20 rounded-[48px] text-center relative overflow-hidden">
+<!-- Background visual -->
+<div class="absolute -right-20 -bottom-20 w-80 h-80 bg-primary/5 rounded-full blur-3xl"></div>
+<div class="absolute -left-20 -top-20 w-80 h-80 bg-secondary-container/20 rounded-full blur-3xl"></div>
+<h2 class="font-headline-xl text-headline-xl text-primary mb-6">Ready to Create Your Digital Pet?</h2>
+<p class="text-on-surface-variant max-w-2xl mx-auto mb-10 text-body-md">
+                    Join thousands of owners who have already digitized their beloved companions. It takes less than 2 minutes to start your first generation.
+                </p>
+<div class="flex flex-col sm:flex-row justify-center gap-4">
+<a class="bg-primary text-on-primary px-12 py-5 rounded-full font-headline-lg text-body-md shadow-xl hover:scale-105 active:scale-95 transition-all inline-block" href="{{DATA:SCREEN:SCREEN_24}}">
+                        Create Your Free Avatar
+                    </a>
+<button class="bg-transparent border-2 border-primary text-primary px-12 py-5 rounded-full font-headline-lg text-body-md hover:bg-primary/5 transition-all">
+                        View Sample Gallery
+                    </button>
+</div>
+<div class="mt-16 flex justify-center items-center gap-12 grayscale opacity-50 flex-wrap">
+<span class="font-bold text-xl tracking-tighter">PETVOGUE</span>
+<span class="font-bold text-xl tracking-tighter">PAWTECH</span>
+<span class="font-bold text-xl tracking-tighter">DOGDAILY</span>
+<span class="font-bold text-xl tracking-tighter">VETSYNC</span>
+</div>
+</div>
+</section>
+<footer class="py-12 px-6 md:px-margin-desktop bg-surface text-on-surface-variant">
+<div class="max-w-container-max mx-auto flex flex-col md:flex-row justify-between items-center gap-8">
+<div class="flex flex-col items-center md:items-start">
+<span class="text-headline-lg font-headline-xl font-extrabold text-primary tracking-tight mb-2">Pawsome3D</span>
+<p class="text-body-sm">© 2024 TerraPaw Labs. All rights reserved.</p>
+</div>
+<div class="flex gap-8">
+<a class="hover:text-primary transition-colors font-medium" href="#">Privacy Policy</a>
+<a class="hover:text-primary transition-colors font-medium" href="#">Terms of Service</a>
+<a class="hover:text-primary transition-colors font-medium" href="#">Cookie Settings</a>
+</div>
+<div class="flex gap-4">
+<a class="w-10 h-10 rounded-full bg-surface-container flex items-center justify-center hover:bg-primary/10 transition-all text-primary" href="#">
+<span class="material-symbols-outlined text-[20px]">share</span>
+</a>
+<a class="w-10 h-10 rounded-full bg-surface-container flex items-center justify-center hover:bg-primary/10 transition-all text-primary" href="#">
+<span class="material-symbols-outlined text-[20px]">mail</span>
+</a>
+</div>
+</div>
+</footer>
+</main>
+<!-- Floating Action Button for Support -->
+<button class="fixed bottom-8 right-8 w-14 h-14 bg-primary text-on-primary rounded-full shadow-2xl flex items-center justify-center z-50 hover:scale-110 active:scale-95 transition-all group">
+<span class="material-symbols-outlined group-hover:rotate-12 transition-transform">support_agent</span>
+</button>
+<script>
+        // Interactive Micro-interactions
+        document.addEventListener('DOMContentLoaded', () => {
+            const splatterLayer = document.getElementById('splatter-layer');
+            
+            // Create some random static splatters on load
+            for(let i = 0; i < 15; i++) {
+                createSplatter(
+                    Math.random() * window.innerWidth,
+                    Math.random() * (window.innerHeight * 0.8),
+                    Math.random() * 60 + 20
+                );
+            }
+
+            // Create interactive splatters on mouse move (throttle for performance)
+            let lastX = 0;
+            let lastY = 0;
+            const distanceThreshold = 100;
+
+            document.addEventListener('mousemove', (e) => {
+                const distance = Math.sqrt(Math.pow(e.clientX - lastX, 2) + Math.pow(e.clientY - lastY, 2));
+                
+                if (distance > distanceThreshold && Math.random() > 0.8) {
+                    createSplatter(e.clientX, e.clientY, Math.random() * 30 + 10);
+                    lastX = e.clientX;
+                    lastY = e.clientY;
+                }
+            });
+
+            function createSplatter(x, y, size) {
+                const splatter = document.createElement('div');
+                splatter.className = 'mud-splatter';
+                splatter.style.width = `${size}px`;
+                splatter.style.height = `${size * (0.8 + Math.random() * 0.4)}px`;
+                splatter.style.left = `${x}px`;
+                splatter.style.top = `${y}px`;
+                splatter.style.transform = `rotate(${Math.random() * 360}deg) scale(${0.5 + Math.random()})`;
+                
+                splatterLayer.appendChild(splatter);
+
+                // Auto remove to prevent DOM bloat
+                if(splatterLayer.children.length > 50) {
+                    splatterLayer.removeChild(splatterLayer.firstChild);
+                }
+            }
+
+            // Simple parallax on mouse move
+            document.addEventListener('mousemove', (e) => {
+                const moveX = (e.clientX - window.innerWidth / 2) * 0.01;
+                const moveY = (e.clientY - window.innerHeight / 2) * 0.01;
+                
+                const background = document.querySelector('img[src*="IMAGE_16"]');
+                if (background) {
+                    background.style.transform = `scale(1.1) translate(${moveX}px, ${moveY}px)`;
+                }
+            });
+        });
+    </script>
+</body></html>

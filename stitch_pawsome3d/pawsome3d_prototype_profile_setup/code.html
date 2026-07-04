@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Pawsome3D - Welcome</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@700;800&amp;family=Space+Grotesk:wght@600&amp;family=Be+Vietnam+Pro:wght@400;600&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@100..900&amp;family=Plus+Jakarta+Sans:wght@100..900&amp;family=Space+Grotesk:wght@100..900&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .pixar-glow {
+            box-shadow: 0 10px 40px -10px rgba(68, 42, 34, 0.15);
+        }
+        .squishy-press:active {
+            transform: scale(0.96);
+            transition: transform 0.1s ease-out;
+        }
+        .floating-animation {
+            animation: float 6s ease-in-out infinite;
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+        .input-well {
+            box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.05);
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "surface-variant": "#e2e3df",
+                      "secondary-fixed-dim": "#b4cad6",
+                      "error": "#ba1a1a",
+                      "on-surface-variant": "#504441",
+                      "background": "#faf9f5",
+                      "on-tertiary-fixed-variant": "#4c4542",
+                      "on-error-container": "#93000a",
+                      "primary-fixed": "#ffdbd0",
+                      "on-primary-fixed-variant": "#5d4037",
+                      "surface-container-high": "#e8e8e4",
+                      "on-secondary": "#ffffff",
+                      "tertiary-fixed": "#ece0dc",
+                      "on-background": "#1a1c1a",
+                      "error-container": "#ffdad6",
+                      "secondary-container": "#cfe6f2",
+                      "on-error": "#ffffff",
+                      "inverse-on-surface": "#f1f1ed",
+                      "primary-fixed-dim": "#e7bdb1",
+                      "on-secondary-container": "#526772",
+                      "on-tertiary-container": "#bdb3af",
+                      "secondary": "#4c616c",
+                      "secondary-fixed": "#cfe6f2",
+                      "on-surface": "#1a1c1a",
+                      "surface-tint": "#77574d",
+                      "surface-container": "#eeeeea",
+                      "outline-variant": "#d4c3be",
+                      "primary-container": "#5d4037",
+                      "surface-bright": "#faf9f5",
+                      "surface-container-highest": "#e2e3df",
+                      "on-tertiary-fixed": "#201a18",
+                      "on-secondary-fixed": "#071e27",
+                      "inverse-primary": "#e7bdb1",
+                      "on-primary-fixed": "#2c160e",
+                      "tertiary": "#352f2c",
+                      "on-secondary-fixed-variant": "#354a53",
+                      "tertiary-container": "#4c4542",
+                      "on-primary": "#ffffff",
+                      "inverse-surface": "#2f312e",
+                      "primary": "#442a22",
+                      "on-tertiary": "#ffffff",
+                      "surface-container-lowest": "#ffffff",
+                      "surface-container-low": "#f4f4f0",
+                      "surface": "#faf9f5",
+                      "outline": "#827470",
+                      "tertiary-fixed-dim": "#cfc4c0",
+                      "surface-dim": "#dadad6",
+                      "on-primary-container": "#d4ada1"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.8rem",
+                      "xl": "1.25rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "container-max": "1200px",
+                      "margin-mobile": "20px",
+                      "margin-desktop": "64px",
+                      "gutter": "16px",
+                      "unit": "4px"
+              },
+              "fontFamily": {
+                      "headline-lg-mobile": ["Plus Jakarta Sans"],
+                      "label-caps": ["Space Grotesk"],
+                      "body-md": ["Be Vietnam Pro"],
+                      "headline-lg": ["Plus Jakarta Sans"],
+                      "headline-xl": ["Plus Jakarta Sans"],
+                      "body-sm": ["Be Vietnam Pro"]
+              },
+              "fontSize": {
+                      "headline-lg-mobile": ["28px", {"lineHeight": "34px", "fontWeight": "700"}],
+                      "label-caps": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                      "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                      "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                      "headline-xl": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "800"}],
+                      "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}]
+              }
+            },
+          },
+        }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background text-on-surface font-body-md min-h-screen flex flex-col items-center">
+<!-- Top App Bar (Modified for Onboarding: No Nav) -->
+<header class="fixed top-0 left-0 w-full z-50 bg-surface/80 backdrop-blur-xl flex justify-center items-center py-6 px-margin-mobile">
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile font-bold text-primary">BarkWorld</h1>
+</header>
+<main class="w-full max-w-md px-margin-mobile pt-32 pb-12 flex flex-col items-center">
+<!-- Welcome Hero Section -->
+<div class="text-center mb-10 w-full">
+<h2 class="font-headline-xl text-headline-xl text-primary mb-2">Welcome!</h2>
+<p class="text-on-surface-variant font-body-md">Let's create a profile for you and your best friend.</p>
+</div>
+<!-- 3D Photo Upload Area -->
+<div class="relative w-full aspect-square max-w-[280px] mb-12 group cursor-pointer">
+<div class="absolute inset-0 bg-tertiary-fixed rounded-xl rotate-3 scale-95 opacity-50"></div>
+<div class="absolute inset-0 bg-primary-fixed rounded-xl -rotate-2 scale-100 opacity-80"></div>
+<div class="relative w-full h-full bg-surface-container-high rounded-xl border-4 border-white pixar-glow overflow-hidden flex flex-col items-center justify-center transition-all duration-300 group-hover:scale-[1.02] active:scale-95">
+<img class="absolute inset-0 w-full h-full object-cover opacity-20 grayscale brightness-110" data-alt="A high-quality 3D Pixar-style digital render of a fluffy Golden Retriever puppy sitting in a sun-drenched autumn forest. The puppy has large expressive eyes and a playful smile. Soft, warm sunlight filters through the amber leaves, creating a magical, cinematic atmosphere with a shallow depth of field. The style is polished, tactile, and heartwarming, emphasizing the soft texture of the fur." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDhAPCOn9lJeAvcUcl3BdoLP4KgyEMtnj3DMytEM-aCeBC_Jdpc8WW-UZL57l3Qr5OTa-jgsrex2CjGTUWuxGmgSkMlcgq8O_oOt40zJn_RN3amGsf2AUvegr9mKKbNgEtBxhhbTVHvlEE9NxddCCh0JEfzxnFnyN9C6I7k2BKyjpDcu7JPXvlFQKQIxtvg9O9c7Eau9ZP-jGV8C3uT8CmB6Dk6jXb3kphtYYtNQg5c63h0iWvkb77VVgecwIiLCoBNdCsQjg2S5LLu"/>
+<div class="z-10 flex flex-col items-center px-6 text-center">
+<div class="w-20 h-20 bg-primary text-white rounded-full flex items-center justify-center mb-4 shadow-lg floating-animation">
+<span class="material-symbols-outlined text-4xl" style="font-variation-settings: 'FILL' 1;">add_a_photo</span>
+</div>
+<span class="font-label-caps text-primary uppercase">Upload Pup Photo</span>
+<p class="text-xs text-on-surface-variant mt-1">PNG or JPG up to 10MB</p>
+</div>
+</div>
+<!-- Floating Decorative Bone -->
+<div class="absolute -bottom-4 -right-4 w-16 h-16 bg-secondary-container rounded-full flex items-center justify-center shadow-md animate-bounce">
+<span class="material-symbols-outlined text-secondary text-2xl" style="font-variation-settings: 'FILL' 1;">pets</span>
+</div>
+</div>
+<!-- Form Section -->
+<form class="w-full space-y-8" onsubmit="return false;">
+<!-- Your Name Input -->
+<div class="space-y-2">
+<label class="font-label-caps text-primary ml-2 uppercase">Your Name</label>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline">person</span>
+<input class="w-full pl-12 pr-4 py-5 bg-tertiary-warm-cream bg-tertiary-fixed border-none rounded-xl font-body-md text-on-surface focus:ring-2 focus:ring-primary input-well transition-all" placeholder="e.g. Alex" type="text"/>
+</div>
+</div>
+<!-- Dog's Name Input -->
+<div class="space-y-2">
+<label class="font-label-caps text-primary ml-2 uppercase">Your Dog's Name</label>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline">potted_plant</span>
+<input class="w-full pl-12 pr-4 py-5 bg-tertiary-warm-cream bg-tertiary-fixed border-none rounded-xl font-body-md text-on-surface focus:ring-2 focus:ring-primary input-well transition-all" placeholder="e.g. Buddy" type="text"/>
+</div>
+</div>
+<!-- Submit Button Area -->
+<div class="pt-4">
+<button class="w-full bg-primary text-white py-5 rounded-xl font-headline-lg-mobile squishy-press shadow-xl shadow-primary/20 flex items-center justify-center space-x-3 transition-all hover:bg-primary/95" onclick="window.location.href='{{DATA:SCREEN:SCREEN_26}}'">
+<span>Ready to Play!</span>
+<span class="material-symbols-outlined">arrow_forward</span>
+</button>
+<p class="text-center text-body-sm text-on-surface-variant mt-6">
+                    By continuing, you agree to our <a class="underline font-semibold decoration-primary/30" href="#">Terms of Service</a>.
+                </p>
+</div>
+</form>
+</main>
+<!-- Visual Embellishment: Background Shapes -->
+<div class="fixed top-[20%] -left-20 w-64 h-64 bg-primary-fixed opacity-20 blur-[100px] -z-10"></div>
+<div class="fixed bottom-[10%] -right-20 w-80 h-80 bg-secondary-fixed opacity-30 blur-[120px] -z-10"></div>
+<script>
+        // Simple micro-interaction for input focus
+        const inputs = document.querySelectorAll('input');
+        inputs.forEach(input => {
+            input.addEventListener('focus', () => {
+                input.parentElement.parentElement.classList.add('scale-[1.02]');
+                input.parentElement.parentElement.style.transition = 'transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)';
+            });
+            input.addEventListener('blur', () => {
+                input.parentElement.parentElement.classList.remove('scale-[1.02]');
+            });
+        });
+
+        // Haptic-like button click interaction
+        const mainBtn = document.querySelector('button');
+        mainBtn.addEventListener('click', (e) => {
+            // Prevent default navigation for animation demo if needed, 
+            // but the request is to link it, so we'll let it navigate after a brief delay if we were doing a real mock.
+            // For now, we rely on the onclick inline, or we can handle it here:
+            
+            const originalContent = mainBtn.innerHTML;
+            mainBtn.innerHTML = `
+                <div class="flex items-center space-x-2">
+                    <div class="w-2 h-2 bg-white rounded-full animate-bounce"></div>
+                    <div class="w-2 h-2 bg-white rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                    <div class="w-2 h-2 bg-white rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                </div>
+            `;
+            setTimeout(() => {
+                mainBtn.innerHTML = `<span class="material-symbols-outlined text-white">check_circle</span> <span>Profile Created!</span>`;
+                mainBtn.classList.remove('bg-primary');
+                mainBtn.classList.add('bg-on-tertiary-fixed-variant');
+                
+                // Redirect after showing success
+                setTimeout(() => {
+                    window.location.href = '{{DATA:SCREEN:SCREEN_26}}';
+                }, 800);
+            }, 1200);
+        });
+    </script>
+</body></html>
