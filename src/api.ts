@@ -113,6 +113,112 @@ export async function claimAchievement(id: string): Promise<PublicUser> {
   return data.user as PublicUser;
 }
 
+export async function claimShareReward(platform: string): Promise<{ reward: number; user: PublicUser }> {
+  const res = await authedFetch("/api/credits/reward", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ platform }),
+  });
+  if (!res.ok) throw new Error(await parseError(res, "Failed to claim reward."));
+  const data = await res.json();
+  return { reward: data.reward as number, user: data.user as PublicUser };
+}
+
+export interface CreditTxn {
+  id: number;
+  delta: number;
+  reason: string;
+  balance_after: number;
+  created_at: string;
+}
+
+export async function getCreditHistory(): Promise<CreditTxn[]> {
+  const res = await authedFetch("/api/credits/history");
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data.history as CreditTxn[]) || [];
+}
+
+/** Confirm a Stripe checkout session after redirect and credit it if not already done. */
+export async function confirmCreditsSession(sessionId: string): Promise<{ credited: number; balance: number } | null> {
+  const res = await authedFetch(`/api/credits/confirm?session_id=${encodeURIComponent(sessionId)}`);
+  if (!res.ok) return null;
+  const d = await res.json();
+  return { credited: d.credited ?? 0, balance: d.balance ?? 0 };
+}
+
+// --- User photo library ----------------------------------------------------
+
+export interface UserPhoto { id: number; image_url: string; source: string; created_at?: string; }
+
+export async function uploadProfilePhoto(image: string): Promise<PublicUser> {
+  const res = await authedFetch("/api/profile/photo", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image }),
+  });
+  if (!res.ok) throw new Error(await parseError(res, "Failed to update profile photo."));
+  return (await res.json()).user as PublicUser;
+}
+
+export async function getUserPhotos(): Promise<UserPhoto[]> {
+  const res = await authedFetch("/api/profile/photos");
+  if (!res.ok) return [];
+  return ((await res.json()).photos as UserPhoto[]) || [];
+}
+
+export async function addUserPhoto(image: string): Promise<UserPhoto> {
+  const res = await authedFetch("/api/profile/photos", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image }),
+  });
+  if (!res.ok) throw new Error(await parseError(res, "Failed to add photo."));
+  return (await res.json()).photo as UserPhoto;
+}
+
+export async function deleteUserPhoto(id: number): Promise<boolean> {
+  const res = await authedFetch(`/api/profile/photos/${id}`, { method: "DELETE" });
+  return res.ok;
+}
+
+// --- Community -------------------------------------------------------------
+
+export interface CommunityPark { name: string; address: string; rating: number | null; open: boolean | null; }
+export interface CommunityWeather { tempC: number; tempF: number; condition: string; source: string; }
+export interface CommunityRecall { product: string; reason: string; company: string; date: string; classification: string; }
+export interface CommunityMemory { id: number; image_url: string; caption: string | null; created_at?: string; }
+
+export async function getCommunityParks(lat: number, lng: number): Promise<CommunityPark[]> {
+  const res = await authedFetch(`/api/community/parks?lat=${lat}&lng=${lng}`);
+  if (!res.ok) return [];
+  return ((await res.json()).parks as CommunityPark[]) || [];
+}
+
+export async function getCommunityWeather(lat: number, lng: number): Promise<CommunityWeather | null> {
+  const res = await authedFetch(`/api/community/weather?lat=${lat}&lng=${lng}`);
+  if (!res.ok) return null;
+  return ((await res.json()).weather as CommunityWeather) || null;
+}
+
+export async function getPetRecalls(): Promise<CommunityRecall[]> {
+  const res = await authedFetch(`/api/community/recalls`);
+  if (!res.ok) return [];
+  return ((await res.json()).recalls as CommunityRecall[]) || [];
+}
+
+export async function getCommunityMemories(): Promise<CommunityMemory[]> {
+  const res = await authedFetch(`/api/community/memories`);
+  if (!res.ok) return [];
+  return ((await res.json()).memories as CommunityMemory[]) || [];
+}
+
+export async function uploadCommunityMemory(image: string, caption: string): Promise<CommunityMemory> {
+  const res = await authedFetch(`/api/community/memories`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ image, caption }),
+  });
+  if (!res.ok) throw new Error(await parseError(res, "Failed to share memory."));
+  return (await res.json()).memory as CommunityMemory;
+}
+
 // --- Phase 1: Street View & Creations Flow ---------------------------------
 
 export async function checkStreetViewCoverage(lat: number, lng: number): Promise<{ status: string }> {

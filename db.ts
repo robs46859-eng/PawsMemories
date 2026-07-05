@@ -63,6 +63,7 @@ export interface PublicUser {
   isAdmin: boolean;
   dailyStreak: number;
   lastStreakClaim: string | null;
+  profilePhotoUrl: string | null;
   achievements: any[];
 }
 
@@ -84,6 +85,7 @@ export function toPublicUser(userRow: any): PublicUser {
     isAdmin: !!userRow.is_admin || (!!ADMIN_KEY && userRow.phone === ADMIN_KEY),
     dailyStreak: userRow.daily_streak || 0,
     lastStreakClaim: userRow.last_streak_claim || null,
+    profilePhotoUrl: userRow.profile_photo_url || null,
     achievements: achievements
   };
 }
@@ -138,6 +140,7 @@ export async function initDb(): Promise<void> {
       { name: "daily_streak",      ddl: "ADD COLUMN daily_streak INT NOT NULL DEFAULT 0" },
       { name: "last_streak_claim", ddl: "ADD COLUMN last_streak_claim DATE NULL" },
       { name: "achievements_json", ddl: "ADD COLUMN achievements_json TEXT NULL" },
+      { name: "profile_photo_url", ddl: "ADD COLUMN profile_photo_url TEXT NULL" },
     ];
     for (const col of requiredColumns) {
       if (!columnNames.includes(col.name)) {
@@ -384,6 +387,45 @@ export async function initDb(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
+    // Credit ledger: one row per credit change (earn or spend), for spend tracking + history.
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS credit_transactions (
+        id            INT AUTO_INCREMENT PRIMARY KEY,
+        user_phone    VARCHAR(32) NOT NULL,
+        delta         INT NOT NULL,
+        reason        VARCHAR(80) NOT NULL,
+        balance_after INT NOT NULL,
+        created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX (user_phone),
+        INDEX (created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // Community memory board: user-uploaded photos shown in the live inspiration loop.
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS community_memories (
+        id          INT AUTO_INCREMENT PRIMARY KEY,
+        user_phone  VARCHAR(32) NOT NULL,
+        image_url   TEXT NOT NULL,
+        caption     VARCHAR(200) NULL,
+        created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX (created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // Per-user photo library: profile uploads + photos fed in from the avatar builder.
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS user_photos (
+        id          INT AUTO_INCREMENT PRIMARY KEY,
+        user_phone  VARCHAR(32) NOT NULL,
+        image_url   TEXT NOT NULL,
+        source      VARCHAR(32) NOT NULL DEFAULT 'upload',
+        created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX (user_phone),
+        INDEX (created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
     // Migration check for creations table
     const [creationsCols] = await getPool().query(
       `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'creations'`,
@@ -530,11 +572,14 @@ export async function getCreditBalance(phone: string): Promise<number> {
  * Atomically deduct credits only if the user has enough.
  * Returns true if the deduction succeeded, false if insufficient balance.
  */
-export async function deductCredits(phone: string, amount: number): Promise<boolean> {
+export async function deductCredits(phone: string, amount: number, reason: string = "spend"): Promise<boolean> {
   const [result] = await getPool().query(
     `UPDATE users SET credits = credits - ? WHERE phone = ? AND credits >= ?`,
     [amount, phone, amount]
   ) as any;
+  if (result.affectedRows === 1) {
+    await recordCreditTxn(phone, -Math.abs(amount), reason);
+  }
   return result.affectedRows === 1;
 }
 
@@ -542,11 +587,130 @@ export async function deductCredits(phone: string, amount: number): Promise<bool
  * Add credits to a user's account (purchases, rewards, webhooks).
  * Safe to call from Stripe webhooks.
  */
-export async function addCredits(phone: string, amount: number): Promise<void> {
+export async function addCredits(phone: string, amount: number, reason: string = "credit"): Promise<void> {
   await getPool().query(
     `UPDATE users SET credits = credits + ? WHERE phone = ?`,
     [amount, phone]
   );
+  await recordCreditTxn(phone, Math.abs(amount), reason);
+}
+
+/**
+ * Append a row to the credit ledger. Best-effort: a logging failure must never
+ * block or reverse the actual credit change, so errors are swallowed.
+ */
+export async function recordCreditTxn(phone: string, delta: number, reason: string): Promise<void> {
+  try {
+    const balance = await getCreditBalance(phone);
+    await getPool().query(
+      `INSERT INTO credit_transactions (user_phone, delta, reason, balance_after) VALUES (?, ?, ?, ?)`,
+      [phone, delta, reason.slice(0, 80), balance]
+    );
+  } catch (err) {
+    console.warn("[credit ledger] failed to record transaction:", (err as any)?.message || err);
+  }
+}
+
+export interface CreditTransaction {
+  id: number;
+  delta: number;
+  reason: string;
+  balance_after: number;
+  created_at: string;
+}
+
+/** Recent credit transactions for a user, newest first (for spend tracking / history). */
+export async function getCreditHistory(phone: string, limit: number = 20): Promise<CreditTransaction[]> {
+  const [rows] = await getPool().query(
+    `SELECT id, delta, reason, balance_after, created_at
+       FROM credit_transactions WHERE user_phone = ? ORDER BY id DESC LIMIT ?`,
+    [phone, Math.max(1, Math.min(100, limit))]
+  ) as any;
+  return rows as CreditTransaction[];
+}
+
+/**
+ * Whether a Stripe checkout session has already granted credits. Used to keep
+ * the webhook and the redirect-confirm path from double-crediting the same
+ * purchase (both tag the ledger row with reason "purchase:<sessionId>").
+ */
+export async function wasSessionCredited(sessionId: string): Promise<boolean> {
+  const [rows] = await getPool().query(
+    `SELECT 1 FROM credit_transactions WHERE reason = ? LIMIT 1`,
+    [`purchase:${sessionId}`]
+  ) as any;
+  return Array.isArray(rows) && rows.length > 0;
+}
+
+// ============================================================================
+// Community Memory Board
+// ============================================================================
+
+export interface CommunityMemory {
+  id: number;
+  user_phone: string;
+  image_url: string;
+  caption: string | null;
+  created_at: string;
+}
+
+export async function addCommunityMemory(phone: string, imageUrl: string, caption: string | null): Promise<number> {
+  const [r] = await getPool().query(
+    `INSERT INTO community_memories (user_phone, image_url, caption) VALUES (?, ?, ?)`,
+    [phone, imageUrl, caption ? caption.slice(0, 200) : null]
+  ) as any;
+  return r.insertId;
+}
+
+/** Recent community memories, newest first, for the live inspiration board. */
+export async function getCommunityMemories(limit: number = 30): Promise<CommunityMemory[]> {
+  const [rows] = await getPool().query(
+    `SELECT id, user_phone, image_url, caption, created_at
+       FROM community_memories ORDER BY id DESC LIMIT ?`,
+    [Math.max(1, Math.min(60, limit))]
+  ) as any;
+  return rows as CommunityMemory[];
+}
+
+// ============================================================================
+// User Photo Library (profile thumbnail + avatar-builder photo persistence)
+// ============================================================================
+
+export interface UserPhoto {
+  id: number;
+  image_url: string;
+  source: string;
+  created_at: string;
+}
+
+export async function setProfilePhoto(phone: string, url: string): Promise<void> {
+  await getPool().query(`UPDATE users SET profile_photo_url = ? WHERE phone = ?`, [url, phone]);
+}
+
+export async function addUserPhoto(phone: string, url: string, source: string = "upload"): Promise<number> {
+  const [r] = await getPool().query(
+    `INSERT INTO user_photos (user_phone, image_url, source) VALUES (?, ?, ?)`,
+    [phone, url, source.slice(0, 32)]
+  ) as any;
+  return r.insertId;
+}
+
+export async function getUserPhotos(phone: string, limit: number = 60): Promise<UserPhoto[]> {
+  const [rows] = await getPool().query(
+    `SELECT id, image_url, source, created_at FROM user_photos
+      WHERE user_phone = ? ORDER BY id DESC LIMIT ?`,
+    [phone, Math.max(1, Math.min(200, limit))]
+  ) as any;
+  return rows as UserPhoto[];
+}
+
+/** Delete a photo the user owns. Returns true if a row was removed. */
+export async function deleteUserPhoto(id: number, phone: string): Promise<boolean> {
+  const [r] = await getPool().query(
+    `DELETE FROM user_photos WHERE id = ? AND user_phone = ?`,
+    [id, phone]
+  ) as any;
+  return r.affectedRows === 1;
 }
 
 // ============================================================================
@@ -1137,13 +1301,14 @@ export async function claimDailyStreak(phone: string): Promise<{success: boolean
   // Reward: 5 credits and 1 treat
   await getPool().query(
     `UPDATE users 
-     SET daily_streak = ?, 
-         last_streak_claim = ?, 
+     SET daily_streak = ?,
+         last_streak_claim = ?,
          credits = credits + 5,
          treats = treats + 1
      WHERE phone = ?`,
     [newStreak, today, phone]
   );
+  await recordCreditTxn(phone, 5, "daily_bonus");
   return { success: true };
 }
 

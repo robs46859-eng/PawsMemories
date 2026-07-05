@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Play, Sparkles, Activity, Heart, ArrowRight } from "lucide-react";
+import { Plus, Sparkles, Activity, Heart, ArrowRight } from "lucide-react";
 import { Album, Creation, UserProfile } from "../types";
 import { Achievement } from "./AchievementsPanel";
 
@@ -8,6 +8,7 @@ interface DashboardProps {
   albums: Album[];
   creations: Creation[];
   onAddMemory: () => void;
+  onCreate: () => void;
   onClaimDailyBonus: () => void;
   onShareCompleted: (platform: string, reward: number) => void;
   onSelectCreation: (creation: Creation) => void;
@@ -21,7 +22,7 @@ interface DashboardProps {
   onOpenAdminPanel?: () => void;
 }
 
-export default function Dashboard({ userProfile, streak, dailyStreakClaimed, onClaimDailyStreak }: DashboardProps) {
+export default function Dashboard({ userProfile, streak, dailyStreakClaimed, onClaimDailyStreak, onCreate }: DashboardProps) {
   const [isHoveringAR, setIsHoveringAR] = useState(false);
   const petName = userProfile.fullName.split(" ")[0] + "'s Pet"; // Defaulting to something nice
 
@@ -31,10 +32,10 @@ export default function Dashboard({ userProfile, streak, dailyStreakClaimed, onC
       {/* Top Section: Daily Streak & Welcome */}
       <div className="w-full max-w-5xl flex justify-between items-start z-10 pt-4 md:pt-0">
         <div>
-          <h1 className="text-3xl md:text-5xl font-extrabold text-on-surface drop-shadow-md">
+          <h1 className="text-2xl md:text-4xl font-extrabold text-on-surface drop-shadow-md">
             Welcome back, <br className="md:hidden" /><span className="text-primary">{userProfile.fullName.split(" ")[0]}!</span>
           </h1>
-          <p className="text-on-surface-variant text-lg mt-2 font-medium">Ready for another adventure?</p>
+          <p className="text-on-surface-variant text-sm md:text-base mt-1.5 font-medium">Ready for another adventure?</p>
         </div>
         
         {/* Streak Badge */}
@@ -52,31 +53,20 @@ export default function Dashboard({ userProfile, streak, dailyStreakClaimed, onC
 
       {/* Center: Floating Active Avatar */}
       <div className="flex-1 w-full flex flex-col items-center justify-center relative z-10 my-8">
-        {/* Soft glowing aura behind avatar */}
-        <div className="absolute w-[300px] h-[300px] bg-primary/20 rounded-full blur-[80px] animate-pulse"></div>
-        
-        {/* Avatar Image (placeholder for 3D model) */}
-        <div className="relative w-64 h-64 md:w-80 md:h-80 flex items-center justify-center animate-[float_6s_ease-in-out_infinite]">
-          <img 
-            src="https://lh3.googleusercontent.com/aida-public/AB6AXuDIPw_dS7Lk9ZnzJytp5OIFSvYe-o3-dmnRDceXgTN8b5eU7dMNngow29JGkVgP55WqV83FwgTDzYmQN5QN-FHWzUnX1Da1nGaxLlYjpCeeWo-IvkxT6_Gvpaky_tH_CXtidU-3Aub5SbhC38mhHjAjYCN27qeXFzuS0sEBRNRvZZMazrGdbPIgzpwS6HLqnWfh1iQilRGEFIy8g5jIvCMeR-xzEDZwwpMIZ0ESk_acTP8-47Vj4pDLlKzuYHTiRHTCUBH1K4Y9JHvX" 
-            alt="Active Avatar" 
-            className="w-full h-full object-contain drop-shadow-[0_20px_50px_rgba(0,0,0,0.5)] z-10"
-          />
-        </div>
+        {/* Soft glowing aura */}
+        <div className="absolute w-[210px] h-[210px] bg-primary/20 rounded-full blur-[70px] animate-pulse"></div>
 
-        {/* Launch AR Button */}
-        <button 
+        {/* Create Button — solid/opaque, navigates to the avatar builder */}
+        <button
+          onClick={onCreate}
           onMouseEnter={() => setIsHoveringAR(true)}
           onMouseLeave={() => setIsHoveringAR(false)}
-          className="mt-8 group relative overflow-hidden rounded-[2rem] p-[3px] focus:outline-none focus:ring-4 focus:ring-primary/50 shadow-2xl transition-transform hover:scale-105 active:scale-95"
+          className="mt-6 group relative flex items-center gap-2.5 bg-primary text-on-primary px-6 py-3 rounded-2xl shadow-xl shadow-primary/30 focus:outline-none focus:ring-4 focus:ring-primary/40 transition-transform hover:scale-105 active:scale-95 cursor-pointer"
         >
-          <span className="absolute inset-0 bg-gradient-to-r from-primary via-secondary to-primary-fixed bg-[length:200%_auto] animate-gradient"></span>
-          <div className="relative bg-surface dark:bg-surface-dim px-8 py-4 rounded-[1.8rem] flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-full bg-primary flex items-center justify-center text-on-primary transition-transform duration-300 ${isHoveringAR ? 'scale-110' : ''}`}>
-              <Play size={20} className="ml-1" fill="currentColor" />
-            </div>
-            <span className="font-extrabold text-xl tracking-wide bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">LAUNCH AR</span>
-          </div>
+          <span className={`w-8 h-8 rounded-full bg-on-primary/20 flex items-center justify-center transition-transform duration-300 ${isHoveringAR ? 'scale-110' : ''}`}>
+            <Plus size={18} strokeWidth={3} />
+          </span>
+          <span className="font-extrabold text-base tracking-wide">Create</span>
         </button>
       </div>
 

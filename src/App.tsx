@@ -11,28 +11,33 @@ import ShareMemory from "./components/ShareMemory";
 import RandyChat from "./components/RandyChat";
 import AlbumView from "./components/AlbumView";
 import AlbumsPage from "./components/AlbumsPage";
-import { fetchMe, fetchCreations, fetchAlbums, createAlbum, clearToken, claimAchievement, claimDailyStreak } from "./api";
+import { fetchMe, fetchCreations, fetchAlbums, createAlbum, clearToken, claimAchievement, claimDailyStreak, claimShareReward, confirmCreditsSession } from "./api";
 import { Sparkles, User, History, FolderOpen, Sun, Moon, LogOut, RefreshCw, Zap, Dog, ClipboardList, Bell, ShoppingBag, Users, Home } from "lucide-react";
 import CreditStore from "./components/CreditStore";
 import AvatarDashboard from "./components/AvatarDashboard";
 import Store from "./components/Store";
 import ProfileScreen from "./components/ProfileScreen";
+import Community from "./components/Community";
 
 const EMPTY_PROFILE: UserProfile = { fullName: "", email: "", credits: 0, treats: 0, isAdmin: false, city: "", ageVerified: false };
 
 const getBackgroundImage = (screen: Screen) => {
   switch (screen) {
     case Screen.SIGN_UP:
+      return {
+        url: "/MAIN4.jpg",
+        className: "opacity-40"
+      };
     case Screen.WELCOME:
     case Screen.TUTORIAL:
       return {
-        url: "https://lh3.googleusercontent.com/aida-public/AB6AXuDhAPCOn9lJeAvcUcl3BdoLP4KgyEMtnj3DMytEM-aCeBC_Jdpc8WW-UZL57l3Qr5OTa-jgsrex2CjGTUWuxGmgSkMlcgq8O_oOt40zJn_RN3amGsf2AUvegr9mKKbNgEtBxhhbTVHvlEE9NxddCCh0JEfzxnFnyN9C6I7k2BKyjpDcu7JPXvlFQKQIxtvg9O9c7Eau9ZP-jGV8C3uT8CmB6Dk6jXb3kphtYYtNQg5c63h0iWvkb77VVgecwIiLCoBNdCsQjg2S5LLu",
+        url: "/MAIN.jpg",
         className: "opacity-35 grayscale brightness-110"
       };
     case Screen.AVATAR_DASHBOARD:
     case Screen.STORE:
       return {
-        url: "https://lh3.googleusercontent.com/aida/AP1WRLvt8lFxJgHJ9uP3j6iyhqJUtsv1lxYplq8f-d6xh9dMKZt8nDB1YMz45La6Y2Nasn42O8MypImZtJWIX0to6wkpFZGfOR_zfUBzjMH_HO4zzbwtfIuqq8l14CtfbEF5orZj6ZeJcNw7oNmkMlMNZgo3hPGaP0FR1kcMPFoy1LqbahDJf1vo6dH3v8oGnFTp4BOenijUglfJb97YY6Pq7-5eZGCmaDOFUMkg8sjqGrkpFLK05dGpeNaU5Emr",
+        url: "/MAIN2.jpg",
         className: "opacity-45 blur-[1px]"
       };
     case Screen.PROFILE:
@@ -42,13 +47,13 @@ const getBackgroundImage = (screen: Screen) => {
     case Screen.REQUEST_MEMORY:
     case Screen.EDIT_MEMORY:
       return {
-        url: "https://lh3.googleusercontent.com/aida-public/AB6AXuCgPgSPbugIw7F_e3S1ovxk0kXUcFRdPskoy_9PfWa9WhHYuW2cIC31iOs3emo4xn_LchV70fYyBJyZjGcv-NqNLC2LUFBSsVkVQbql0-tUGkqrb7gyqk4b9S9MT9R907oQt79H06ENI2Yg9GuyCW1jGRdXzTPNcMgPQ_4l0wtcGzp_PUW9yIrcj5iLfNy1f_FvOPou2R8Q9Hs74deUI9WpFfY_O2hBsKYlwPjlxU0YEtRiCWZTKWa0miFhM7ElBCe2V1_al1DgDeqS",
+        url: "/MAIN.jpg",
         className: "opacity-55"
       };
     case Screen.DASHBOARD:
     default:
       return {
-        url: "https://lh3.googleusercontent.com/aida-public/AB6AXuD-HqwxMcpwPXgGyLghKDmX1u4tjL6sbJHj3zw_AbJ1n32bwAVThwTiezURkzCyyAvH75EDBKWrxIg4Aldt4eydUzY9PGxKyItSMwZsW75Y1WMzSRPHBGiCaRgg_7gSWhPSFYZma1nG4WalFWLZ88F036cdW-XgrLUwReVKHR1hgNJNqxD0ZHA0h8JglbXKZQj7cA2G6BAV1fAYz6mLN1mholInPBy3eKZUKEOY5syjXm1UAYoiyOboLuHxiO387h74a5kfxcUUGFnP",
+        url: "/MAIN2.jpg",
         className: "opacity-55 blur-[1px] brightness-110"
       };
   }
@@ -134,9 +139,15 @@ export default function App() {
       window.history.replaceState({}, document.title, newUrl);
     } else if (params.get("credits_success") === "true") {
       const added = params.get("added") || "?";
+      const sessionId = params.get("session_id");
       setCreditSuccessMsg(`🎉 ${added} credits added to your account!`);
-      // Re-fetch the user from the server so the displayed balance is accurate
-      fetchMe().then((user) => { if (user) applyUser(user); });
+      // Confirm the purchase server-side (credits it if the webhook hasn't yet),
+      // then re-fetch so the displayed balance is accurate even if the webhook failed.
+      (async () => {
+        if (sessionId) { try { await confirmCreditsSession(sessionId); } catch { /* ignore */ } }
+        const user = await fetchMe();
+        if (user) applyUser(user);
+      })();
       window.history.replaceState({}, document.title, window.location.pathname);
       setTimeout(() => setCreditSuccessMsg(""), 5000);
     } else if (params.get("credits_cancelled") === "true") {
@@ -164,6 +175,7 @@ export default function App() {
       treats: user.treats,
       isAdmin: user.isAdmin,
       city: user.city,
+      profilePhotoUrl: user.profilePhotoUrl ?? null,
     });
     setDailyStreak(user.dailyStreak || 0);
     const today = new Date().toISOString().split('T')[0];
@@ -242,13 +254,25 @@ export default function App() {
 
   const handleTutorialComplete = () => setCurrentScreen(Screen.DASHBOARD);
 
-  const handleClaimDailyBonus = () => {
-    setUserProfile((prev) => ({ ...prev, credits: prev.credits + 5 }));
+  const handleClaimDailyBonus = async () => {
+    // Persist server-side (reuses the daily-streak grant: +5 credits & a treat).
+    try {
+      const updatedUser = await claimDailyStreak();
+      applyUser(updatedUser);
+    } catch (err: any) {
+      alert(err.message || "Daily bonus already claimed today.");
+    }
   };
 
-  const handleShareCompleted = (platform: string, rewardValue: number) => {
-    setUserProfile((prev) => ({ ...prev, credits: prev.credits + rewardValue }));
-    alert(`Success! Thanks for sharing to ${platform}! You've been rewarded +${rewardValue} free credits!`);
+  const handleShareCompleted = async (platform: string) => {
+    // Server-persisted, per-day capped reward — no more client-only credits.
+    try {
+      const { reward, user } = await claimShareReward(platform);
+      applyUser(user);
+      alert(`Thanks for sharing to ${platform}! +${reward} credits added.`);
+    } catch (err: any) {
+      alert(err.message || "Couldn't grant the share reward right now.");
+    }
   };
 
   const handleCreationSaved = (newCreation: Creation) => {
@@ -284,8 +308,16 @@ export default function App() {
     setCurrentScreen(Screen.SHARE_MEMORY);
   };
 
-  const handleDeductCredits = (amount: number) => {
-    setUserProfile((prev) => ({ ...prev, credits: prev.credits - amount }));
+  const handleDeductCredits = async (amount: number) => {
+    // Optimistic UI, then reconcile with the server (the real spend is persisted
+    // server-side during generation, and logged to the credit ledger).
+    setUserProfile((prev) => ({ ...prev, credits: Math.max(0, prev.credits - amount) }));
+    try {
+      const me = await fetchMe();
+      if (me) applyUser(me);
+    } catch {
+      /* keep optimistic value if the refresh fails */
+    }
   };
 
   // While we check for an existing session, show a lightweight loader.
@@ -305,10 +337,12 @@ export default function App() {
 
       {/* Global Background Layer */}
       <div className="fixed inset-0 z-[-10] pointer-events-none overflow-hidden bg-background">
-        <div 
-          className={`absolute inset-0 bg-cover bg-center bg-transition ${getBackgroundImage(currentScreen).className}`} 
+        <div
+          className={`absolute inset-0 bg-cover bg-center bg-transition ${getBackgroundImage(currentScreen).className}`}
           style={{ backgroundImage: `url('${getBackgroundImage(currentScreen).url}')` }}
         ></div>
+        {/* Readability scrim: keeps foreground text from washing into the photo background */}
+        <div className="absolute inset-0 bg-gradient-to-b from-background/70 via-background/50 to-background/80"></div>
         {/* Mud splatters */}
         <div className="mud-splatter" style={{ width: "120px", height: "90px", top: "-20px", left: "-10%", "--rot": "15deg" } as React.CSSProperties}></div>
         <div className="mud-splatter" style={{ width: "180px", height: "140px", top: "40%", right: "-15%", "--rot": "-25deg", animationDelay: "0.2s" } as React.CSSProperties}></div>
@@ -327,9 +361,9 @@ export default function App() {
 
           <div className="hidden md:flex items-center gap-8">
             <button onClick={() => setCurrentScreen(Screen.DASHBOARD)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.DASHBOARD ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Home</button>
-            <button onClick={() => setCurrentScreen(Screen.ALBUMS)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.ALBUMS ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Albums</button>
             <button onClick={() => setCurrentScreen(Screen.AVATAR_DASHBOARD)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.AVATAR_DASHBOARD ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Avatars</button>
-            <button onClick={() => setCurrentScreen(Screen.DASHBOARD)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${[Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW].includes(currentScreen) && currentScreen !== Screen.DASHBOARD ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Community</button>
+            <button onClick={() => setCurrentScreen(Screen.STORE)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.STORE ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Store</button>
+            <button onClick={() => setCurrentScreen(Screen.COMMUNITY)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.COMMUNITY ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Community</button>
           </div>
 
           <div className="flex items-center gap-2 md:gap-4">
@@ -345,10 +379,18 @@ export default function App() {
           {/* User Profile and Credits display (only when signed in) */}
           {isAuthed && userProfile.fullName && (
             <>
-              <div className="flex items-center gap-2.5 bg-surface-container-high py-1.5 px-3 rounded-full border border-outline-variant/40 shadow-sm">
-                <div className="w-5 h-5 rounded-full bg-primary/20 text-primary flex items-center justify-center">
-                  <User size={12} />
-                </div>
+              <button
+                onClick={() => setCurrentScreen(Screen.PROFILE)}
+                title="View profile"
+                className={`flex items-center gap-2.5 bg-surface-container-high py-1.5 px-3 rounded-full border shadow-sm transition-all cursor-pointer hover:bg-surface-container-highest ${currentScreen === Screen.PROFILE ? 'border-primary' : 'border-outline-variant/40'}`}
+              >
+                {userProfile.profilePhotoUrl ? (
+                  <img src={userProfile.profilePhotoUrl} alt="" className="w-5 h-5 rounded-full object-cover" />
+                ) : (
+                  <div className="w-5 h-5 rounded-full bg-primary text-on-primary flex items-center justify-center text-[9px] font-black leading-none">
+                    {userProfile.fullName.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase() || "U"}
+                  </div>
+                )}
                 <span className="text-xs font-bold text-on-surface leading-none font-sans max-w-[80px] truncate md:max-w-none">
                   {userProfile.fullName.split(" ")[0]}
                 </span>
@@ -359,7 +401,7 @@ export default function App() {
                     {userProfile.credits}cr
                   </span>
                 </div>
-              </div>
+              </button>
               {/* Buy Credits button */}
               <button
                 onClick={() => setShowCreditStore(true)}
@@ -384,17 +426,25 @@ export default function App() {
 
       <div className="flex-grow flex w-full relative">
         {/* Desktop Sidebar */}
-        {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.AVATAR_DASHBOARD, Screen.STORE, Screen.PROFILE].includes(currentScreen) && (
+        {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.AVATAR_DASHBOARD, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY].includes(currentScreen) && (
           <aside className="fixed left-0 top-0 h-full z-40 hidden md:flex flex-col py-8 w-64 bg-surface/80 dark:bg-surface-dim/80 backdrop-blur-xl shadow-xl border-r border-outline-variant/20 pt-24">
             <div className="px-6 mb-8">
-              <div className="flex flex-col items-center p-4 bg-primary-container rounded-xl gap-2 text-center shadow-inner">
-                <div className="w-16 h-16 rounded-full border-4 border-primary-fixed-dim overflow-hidden bg-white">
-                  <img className="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDrxNE61jqvdNR8-rsWm6lutkR14a7_f4GeW2AgJ4ZEoT44fgEPune7E5tPMNfXu-fE_kIMxesgB5HCVV8pUedW56xAVKF3LdDPjH_d0ZlzdXYGldYx8YJ5oUgES1TPfgQPsUds_3RPmxk-iDqk_P-UeLPxPTf4jXksgPEjjzXbo3yRXluhSD9LFCYezyVKW61ZsoctFb3GGIoCtiN0JCooH7jGcrNy5X_-UnZ2TSXRLolc5SmHFftZMMpP1Rwwszm7b-pBg5FoJvGr" alt="Avatar Profile" />
+              <button
+                onClick={() => setCurrentScreen(Screen.PROFILE)}
+                title="View profile"
+                className="w-full flex flex-col items-center p-4 bg-primary-container rounded-xl gap-2 text-center shadow-inner hover:brightness-95 transition-all cursor-pointer"
+              >
+                <div className="w-16 h-16 rounded-full border-4 border-primary-fixed-dim overflow-hidden bg-primary text-on-primary flex items-center justify-center text-xl font-black">
+                  {userProfile.profilePhotoUrl ? (
+                    <img src={userProfile.profilePhotoUrl} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    userProfile.fullName.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase() || "U"
+                  )}
                 </div>
                 <div>
                   <h3 className="font-headline-lg text-[18px] leading-tight text-on-primary-container font-bold">{userProfile.fullName.split(" ")[0]}'s Pet</h3>
                 </div>
-              </div>
+              </button>
             </div>
             
             <nav className="flex-1 space-y-2">
@@ -402,21 +452,25 @@ export default function App() {
                 <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.DASHBOARD ? "'FILL' 1" : "'FILL' 0" }}>home</span>
                 <span className="font-medium">Home</span>
               </button>
-              <button onClick={() => setCurrentScreen(Screen.ALBUMS)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${currentScreen === Screen.ALBUMS ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
-                <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.ALBUMS ? "'FILL' 1" : "'FILL' 0" }}>pets</span>
-                <span className="font-medium">Albums</span>
-              </button>
               <button onClick={() => setCurrentScreen(Screen.AVATAR_DASHBOARD)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${currentScreen === Screen.AVATAR_DASHBOARD ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
                 <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.AVATAR_DASHBOARD ? "'FILL' 1" : "'FILL' 0" }}>pets</span>
                 <span className="font-medium">Avatars</span>
               </button>
-              <button className="w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30">
+              <button onClick={() => setCurrentScreen(Screen.STORE)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${currentScreen === Screen.STORE ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
+                <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.STORE ? "'FILL' 1" : "'FILL' 0" }}>storefront</span>
+                <span className="font-medium">Store</span>
+              </button>
+              <button onClick={() => setCurrentScreen(Screen.COMMUNITY)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${currentScreen === Screen.COMMUNITY ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
+                <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.COMMUNITY ? "'FILL' 1" : "'FILL' 0" }}>groups</span>
+                <span className="font-medium">Community</span>
+              </button>
+              <button onClick={() => setCurrentScreen(Screen.AVATAR_DASHBOARD)} className="w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30">
                 <span className="material-symbols-outlined font-sans">view_in_ar</span>
                 <span className="font-medium">AR Mode</span>
               </button>
-              <button onClick={() => setCurrentScreen(Screen.DASHBOARD)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${[Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW].includes(currentScreen) && currentScreen !== Screen.DASHBOARD ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
-                <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: [Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW].includes(currentScreen) && currentScreen !== Screen.DASHBOARD ? "'FILL' 1" : "'FILL' 0" }}>group</span>
-                <span className="font-medium">Community</span>
+              <button onClick={() => setCurrentScreen(Screen.PROFILE)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${currentScreen === Screen.PROFILE ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
+                <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.PROFILE ? "'FILL' 1" : "'FILL' 0" }}>person</span>
+                <span className="font-medium">Profile</span>
               </button>
             </nav>
             
@@ -461,6 +515,7 @@ export default function App() {
                 albums={albums}
                 creations={creations}
                 onAddMemory={() => setCurrentScreen(userProfile.isAdmin ? Screen.EDIT_MEMORY : Screen.REQUEST_MEMORY)}
+                onCreate={() => setCurrentScreen(Screen.AVATAR_DASHBOARD)}
                 onClaimDailyBonus={handleClaimDailyBonus}
                 onShareCompleted={handleShareCompleted}
                 onSelectCreation={handleSelectCreation}
@@ -552,6 +607,10 @@ export default function App() {
                 userProfile={userProfile}
                 onOpenCreditStore={() => setShowCreditStore(true)}
                 onGoToAvatars={() => setCurrentScreen(Screen.AVATAR_DASHBOARD)}
+                albums={albums}
+                creations={creations}
+                onSelectCreation={handleSelectCreation}
+                onNavigate={setCurrentScreen}
               />
             )}
 
@@ -567,7 +626,12 @@ export default function App() {
                 onLogout={handleLogout}
                 isDarkMode={isDarkMode}
                 onToggleDarkMode={toggleDarkMode}
+                onUserUpdate={applyUser}
               />
+            )}
+
+            {currentScreen === Screen.COMMUNITY && (
+              <Community userProfile={userProfile} />
             )}
 
             {/* Safety net: if somehow on SIGN_UP while authed, send to dashboard */}
@@ -577,6 +641,7 @@ export default function App() {
                 albums={albums}
                 creations={creations}
                 onAddMemory={() => setCurrentScreen(userProfile.isAdmin ? Screen.EDIT_MEMORY : Screen.REQUEST_MEMORY)}
+                onCreate={() => setCurrentScreen(Screen.AVATAR_DASHBOARD)}
                 onClaimDailyBonus={handleClaimDailyBonus}
                 onShareCompleted={handleShareCompleted}
                 onSelectCreation={handleSelectCreation}
@@ -598,7 +663,7 @@ export default function App() {
       </main>
 
       {/* Floating Bottom Navigator (only when signed in and past onboarding) */}
-      {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.AVATAR_DASHBOARD, Screen.STORE, Screen.PROFILE].includes(currentScreen) && (
+      {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.AVATAR_DASHBOARD, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY].includes(currentScreen) && (
         <div className="fixed md:hidden bottom-0 left-0 right-0 bg-surface-container-lowest/90 dark:bg-surface-dim/90 backdrop-blur-xl border-t border-outline-variant/30 py-2 px-4 flex justify-around items-center z-40 rounded-t-2xl shadow-[0_-8px_32px_0_rgba(68,42,34,0.08)]">
           <button
             onClick={() => setCurrentScreen(Screen.DASHBOARD)}
@@ -611,13 +676,23 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => setCurrentScreen(Screen.ALBUMS)}
+            onClick={() => setCurrentScreen(Screen.STORE)}
             className={`flex flex-col items-center justify-center gap-1 py-2 px-4 rounded-xl transition-all duration-300 ${
-              currentScreen === Screen.ALBUMS ? "bg-primary text-on-primary scale-105" : "text-on-surface-variant hover:bg-surface-variant/50"
+              currentScreen === Screen.STORE ? "bg-primary text-on-primary scale-105" : "text-on-surface-variant hover:bg-surface-variant/50"
             }`}
           >
-            <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.ALBUMS ? "'FILL' 1" : "'FILL' 0" }}>pets</span>
-            <span className="text-[10px] font-bold">Albums</span>
+            <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.STORE ? "'FILL' 1" : "'FILL' 0" }}>storefront</span>
+            <span className="text-[10px] font-bold">Store</span>
+          </button>
+
+          <button
+            onClick={() => setCurrentScreen(Screen.COMMUNITY)}
+            className={`flex flex-col items-center justify-center gap-1 py-2 px-3 rounded-xl transition-all duration-300 ${
+              currentScreen === Screen.COMMUNITY ? "bg-primary text-on-primary scale-105" : "text-on-surface-variant hover:bg-surface-variant/50"
+            }`}
+          >
+            <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.COMMUNITY ? "'FILL' 1" : "'FILL' 0" }}>groups</span>
+            <span className="text-[10px] font-bold">Community</span>
           </button>
 
           <button
@@ -631,15 +706,15 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => setCurrentScreen(Screen.DASHBOARD)}
+            onClick={() => setCurrentScreen(Screen.PROFILE)}
             className={`flex flex-col items-center justify-center gap-1 py-2 px-4 rounded-xl transition-all duration-300 ${
-              [Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW].includes(currentScreen) && currentScreen !== Screen.DASHBOARD
+              currentScreen === Screen.PROFILE
                 ? "bg-primary text-on-primary scale-105"
                 : "text-on-surface-variant hover:bg-surface-variant/50"
             }`}
           >
-            <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: [Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW].includes(currentScreen) && currentScreen !== Screen.DASHBOARD ? "'FILL' 1" : "'FILL' 0" }}>groups</span>
-            <span className="text-[10px] font-bold">Community</span>
+            <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.PROFILE ? "'FILL' 1" : "'FILL' 0" }}>person</span>
+            <span className="text-[10px] font-bold">Profile</span>
           </button>
         </div>
       )}

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useFrame } from "@react-three/fiber";
 import { XR, XRDomOverlay, createXRStore, useXR, useXRHitTest } from "@react-three/xr";
 import * as THREE from "three";
 import { Avatar } from "../../types";
@@ -11,8 +11,10 @@ import ARCommandOverlay from "../../components/ARCommandOverlay";
 import ARObjectOverlay from "../../components/ARObjectOverlay";
 import { addObjectAtPosition } from "../objects/placement";
 
-// Request the DOM-overlay feature so command buttons can float over the camera view.
-const store = createXRStore({ domOverlay: true });
+// Request the features this scene uses. domOverlay = floating command buttons;
+// hitTest = surface reticle; anchors = drift-free placement (Phase 2). All are
+// requested as optional, so the session still starts on devices that lack them.
+const store = createXRStore({ domOverlay: true, hitTest: true, anchors: true });
 
 function PlacedObjects() {
   const objects = useAvatarScene((s) => s.placedObjects);
@@ -34,36 +36,79 @@ function ARContent({ avatar }: { avatar: Avatar }) {
   const session = useXR((s) => s.session);
   const reticleRef = useRef<THREE.Group>(null);
   const anchorRef = useRef<THREE.Group>(null);
-  const lastHit = useRef(new THREE.Vector3());
-  const matrix = useRef(new THREE.Matrix4());
-  const [placed, setPlaced] = useState(false);
-  const placedRef = useRef(false);
 
-  // Continuously position the reticle on the nearest detected surface.
+  const matrix = useRef(new THREE.Matrix4());
+  const hitPos = useRef(new THREE.Vector3());
+  const hitQuat = useRef(new THREE.Quaternion());
+  const tmpScale = useRef(new THREE.Vector3());
+
+  const latestHit = useRef<XRHitTestResult | null>(null);
+  const xrAnchor = useRef<XRAnchor | null>(null);
+  const placedRef = useRef(false);
+  const [placed, setPlaced] = useState(false);
+
+  // Phase 1 — reticle follows the hit-test pose with FULL orientation (oriented
+  // points), so it lies flat on angled surfaces instead of only the floor.
   useXRHitTest((results, getWorldMatrix) => {
+    latestHit.current = results[0] ?? null;
     if (!results.length || !reticleRef.current) return;
     if (getWorldMatrix(matrix.current, results[0])) {
-      lastHit.current.setFromMatrixPosition(matrix.current);
-      reticleRef.current.position.copy(lastHit.current);
-      reticleRef.current.visible = !placed;
+      matrix.current.decompose(hitPos.current, hitQuat.current, tmpScale.current);
+      reticleRef.current.position.copy(hitPos.current);
+      reticleRef.current.quaternion.copy(hitQuat.current);
+      reticleRef.current.visible = !placedRef.current;
     }
   }, "viewer");
 
-  // Tap ("select"): first tap anchors the pet; once anchored, an armed object
-  // (pendingObjectKind) drops at the tapped surface, otherwise re-anchor.
+  // Phase 2 — each frame, drive the anchored group from the live XRAnchor pose so
+  // the pet stays locked to the real-world spot as ARCore refines its map (no drift).
+  useFrame((state, _delta, frame?: XRFrame) => {
+    const grp = anchorRef.current;
+    const anchor = xrAnchor.current;
+    if (!grp || !anchor || !frame) return;
+    const refSpace = state.gl.xr.getReferenceSpace();
+    if (!refSpace) return;
+    const pose = frame.getPose(anchor.anchorSpace, refSpace);
+    if (pose) {
+      matrix.current.fromArray(pose.transform.matrix);
+      matrix.current.decompose(grp.position, grp.quaternion, tmpScale.current);
+    }
+  });
+
+  // Tap ("select"): anchor the pet, or drop an armed object onto the surface.
   useEffect(() => {
     if (!session) return;
-    const onSelect = () => {
-      const anchor = anchorRef.current;
-      if (!anchor) return;
+    const onSelect = async () => {
+      const grp = anchorRef.current;
+      if (!grp) return;
       const pending = useAvatarScene.getState().pendingObjectKind;
+
       if (pending && placedRef.current) {
-        const local = lastHit.current.clone().sub(anchor.position);
+        // Offset the object into the anchored group's local frame (respects the
+        // group's live orientation, not just a naive position subtraction).
+        const inv = new THREE.Matrix4().copy(grp.matrixWorld).invert();
+        const local = hitPos.current.clone().applyMatrix4(inv);
         addObjectAtPosition(avatar.id, pending, [local.x, 0, local.z]);
         useAvatarScene.getState().setPendingObjectKind(null);
         return;
       }
-      anchor.position.copy(lastHit.current);
+
+      // Prefer a real WebXR anchor; fall back to a static pose if the device or
+      // browser didn't grant the anchors feature.
+      const hit = latestHit.current as any;
+      if (hit && typeof hit.createAnchor === "function") {
+        try {
+          xrAnchor.current = (await hit.createAnchor()) as XRAnchor;
+          placedRef.current = true;
+          setPlaced(true);
+          return;
+        } catch {
+          /* fall through to static placement */
+        }
+      }
+      xrAnchor.current = null;
+      grp.position.copy(hitPos.current);
+      grp.quaternion.copy(hitQuat.current);
       placedRef.current = true;
       setPlaced(true);
     };
@@ -75,7 +120,7 @@ function ARContent({ avatar }: { avatar: Avatar }) {
     <>
       <hemisphereLight intensity={0.9} />
       <directionalLight position={[2, 4, 2]} intensity={1} />
-      {/* Reticle */}
+      {/* Oriented reticle */}
       <group ref={reticleRef} visible={false}>
         <mesh rotation={[-Math.PI / 2, 0, 0]}>
           <ringGeometry args={[0.08, 0.1, 32]} />

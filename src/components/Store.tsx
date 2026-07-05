@@ -1,11 +1,16 @@
 import React, { useState } from "react";
-import { UserProfile } from "../types";
-import { ShoppingBag, Sparkles, ArrowRight, Zap, Package, Dog } from "lucide-react";
+import { UserProfile, Album, Creation, Screen } from "../types";
+import { ShoppingBag, Sparkles, ArrowRight, Zap, Package, Dog, Store as StoreIcon, Images } from "lucide-react";
+import AlbumsPage from "./AlbumsPage";
 
 interface StoreProps {
   userProfile: UserProfile;
   onOpenCreditStore: () => void;
   onGoToAvatars: () => void;
+  albums: Album[];
+  creations: Creation[];
+  onSelectCreation: (creation: Creation) => void;
+  onNavigate: (screen: Screen) => void;
 }
 
 interface Product {
@@ -33,8 +38,9 @@ const PERSONALIZED: Product[] = [
   { id: "stickers", name: "Vinyl Sticker Pack", desc: "6 die-cut stickers of your avatar poses.", price: "$12.00", emoji: "✨", cta: "Add" },
 ];
 
-export default function Store({ userProfile, onOpenCreditStore, onGoToAvatars }: StoreProps) {
+export default function Store({ userProfile, onOpenCreditStore, onGoToAvatars, albums, creations, onSelectCreation, onNavigate }: StoreProps) {
   const [toast, setToast] = useState("");
+  const [tab, setTab] = useState<"shop" | "albums">("shop");
 
   const notifyComingSoon = (name: string) => {
     setToast(`${name} ordering is coming soon — we'll notify you at launch!`);
@@ -43,6 +49,33 @@ export default function Store({ userProfile, onOpenCreditStore, onGoToAvatars }:
 
   return (
     <div className="w-full max-w-5xl mx-auto px-4 pt-6 pb-28 animate-fade-in">
+      {/* Store tab switcher: Shop vs Albums (Albums now lives inside the Store) */}
+      <div className="flex items-center gap-2 mb-6 pt-16 md:pt-0">
+        <button
+          onClick={() => setTab("shop")}
+          className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-black uppercase tracking-wide transition-all cursor-pointer ${tab === "shop" ? "bg-primary text-on-primary shadow-md" : "bg-primary/10 text-primary hover:bg-primary/20"}`}
+        >
+          <StoreIcon size={14} /> Shop
+        </button>
+        <button
+          onClick={() => setTab("albums")}
+          className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-black uppercase tracking-wide transition-all cursor-pointer ${tab === "albums" ? "bg-primary text-on-primary shadow-md" : "bg-primary/10 text-primary hover:bg-primary/20"}`}
+        >
+          <Images size={14} /> Albums
+        </button>
+      </div>
+
+      {tab === "albums" && (
+        <AlbumsPage
+          userProfile={userProfile}
+          creations={creations}
+          albums={albums}
+          onSelectCreation={onSelectCreation}
+          onNavigate={onNavigate}
+        />
+      )}
+
+      {tab === "shop" && (<>
       {/* Hero */}
       <section className="relative overflow-hidden rounded-3xl bg-primary text-on-primary p-8 md:p-12 mb-8 soft-glow-shadow">
         <div className="relative z-10 max-w-lg">
@@ -140,6 +173,7 @@ export default function Store({ userProfile, onOpenCreditStore, onGoToAvatars }:
           </div>
         </div>
       </section>
+      </>)}
 
       {/* Coming-soon toast */}
       {toast && (

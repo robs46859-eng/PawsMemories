@@ -7,7 +7,7 @@ import Stripe from "stripe";
 import fs from "fs";
 import twilio from "twilio";
 import rateLimit from "express-rate-limit";
-import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, getPool, claimDailyStreak, claimAchievement } from "./db";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, getPool, claimDailyStreak, claimAchievement } from "./db";
 import { uploadBase64Image, uploadBinaryFromUrl, fetchUrlAsBase64 } from "./storage";
 import { runBuildPipeline } from "./agent/graph/orchestrator";
 import { analyzePetImage } from "./ollama-agent";
@@ -47,6 +47,33 @@ async function startServer() {
 
   // Initialize the user database (creates the users table if needed)
   await initDb();
+
+  // Reaper: recover avatars stranded in an intermediate generation state.
+  // The build runs as fire-and-forget work; if the process is recycled mid-build
+  // a row can freeze in rigging/retargeting/baking_*, after which the status
+  // endpoint reports "generating" forever and /retry used to refuse. This flips
+  // stale rows to a terminal state: "done" if a model was already produced,
+  // otherwise "failed" (which is retryable). Threshold is generous so it never
+  // touches a genuinely in-progress build.
+  async function reapStuckAvatars() {
+    try {
+      const [result]: any = await getPool().query(
+        `UPDATE avatars
+            SET generation_status = CASE WHEN model_url IS NOT NULL AND model_url <> '' THEN 'done' ELSE 'failed' END,
+                generation_error  = CASE WHEN model_url IS NOT NULL AND model_url <> '' THEN generation_error
+                                         ELSE 'Generation stalled and was auto-recovered by the reaper.' END
+          WHERE generation_status IN ('rigging','retargeting','baking_clips','baking_sprites')
+            AND created_at < (NOW() - INTERVAL 45 MINUTE)`
+      );
+      if (result?.affectedRows) {
+        console.log(`[Reaper] Recovered ${result.affectedRows} stalled avatar(s).`);
+      }
+    } catch (err: any) {
+      console.warn(`[Reaper] Failed to reap stuck avatars: ${err?.message || err}`);
+    }
+  }
+  reapStuckAvatars();
+  setInterval(reapStuckAvatars, 5 * 60 * 1000);
 
   // Initialize Stripe client safely
   const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
@@ -99,8 +126,13 @@ async function startServer() {
 
       if (metadata.type === "credit_purchase" && metadata.userPhone && metadata.creditsToAdd) {
         const creditsToAdd = parseInt(metadata.creditsToAdd, 10);
-        await addCredits(metadata.userPhone, creditsToAdd);
-        console.log(`✅ Added ${creditsToAdd} credits to ${metadata.userPhone} via Stripe purchase.`);
+        // Idempotency: skip if the redirect-confirm path already credited this session.
+        if (await wasSessionCredited(session.id)) {
+          console.log(`↩︎ Session ${session.id} already credited; webhook skipping.`);
+        } else {
+          await addCredits(metadata.userPhone, creditsToAdd, "purchase:" + session.id);
+          console.log(`✅ Added ${creditsToAdd} credits to ${metadata.userPhone} via Stripe purchase.`);
+        }
       } else {
         // Standard physical album order
         const order = {
@@ -315,6 +347,239 @@ async function startServer() {
     }
   });
 
+  // Redirect-confirm fallback: after Stripe checkout, the browser lands on
+  // success_url with ?session_id=. This verifies the session server-side and
+  // credits it if the webhook hasn't already — so a misconfigured/failed webhook
+  // can never silently swallow a purchase. Idempotent with the webhook via the
+  // "purchase:<sessionId>" ledger key.
+  app.get("/api/credits/confirm", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const sessionId = req.query.session_id as string;
+      if (!sessionId) return res.status(400).json({ success: false, error: "Missing session_id" });
+      if (!stripe) {
+        return res.json({ success: true, credited: 0, balance: await getCreditBalance(req.user!.phone) });
+      }
+      if (await wasSessionCredited(sessionId)) {
+        return res.json({ success: true, alreadyCredited: true, balance: await getCreditBalance(req.user!.phone) });
+      }
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+      const md = session.metadata || {};
+      const creditsToAdd = parseInt(md.creditsToAdd || "0", 10);
+      if (session.payment_status !== "paid" || md.type !== "credit_purchase" || md.userPhone !== req.user!.phone || !creditsToAdd) {
+        return res.status(400).json({ success: false, error: "Session not eligible for crediting." });
+      }
+      await addCredits(req.user!.phone, creditsToAdd, "purchase:" + sessionId);
+      res.json({ success: true, credited: creditsToAdd, balance: await getCreditBalance(req.user!.phone) });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: "Failed to confirm purchase." });
+    }
+  });
+
+  // Credit transaction history — powers spend tracking / the Profile ledger.
+  app.get("/api/credits/history", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const history = await getCreditHistory(req.user!.phone, 25);
+      res.json({ history });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to load credit history" });
+    }
+  });
+
+  // Server-persisted share reward. Capped per day (via the ledger) to prevent farming.
+  const SHARE_REWARD = 3;
+  const SHARE_DAILY_CAP = 3;
+  app.post("/api/credits/reward", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { platform } = req.body || {};
+      const platformName = typeof platform === "string" && platform ? platform.slice(0, 40) : "share";
+      const today = new Date().toISOString().split("T")[0];
+      const [rows] = await getPool().query(
+        `SELECT COUNT(*) AS c FROM credit_transactions
+          WHERE user_phone = ? AND reason LIKE 'share_reward%' AND DATE(created_at) = ?`,
+        [req.user!.phone, today]
+      ) as any;
+      if (Number(rows?.[0]?.c || 0) >= SHARE_DAILY_CAP) {
+        return res.status(429).json({ success: false, error: "Daily share reward limit reached" });
+      }
+      await addCredits(req.user!.phone, SHARE_REWARD, `share_reward:${platformName}`);
+      const user = await findUserByPhone(req.user!.phone);
+      res.json({ success: true, reward: SHARE_REWARD, user: toPublicUser(user) });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to grant reward" });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Community endpoints (Local Info + Memory Board). All degrade gracefully so
+  // the Community page never breaks if an upstream API is down or unconfigured.
+  // ---------------------------------------------------------------------------
+
+  const weatherCodeToText = (code: number): string => {
+    const m: Record<number, string> = {
+      0: "Clear sky", 1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast",
+      45: "Fog", 48: "Rime fog", 51: "Light drizzle", 53: "Drizzle", 55: "Heavy drizzle",
+      61: "Light rain", 63: "Rain", 65: "Heavy rain", 71: "Light snow", 73: "Snow",
+      75: "Heavy snow", 80: "Rain showers", 81: "Rain showers", 82: "Violent showers",
+      95: "Thunderstorm", 96: "Thunderstorm w/ hail", 99: "Thunderstorm w/ hail",
+    };
+    return m[code] ?? "—";
+  };
+
+  // Nearby parks via Google Places Nearby Search (server key).
+  app.get("/api/community/parks", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { lat, lng } = req.query;
+      const key = process.env.GOOGLE_MAPS_API_KEY_SERVER;
+      if (!lat || !lng || !key) return res.json({ parks: [] });
+      const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=6000&type=park&key=${key}`;
+      const r = await fetch(url);
+      const j: any = await r.json().catch(() => ({}));
+      const parks = (j.results || []).slice(0, 8).map((p: any) => ({
+        name: p.name,
+        address: p.vicinity || "",
+        rating: p.rating ?? null,
+        open: p.opening_hours?.open_now ?? null,
+      }));
+      res.json({ parks });
+    } catch {
+      res.json({ parks: [] });
+    }
+  });
+
+  // Weather: try Google Weather API, fall back to free open-meteo so it always renders.
+  app.get("/api/community/weather", requireAuth, async (req: AuthedRequest, res) => {
+    const { lat, lng } = req.query;
+    if (!lat || !lng) return res.json({ weather: null });
+    const key = process.env.GOOGLE_MAPS_API_KEY_SERVER;
+    if (key) {
+      try {
+        const gUrl = `https://weather.googleapis.com/v1/currentConditions:lookup?key=${key}&location.latitude=${lat}&location.longitude=${lng}`;
+        const r = await fetch(gUrl);
+        if (r.ok) {
+          const j: any = await r.json();
+          const tempC = j?.temperature?.degrees;
+          if (typeof tempC === "number") {
+            return res.json({ weather: {
+              tempC: Math.round(tempC),
+              tempF: Math.round(tempC * 9 / 5 + 32),
+              condition: j?.weatherCondition?.description?.text || "—",
+              source: "google",
+            } });
+          }
+        }
+      } catch { /* fall through to open-meteo */ }
+    }
+    try {
+      const oUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,weather_code`;
+      const r = await fetch(oUrl);
+      const j: any = await r.json();
+      const t = j?.current?.temperature_2m;
+      if (typeof t === "number") {
+        return res.json({ weather: {
+          tempC: Math.round(t),
+          tempF: Math.round(t * 9 / 5 + 32),
+          condition: weatherCodeToText(j?.current?.weather_code),
+          source: "open-meteo",
+        } });
+      }
+    } catch { /* ignore */ }
+    res.json({ weather: null });
+  });
+
+  // Pet-related recall news via openFDA food enforcement (free, no key).
+  app.get("/api/community/recalls", requireAuth, async (_req: AuthedRequest, res) => {
+    try {
+      const url = `https://api.fda.gov/food/enforcement.json?search=product_description:(pet+dog+cat+animal)&sort=recall_initiation_date:desc&limit=8`;
+      const r = await fetch(url);
+      const j: any = await r.json().catch(() => ({}));
+      const recalls = (j.results || []).map((x: any) => ({
+        product: (x.product_description || "Pet product").slice(0, 160),
+        reason: (x.reason_for_recall || "").slice(0, 200),
+        company: x.recalling_firm || "",
+        date: x.recall_initiation_date || "",
+        classification: x.classification || "",
+      }));
+      res.json({ recalls });
+    } catch {
+      res.json({ recalls: [] });
+    }
+  });
+
+  // Community memory board: list + upload.
+  app.get("/api/community/memories", requireAuth, async (_req: AuthedRequest, res) => {
+    try {
+      res.json({ memories: await getCommunityMemories(30) });
+    } catch {
+      res.json({ memories: [] });
+    }
+  });
+
+  app.post("/api/community/memories", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { image, caption } = req.body || {};
+      if (!image || typeof image !== "string" || !image.startsWith("data:image")) {
+        return res.status(400).json({ error: "A photo is required." });
+      }
+      const imageUrl = await uploadBase64Image(image);
+      const id = await addCommunityMemory(req.user!.phone, imageUrl, typeof caption === "string" ? caption : null);
+      res.json({ success: true, memory: { id, image_url: imageUrl, caption: caption || null } });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Failed to share memory." });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // User photo library: profile thumbnail + add/remove gallery.
+  // ---------------------------------------------------------------------------
+
+  // Set (or replace) the profile thumbnail. Also files it into the photo library.
+  app.post("/api/profile/photo", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { image } = req.body || {};
+      if (!image || typeof image !== "string" || !image.startsWith("data:image")) {
+        return res.status(400).json({ error: "A photo is required." });
+      }
+      const url = await uploadBase64Image(image);
+      await setProfilePhoto(req.user!.phone, url);
+      await addUserPhoto(req.user!.phone, url, "profile");
+      const user = await findUserByPhone(req.user!.phone);
+      res.json({ success: true, user: toPublicUser(user) });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Failed to update profile photo." });
+    }
+  });
+
+  app.get("/api/profile/photos", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      res.json({ photos: await getUserPhotos(req.user!.phone) });
+    } catch {
+      res.json({ photos: [] });
+    }
+  });
+
+  app.post("/api/profile/photos", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { image } = req.body || {};
+      if (!image || typeof image !== "string" || !image.startsWith("data:image")) {
+        return res.status(400).json({ error: "A photo is required." });
+      }
+      const url = await uploadBase64Image(image);
+      const id = await addUserPhoto(req.user!.phone, url, "upload");
+      res.json({ success: true, photo: { id, image_url: url, source: "upload" } });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Failed to add photo." });
+    }
+  });
+
+  app.delete("/api/profile/photos/:id", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const ok = await deleteUserPhoto(Number(req.params.id), req.user!.phone);
+      res.json({ success: ok });
+    } catch {
+      res.status(500).json({ success: false, error: "Failed to delete photo." });
+    }
+  });
+
   // --- Pets Endpoints ---
   app.get("/api/pets", requireAuth, async (req: AuthedRequest, res) => {
     try {
@@ -448,6 +713,21 @@ async function startServer() {
       const handle = await startImageTo3D({ imageUrl: finalImageUrl });
       const avatarId = await createAvatar(req.user!.phone, name, finalImageUrl, handle);
 
+      // Connection: persist the photos uploaded in the avatar builder into the
+      // user's photo library so they show up (and are manageable) on the Profile
+      // page. Fire-and-forget so it never delays avatar creation.
+      const phoneForPhotos = req.user!.phone;
+      (async () => {
+        for (const p of photoList) {
+          try {
+            const purl = p.startsWith("data:image") ? await uploadBase64Image(p) : p;
+            await addUserPhoto(phoneForPhotos, purl, "avatar_builder");
+          } catch (e: any) {
+            console.warn("[avatar photos] could not persist an uploaded photo:", e?.message || e);
+          }
+        }
+      })();
+
       res.json({ avatarId, status: "pending", referenceImageUrl: finalImageUrl, usedReferenceImage });
     } catch (err: any) {
       console.error("[POST /api/avatars] Error creating avatar:", err);
@@ -456,6 +736,57 @@ async function startServer() {
   });
 
   const avatarBuildLocks = new Set<number>();
+
+  // Fix 4 (durability): auto-resume builds that were interrupted mid-flight.
+  // The build runs in-process as fire-and-forget work, so a Hostinger process
+  // recycle kills it after the mesh is done but before the model is saved,
+  // leaving the row in a build-phase status forever. This sweep detects that
+  // exact fingerprint — a post-mesh status (rigging/retargeting/baking_*) with
+  // the Tripo handle already consumed (meshy_handle NULL), no model yet, aged
+  // past the point a healthy build would take, and NOT locked in this process —
+  // and restarts the pipeline from Tripo (same path as /retry). The 45-minute
+  // reaper above remains the terminal backstop if resumes keep failing.
+  async function resumeStalledBuilds() {
+    let rows: any[] = [];
+    try {
+      const [result]: any = await getPool().query(
+        `SELECT id, image_url FROM avatars
+          WHERE generation_status IN ('rigging','retargeting','baking_clips','baking_sprites')
+            AND (meshy_handle IS NULL OR meshy_handle = '')
+            AND model_url IS NULL
+            AND created_at < (NOW() - INTERVAL 12 MINUTE)
+            AND created_at > (NOW() - INTERVAL 45 MINUTE)`
+      );
+      rows = Array.isArray(result) ? result : [];
+    } catch (err: any) {
+      console.warn(`[Resume] sweep query failed: ${err?.message || err}`);
+      return;
+    }
+
+    for (const row of rows) {
+      const avatarId = Number(row.id);
+      if (avatarBuildLocks.has(avatarId)) continue; // actively building in this process
+      if (!row.image_url) continue;                 // nothing to restart from
+      try {
+        let imageUrl: string = row.image_url;
+        if (imageUrl.startsWith("data:image")) {
+          imageUrl = await uploadBase64Image(imageUrl);
+          await getPool().query(`UPDATE avatars SET image_url = ? WHERE id = ?`, [imageUrl, avatarId]);
+        }
+        const handle = await startImageTo3D({ imageUrl });
+        await getPool().query(
+          `UPDATE avatars SET meshy_handle = ?, generation_status = 'pending', generation_error = NULL WHERE id = ?`,
+          [handle, avatarId]
+        );
+        console.log(`[Resume] Restarted stalled build for avatar ${avatarId}`);
+      } catch (err: any) {
+        console.warn(`[Resume] Could not restart avatar ${avatarId}: ${err?.message || err}`);
+      }
+    }
+  }
+  resumeStalledBuilds();
+  setInterval(resumeStalledBuilds, 3 * 60 * 1000);
+
   app.get("/api/avatars/:id/status", requireAuth, async (req: AuthedRequest, res) => {
     try {
       const avatarId = Number(req.params.id);
@@ -524,12 +855,19 @@ async function startServer() {
                    
                    await updateAvatarModel(avatarId, avatarPhone, finalModelUrl, finalSpriteSheetUrl, buildState.animationMetadata || {});
 
-                   // Phase 5: bake named skeletal clips onto the rigged model.
-                   // Fail-safe: any error here is logged and swallowed so the avatar
-                   // still completes with model_url + sprites (procedural motion in the 3D view).
+                   // Mark the avatar "done" as soon as its model + sprites are saved.
+                   // The optional Phase 5 clip baking below is a best-effort UPGRADE and
+                   // must never be able to strand an otherwise-complete avatar. Previously
+                   // the row was flipped to "baking_clips" and only set to "done" AFTER the
+                   // (up-to-5-minute) bake await returned — so if the process was recycled
+                   // mid-bake, the row froze in "baking_clips" forever with no recovery.
+                   await updateAvatarGenerationStatus(avatarId, "done");
+
+                   // Phase 5: best-effort skeletal clip baking. Runs while the avatar is
+                   // already "done"; the status is NOT moved backward, so any failure — or a
+                   // process death mid-bake — simply leaves the procedural-motion model intact.
                    if (buildState.riggedGlbBase64) {
                       try {
-                         await updateAvatarGenerationStatus(avatarId, "baking_clips");
                          const { riggedGlbBase64, clips } = await getBlenderClient()
                             .bakeClipsAndWait(buildState.riggedGlbBase64);
                          const riggedUrl = await uploadBase64Image(riggedGlbBase64);
@@ -539,8 +877,6 @@ async function startServer() {
                          console.warn(`[Avatar ${avatarId}] Skeletal clip baking skipped: ${clipErr?.message || clipErr}`);
                       }
                    }
-
-                   await updateAvatarGenerationStatus(avatarId, "done");
                 }
              } catch (err: any) {
                 console.error(`[Avatar ${avatarId} Agent Error]`, err);
@@ -571,7 +907,11 @@ async function startServer() {
       const avatar = await getAvatarById(avatarId, req.user!.phone);
       if (!avatar) return res.status(404).json({ error: "Avatar not found" });
 
-      if (avatar.generation_status !== "failed" && avatar.generation_status !== "done") {
+      // Allow retry from terminal states (failed/done) AND from the post-mesh
+      // intermediate states, so a user can recover a stalled avatar without
+      // waiting for the reaper. Only block during active mesh generation.
+      const retryableStatuses = ["failed", "done", "rigging", "retargeting", "baking_clips", "baking_sprites"];
+      if (!retryableStatuses.includes(avatar.generation_status)) {
          return res.status(400).json({ error: "Avatar is currently generating" });
       }
 
@@ -858,7 +1198,7 @@ async function startServer() {
           packId: pack.id,
           creditsToAdd: String(pack.credits),
         },
-        success_url: `${appUrl}/?credits_success=true&pack=${pack.id}&added=${pack.credits}`,
+        success_url: `${appUrl}/?credits_success=true&pack=${pack.id}&added=${pack.credits}&session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${appUrl}/?credits_cancelled=true`,
       });
 

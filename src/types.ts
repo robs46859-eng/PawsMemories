@@ -11,6 +11,7 @@ export enum Screen {
   REQUEST_MEMORY = "REQUEST_MEMORY",
   STORE = "STORE",
   PROFILE = "PROFILE",
+  COMMUNITY = "COMMUNITY",
 }
 
 export type StyleType = "Realistic" | "Sketch" | "Clay" | "Artistic" | "Anime" | "3D" | "Retro";
@@ -69,6 +70,7 @@ export interface UserProfile {
   isAdmin?: boolean;
   city?: string;
   ageVerified?: boolean;
+  profilePhotoUrl?: string | null;
 }
 
 export interface PublicUser {
@@ -83,6 +85,7 @@ export interface PublicUser {
   isAdmin: boolean;
   dailyStreak: number;
   lastStreakClaim: string | null;
+  profilePhotoUrl?: string | null;
   achievements: any[];
 }
 
