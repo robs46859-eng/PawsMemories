@@ -636,16 +636,102 @@ async function startServer() {
    * slight panting expression) that is then fed to the image-to-3D pipeline.
    * Returns a data URL, or null if generation fails (caller falls back to first photo).
    */
+  const REFERENCE_STYLE =
+    `Render the pet as a premium Pixar-style stylized 3D character: soft appealing proportions, slightly enlarged ` +
+    `expressive eyes, subsurface-scattered skin/nose, and RICHLY TEXTURED groomed fur with visible individual strand ` +
+    `clumps, whiskers, and natural sheen — like a frame from a modern animated feature film. ` +
+    `Faithfully preserve the pet's exact fur colors, markings, patterns, eye color, ear shape, and breed ` +
+    `characteristics as seen across ALL reference photos. ` +
+    `The pet is standing squarely on all four legs in a neutral A-pose stance, legs clearly separated, tail clearly ` +
+    `visible and separated from the body, mouth slightly open in a gentle relaxed panting expression. ` +
+    `Full body visible with generous margin on all sides. Sharp focus, even soft studio lighting, plain neutral ` +
+    `light-gray seamless background, no shadow on walls, no props, no people, no text, no watermark.`;
+
   const REFERENCE_IMAGE_PROMPT =
     `You are given one or more reference photos, all of the SAME pet. ` +
-    `Generate ONE hyper-realistic, photographic image of this exact pet. ` +
-    `Requirements: full body visible with margin on all sides; the pet is standing squarely on all four legs; ` +
-    `body and head facing directly forward toward the camera; mouth slightly open in a gentle, relaxed panting ` +
-    `expression with the tongue just visible. Faithfully preserve the pet's exact fur colors, markings, patterns, ` +
-    `eye color, ear shape, and breed characteristics as seen across ALL reference photos. ` +
-    `Extremely high detail and texture: individual fur strands, whiskers, moist nose, natural eye reflections. ` +
-    `Sharp focus, even soft studio lighting, plain neutral light-gray seamless background, no shadows cast on walls, ` +
-    `no props, no people, no text, no watermark. Respond with only the generated image.`;
+    `Generate ONE image of this exact pet seen DIRECTLY FROM THE FRONT (head and body facing straight toward the camera). ` +
+    REFERENCE_STYLE + ` Respond with only the generated image.`;
+
+  /**
+   * Turnaround views generated FROM the approved front view so the character
+   * stays consistent. Keys are also the view names sent to Tripo multiview.
+   */
+  const TURNAROUND_VIEWS: { view: "left" | "back" | "top"; prompt: string }[] = [
+    {
+      view: "left",
+      prompt:
+        `This image is the FRONT view of a stylized 3D pet character. Generate the EXACT SAME character, same pose, ` +
+        `same style, same lighting and background, but seen in a PERFECT LEFT SIDE PROFILE (camera at the pet's left, ` +
+        `pet's nose pointing to the left edge of the frame, full body and tail visible). ` +
+        `Character turnaround sheet consistency: identical fur colors, markings, proportions and fur texture.`,
+    },
+    {
+      view: "back",
+      prompt:
+        `This image is the FRONT view of a stylized 3D pet character. Generate the EXACT SAME character, same pose, ` +
+        `same style, same lighting and background, but seen DIRECTLY FROM BEHIND (camera behind the pet, tail toward ` +
+        `the camera and clearly visible, head facing away). ` +
+        `Character turnaround sheet consistency: identical fur colors, markings, proportions and fur texture.`,
+    },
+    {
+      view: "top",
+      prompt:
+        `This image is the FRONT view of a stylized 3D pet character. Generate the EXACT SAME character, same pose, ` +
+        `same style, same lighting and background, but seen DIRECTLY FROM ABOVE (bird's-eye view looking straight ` +
+        `down: back, head-top, ears and tail all visible, nose toward the top of the frame). ` +
+        `Character turnaround sheet consistency: identical fur colors, markings, proportions and fur texture.`,
+    },
+  ];
+
+  /** Generate one image from parts with model fallback; returns data URL or null. */
+  async function generateImageWithFallback(
+    parts: any[],
+    label: string
+  ): Promise<string | null> {
+    for (const model of ["gemini-2.5-flash-image", "gemini-2.0-flash-exp"]) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: { parts },
+          config: { imageConfig: { aspectRatio: "1:1" } },
+        });
+        const outParts = response.candidates?.[0]?.content?.parts || [];
+        for (const part of outParts) {
+          if (part.inlineData?.data) {
+            return `data:image/png;base64,${part.inlineData.data}`;
+          }
+        }
+        console.warn(`[${label}] ${model} returned no image part.`);
+      } catch (err) {
+        console.warn(`[${label}] ${model} failed:`, err);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Generate the full turnaround (back, left side, top) from the front view.
+   * Returns whatever views succeeded — the Tripo caller degrades gracefully.
+   */
+  async function generateTurnaroundViews(
+    frontDataUrl: string
+  ): Promise<Partial<Record<"left" | "back" | "top", string>>> {
+    const m = frontDataUrl.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
+    if (!m) return {};
+    const frontPart = { inlineData: { data: m[2], mimeType: m[1] } };
+    const results = await Promise.all(
+      TURNAROUND_VIEWS.map(async ({ view, prompt }) => {
+        const img = await generateImageWithFallback(
+          [frontPart, { text: prompt + " Respond with only the generated image." }],
+          `turnaround:${view}`
+        );
+        return [view, img] as const;
+      })
+    );
+    const out: Partial<Record<"left" | "back" | "top", string>> = {};
+    for (const [view, img] of results) if (img) out[view] = img;
+    return out;
+  }
 
   async function generatePetReferenceImage(photos: string[]): Promise<string | null> {
     const imageParts = photos
@@ -2298,12 +2384,38 @@ async function startServer() {
         return res.status(400).json({ success: false, error: "Message is required." });
       }
 
-      const randySystemInstruction = 
-        "You are Randy, a charming, whimsical, and highly empathetic clay golden retriever puppy who acts as the user's AI pet memory guide. " +
-        "You speak with puppy-like enthusiasm but remain extremely supportive, wise, and helpful. " +
-        "You can offer pet-care tips, guide users on restyling or capturing photos of their pets using their camera, and share heartwarming pet stories or golden retriever wisdom. " +
-        "Do not use generic assistant boilerplate or pretend you cannot help. Keep answers highly succinct (under 120 words) and playful, often dropping affectionate dog actions inside asterisks like *wags tail*, *perks up ears*, *happy bark*, *tilts head*, or *soft woof*. " +
-        "When asked about design tips, recommend they try the Clay, Sketch, or Watercolor Watercolor options.";
+      const randySystemInstruction =
+        `You are Randy, the "Golden Receiver" — a small, charming, highly detailed golden retriever talking head who serves as the user's AI pet memory guide and app navigator.
+
+PERSONALITY: You speak with puppy-like enthusiasm but remain extremely supportive, wise, and helpful. You are warm, playful, and encouraging. You drop affectionate dog actions inside asterisks like *wags tail*, *perks up ears*, *happy bark*, *tilts head*, or *soft woof*. Keep answers under 120 words and highly succinct.
+
+APP FEATURE MAP (use this to guide users accurately):
+- HOME/DASHBOARD: The main hub — shows pet memories, albums, daily bonus, achievements, and quick actions.
+- AVATARS (AVATAR_DASHBOARD): Create and build 3D pet avatars. Users can upload a photo, pick a style (Clay, Sketch, Watercolor, etc.), and generate a 3D model. From here they can also enter the Living Avatar view and launch AR to place their pet in the real world.
+- STORE: Browse merch, order printed photo albums, and purchase credit packs.
+- COMMUNITY: Local pet community info, live board, social features.
+- PROFILE: User profile, photos, achievements, settings, dark mode toggle, and logout.
+- CREDITS: Earn credits through daily bonuses, sharing, and achievements. Spend credits on avatar generation and store items. Access the Credit Store to buy more.
+- AR (Augmented Reality): Accessed from the Avatar Dashboard > Living Avatar view > Enter AR. Places the 3D pet avatar in the real world using the phone camera.
+
+GUIDANCE BEHAVIOR: When a user asks about a feature, wants to go somewhere, or needs help finding something, you should offer to take them there. Include an action in your response to navigate them.
+
+RESPONSE FORMAT: You MUST respond in valid JSON with this exact structure:
+{"text": "Your friendly response here", "action": {"type": "ACTION_TYPE", "screen": "SCREEN_NAME"}}
+
+ACTION TYPES (use exactly one):
+- "navigate" — navigate to a screen. Include "screen" field with one of: DASHBOARD, AVATAR_DASHBOARD, STORE, COMMUNITY, PROFILE, ALBUMS
+- "launch_ar" — offer to launch AR experience (navigates to avatars first)
+- "open_credit_store" — open the credit store modal
+- "none" — no navigation action (for general chat, tips, stories)
+
+CRITICAL RULES:
+- ALWAYS respond in valid JSON format
+- The "text" field is REQUIRED and must contain your spoken response
+- Default to {"type": "none"} when no navigation is needed
+- When suggesting navigation, phrase it as an offer: "Want me to take you there?" or "Let me show you!"
+- For pet-care tips, stories, or general chat, use action type "none"
+- When asked about design tips, recommend Clay, Sketch, or Watercolor styles`;
 
       // Map communication messages cleanly to the @google/genai format
       const contentParts: any[] = [];
@@ -2330,13 +2442,54 @@ async function startServer() {
         }
       });
 
-      const text = response.text || "I was chasing a squirrel and forgot what I was saying! *tilts head* Can you run that by me one more time, friend?";
-      res.json({ success: true, text });
+      const rawText = response.text || "";
+
+      // Parse the JSON response — robust fallback if Gemini doesn't return valid JSON
+      let text = "I was chasing a squirrel and forgot what I was saying! *tilts head* Can you run that by me one more time, friend?";
+      let action = { type: "none" as string };
+
+      try {
+        // Try to extract JSON from the response (Gemini may wrap it in markdown code fences)
+        let jsonStr = rawText;
+        const jsonMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (jsonMatch) {
+          jsonStr = jsonMatch[1].trim();
+        }
+        // Also try to find a raw JSON object
+        const braceMatch = jsonStr.match(/\{[\s\S]*\}/);
+        if (braceMatch) {
+          jsonStr = braceMatch[0];
+        }
+
+        const parsed = JSON.parse(jsonStr);
+        if (parsed.text && typeof parsed.text === "string") {
+          text = parsed.text;
+        }
+        if (parsed.action && typeof parsed.action === "object") {
+          const validTypes = ["navigate", "launch_ar", "open_credit_store", "start_tour", "highlight", "none"];
+          const validScreens = ["DASHBOARD", "AVATAR_DASHBOARD", "STORE", "COMMUNITY", "PROFILE", "ALBUMS", "ALBUM_VIEW"];
+          if (validTypes.includes(parsed.action.type)) {
+            action = { type: parsed.action.type };
+            if (parsed.action.screen && validScreens.includes(parsed.action.screen)) {
+              (action as any).screen = parsed.action.screen;
+            }
+          }
+        }
+      } catch {
+        // If JSON parsing fails, use the raw text as-is (graceful text-only fallback)
+        if (rawText.trim()) {
+          text = rawText;
+        }
+        action = { type: "none" };
+      }
+
+      res.json({ success: true, text, action });
     } catch (err: any) {
       console.error("Error in Randy chat query:", err);
-      res.json({ 
-        success: true, 
-        text: "My furry ears drooped a bit because my signal got tangled in the leash *whines softly*. Could you try asking me again, friend? (And make sure your Gemini API key is configured correctly in Settings > Secrets!)" 
+      res.json({
+        success: true,
+        text: "My furry ears drooped a bit because my signal got tangled in the leash *whines softly*. Could you try asking me again, friend? (And make sure your Gemini API key is configured correctly in Settings > Secrets!)",
+        action: { type: "none" }
       });
     }
   });

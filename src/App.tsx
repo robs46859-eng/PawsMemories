@@ -722,7 +722,15 @@ export default function App() {
       </div>
 
       {/* Randy AI-chat bubble companion (only for signed-in users) */}
-      {isAuthed && <RandyChat onUnlockAchievement={handleUnlockAchievement} isDarkMode={isDarkMode} />}
+      {isAuthed && (
+        <RandyChat
+          onUnlockAchievement={handleUnlockAchievement}
+          isDarkMode={isDarkMode}
+          onNavigate={setCurrentScreen}
+          onOpenCreditStore={() => setShowCreditStore(true)}
+          onLaunchAR={() => setCurrentScreen(Screen.AVATAR_DASHBOARD)}
+        />
+      )}
 
       {/* Request success toast */}
       {requestSuccessMsg && (

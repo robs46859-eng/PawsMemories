@@ -1,42 +1,151 @@
-import React, { useState, useRef, useEffect } from "react";
-import { MessageSquare, X, Send, Mic, MicOff, RefreshCw, Sparkles, Volume2, Award } from "lucide-react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
+import { X, Send, Mic, MicOff, RefreshCw, Sparkles, Volume2, VolumeX, Navigation } from "lucide-react";
 import { authedFetch } from "../api";
+import { Screen, RandyAction, RandyHeadState } from "../types";
+import RandyHead, { RandyHeadRef } from "./RandyHead";
+import { speakText } from "../three/randyVisemes";
 
 interface Message {
   id: string;
   role: "user" | "model";
   text: string;
   createdAt: Date;
+  action?: RandyAction;
 }
 
 interface RandyChatProps {
   onUnlockAchievement?: (id: string) => void;
   isDarkMode?: boolean;
+  onNavigate?: (screen: Screen) => void;
+  onOpenCreditStore?: () => void;
+  onLaunchAR?: () => void;
 }
 
-export default function RandyChat({ onUnlockAchievement, isDarkMode }: RandyChatProps) {
+/** Map screen string from API to Screen enum value */
+function resolveScreen(screen?: string): Screen | null {
+  if (!screen) return null;
+  const map: Record<string, Screen> = {
+    DASHBOARD: Screen.DASHBOARD,
+    AVATAR_DASHBOARD: Screen.AVATAR_DASHBOARD,
+    STORE: Screen.STORE,
+    COMMUNITY: Screen.COMMUNITY,
+    PROFILE: Screen.PROFILE,
+    ALBUMS: Screen.ALBUMS,
+    ALBUM_VIEW: Screen.ALBUM_VIEW,
+  };
+  return map[screen] ?? null;
+}
+
+export default function RandyChat({
+  onUnlockAchievement,
+  isDarkMode,
+  onNavigate,
+  onOpenCreditStore,
+  onLaunchAR,
+}: RandyChatProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "initial",
       role: "model",
-      text: "Woof! Welcome, friend! 🐾 I'm Randy, your golden retriever puppy guide! Need a tip on sculpting Clay style memories, taking the best pet camera photo, or claiming your achievements? Ask me anything! *wags tail*",
+      text: "Woof! Welcome, friend! 🐾 I'm Randy, your Golden Receiver guide! Need help navigating the app, building a 3D avatar, or launching AR? Ask me anything! *wags tail*",
       createdAt: new Date(),
     },
   ]);
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  
+  const [isMuted, setIsMuted] = useState(true); // Default muted (autoplay policy)
+  const [headState, setHeadState] = useState<RandyHeadState>("idle");
+
   // Microphone / Speech Recognition status
   const [isListening, setIsListening] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
+  const headRef = useRef<RandyHeadRef>(null);
+  const speechCancelRef = useRef<{ cancel: () => void } | null>(null);
+
+  // Keep head state in sync
+  useEffect(() => {
+    headRef.current?.setState(headState);
+  }, [headState]);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, isOpen]);
+
+  // Cleanup speech on unmount or close
+  useEffect(() => {
+    if (!isOpen) {
+      speechCancelRef.current?.cancel();
+      speechCancelRef.current = null;
+      setHeadState("idle");
+    }
+  }, [isOpen]);
+
+  // Set head to 'listen' state when speech recognition active
+  useEffect(() => {
+    if (isListening) {
+      setHeadState("listen");
+    } else if (!isLoading) {
+      setHeadState("idle");
+    }
+  }, [isListening, isLoading]);
+
+  /** Speak Randy's reply with lip-sync */
+  const speakReply = useCallback((text: string) => {
+    if (isMuted) return;
+
+    // Cancel any in-progress speech
+    speechCancelRef.current?.cancel();
+
+    // Strip asterisk actions for speech (e.g. *wags tail*)
+    const cleanText = text.replace(/\*[^*]+\*/g, "").trim();
+    if (!cleanText) return;
+
+    setHeadState("talk");
+
+    speechCancelRef.current = speakText(cleanText, {
+      onMouthUpdate: (value) => {
+        headRef.current?.setMouthOpen(value);
+      },
+      onStart: () => {
+        setHeadState("talk");
+      },
+      onEnd: () => {
+        setHeadState("idle");
+        speechCancelRef.current = null;
+      },
+    });
+  }, [isMuted]);
+
+  /** Execute a Randy action (navigation, AR launch, etc.) */
+  const executeAction = useCallback((action: RandyAction) => {
+    switch (action.type) {
+      case "navigate": {
+        const screen = resolveScreen(action.screen);
+        if (screen && onNavigate) {
+          onNavigate(screen);
+          setIsOpen(false);
+        }
+        break;
+      }
+      case "launch_ar":
+        if (onLaunchAR) {
+          onLaunchAR();
+          setIsOpen(false);
+        }
+        break;
+      case "open_credit_store":
+        if (onOpenCreditStore) {
+          onOpenCreditStore();
+        }
+        break;
+      default:
+        break;
+    }
+  }, [onNavigate, onLaunchAR, onOpenCreditStore]);
 
   // Handle Speech Recognition
   const toggleSpeechRecognition = () => {
@@ -98,6 +207,9 @@ export default function RandyChat({ onUnlockAchievement, isDarkMode }: RandyChat
     if (e) e.preventDefault();
     if (!inputValue.trim() || isLoading) return;
 
+    // Cancel any in-progress speech
+    speechCancelRef.current?.cancel();
+
     const userText = inputValue;
     setInputValue("");
     setMessages((prev) => [
@@ -110,6 +222,7 @@ export default function RandyChat({ onUnlockAchievement, isDarkMode }: RandyChat
       },
     ]);
     setIsLoading(true);
+    setHeadState("think");
 
     try {
       // Map previous messages to simple { role, text } history for server
@@ -130,6 +243,11 @@ export default function RandyChat({ onUnlockAchievement, isDarkMode }: RandyChat
 
       const data = await res.json();
       if (data.success && data.text) {
+        const action: RandyAction | undefined =
+          data.action && data.action.type !== "none"
+            ? { type: data.action.type, screen: data.action.screen }
+            : undefined;
+
         setMessages((prev) => [
           ...prev,
           {
@@ -137,12 +255,22 @@ export default function RandyChat({ onUnlockAchievement, isDarkMode }: RandyChat
             role: "model",
             text: data.text,
             createdAt: new Date(),
+            action,
           },
         ]);
-        
+
         // Unlock chatterbox achievement
         if (onUnlockAchievement) {
           onUnlockAchievement("randy_chat");
+        }
+
+        // Speak the reply (will be skipped if muted)
+        speakReply(data.text);
+
+        // Brief happy state if no speech
+        if (isMuted) {
+          setHeadState("happy");
+          setTimeout(() => setHeadState("idle"), 1500);
         }
       }
     } catch (err) {
@@ -156,35 +284,93 @@ export default function RandyChat({ onUnlockAchievement, isDarkMode }: RandyChat
           createdAt: new Date(),
         },
       ]);
+      setHeadState("idle");
     } finally {
       setIsLoading(false);
+      // headState is managed by speech callbacks or the happy timeout above
+    }
+  };
+
+  /** Get a label for the action button */
+  const getActionLabel = (action: RandyAction): string => {
+    switch (action.type) {
+      case "navigate": {
+        const labels: Record<string, string> = {
+          DASHBOARD: "Go to Home",
+          AVATAR_DASHBOARD: "Go to Avatars",
+          STORE: "Go to Store",
+          COMMUNITY: "Go to Community",
+          PROFILE: "Go to Profile",
+          ALBUMS: "Go to Albums",
+        };
+        return labels[action.screen || ""] || "Take me there";
+      }
+      case "launch_ar":
+        return "Launch AR 🌟";
+      case "open_credit_store":
+        return "Open Credit Store";
+      default:
+        return "Take me there";
     }
   };
 
   return (
     <div className="fixed bottom-22 right-5 z-55 flex flex-col items-end pointer-events-none">
-      
+
       {/* Expanded chat window */}
       {isOpen && (
-        <div className="w-80 h-100 mb-3 bg-surface-container-low border border-outline-variant/50 rounded-3xl shadow-xl flex flex-col overflow-hidden pointer-events-auto animate-slide-up">
-          {/* Header */}
-          <div className="bg-primary/10 px-4 py-3 border-b border-outline-variant/30 flex justify-between items-center bg-radial from-amber-50 to-amber-100/30">
-            <div className="flex items-center gap-2">
-              <span className="text-2xl animate-bounce">🦮</span>
+        <div className="w-80 h-[28rem] mb-3 bg-surface-container-low border border-outline-variant/50 rounded-3xl shadow-xl flex flex-col overflow-hidden pointer-events-auto animate-slide-up">
+          {/* Header with 3D Randy Head */}
+          <div className="bg-primary/10 px-4 py-2.5 border-b border-outline-variant/30 flex justify-between items-center bg-radial from-amber-50 to-amber-100/30">
+            <div className="flex items-center gap-2.5">
+              {/* 3D Head avatar in header */}
+              <RandyHead
+                ref={headRef}
+                size={48}
+                paused={!isOpen}
+                className="ring-2 ring-amber-400/60 shadow-lg flex-shrink-0"
+              />
               <div>
                 <h4 className="text-xs font-black text-on-surface flex items-center gap-1">
-                  Randy the Vet AI Guide
+                  Randy the Golden Receiver
                   <Sparkles size={11} className="text-orange-600 animate-pulse animate-duration-1000" />
                 </h4>
-                <p className="text-[9px] text-primary font-bold uppercase tracking-wider">Online &amp; Tail Wagging</p>
+                <p className="text-[9px] text-primary font-bold uppercase tracking-wider">
+                  {headState === "listen" ? "Listening..." :
+                   headState === "think" ? "Sniffing for answers..." :
+                   headState === "talk" ? "Speaking..." :
+                   "Online & Tail Wagging"}
+                </p>
               </div>
             </div>
-            <button
-              onClick={() => setIsOpen(false)}
-              className="text-on-surface-variant hover:text-on-surface p-1 rounded-full hover:bg-outline-variant/20 cursor-pointer"
-            >
-              <X size={16} />
-            </button>
+            <div className="flex items-center gap-1">
+              {/* Mute/Unmute toggle */}
+              <button
+                onClick={() => {
+                  setIsMuted(!isMuted);
+                  if (!isMuted) {
+                    // Going muted — cancel current speech
+                    speechCancelRef.current?.cancel();
+                    speechCancelRef.current = null;
+                    setHeadState("idle");
+                  }
+                }}
+                className={`p-1.5 rounded-full transition-all cursor-pointer ${
+                  isMuted
+                    ? "text-on-surface-variant/60 hover:bg-outline-variant/20"
+                    : "text-orange-600 bg-orange-100/50 hover:bg-orange-100"
+                }`}
+                title={isMuted ? "Unmute Randy's voice" : "Mute Randy's voice"}
+              >
+                {isMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+              </button>
+              <button
+                onClick={() => setIsOpen(false)}
+                className="text-on-surface-variant hover:text-on-surface p-1 rounded-full hover:bg-outline-variant/20 cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
           </div>
 
           {/* Messages Area */}
@@ -204,6 +390,17 @@ export default function RandyChat({ onUnlockAchievement, isDarkMode }: RandyChat
                   }`}
                 >
                   {msg.text}
+
+                  {/* Action button for guidance actions */}
+                  {msg.role === "model" && msg.action && msg.action.type !== "none" && (
+                    <button
+                      onClick={() => executeAction(msg.action!)}
+                      className="mt-2 w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white text-[10px] font-bold rounded-xl hover:from-amber-600 hover:to-orange-600 active:scale-95 transition-all cursor-pointer shadow-sm"
+                    >
+                      <Navigation size={10} />
+                      {getActionLabel(msg.action)}
+                    </button>
+                  )}
                 </div>
                 <span className="text-[8px] text-on-surface-variant/65 mt-1 px-1">
                   {msg.createdAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -213,7 +410,7 @@ export default function RandyChat({ onUnlockAchievement, isDarkMode }: RandyChat
             {isLoading && (
               <div className="flex items-center gap-1.5 text-xs text-on-surface-variant animate-pulse py-1">
                 <RefreshCw size={12} className="animate-spin text-orange-600" />
-                <span className="font-semibold italic">Randy is typing / sniffing...</span>
+                <span className="font-semibold italic">Randy is sniffing for answers...</span>
               </div>
             )}
           </div>
@@ -229,14 +426,14 @@ export default function RandyChat({ onUnlockAchievement, isDarkMode }: RandyChat
                 disabled={isListening}
                 className="flex-grow px-2 py-1 text-xs focus:outline-none bg-transparent disabled:opacity-50"
               />
-              
+
               {/* Mic Indicator button */}
               <button
                 type="button"
                 onClick={toggleSpeechRecognition}
                 className={`p-1.5 rounded-lg transition-all cursor-pointer ${
-                  isListening 
-                    ? "bg-red-500 text-white animate-pulse" 
+                  isListening
+                    ? "bg-red-500 text-white animate-pulse"
                     : "text-on-surface-variant hover:bg-outline-variant/20"
                 }`}
                 title={isListening ? "Stop listening" : "Dictate your message with microphone"}
@@ -256,21 +453,26 @@ export default function RandyChat({ onUnlockAchievement, isDarkMode }: RandyChat
         </div>
       )}
 
-      {/* Floating Sparkly Button */}
+      {/* Floating Sparkly Button — with 3D head as collapsed avatar */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-14 h-14 bg-gradient-to-tr from-amber-500 to-orange-400 text-white rounded-full flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all cursor-pointer pointer-events-auto relative group glow-orange-shadow"
+        className="w-14 h-14 bg-gradient-to-tr from-amber-500 to-orange-400 text-white rounded-full flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all cursor-pointer pointer-events-auto relative group glow-orange-shadow overflow-hidden"
       >
         {isOpen ? (
           <X size={24} className="animate-duration-300" />
         ) : (
           <>
-            <span className="text-2xl animate-bounce">🦮</span>
-            <div className="absolute -top-1 -right-1 w-4 h-4 bg-primary text-white rounded-full text-[8.5px] font-extrabold flex items-center justify-center animate-pulse border border-white">
+            {/* Small 3D head in the bubble */}
+            <RandyHead
+              size={52}
+              paused={isOpen}
+              className="absolute inset-0.5 rounded-full"
+            />
+            <div className="absolute -top-1 -right-1 w-4 h-4 bg-primary text-white rounded-full text-[8.5px] font-extrabold flex items-center justify-center animate-pulse border border-white z-10">
               AI
             </div>
             {/* tooltip */}
-            <span className="absolute right-16 scale-0 group-hover:scale-100 transition-all duration-200 bg-slate-900/90 text-white text-[10px] py-1 px-2.5 rounded-xl font-bold whitespace-nowrap shadow border border-slate-700">
+            <span className="absolute right-16 scale-0 group-hover:scale-100 transition-all duration-200 bg-slate-900/90 text-white text-[10px] py-1 px-2.5 rounded-xl font-bold whitespace-nowrap shadow border border-slate-700 z-10">
               Chat with Randy 🐾
             </span>
           </>

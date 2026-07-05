@@ -14,6 +14,16 @@ export enum Screen {
   COMMUNITY = "COMMUNITY",
 }
 
+// Randy AI guidance action types — used by /api/randy-chat response and RandyChat component
+export type RandyActionType = 'navigate' | 'launch_ar' | 'open_credit_store' | 'start_tour' | 'highlight' | 'none';
+
+export interface RandyAction {
+  type: RandyActionType;
+  screen?: string; // Screen enum value for 'navigate' actions
+}
+
+export type RandyHeadState = 'idle' | 'listen' | 'think' | 'talk' | 'happy';
+
 export type StyleType = "Realistic" | "Sketch" | "Clay" | "Artistic" | "Anime" | "3D" | "Retro";
 
 // Background ids are defined in src/backgrounds.ts (single source of truth).
