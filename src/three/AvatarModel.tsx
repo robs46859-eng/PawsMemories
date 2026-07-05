@@ -72,15 +72,54 @@ export default function AvatarModel({ url }: { url: string }) {
 
   const { model, fitScale } = useMemo(() => {
     const cloned = skeletonClone(scene) as THREE.Object3D;
+    cloned.updateMatrixWorld(true);
+
     const box = new THREE.Box3().setFromObject(cloned);
     const size = new THREE.Vector3();
     box.getSize(size);
-    const center = new THREE.Vector3();
-    box.getCenter(center);
+
+    // ---- Grounding + objective center of gravity --------------------------
+    // Vertical: rest the true base (box.min.y) on y = 0 so the feet sit exactly
+    // on the surface (in AR, on the anchored plane).
+    // Horizontal: center the SUPPORT FOOTPRINT — the mean X/Z of the lowest slice
+    // of vertices (where the feet contact the ground) — over the origin, so the
+    // pet is planted on its feet at the placement point instead of centered on
+    // its bounding box (which a raised head or tail would bias, making it look
+    // off-balance or floating). Falls back to the bbox center if geometry can't
+    // be sampled.
+    // Float discipline: all sums in f64; guard NaN/Inity and empty geometry;
+    // sampled exactly once at load (never per frame).
+    const minY = box.min.y;
+    const height = Math.max(size.y, 1e-4);
+    const footThreshold = minY + height * 0.12;
+
+    let sumX = 0, sumZ = 0, count = 0;
+    const v = new THREE.Vector3();
+    cloned.traverse((o) => {
+      const m = o as THREE.Mesh;
+      const geo = (m as any).geometry as THREE.BufferGeometry | undefined;
+      if (!m.isMesh || !geo?.attributes?.position) return;
+      const pos = geo.attributes.position as THREE.BufferAttribute;
+      for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
+        if (Number.isFinite(v.x) && Number.isFinite(v.z) && v.y <= footThreshold) {
+          sumX += v.x; sumZ += v.z; count += 1;
+        }
+      }
+    });
+
+    const cog = new THREE.Vector3();
+    if (count > 0 && Number.isFinite(sumX) && Number.isFinite(sumZ)) {
+      cog.set(sumX / count, 0, sumZ / count); // objective footprint COG
+    } else {
+      box.getCenter(cog); cog.y = 0; // fallback: bounding-box center
+    }
+
+    cloned.position.x -= cog.x;
+    cloned.position.z -= cog.z;
+    cloned.position.y -= minY;
+
     const scale = TARGET_HEIGHT / (size.y || Math.max(size.x, size.z) || 1);
-    cloned.position.x -= center.x;
-    cloned.position.z -= center.z;
-    cloned.position.y -= box.min.y;
     cloned.traverse((o) => {
       const m = o as THREE.Mesh;
       if (m.isMesh) {

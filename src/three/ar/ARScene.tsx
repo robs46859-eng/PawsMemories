@@ -12,9 +12,21 @@ import ARObjectOverlay from "../../components/ARObjectOverlay";
 import { addObjectAtPosition } from "../objects/placement";
 
 // Request the features this scene uses. domOverlay = floating command buttons;
-// hitTest = surface reticle; anchors = drift-free placement (Phase 2). All are
-// requested as optional, so the session still starts on devices that lack them.
-const store = createXRStore({ domOverlay: true, hitTest: true, anchors: true });
+// hitTest = surface reticle; anchors = drift-free placement (Phase 2);
+// planeDetection + meshDetection = snap placement to real detected geometry
+// (Phase 3, "meshing"). All are requested as OPTIONAL, so the session still
+// starts on devices that lack any of them.
+const store = createXRStore({
+  domOverlay: true,
+  hitTest: true,
+  anchors: true,
+  planeDetection: true,
+  meshDetection: true,
+});
+
+// Snap the reticle/placement to real detected planes AND meshes (not just the
+// raw viewer ray), so the pet lands on actual surfaces the device has meshed.
+const HIT_TRACKABLES: XRHitTestTrackableType[] = ["plane", "mesh"];
 
 function PlacedObjects() {
   const objects = useAvatarScene((s) => s.placedObjects);
@@ -58,7 +70,7 @@ function ARContent({ avatar }: { avatar: Avatar }) {
       reticleRef.current.quaternion.copy(hitQuat.current);
       reticleRef.current.visible = !placedRef.current;
     }
-  }, "viewer");
+  }, "viewer", HIT_TRACKABLES);
 
   // Phase 2 — each frame, drive the anchored group from the live XRAnchor pose so
   // the pet stays locked to the real-world spot as ARCore refines its map (no drift).
@@ -69,10 +81,14 @@ function ARContent({ avatar }: { avatar: Avatar }) {
     const refSpace = state.gl.xr.getReferenceSpace();
     if (!refSpace) return;
     const pose = frame.getPose(anchor.anchorSpace, refSpace);
-    if (pose) {
-      matrix.current.fromArray(pose.transform.matrix);
-      matrix.current.decompose(grp.position, grp.quaternion, tmpScale.current);
-    }
+    if (!pose) return;
+    // Float vigilance: an anchor whose tracking is briefly lost can return a
+    // non-finite transform; applying it would NaN the group (pet vanishes or
+    // explodes). Only commit a fully finite pose.
+    const m = pose.transform.matrix;
+    if (!Number.isFinite(m[12]) || !Number.isFinite(m[13]) || !Number.isFinite(m[14])) return;
+    matrix.current.fromArray(m);
+    matrix.current.decompose(grp.position, grp.quaternion, tmpScale.current);
   });
 
   // Tap ("select"): anchor the pet, or drop an armed object onto the surface.

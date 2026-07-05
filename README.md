@@ -1,8 +1,18 @@
-# Paws & Memories
+# Pawsome3D
 
-Turn your pet photos into magical claymation, sketch, and artistic digital heirlooms — guided by Randy, an AI assistant. Paws & Memories is a full‑stack web app with email + password sign‑in, a credits system, AI image generation, and the option to order a physical printed photo album.
+Turn your pet photos into a living 3D avatar you can play with, dress up, and place in your room in AR — guided by Randy, an AI assistant. Pawsome3D is a full‑stack web app with email + password sign‑in, a credits system, AI image + Image‑to‑3D generation, a merch Store, a Community hub, and the option to order physical keepsakes.
 
-Live site: https://mypets.cc
+Live site: https://pawsome3d.com  (formerly mypets.cc)
+
+## Features
+
+- **3D pet avatars** — photos → a rigged, animated 3D avatar via Tripo3D + a multi‑agent Blender pipeline.
+- **AR mode (WebXR / ARCore)** — place your avatar on real surfaces on Android Chrome; plane + mesh detection, drift‑free `XRAnchor` placement, and objective footprint center‑of‑gravity grounding so the pet plants on its feet. iOS falls back to the 8th Wall engine.
+- **Store** — merch (3D prints, plush, accessories) with your Albums folded in as a tab.
+- **Community** — local info (nearby parks, weather, pet‑recall news), a live pet inspiration board (dog.ceo + dogapi.dog) with user‑uploaded memories, and a coming‑soon roadmap.
+- **Credits** — server‑backed ledger with earn/spend history, persisted daily bonus, per‑day‑capped share rewards, and Stripe credit‑pack purchases (webhook + redirect‑confirm double safety net).
+- **Profile** — avatar thumbnail uploader + a personal photo library; photos uploaded in the avatar builder persist here automatically.
+- **Randy AI** — Gemini‑powered pet guide (spec for a 3D talking head in `RANDY_AI_SPEC.md`).
 
 ## Tech stack
 
@@ -61,6 +71,8 @@ The `avatars` table:
 
 > The legacy Twilio/phone verification flow has been removed. The `phone` column is now just a stable internal key per user.
 
+Additional tables (all auto‑created on boot): `credit_transactions` (earn/spend ledger for the Profile history + Stripe idempotency), `community_memories` (Community board uploads), `user_photos` (Profile photo library + persisted avatar‑builder uploads), `placed_objects` (AR object placements). The `users` table also gains `profile_photo_url`, and `avatars` gains the generation‑pipeline columns (`model_url`, `sprite_sheet_url`, `rigged_model_url`, `clips_json`, `generation_status`, …).
+
 ### Memory Requests & Admin Fulfillment
 
 Direct AI generation of photos and videos is restricted to **Admins**. Regular users must use the **Request a Memory** flow:
@@ -116,11 +128,11 @@ Set these in Hostinger (Website → Environment variables) for production, or in
 | `ADMIN_KEY` | Internal row key for the seeded admin account (any short string, e.g. `admin`). Not secret. |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Admin login credentials. Admins log in through the normal login screen. |
 | `GEMINI_API_KEY` | Google Gemini / Imagen / Veo API access |
-| `APP_URL` | Public site URL (e.g. `https://mypets.cc`) |
-| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | Stripe Checkout + webhook verification |
+| `APP_URL` | Public site URL — `https://pawsome3d.com` (used for Stripe redirects) |
+| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | Stripe Checkout + webhook. Endpoint: `https://pawsome3d.com/api/stripe-webhook`, events `checkout.session.completed` + `checkout.session.async_payment_succeeded` |
 | `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` | MySQL connection |
-| `GOOGLE_MAPS_API_KEY_SERVER` | Server‑side Street View (IP‑restricted key) |
-| `VITE_GOOGLE_MAPS_API_KEY_BROWSER` | Browser Maps/Places (HTTP‑referrer‑restricted key) |
+| `GOOGLE_MAPS_API_KEY_SERVER` | Server‑side key: Street View, Places (landmarks), Community nearby parks + weather. Enable Street View Static, Places, and Weather APIs. No HTTP‑referrer restriction (server calls). |
+| `VITE_GOOGLE_MAPS_API_KEY_BROWSER` | Browser Maps/Places (HTTP‑referrer‑restricted to pawsome3d.com). Baked in at build time. |
 | `MEDIA_BUCKET_NAME` / `MEDIA_BUCKET_URL` / `MEDIA_BUCKET_KEY` / `MEDIA_BUCKET_SECRET` | Object storage for generated media |
 | `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_PHONE_NUMBER` | Twilio SMS API for request fulfillment notifications |
 | `TRIPO_API_KEY` | Tripo3D API key for Image-to-3D mesh generation (Primary 3D engine) |
@@ -150,4 +162,14 @@ npm run lint         # type-check with tsc --noEmit
 
 ## Deployment
 
-The app is deployed on Hostinger and rebuilds automatically whenever the `main` branch is updated on GitHub. The build runs `npm run build`, and the server starts from `dist/server.cjs`, reading `PORT` from the environment. No manual deploy step is required — push to `main` and Hostinger redeploys.
+The pawsome3d.com Hostinger site is a **Node.js app configured for manual zip upload** — it is **not** wired to auto‑deploy from GitHub (that was the old mypets.cc site). Pushing to `main` updates the repo but does **not** change the live site.
+
+Because Hostinger installs with `NODE_ENV=production` (which skips the devDependencies that `vite`/`esbuild` live in), the site is deployed as a **prebuilt bundle**, not built on the host:
+
+1. Build locally: `npm run build` → produces `dist/` (frontend + `dist/server.cjs`).
+2. Package a zip containing `package.json`, `package-lock.json`, `.env.example`, and `dist/`.
+   - The shipped `package.json`'s `build` script is a no‑op (`echo …`) so Hostinger's pipeline doesn't try to rebuild from source; the real build script is preserved as `build:full`.
+3. In hPanel: **Websites → pawsome3d.com → Deployments → Settings and redeploy → Upload new files** → upload the zip → redeploy.
+4. Hostinger runs `npm install`, the no‑op build, then starts the entry file **`dist/server.cjs`**. Tables auto‑create on boot via `initDb()`.
+
+Environment variables live in Hostinger's deployment config (Deployments → Settings), not in a committed file. Build output paths: entry `dist/server.cjs`, install command `npm install`, framework preset Express, Node 22.
