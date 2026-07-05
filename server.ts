@@ -1,6 +1,6 @@
 import express from "express";
 import path from "path";
-import { createServer as createViteServer } from "vite";
+// Vite is imported dynamically below — only in dev mode
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import Stripe from "stripe";
@@ -26,6 +26,10 @@ dotenv.config();
 
 async function startServer() {
   const app = express();
+  // Hostinger runs the app behind a reverse proxy (LiteSpeed) which sets
+  // X-Forwarded-For. Without this, express-rate-limit throws
+  // ERR_ERL_UNEXPECTED_X_FORWARDED_FOR and rate-limits by proxy IP.
+  app.set("trust proxy", 1);
   const PORT = Number(process.env.PORT) || 3000;
 
   process.on("unhandledRejection", (reason) => {
@@ -143,18 +147,28 @@ async function startServer() {
 
   // Content Security Policy — strict but permits what the app needs
   app.use((_req, res, next) => {
-    const bucketOrigin = new URL(process.env.MEDIA_BUCKET_URL || "https://example.invalid").origin;
+    const bucketEndpointUrl = new URL(process.env.MEDIA_BUCKET_URL || "https://example.invalid");
+    const bucketOrigin = bucketEndpointUrl.origin;
+    // storage.ts builds public URLs virtual-host style: https://<bucket>.<endpoint-host>/...
+    // That is a DIFFERENT origin from the raw endpoint, so both must be allowed or
+    // every GLB fetch (model-viewer, GLTFLoader) is blocked by connect-src
+    // ("TypeError: Failed to fetch" in the browser, avatar never renders).
+    const bucketPublicOrigin = process.env.MEDIA_BUCKET_NAME
+      ? `${bucketEndpointUrl.protocol}//${process.env.MEDIA_BUCKET_NAME}.${bucketEndpointUrl.host}`
+      : bucketOrigin;
     res.setHeader(
       "Content-Security-Policy",
       [
         "default-src 'self'",
-        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://maps.googleapis.com https://maps.google.com https://*.googleapis.com",
-        "script-src-elem 'self' 'unsafe-inline' https://maps.googleapis.com https://maps.google.com",
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://maps.googleapis.com https://maps.google.com https://*.googleapis.com https://ajax.googleapis.com https://cdn.jsdelivr.net",
+        // ajax.googleapis.com serves <model-viewer>; cdn.jsdelivr.net serves the 8th Wall AR engine.
+        "script-src-elem 'self' 'unsafe-inline' https://maps.googleapis.com https://maps.google.com https://ajax.googleapis.com https://cdn.jsdelivr.net",
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://maps.googleapis.com",
         "worker-src 'self' blob:",
         `img-src 'self' blob: data: https: http://localhost:*`,
-        `media-src 'self' ${bucketOrigin}`,
-        `connect-src 'self' https://maps.googleapis.com https://*.googleapis.com https://maps.google.com ${bucketOrigin}`,
+        `media-src 'self' blob: ${bucketOrigin} ${bucketPublicOrigin}`,
+        // blob:/data: needed by model-viewer for AR (USDZ/scene-viewer export) and texture loading.
+        `connect-src 'self' blob: data: https://maps.googleapis.com https://*.googleapis.com https://maps.google.com https://cdn.jsdelivr.net ${bucketOrigin} ${bucketPublicOrigin}`,
         "font-src 'self' https://fonts.gstatic.com data:",
         "frame-src 'self' https://*.google.com https://js.stripe.com",
       ].join("; ")
@@ -1988,14 +2002,20 @@ async function startServer() {
   });
 
   // Serve static assets or mount Vite middleware
-  if (process.env.NODE_ENV !== "production") {
+  // Auto-detect production: if dist/index.html exists we're running from a build
+  const distPath = path.join(process.cwd(), 'dist');
+  const isProduction = process.env.NODE_ENV === "production" || fs.existsSync(path.join(distPath, 'index.html'));
+
+  if (!isProduction) {
+    // Dynamic import so vite is never loaded in production bundles
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    console.log(`[Production] Serving static files from ${distPath}`);
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));

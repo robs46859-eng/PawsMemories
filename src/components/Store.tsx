@@ -83,8 +83,8 @@ export default function Store({ userProfile, onOpenCreditStore, onGoToAvatars }:
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {FEATURED.map((p) => (
-            <div key={p.id} className="bg-surface-container-lowest border border-outline-variant/40 rounded-2xl p-5 flex flex-col soft-glow-shadow hover:-translate-y-0.5 transition-transform">
-              <div className="relative bg-surface-container rounded-xl h-32 flex items-center justify-center text-5xl mb-4">
+            <div key={p.id} className="glass-panel border border-outline-variant/40 rounded-2xl p-5 flex flex-col soft-glow-shadow hover:-translate-y-0.5 transition-transform">
+              <div className="relative glass-panel rounded-xl h-32 flex items-center justify-center text-5xl mb-4">
                 {p.emoji}
                 {p.badge && (
                   <span className="absolute top-2 left-2 bg-primary text-on-primary text-[9px] font-black uppercase tracking-wider rounded-full px-2 py-0.5">
@@ -110,7 +110,7 @@ export default function Store({ userProfile, onOpenCreditStore, onGoToAvatars }:
 
       {/* Personalized collection */}
       <section>
-        <div className="bg-surface-container-low border border-outline-variant/40 rounded-3xl p-6 md:p-8">
+        <div className="glass-panel border border-outline-variant/40 rounded-3xl p-6 md:p-8">
           <div className="flex items-center gap-2 mb-1">
             <Sparkles size={16} className="text-primary" />
             <h3 className="text-lg font-extrabold text-on-surface tracking-tight">
@@ -125,7 +125,7 @@ export default function Store({ userProfile, onOpenCreditStore, onGoToAvatars }:
               <button
                 key={p.id}
                 onClick={() => notifyComingSoon(p.name)}
-                className="bg-surface-container-lowest border border-outline-variant/40 rounded-2xl p-4 text-center hover:border-primary/40 active:scale-95 transition-all cursor-pointer"
+                className="glass-panel border border-outline-variant/40 rounded-2xl p-4 text-center hover:border-primary/40 active:scale-95 transition-all cursor-pointer"
               >
                 <div className="text-3xl mb-2">{p.emoji}</div>
                 <div className="text-xs font-extrabold text-on-surface">{p.name}</div>

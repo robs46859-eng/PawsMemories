@@ -31,7 +31,7 @@ export default function AchievementsPanel({
   const progressPercent = Math.round((completedCount / totalCount) * 100);
 
   return (
-    <section className="bg-surface-container rounded-3xl p-6 border border-outline-variant/30 shadow-sm space-y-6">
+    <section className="glass-panel rounded-3xl p-6 border border-outline-variant/30 shadow-sm space-y-6">
       
       {/* Header and Streak Info */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-outline-variant/20 pb-4">

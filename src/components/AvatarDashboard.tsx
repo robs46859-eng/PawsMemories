@@ -388,7 +388,7 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode 
 
       {livingAvatar && (
         <div className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-surface-container rounded-3xl w-full max-w-2xl h-[85vh] flex flex-col overflow-hidden shadow-2xl border border-outline-variant/20">
+          <div className="glass-panel bg-surface-container/80 backdrop-blur-md rounded-3xl w-full max-w-2xl h-[85vh] flex flex-col overflow-hidden shadow-2xl border border-outline-variant/20">
             <div className="flex justify-between items-center p-4 border-b border-outline-variant/20">
               <h2 className="font-extrabold text-on-surface flex items-center gap-2">
                 <Sparkles size={16} className="text-primary" />

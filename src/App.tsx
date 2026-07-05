@@ -10,14 +10,49 @@ import AdminRequestPanel from "./components/AdminRequestPanel";
 import ShareMemory from "./components/ShareMemory";
 import RandyChat from "./components/RandyChat";
 import AlbumView from "./components/AlbumView";
+import AlbumsPage from "./components/AlbumsPage";
 import { fetchMe, fetchCreations, fetchAlbums, createAlbum, clearToken, claimAchievement, claimDailyStreak } from "./api";
-import { Sparkles, User, History, FolderOpen, Sun, Moon, LogOut, RefreshCw, Zap, Dog, ClipboardList, Bell, ShoppingBag, Users } from "lucide-react";
+import { Sparkles, User, History, FolderOpen, Sun, Moon, LogOut, RefreshCw, Zap, Dog, ClipboardList, Bell, ShoppingBag, Users, Home } from "lucide-react";
 import CreditStore from "./components/CreditStore";
 import AvatarDashboard from "./components/AvatarDashboard";
 import Store from "./components/Store";
 import ProfileScreen from "./components/ProfileScreen";
 
 const EMPTY_PROFILE: UserProfile = { fullName: "", email: "", credits: 0, treats: 0, isAdmin: false, city: "", ageVerified: false };
+
+const getBackgroundImage = (screen: Screen) => {
+  switch (screen) {
+    case Screen.SIGN_UP:
+    case Screen.WELCOME:
+    case Screen.TUTORIAL:
+      return {
+        url: "https://lh3.googleusercontent.com/aida-public/AB6AXuDhAPCOn9lJeAvcUcl3BdoLP4KgyEMtnj3DMytEM-aCeBC_Jdpc8WW-UZL57l3Qr5OTa-jgsrex2CjGTUWuxGmgSkMlcgq8O_oOt40zJn_RN3amGsf2AUvegr9mKKbNgEtBxhhbTVHvlEE9NxddCCh0JEfzxnFnyN9C6I7k2BKyjpDcu7JPXvlFQKQIxtvg9O9c7Eau9ZP-jGV8C3uT8CmB6Dk6jXb3kphtYYtNQg5c63h0iWvkb77VVgecwIiLCoBNdCsQjg2S5LLu",
+        className: "opacity-35 grayscale brightness-110"
+      };
+    case Screen.AVATAR_DASHBOARD:
+    case Screen.STORE:
+      return {
+        url: "https://lh3.googleusercontent.com/aida/AP1WRLvt8lFxJgHJ9uP3j6iyhqJUtsv1lxYplq8f-d6xh9dMKZt8nDB1YMz45La6Y2Nasn42O8MypImZtJWIX0to6wkpFZGfOR_zfUBzjMH_HO4zzbwtfIuqq8l14CtfbEF5orZj6ZeJcNw7oNmkMlMNZgo3hPGaP0FR1kcMPFoy1LqbahDJf1vo6dH3v8oGnFTp4BOenijUglfJb97YY6Pq7-5eZGCmaDOFUMkg8sjqGrkpFLK05dGpeNaU5Emr",
+        className: "opacity-45 blur-[1px]"
+      };
+    case Screen.PROFILE:
+    case Screen.ALBUMS:
+    case Screen.ALBUM_VIEW:
+    case Screen.SHARE_MEMORY:
+    case Screen.REQUEST_MEMORY:
+    case Screen.EDIT_MEMORY:
+      return {
+        url: "https://lh3.googleusercontent.com/aida-public/AB6AXuCgPgSPbugIw7F_e3S1ovxk0kXUcFRdPskoy_9PfWa9WhHYuW2cIC31iOs3emo4xn_LchV70fYyBJyZjGcv-NqNLC2LUFBSsVkVQbql0-tUGkqrb7gyqk4b9S9MT9R907oQt79H06ENI2Yg9GuyCW1jGRdXzTPNcMgPQ_4l0wtcGzp_PUW9yIrcj5iLfNy1f_FvOPou2R8Q9Hs74deUI9WpFfY_O2hBsKYlwPjlxU0YEtRiCWZTKWa0miFhM7ElBCe2V1_al1DgDeqS",
+        className: "opacity-55"
+      };
+    case Screen.DASHBOARD:
+    default:
+      return {
+        url: "https://lh3.googleusercontent.com/aida-public/AB6AXuD-HqwxMcpwPXgGyLghKDmX1u4tjL6sbJHj3zw_AbJ1n32bwAVThwTiezURkzCyyAvH75EDBKWrxIg4Aldt4eydUzY9PGxKyItSMwZsW75Y1WMzSRPHBGiCaRgg_7gSWhPSFYZma1nG4WalFWLZ88F036cdW-XgrLUwReVKHR1hgNJNqxD0ZHA0h8JglbXKZQj7cA2G6BAV1fAYz6mLN1mholInPBy3eKZUKEOY5syjXm1UAYoiyOboLuHxiO387h74a5kfxcUUGFnP",
+        className: "opacity-55 blur-[1px] brightness-110"
+      };
+  }
+};
 
 export default function App() {
   // Auth gating state
@@ -64,7 +99,7 @@ export default function App() {
       if (user && user.profileComplete) {
         applyUser(user);
         setIsAuthed(true);
-        setCurrentScreen(Screen.AVATAR_DASHBOARD);
+        setCurrentScreen(Screen.DASHBOARD);
         // Phase 1.7: Fetch persistent creations from backend
         const serverCreations = await fetchCreations();
         setCreations(serverCreations);
@@ -190,7 +225,7 @@ export default function App() {
       handleUnlockAchievement("pioneer");
       setCurrentScreen(Screen.WELCOME);
     } else {
-      setCurrentScreen(Screen.AVATAR_DASHBOARD);
+      setCurrentScreen(Screen.DASHBOARD);
       fetchCreations().then(setCreations);
       fetchAlbums().then(setAlbums);
     }
@@ -205,7 +240,7 @@ export default function App() {
 
   const handleWelcomeNext = () => setCurrentScreen(Screen.TUTORIAL);
 
-  const handleTutorialComplete = () => setCurrentScreen(Screen.AVATAR_DASHBOARD);
+  const handleTutorialComplete = () => setCurrentScreen(Screen.DASHBOARD);
 
   const handleClaimDailyBonus = () => {
     setUserProfile((prev) => ({ ...prev, credits: prev.credits + 5 }));
@@ -266,10 +301,25 @@ export default function App() {
   }
 
   return (
-    <div className={`min-h-screen bg-surface flex flex-col selection:bg-primary-container selection:text-on-primary-container ${isDarkMode ? "dark" : ""}`}>
+    <div className={`min-h-screen flex flex-col selection:bg-primary-container selection:text-on-primary-container ${isDarkMode ? "dark" : ""}`}>
+
+      {/* Global Background Layer */}
+      <div className="fixed inset-0 z-[-10] pointer-events-none overflow-hidden bg-background">
+        <div 
+          className={`absolute inset-0 bg-cover bg-center bg-transition ${getBackgroundImage(currentScreen).className}`} 
+          style={{ backgroundImage: `url('${getBackgroundImage(currentScreen).url}')` }}
+        ></div>
+        {/* Mud splatters */}
+        <div className="mud-splatter" style={{ width: "120px", height: "90px", top: "-20px", left: "-10%", "--rot": "15deg" } as React.CSSProperties}></div>
+        <div className="mud-splatter" style={{ width: "180px", height: "140px", top: "40%", right: "-15%", "--rot": "-25deg", animationDelay: "0.2s" } as React.CSSProperties}></div>
+        <div className="mud-splatter" style={{ width: "90px", height: "70px", bottom: "-30px", left: "20%", "--rot": "45deg", animationDelay: "0.5s" } as React.CSSProperties}></div>
+        <div className="mud-splatter" style={{ width: "150px", height: "100px", top: "10%", right: "10%", "--rot": "10deg", animationDelay: "0.8s" } as React.CSSProperties}></div>
+        {/* Gradient overlay to ensure text remains readable */}
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-background/25 to-background/60 dark:from-transparent dark:via-[#17120f]/40 dark:to-[#17120f]/80"></div>
+      </div>
 
       {/* Dynamic Upper Header Bar */}
-      <header className="fixed top-0 w-full z-50 bg-surface/60 backdrop-blur-xl shadow-[0_8px_32px_0_rgba(68,42,34,0.08)]">
+      <header className="fixed top-0 w-full z-50 bg-surface/40 backdrop-blur-xl shadow-[0_8px_32px_0_rgba(68,42,34,0.08)]">
         <nav className="flex justify-between items-center px-6 md:px-16 py-4 w-full max-w-7xl mx-auto">
           <div className="flex items-center gap-2">
             <span className="text-headline-lg font-headline-xl font-extrabold text-primary tracking-tight">Pawsome3D</span>
@@ -277,8 +327,9 @@ export default function App() {
 
           <div className="hidden md:flex items-center gap-8">
             <button onClick={() => setCurrentScreen(Screen.DASHBOARD)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.DASHBOARD ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Home</button>
+            <button onClick={() => setCurrentScreen(Screen.ALBUMS)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.ALBUMS ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Albums</button>
             <button onClick={() => setCurrentScreen(Screen.AVATAR_DASHBOARD)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.AVATAR_DASHBOARD ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Avatars</button>
-            <button onClick={() => setCurrentScreen(Screen.STORE)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.STORE ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Store</button>
+            <button onClick={() => setCurrentScreen(Screen.DASHBOARD)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${[Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW].includes(currentScreen) && currentScreen !== Screen.DASHBOARD ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Community</button>
           </div>
 
           <div className="flex items-center gap-2 md:gap-4">
@@ -331,8 +382,64 @@ export default function App() {
         </nav>
       </header>
 
+      <div className="flex-grow flex w-full relative">
+        {/* Desktop Sidebar */}
+        {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.AVATAR_DASHBOARD, Screen.STORE, Screen.PROFILE].includes(currentScreen) && (
+          <aside className="fixed left-0 top-0 h-full z-40 hidden md:flex flex-col py-8 w-64 bg-surface/80 dark:bg-surface-dim/80 backdrop-blur-xl shadow-xl border-r border-outline-variant/20 pt-24">
+            <div className="px-6 mb-8">
+              <div className="flex flex-col items-center p-4 bg-primary-container rounded-xl gap-2 text-center shadow-inner">
+                <div className="w-16 h-16 rounded-full border-4 border-primary-fixed-dim overflow-hidden bg-white">
+                  <img className="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDrxNE61jqvdNR8-rsWm6lutkR14a7_f4GeW2AgJ4ZEoT44fgEPune7E5tPMNfXu-fE_kIMxesgB5HCVV8pUedW56xAVKF3LdDPjH_d0ZlzdXYGldYx8YJ5oUgES1TPfgQPsUds_3RPmxk-iDqk_P-UeLPxPTf4jXksgPEjjzXbo3yRXluhSD9LFCYezyVKW61ZsoctFb3GGIoCtiN0JCooH7jGcrNy5X_-UnZ2TSXRLolc5SmHFftZMMpP1Rwwszm7b-pBg5FoJvGr" alt="Avatar Profile" />
+                </div>
+                <div>
+                  <h3 className="font-headline-lg text-[18px] leading-tight text-on-primary-container font-bold">{userProfile.fullName.split(" ")[0]}'s Pet</h3>
+                </div>
+              </div>
+            </div>
+            
+            <nav className="flex-1 space-y-2">
+              <button onClick={() => setCurrentScreen(Screen.DASHBOARD)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${currentScreen === Screen.DASHBOARD ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
+                <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.DASHBOARD ? "'FILL' 1" : "'FILL' 0" }}>home</span>
+                <span className="font-medium">Home</span>
+              </button>
+              <button onClick={() => setCurrentScreen(Screen.ALBUMS)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${currentScreen === Screen.ALBUMS ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
+                <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.ALBUMS ? "'FILL' 1" : "'FILL' 0" }}>pets</span>
+                <span className="font-medium">Albums</span>
+              </button>
+              <button onClick={() => setCurrentScreen(Screen.AVATAR_DASHBOARD)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${currentScreen === Screen.AVATAR_DASHBOARD ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
+                <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.AVATAR_DASHBOARD ? "'FILL' 1" : "'FILL' 0" }}>pets</span>
+                <span className="font-medium">Avatars</span>
+              </button>
+              <button className="w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30">
+                <span className="material-symbols-outlined font-sans">view_in_ar</span>
+                <span className="font-medium">AR Mode</span>
+              </button>
+              <button onClick={() => setCurrentScreen(Screen.DASHBOARD)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${[Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW].includes(currentScreen) && currentScreen !== Screen.DASHBOARD ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
+                <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: [Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW].includes(currentScreen) && currentScreen !== Screen.DASHBOARD ? "'FILL' 1" : "'FILL' 0" }}>group</span>
+                <span className="font-medium">Community</span>
+              </button>
+            </nav>
+            
+            <div className="px-4 py-6 mt-auto border-t border-outline-variant/20 mx-4">
+              <button onClick={() => setCurrentScreen(Screen.AVATAR_DASHBOARD)} className="w-full bg-primary text-on-primary py-3 rounded-lg font-bold hover:scale-[1.02] transition-transform active:scale-95 shadow-lg shadow-primary/20">
+                Generate Avatar
+              </button>
+              <div className="mt-6 space-y-2">
+                <button className="w-full flex items-center gap-4 text-on-surface-variant hover:bg-secondary-container/30 rounded-lg px-4 py-2 transition-all">
+                  <span className="material-symbols-outlined font-sans">help</span>
+                  <span className="text-body-sm">Support</span>
+                </button>
+                <button onClick={handleLogout} className="w-full flex items-center gap-4 text-on-surface-variant hover:bg-secondary-container/30 rounded-lg px-4 py-2 transition-all">
+                  <span className="material-symbols-outlined font-sans">logout</span>
+                  <span className="text-body-sm">Logout</span>
+                </button>
+              </div>
+            </div>
+          </aside>
+        )}
+
       {/* Main Content Router viewport */}
-      <main className="flex-grow flex flex-col justify-center items-center">
+      <main className={`flex-grow flex flex-col justify-center items-center ${isAuthed ? 'md:ml-64 w-full relative' : 'w-full'}`}>
         {/* When not authenticated, the only reachable screen is sign-up. */}
         {!isAuthed ? (
           <SignUp onAuthenticated={handleAuthenticated} />
@@ -397,6 +504,16 @@ export default function App() {
               <RequestMemory
                 onNavigateBack={() => setCurrentScreen(Screen.DASHBOARD)}
                 onUnlockAchievement={handleUnlockAchievement}
+              />
+            )}
+
+            {currentScreen === Screen.ALBUMS && (
+              <AlbumsPage
+                userProfile={userProfile}
+                creations={creations}
+                albums={albums}
+                onSelectCreation={handleSelectCreation}
+                onNavigate={setCurrentScreen}
               />
             )}
 
@@ -481,51 +598,53 @@ export default function App() {
       </main>
 
       {/* Floating Bottom Navigator (only when signed in and past onboarding) */}
-      {isAuthed && [Screen.DASHBOARD, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.AVATAR_DASHBOARD, Screen.STORE, Screen.PROFILE].includes(currentScreen) && (
-        <div className="fixed md:hidden bottom-0 left-0 right-0 bg-surface-container-lowest/90 backdrop-blur-md border-t border-outline-variant/30 py-2 px-6 flex justify-around items-center max-w-md mx-auto z-40 rounded-t-3xl shadow-[0_-8px_32px_0_rgba(68,42,34,0.08)]">
+      {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.AVATAR_DASHBOARD, Screen.STORE, Screen.PROFILE].includes(currentScreen) && (
+        <div className="fixed md:hidden bottom-0 left-0 right-0 bg-surface-container-lowest/90 dark:bg-surface-dim/90 backdrop-blur-xl border-t border-outline-variant/30 py-2 px-4 flex justify-around items-center z-40 rounded-t-2xl shadow-[0_-8px_32px_0_rgba(68,42,34,0.08)]">
           <button
-            onClick={() => setCurrentScreen(Screen.AVATAR_DASHBOARD)}
-            className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-xl transition-all cursor-pointer ${
-              currentScreen === Screen.AVATAR_DASHBOARD ? "text-primary scale-103 font-bold" : "text-on-surface-variant opacity-75"
+            onClick={() => setCurrentScreen(Screen.DASHBOARD)}
+            className={`flex flex-col items-center justify-center gap-1 py-2 px-4 rounded-xl transition-all duration-300 ${
+              currentScreen === Screen.DASHBOARD ? "bg-primary text-on-primary scale-105" : "text-on-surface-variant hover:bg-surface-variant/50"
             }`}
           >
-            <Dog size={20} />
-            <span className="text-[9px] uppercase tracking-wider font-extrabold">Avatar</span>
+            <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.DASHBOARD ? "'FILL' 1" : "'FILL' 0" }}>home</span>
+            <span className="text-[10px] font-bold">Home</span>
           </button>
 
           <button
-            onClick={() => setCurrentScreen(Screen.STORE)}
-            className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-xl transition-all cursor-pointer ${
-              currentScreen === Screen.STORE ? "text-primary scale-103 font-bold" : "text-on-surface-variant opacity-75"
+            onClick={() => setCurrentScreen(Screen.ALBUMS)}
+            className={`flex flex-col items-center justify-center gap-1 py-2 px-4 rounded-xl transition-all duration-300 ${
+              currentScreen === Screen.ALBUMS ? "bg-primary text-on-primary scale-105" : "text-on-surface-variant hover:bg-surface-variant/50"
             }`}
           >
-            <ShoppingBag size={20} />
-            <span className="text-[9px] uppercase tracking-wider font-extrabold">Store</span>
+            <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.ALBUMS ? "'FILL' 1" : "'FILL' 0" }}>pets</span>
+            <span className="text-[10px] font-bold">Albums</span>
+          </button>
+
+          <button
+            onClick={() => setCurrentScreen(Screen.AVATAR_DASHBOARD)}
+            className={`flex flex-col items-center justify-center gap-1 py-2 px-4 rounded-xl transition-all duration-300 ${
+              currentScreen === Screen.AVATAR_DASHBOARD ? "bg-primary text-on-primary scale-105" : "text-on-surface-variant hover:bg-surface-variant/50"
+            }`}
+          >
+            <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.AVATAR_DASHBOARD ? "'FILL' 1" : "'FILL' 0" }}>pets</span>
+            <span className="text-[10px] font-bold">Avatars</span>
           </button>
 
           <button
             onClick={() => setCurrentScreen(Screen.DASHBOARD)}
-            className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-xl transition-all cursor-pointer ${
-              [Screen.DASHBOARD, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW].includes(currentScreen)
-                ? "text-primary scale-103 font-bold"
-                : "text-on-surface-variant opacity-75"
+            className={`flex flex-col items-center justify-center gap-1 py-2 px-4 rounded-xl transition-all duration-300 ${
+              [Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW].includes(currentScreen) && currentScreen !== Screen.DASHBOARD
+                ? "bg-primary text-on-primary scale-105"
+                : "text-on-surface-variant hover:bg-surface-variant/50"
             }`}
           >
-            <Users size={20} />
-            <span className="text-[9px] uppercase tracking-wider font-extrabold">Community</span>
-          </button>
-
-          <button
-            onClick={() => setCurrentScreen(Screen.PROFILE)}
-            className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-xl transition-all cursor-pointer ${
-              currentScreen === Screen.PROFILE ? "text-primary scale-103 font-bold" : "text-on-surface-variant opacity-75"
-            }`}
-          >
-            <User size={20} />
-            <span className="text-[9px] uppercase tracking-wider font-extrabold">Profile</span>
+            <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: [Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW].includes(currentScreen) && currentScreen !== Screen.DASHBOARD ? "'FILL' 1" : "'FILL' 0" }}>groups</span>
+            <span className="text-[10px] font-bold">Community</span>
           </button>
         </div>
       )}
+
+      </div>
 
       {/* Randy AI-chat bubble companion (only for signed-in users) */}
       {isAuthed && <RandyChat onUnlockAchievement={handleUnlockAchievement} isDarkMode={isDarkMode} />}

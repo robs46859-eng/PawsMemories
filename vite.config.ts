@@ -10,6 +10,11 @@ export default defineConfig(() => {
       alias: {
         '@': path.resolve(__dirname, '.'),
       },
+      // Force all R3F ecosystem packages (@react-three/fiber, drei, xr) to
+      // share a single copy of three.js. Without this, Vite may bundle
+      // multiple copies, triggering "Multiple instances of Three.js" which
+      // breaks GLTFLoader, materials, and AR rendering.
+      dedupe: ['three'],
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

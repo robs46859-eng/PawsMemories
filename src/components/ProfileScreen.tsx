@@ -30,7 +30,7 @@ export default function ProfileScreen({
   return (
     <div className="w-full max-w-2xl mx-auto px-4 pt-6 pb-28 animate-fade-in">
       {/* Identity card */}
-      <section className="bg-surface-container-lowest border border-outline-variant/40 rounded-3xl p-6 mb-6 soft-glow-shadow">
+      <section className="glass-panel border border-outline-variant/40 rounded-3xl p-6 mb-6 soft-glow-shadow">
         <div className="flex items-center gap-4">
           <div className="w-14 h-14 rounded-full bg-primary/15 text-primary flex items-center justify-center">
             <User size={26} />
@@ -46,7 +46,7 @@ export default function ProfileScreen({
           </div>
           <button
             onClick={onToggleDarkMode}
-            className="w-9 h-9 rounded-full bg-surface-container hover:bg-outline-variant/35 text-on-surface flex items-center justify-center border border-outline-variant/20 transition-all cursor-pointer"
+            className="w-9 h-9 rounded-full glass-panel hover:bg-outline-variant/35 text-on-surface flex items-center justify-center border border-outline-variant/20 transition-all cursor-pointer"
             title={isDarkMode ? "Light mode" : "Dark mode"}
           >
             {isDarkMode ? <Sun size={15} /> : <Moon size={15} />}
@@ -55,7 +55,7 @@ export default function ProfileScreen({
 
         {/* Credits + streak row */}
         <div className="grid grid-cols-2 gap-3 mt-6">
-          <div className="bg-surface-container rounded-2xl p-4">
+          <div className="glass-panel rounded-2xl p-4">
             <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-on-surface-variant mb-1">
               <Zap size={11} className="text-primary" /> Credits
             </div>
@@ -67,7 +67,7 @@ export default function ProfileScreen({
               Buy Credits
             </button>
           </div>
-          <div className="bg-surface-container rounded-2xl p-4">
+          <div className="glass-panel rounded-2xl p-4">
             <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-on-surface-variant mb-1">
               <Flame size={11} className="text-primary" /> Daily Streak
             </div>
@@ -84,7 +84,7 @@ export default function ProfileScreen({
       </section>
 
       {/* Achievements */}
-      <section className="bg-surface-container-lowest border border-outline-variant/40 rounded-3xl p-6 mb-6">
+      <section className="glass-panel border border-outline-variant/40 rounded-3xl p-6 mb-6">
         <div className="flex items-center gap-2 mb-4">
           <Trophy size={16} className="text-primary" />
           <h3 className="text-sm font-extrabold text-on-surface uppercase tracking-wide">Achievements</h3>
@@ -94,7 +94,7 @@ export default function ProfileScreen({
             <div
               key={a.id}
               className={`flex items-center gap-3 p-3 rounded-2xl border ${
-                a.isUnlocked ? "border-primary/30 bg-primary/5" : "border-outline-variant/30 bg-surface-container opacity-60"
+                a.isUnlocked ? "border-primary/30 bg-primary/5" : "border-outline-variant/30 glass-panel opacity-60"
               }`}
             >
               <span className="text-2xl">{a.icon}</span>
@@ -122,7 +122,7 @@ export default function ProfileScreen({
       {/* Sign out */}
       <button
         onClick={onLogout}
-        className="w-full py-3 flex items-center justify-center gap-2 bg-surface-container hover:bg-error/10 hover:text-error text-on-surface-variant border border-outline-variant/30 rounded-2xl text-xs font-black uppercase tracking-wide transition-all cursor-pointer"
+        className="w-full py-3 flex items-center justify-center gap-2 glass-panel hover:bg-error/10 hover:text-error text-on-surface-variant border border-outline-variant/30 rounded-2xl text-xs font-black uppercase tracking-wide transition-all cursor-pointer"
       >
         <LogOut size={14} /> Sign Out
       </button>

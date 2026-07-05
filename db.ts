@@ -867,12 +867,14 @@ export interface AvatarRow {
   name: string;
   image_url: string;
   model_url: string | null;
+  rigged_model_url: string | null;
+  clips_json: string | null;
   sprite_sheet_url: string | null;
   animation_data: any | null;
   meshy_handle: string | null;
   animal_type: string | null;
   breed: string | null;
-  generation_status: 'pending' | 'generating_mesh' | 'rigging' | 'baking_sprites' | 'done' | 'failed';
+  generation_status: 'pending' | 'generating_mesh' | 'rigging' | 'retargeting' | 'baking_clips' | 'baking_sprites' | 'done' | 'failed';
   generation_error: string | null;
   food_level: number;
   water_level: number;
@@ -906,8 +908,11 @@ export async function updateAvatarModel(
   spriteSheetUrl: string,
   animationData: any
 ): Promise<boolean> {
+  // NOTE: Do NOT set generation_status here — the caller manages status
+  // transitions via updateAvatarGenerationStatus to avoid a race condition
+  // where the frontend sees a premature 'done' before clip baking finishes.
   const [result] = await getPool().query(
-    `UPDATE avatars SET model_url = ?, sprite_sheet_url = ?, animation_data = ?, generation_status = 'done' WHERE id = ? AND user_phone = ?`,
+    `UPDATE avatars SET model_url = ?, sprite_sheet_url = ?, animation_data = ? WHERE id = ? AND user_phone = ?`,
     [modelUrl, spriteSheetUrl, JSON.stringify(animationData), id, phone]
   ) as any;
   return result.affectedRows === 1;

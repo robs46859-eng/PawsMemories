@@ -1,8 +1,7 @@
-import React, { useState, useEffect, useRef } from "react";
-import { Plus, FolderPlus, ArrowRight, Share2, Video, Camera, Info, Folder, Sparkles, AlertCircle, Award, RefreshCw, Wifi, WifiOff, Activity, ShieldAlert, Play } from "lucide-react";
-import { Album, Creation, UserProfile, GenerationJob } from "../types";
-import AchievementsPanel, { Achievement } from "./AchievementsPanel";
-import { createVideo, pollJob } from "../api";
+import React, { useState } from "react";
+import { Play, Sparkles, Activity, Heart, ArrowRight } from "lucide-react";
+import { Album, Creation, UserProfile } from "../types";
+import { Achievement } from "./AchievementsPanel";
 
 interface DashboardProps {
   userProfile: UserProfile;
@@ -22,849 +21,110 @@ interface DashboardProps {
   onOpenAdminPanel?: () => void;
 }
 
-export default function Dashboard({
-  userProfile,
-  albums,
-  creations,
-  onAddMemory,
-  onClaimDailyBonus,
-  onShareCompleted,
-  onSelectCreation,
-  streak,
-  achievements,
-  onClaimReward,
-  onClaimDailyStreak,
-  dailyStreakClaimed,
-  onSelectAlbum,
-  onCreateAlbum,
-  onOpenAdminPanel,
-}: DashboardProps) {
-  const [dailyClaimed, setDailyClaimed] = useState(false);
-  const [createAlbumName, setCreateAlbumName] = useState("");
-  const [showCreateAlbumModal, setShowCreateAlbumModal] = useState(false);
-
-  // Phase 3/4: Video animation job tracking
-  const [animatingJobs, setAnimatingJobs] = useState<Record<number, { jobId: number; status: string }>>({});
-  const pollIntervals = useRef<Record<number, NodeJS.Timeout>>({});
-  
-  // Phase 4: Animation preset modal state
-  const [showAnimateModal, setShowAnimateModal] = useState(false);
-  const [selectedCreationForAnimate, setSelectedCreationForAnimate] = useState<Creation | null>(null);
-  const [selectedMotion, setSelectedMotion] = useState("Gentle breeze, subtle tail wag, cinematic lighting");
-  const [enableAudio, setEnableAudio] = useState(true);
-  const [selectedAspectRatio, setSelectedAspectRatio] = useState<"16:9" | "9:16">("16:9");
-
-  const MOTION_PRESETS = [
-    "Gentle breeze, subtle tail wag, cinematic lighting",
-    "Slow cinematic push-in, dreamy atmosphere",
-    "Snow falling softly, cozy winter vibe",
-    "Playful head tilt, happy and energetic",
-  ];
-
-  const startPolling = (creationId: number, jobId: number) => {
-    setAnimatingJobs((prev) => ({ ...prev, [creationId]: { jobId, status: "queued" } }));
-    
-    const interval = setInterval(async () => {
-      try {
-        const res = await pollJob(jobId);
-        if (res.status === "done") {
-          clearInterval(interval);
-          setAnimatingJobs((prev) => {
-            const next = { ...prev };
-            delete next[creationId];
-            return next;
-          });
-          // Trigger a page reload or re-fetch to get the updated creation with video_url
-          window.location.reload();
-        } else if (res.status === "failed") {
-          clearInterval(interval);
-          setAnimatingJobs((prev) => {
-            const next = { ...prev };
-            delete next[creationId];
-            return next;
-          });
-          alert(`Animation failed: ${res.error || "Unknown error"}`);
-        } else {
-          setAnimatingJobs((prev) => ({
-            ...prev,
-            [creationId]: { jobId, status: res.status },
-          }));
-        }
-      } catch (err) {
-        console.error("Polling error:", err);
-      }
-    }, 5000); // Poll every 5 seconds
-
-    pollIntervals.current[creationId] = interval;
-  };
-
-  const handleAnimateClick = (creation: Creation) => {
-    if (!userProfile.isAdmin && userProfile.credits < 250) {
-      alert("You need 250 credits to animate a memory. Purchase more credits in the store!");
-      return;
-    }
-    setSelectedCreationForAnimate(creation);
-    setShowAnimateModal(true);
-  };
-
-  const handleConfirmAnimate = async () => {
-    if (!selectedCreationForAnimate) return;
-    setShowAnimateModal(false);
-    
-    try {
-      const res = await createVideo(selectedCreationForAnimate.id, selectedMotion, enableAudio, selectedAspectRatio);
-      startPolling(selectedCreationForAnimate.id, res.jobId);
-    } catch (err: any) {
-      alert(err.message || "Failed to start animation.");
-    }
-  };
-
-  // Live Inspiration Board state variables - completely real API data
-  const [inspiration, setInspiration] = useState<{
-    imageUrl: string;
-    breed: string;
-    fact: string;
-    metadata: {
-      dogApiStatus: string;
-      dogApiDetail: string | null;
-      factApiStatus: string;
-      factApiDetail: string | null;
-      timestamp: string;
-    };
-  } | null>(null);
-
-  const [loadingInspiration, setLoadingInspiration] = useState(false);
-  const [errorInspiration, setErrorInspiration] = useState<string | null>(null);
-  const [showDiagnostics, setShowDiagnostics] = useState(false);
-  const [simulateError, setSimulateError] = useState(false);
-
-  const fetchLiveInspiration = async (forceSimulate: boolean = simulateError) => {
-    setLoadingInspiration(true);
-    setErrorInspiration(null);
-    try {
-      // If simulated error, call a target url that does not exist to run the exact error capture flow
-      const url = forceSimulate 
-        ? "/api/inspiration-simulated-error-test" 
-        : "/api/inspiration";
-
-      const res = await fetch(url);
-      if (!res.ok) {
-        throw new Error(`Public proxy API failed with status code ${res.status}`);
-      }
-      const data = await res.json();
-      if (data.success) {
-        setInspiration(data);
-      } else {
-        throw new Error(data.error || "Malformed JSON payload from custom proxy endpoint.");
-      }
-    } catch (err: any) {
-      console.error("Dashboard inspiration fetch error details:", err);
-      setErrorInspiration(err.message || "Failed to make HTTP GET request to live pet networks.");
-      
-      // Fallback state preserves high resilience and displays real error diagnostics
-      setInspiration({
-        imageUrl: "https://images.unsplash.com/photo-1543466835-00a7907e9de1?auto=format&fit=crop&q=80&w=600",
-        breed: "Resilient Care",
-        fact: "The application successfully captured a live network exception. Verify your link configurations or toggle the simulation off.",
-        metadata: {
-          dogApiStatus: "error",
-          dogApiDetail: err.toString(),
-          factApiStatus: "error",
-          factApiDetail: "Bypassed standard loaders. Error gracefully intercepted in real-time.",
-          timestamp: new Date().toISOString()
-        }
-      });
-    } finally {
-      setLoadingInspiration(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchLiveInspiration(false);
-  }, []);
-
-  const handleClaimDaily = () => {
-    if (!dailyClaimed) {
-      setDailyClaimed(true);
-      onClaimDailyBonus();
-    }
-  };
-
-  const handleCreateAlbum = () => {
-    // Basic local triggers
-    setShowCreateAlbumModal(true);
-  };
+export default function Dashboard({ userProfile, streak, dailyStreakClaimed, onClaimDailyStreak }: DashboardProps) {
+  const [isHoveringAR, setIsHoveringAR] = useState(false);
+  const petName = userProfile.fullName.split(" ")[0] + "'s Pet"; // Defaulting to something nice
 
   return (
-    <div className="w-full max-w-7xl mx-auto px-4 py-8 pb-24 font-sans text-on-surface pt-24">
-      {/* Welcome & Daily Bonus Row */}
-      <section className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        
-        {/* Core welcome banner */}
-        <div className="md:col-span-2 relative overflow-hidden rounded-3xl bg-primary-container/90 backdrop-blur-md p-8 flex flex-col justify-between min-h-[180px] shadow-lg border border-primary-container/20">
-          <div className="relative z-10">
-            <h2 className="text-2xl md:text-3xl font-headline-xl font-extrabold text-on-primary-container mb-2">
-              Hello, {userProfile.fullName ? userProfile.fullName.split(" ")[0] : "friend"}!
-            </h2>
-            <p className="text-on-primary-container/90 text-sm md:text-base max-w-md leading-relaxed font-body-md">
-              Your pet's legacy is growing. You have {creations.length - 3 > 0 ? creations.length - 3 : 3} pending memories ready to be crafted.
-            </p>
-          </div>
-          {/* Ambient potted plant SVG/icon layout decoration */}
-          <div className="absolute -right-4 -bottom-4 opacity-20 text-on-primary-container animate-float">
-            <span className="text-[120px] md:text-[180px]">🌱</span>
-          </div>
+    <div className="w-full h-full min-h-[calc(100dvh-64px)] flex flex-col items-center justify-between pt-12 pb-24 md:pb-12 px-6 relative overflow-hidden">
+      
+      {/* Top Section: Daily Streak & Welcome */}
+      <div className="w-full max-w-5xl flex justify-between items-start z-10 pt-4 md:pt-0">
+        <div>
+          <h1 className="text-3xl md:text-5xl font-extrabold text-on-surface drop-shadow-md">
+            Welcome back, <br className="md:hidden" /><span className="text-primary">{userProfile.fullName.split(" ")[0]}!</span>
+          </h1>
+          <p className="text-on-surface-variant text-lg mt-2 font-medium">Ready for another adventure?</p>
         </div>
-
-        {/* Daily reward login card */}
-        <div className="glass-panel rounded-3xl p-6 flex flex-col items-center justify-center text-center">
-          <div className="w-16 h-16 bg-secondary-container/80 rounded-full flex items-center justify-center mb-4 shadow-sm border border-secondary-container/50 dog-float">
-            <Award size={28} className="text-on-secondary-container" />
-          </div>
-          <h3 className="text-base font-bold text-on-surface font-headline-lg-mobile">
-            Daily Login Bonus
-          </h3>
-          <p className="text-secondary font-extrabold text-2xl mt-1 font-label-caps">
-            +5cr
-          </p>
-          <button
-            onClick={handleClaimDaily}
-            disabled={dailyClaimed}
-            className={`mt-4 w-full py-3 rounded-xl text-sm font-bold transition-all cursor-pointer ${
-              dailyClaimed
-                ? "bg-outline-variant/30 text-on-surface-variant/50 cursor-not-allowed"
-                : "tactile-button bg-primary text-on-primary"
-            }`}
-          >
-            {dailyClaimed ? "Claimed" : "Claim Reward"}
-          </button>
-        </div>
-      </section>
-
-      {/* Featured Bento CTAs */}
-      <section className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
         
-        {/* Transform a Photo / New Memory CTA */}
-        <div
-          onClick={onAddMemory}
-          className="group relative overflow-hidden rounded-3xl aspect-[16/9] md:aspect-auto md:min-h-[240px] cursor-pointer shadow-lg transition-transform duration-300 hover:-translate-y-1 tactile-button"
+        {/* Streak Badge */}
+        <button 
+          onClick={() => !dailyStreakClaimed && onClaimDailyStreak()}
+          className={`flex flex-col items-center justify-center p-3 rounded-2xl backdrop-blur-xl border transition-all ${dailyStreakClaimed ? 'bg-primary/20 border-primary/30' : 'bg-surface/50 border-white/20 hover:scale-105 cursor-pointer shadow-lg'}`}
         >
-          {/* Background photograph with gold filters */}
-          <div
-            className="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-105"
-            style={{
-              backgroundImage: "url('https://lh3.googleusercontent.com/aida-public/AB6AXuAqAa4J3NysFyIoGisXAMToWolhRfUBUwY-Npe7wW0ZpmCPjWdiiOD12qqINX4ZvlmVvykxoc591rZKr48xWtigKFMgeo09wLjFgcxPMjgX26eQDfb6wD6ND88z2fAvXMSFDCodHS3c1QPZDGvV5vol2hIFNhLmGP8b2P581b7FGNKlRG3zJ2m8LZDg1Dwd8dnKZqAg4L3iSdzpagbMcM3Dyfw0kCuaOtlwvd_kNgAyJY55VvgaXfN0wP9jmPi8MNSBmpXuoQtexIM')",
-            }}
-          ></div>
-          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent"></div>
-          
-          <div className="absolute bottom-0 p-6 w-full flex justify-between items-end">
-            <div>
-              <span className="inline-block px-3 py-1 bg-secondary text-white rounded-full text-[10px] font-bold uppercase tracking-wider mb-2">
-                {userProfile.isAdmin ? "Admin AI" : "Handcrafted"}
-              </span>
-              <h3 className="text-2xl font-headline-lg text-white mb-1 drop-shadow-md">
-                {userProfile.isAdmin ? "New Memory" : "Request a Memory"}
-              </h3>
-              <p className="text-white/90 text-sm font-medium font-body-md drop-shadow">
-                {userProfile.isAdmin
-                  ? "Generate directly with AI — admin mode"
-                  : "Submit a request & our team personally crafts it"}
-              </p>
-            </div>
-            
-            <div className="flex flex-col items-end">
-              <span className="text-xs font-bold text-secondary-container mb-2 tracking-wider font-label-caps drop-shadow">
-                {userProfile.isAdmin ? "Admin" : "From $2.99"}
-              </span>
-              <div className="w-14 h-14 rounded-full bg-white flex items-center justify-center text-primary shadow-lg group-hover:scale-110 transition-transform active:scale-95">
-                <Plus size={28} />
-              </div>
-            </div>
+          <div className="flex items-center gap-1.5">
+            <Sparkles className={dailyStreakClaimed ? "text-primary" : "text-amber-400"} size={18} />
+            <span className="font-bold text-xl leading-none">{streak}</span>
           </div>
-        </div>
-
-        {/* Admin: Review Requests button */}
-        {userProfile.isAdmin && onOpenAdminPanel && (
-          <div
-            onClick={onOpenAdminPanel}
-            className="group relative overflow-hidden rounded-3xl border-2 border-secondary/40 bg-secondary/5 shadow-sm flex flex-col justify-between p-6 cursor-pointer hover:border-secondary/70 hover:bg-secondary/10 transition-all tactile-button"
-          >
-            <div>
-              <div className="w-14 h-14 bg-secondary/15 rounded-2xl flex items-center justify-center mb-4 text-secondary">
-                <Sparkles size={28} />
-              </div>
-              <h3 className="text-xl font-headline-lg-mobile font-bold text-on-surface">Review Requests</h3>
-              <p className="text-on-surface-variant text-sm mt-2 leading-relaxed">
-                View pending user requests, generate their memories, and send results
-              </p>
-            </div>
-            <div className="flex justify-between items-center mt-6">
-              <span className="text-sm font-bold text-secondary font-label-caps">Admin Panel</span>
-              <div className="px-5 py-2 bg-secondary text-white rounded-full text-xs font-bold shadow-sm group-hover:bg-secondary/90 transition-all">
-                Open →
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* New Album CTA */}
-        <div className="group relative overflow-hidden rounded-3xl glass-panel shadow-sm flex flex-col justify-between p-6 tactile-button cursor-pointer" onClick={handleCreateAlbum}>
-          <div>
-            <div className="w-14 h-14 bg-primary/10 rounded-2xl flex items-center justify-center mb-4 text-primary">
-              <FolderPlus size={28} />
-            </div>
-            <h3 className="text-xl font-headline-lg-mobile font-bold text-on-surface">New Album</h3>
-            <p className="text-on-surface-variant text-sm mt-2 leading-relaxed">
-              Curate a stunning personal scrapbook of custom memories
-            </p>
-          </div>
-          
-          <div className="flex justify-between items-center mt-6">
-            <span className="text-sm font-bold text-primary font-label-caps">10cr</span>
-            <button
-              className="px-6 py-2.5 bg-primary text-on-primary rounded-full text-sm font-bold transition-all group-hover:bg-primary/90"
-            >
-              Create
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {/* Social engagement sharing area */}
-      <section className="mb-8">
-        <div className="glass-panel rounded-3xl p-6 border-2 border-dashed border-primary-container/30 flex flex-col md:flex-row items-center justify-between gap-6 shadow-sm">
-          <div className="flex items-center gap-4">
-            <div className="relative">
-              <div className="w-14 h-14 rounded-2xl bg-white/70 backdrop-blur flex items-center justify-center shadow-sm text-secondary">
-                <Share2 size={28} />
-              </div>
-              <span className="absolute -top-2.5 -right-2.5 bg-secondary text-white px-2 py-0.5 rounded-full text-[9px] font-bold shadow-sm font-mono whitespace-nowrap">
-                Earn 10cr
-              </span>
-            </div>
-            <div>
-              <h4 className="text-lg font-bold text-on-surface font-headline-lg-mobile">Share the Joy</h4>
-              <p className="text-on-surface-variant text-sm">Share your generated memories to earn free credits</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 w-full md:w-auto">
-            <button
-              onClick={() => onShareCompleted("TikTok", 10)}
-              className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-white/80 border border-outline-variant/50 hover:bg-white transition-colors rounded-xl text-sm font-bold cursor-pointer tactile-button"
-            >
-              <Video size={18} />
-              TikTok
-            </button>
-            <button
-              onClick={() => onShareCompleted("Instagram", 10)}
-              className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-white/80 border border-outline-variant/50 hover:bg-white transition-colors rounded-xl text-sm font-bold cursor-pointer tactile-button"
-            >
-              <Camera size={18} />
-              Instagram
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {/* Live Pet Inspiration Board */}
-      <section className="mb-8 overflow-hidden rounded-3xl border border-outline-variant/30 bg-surface-container shadow-sm">
-        <div className="p-6 border-b border-outline-variant/20 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-surface-container-low">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-              <h3 className="text-lg font-extrabold text-on-surface flex items-center gap-1.5 font-sans">
-                Live Pet Inspiration Board
-              </h3>
-            </div>
-            <p className="text-xs text-on-surface-variant mt-1">
-              Real-time pet curation streaming live from free, public APIs (<span className="font-mono text-[10px]">dog.ceo</span> &amp; <span className="font-mono text-[10px]">dogapi.dog</span>)
-            </p>
-          </div>
-          
-          <div className="flex items-center gap-2.5 w-full sm:w-auto">
-            {/* Simulation toggle button */}
-            <button
-              onClick={() => {
-                const updated = !simulateError;
-                setSimulateError(updated);
-                fetchLiveInspiration(updated);
-              }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all text-on-surface cursor-pointer ${
-                simulateError 
-                  ? "bg-red-50 text-red-650 border border-red-200/50 hover:bg-red-100/30" 
-                  : "bg-surface-container border border-outline-variant/40 hover:bg-outline-variant/20"
-              }`}
-            >
-              <ShieldAlert size={14} className={simulateError ? "text-red-650" : "text-on-surface-variant"} />
-              Simulate Network Error: {simulateError ? "On" : "Off"}
-            </button>
-
-            {/* Refresh button */}
-            <button
-              onClick={() => fetchLiveInspiration(simulateError)}
-              disabled={loadingInspiration}
-              className="px-4 py-2 bg-primary text-white hover:bg-primary/95 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-sm active:scale-95 duration-100 cursor-pointer disabled:opacity-50"
-            >
-              <RefreshCw size={14} className={`transition-transform duration-700 ${loadingInspiration ? "animate-spin" : ""}`} />
-              Refresh Feed
-            </button>
-          </div>
-        </div>
-
-        {/* Content body layout */}
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-6 p-6">
-          
-          {/* Column 1: Live fetched image */}
-          <div className="md:col-span-5 flex flex-col gap-3">
-            <div className="aspect-[4/3] sm:aspect-square bg-surface-container-low rounded-2xl overflow-hidden relative border border-outline-variant/25 group shadow-inner">
-              {loadingInspiration ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-surface-container-low text-on-surface-variant gap-2">
-                  <RefreshCw size={28} className="animate-spin text-primary" />
-                  <span className="text-xs font-medium font-mono animate-pulse">Streaming raw feed...</span>
-                </div>
-              ) : (
-                <>
-                  <img
-                    alt={inspiration?.breed || "Pet inspiration"}
-                    src={inspiration?.imageUrl}
-                    className="w-full h-full object-cover group-hover:scale-103 transition-transform duration-500"
-                    referrerPolicy="no-referrer"
-                  />
-                  
-                  {/* Dynamic breed badge */}
-                  <div className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-md text-white rounded-xl py-1.5 px-3 flex items-center gap-1.5 shadow-sm border border-white/10 max-w-[90%]">
-                    <span className="w-1.5 h-1.5 rounded-full bg-primary" />
-                    <span className="text-[11px] font-bold tracking-wide truncate">
-                      {inspiration?.breed}
-                    </span>
-                  </div>
-                </>
-              )}
-            </div>
-            
-            {/* Real asset URL indicator trace to demonstrate no mock data */}
-            <div className="bg-surface-container-low rounded-xl px-3 py-1.5 border border-outline-variant/15 flex items-center justify-between text-[11px] text-on-surface-variant font-mono">
-              <span className="truncate max-w-[85%]">
-                GET: {inspiration?.imageUrl || "Fetching..."}
-              </span>
-              <span className="text-xs shrink-0 select-all cursor-copy hover:text-primary transition-colors" title="Copy exact image link">
-                🔗
-              </span>
-            </div>
-          </div>
-
-          {/* Column 2: Live fact & network diagnostics panel */}
-          <div className="md:col-span-7 flex flex-col justify-between gap-6">
-            
-            {/* Live Fact bubble */}
-            <div className="bg-primary/5 rounded-2xl p-5 border border-primary/10 flex flex-col justify-between flex-grow shadow-sm">
-              <div>
-                <span className="px-2.5 py-1 bg-primary/10 text-primary text-[10px] font-extrabold uppercase rounded-full tracking-wider">
-                  Live Fun Fact
-                </span>
-                {loadingInspiration ? (
-                  <div className="space-y-2 mt-4">
-                    <div className="h-4 bg-outline-variant/40 rounded-md w-11/12 animate-pulse" />
-                    <div className="h-4 bg-outline-variant/40 rounded-md w-full animate-pulse" />
-                    <div className="h-4 bg-outline-variant/40 rounded-md w-9/12 animate-pulse" />
-                  </div>
-                ) : (
-                  <p className="text-sm text-on-surface font-medium leading-relaxed mt-3.5 italic text-slate-700">
-                    "{inspiration?.fact}"
-                  </p>
-                )}
-              </div>
-              
-              <div className="mt-4 flex items-center justify-between text-[11px] text-on-surface-variant font-sans pt-3 border-t border-outline-variant/10">
-                <div className="flex items-center gap-1.5 text-emerald-600 font-bold">
-                  <Wifi size={12} />
-                  Connected to raw public feeds
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowDiagnostics(!showDiagnostics)}
-                  className="text-primary font-bold hover:underline cursor-pointer flex items-center gap-1"
-                >
-                  <Activity size={12} />
-                  {showDiagnostics ? "Hide Diagnostics" : "View Diagnostics"}
-                </button>
-              </div>
-            </div>
-
-            {/* Error notifications block inside column */}
-            {errorInspiration && (
-              <div className="p-4 bg-red-50 border border-red-200/50 rounded-2xl flex items-start gap-4">
-                <AlertCircle className="text-red-500 shrink-0 mt-0.5" size={16} />
-                <div className="space-y-1">
-                  <h4 className="text-xs font-bold text-red-850">API Query Exception Intercepted</h4>
-                  <p className="text-[11px] text-red-700 font-medium leading-tight">{errorInspiration}</p>
-                </div>
-              </div>
-            )}
-
-            {/* Diagnostic system panel */}
-            {showDiagnostics && inspiration && (
-              <div className="bg-slate-900 text-slate-200 rounded-2xl p-4 font-mono text-[11px] space-y-3 leading-relaxed shadow-md border border-slate-800 animate-slide-down">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2">
-                  <span className="text-emerald-400 font-bold flex items-center gap-1">
-                    <Activity size={10} className="animate-pulse" /> SYSTEM LOGS (Live Trace)
-                  </span>
-                  <span className="text-slate-500 text-[9px]">{inspiration.metadata.timestamp}</span>
-                </div>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-1 bg-slate-950 p-2.5 rounded-xl border border-slate-800">
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-400">Endpoint 1</span>
-                      <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
-                        inspiration.metadata.dogApiStatus === "online" ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-500"
-                      }`}>
-                        dog.ceo: {inspiration.metadata.dogApiStatus}
-                      </span>
-                    </div>
-                    <div className="text-slate-400 text-[10px] break-all leading-normal">
-                      URL: <span className="text-yellow-200">https://dog.ceo/api/breeds/image/random</span>
-                    </div>
-                    {inspiration.metadata.dogApiDetail && (
-                      <div className="text-red-400 text-[10px] mt-1 break-words">
-                        Log: {inspiration.metadata.dogApiDetail}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-1 bg-slate-950 p-2.5 rounded-xl border border-slate-800">
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-400">Endpoint 2</span>
-                      <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
-                        inspiration.metadata.factApiStatus === "online" ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-500"
-                      }`}>
-                        dogapi.dog: {inspiration.metadata.factApiStatus}
-                      </span>
-                    </div>
-                    <div className="text-slate-400 text-[10px] break-all leading-normal">
-                      URL: <span className="text-yellow-200">https://dogapi.dog/api/v2/facts</span>
-                    </div>
-                    {inspiration.metadata.factApiDetail && (
-                      <div className="text-red-400 text-[10px] mt-1 break-words">
-                        Log: {inspiration.metadata.factApiDetail}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-slate-400 text-[10px]">
-                  <p className="font-bold text-slate-300 mb-1">Robust Network Strategy Outline:</p>
-                  <ul className="list-disc pl-4 space-y-1 mt-1 leading-normal text-slate-400 font-sans">
-                    <li><strong className="text-slate-300">Server-Side Proxy:</strong> Secures and encapsulates third-party headers to bypass iframe CORS sandbox blocks completely.</li>
-                    <li><strong className="text-slate-300">Resilient Fallbacks:</strong> In case <code className="text-amber-200">dog.ceo</code> rate-limits or times out, the backend gracefully fallbacks to <code className="text-amber-200">thecatapi.com</code> dynamically.</li>
-                    <li><strong className="text-slate-300">Exception Catch:</strong> Native JS AbortSignal timers abort dead queries at 4-5 seconds and yield readable context-rich user-facing logs instead of blank frozen placeholders.</li>
-                  </ul>
-                </div>
-              </div>
-            )}
-
-          </div>
-
-        </div>
-      </section>
-
-      {/* Achievements and Daily Streak tracker */}
-      <div className="mb-8">
-        <AchievementsPanel
-          streak={streak}
-          achievements={achievements}
-          onClaimReward={onClaimReward}
-          onClaimDailyStreak={onClaimDailyStreak}
-          dailyStreakClaimed={dailyStreakClaimed}
-        />
+          <span className="text-[10px] font-extrabold uppercase tracking-wider mt-1 opacity-80">Day Streak</span>
+        </button>
       </div>
 
-      {/* Grid Collections: Albums vs Recent Creations */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      {/* Center: Floating Active Avatar */}
+      <div className="flex-1 w-full flex flex-col items-center justify-center relative z-10 my-8">
+        {/* Soft glowing aura behind avatar */}
+        <div className="absolute w-[300px] h-[300px] bg-primary/20 rounded-full blur-[80px] animate-pulse"></div>
         
-        {/* Albums Catalog */}
-        <section>
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-xl font-bold text-on-surface">My Albums</h2>
-          </div>
+        {/* Avatar Image (placeholder for 3D model) */}
+        <div className="relative w-64 h-64 md:w-80 md:h-80 flex items-center justify-center animate-[float_6s_ease-in-out_infinite]">
+          <img 
+            src="https://lh3.googleusercontent.com/aida-public/AB6AXuDIPw_dS7Lk9ZnzJytp5OIFSvYe-o3-dmnRDceXgTN8b5eU7dMNngow29JGkVgP55WqV83FwgTDzYmQN5QN-FHWzUnX1Da1nGaxLlYjpCeeWo-IvkxT6_Gvpaky_tH_CXtidU-3Aub5SbhC38mhHjAjYCN27qeXFzuS0sEBRNRvZZMazrGdbPIgzpwS6HLqnWfh1iQilRGEFIy8g5jIvCMeR-xzEDZwwpMIZ0ESk_acTP8-47Vj4pDLlKzuYHTiRHTCUBH1K4Y9JHvX" 
+            alt="Active Avatar" 
+            className="w-full h-full object-contain drop-shadow-[0_20px_50px_rgba(0,0,0,0.5)] z-10"
+          />
+        </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            {albums.map((album) => (
-              <div 
-                key={album.id} 
-                className="space-y-2 cursor-pointer group tactile-button"
-                onClick={() => onSelectAlbum(album)}
-              >
-                <div className="aspect-square rounded-2xl overflow-hidden glass-card relative shadow-sm border border-outline-variant/50">
-                  <img
-                    alt={album.name}
-                    className="w-full h-full object-cover group-hover:scale-103 transition-transform duration-500"
-                    src={album.imageUrl}
-                    referrerPolicy="no-referrer"
-                  />
-                  <div className="absolute top-2.5 right-2.5 px-3 py-1 bg-black/60 backdrop-blur-md rounded-lg text-white text-[10px] font-bold shadow">
-                    {album.itemCount} Items
-                  </div>
-                </div>
-                <p className="text-xs font-bold text-on-surface leading-tight truncate px-1">
-                  {album.name}
-                </p>
-              </div>
-            ))}
+        {/* Launch AR Button */}
+        <button 
+          onMouseEnter={() => setIsHoveringAR(true)}
+          onMouseLeave={() => setIsHoveringAR(false)}
+          className="mt-8 group relative overflow-hidden rounded-[2rem] p-[3px] focus:outline-none focus:ring-4 focus:ring-primary/50 shadow-2xl transition-transform hover:scale-105 active:scale-95"
+        >
+          <span className="absolute inset-0 bg-gradient-to-r from-primary via-secondary to-primary-fixed bg-[length:200%_auto] animate-gradient"></span>
+          <div className="relative bg-surface dark:bg-surface-dim px-8 py-4 rounded-[1.8rem] flex items-center gap-3">
+            <div className={`w-10 h-10 rounded-full bg-primary flex items-center justify-center text-on-primary transition-transform duration-300 ${isHoveringAR ? 'scale-110' : ''}`}>
+              <Play size={20} className="ml-1" fill="currentColor" />
+            </div>
+            <span className="font-extrabold text-xl tracking-wide bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">LAUNCH AR</span>
           </div>
-
-          {/* Quick Informational badge */}
-          <div className="mt-6 p-4 bg-primary/5 rounded-2xl border border-primary/25 flex items-start gap-3">
-            <Info size={16} className="text-primary mt-0.5 flex-shrink-0" />
-            <p className="text-xs text-primary leading-normal">
-              You can access all <span className="font-bold">{albums.length + 13} albums</span> inside the Albums tab below.
-            </p>
-          </div>
-        </section>
-
-        {/* AI Creations history list */}
-        <section>
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-xl font-bold text-on-surface">AI Creations</h2>
-            <button 
-              onClick={() => onSelectCreation(creations[0])}
-              className="text-primary font-bold text-xs flex items-center gap-1 hover:underline cursor-pointer"
-            >
-              Full Gallery <ArrowRight size={14} />
-            </button>
-          </div>
-
-          <div className="space-y-4">
-            {creations.slice(0, 4).map((creation) => {
-              const animating = animatingJobs[creation.id];
-              return (
-                <div
-                  key={creation.id}
-                  onClick={(e) => {
-                    // Don't trigger select if clicking the animate button
-                    if ((e.target as HTMLElement).closest("button")) return;
-                    onSelectCreation(creation);
-                  }}
-                  className="flex gap-4 glass-card p-4 rounded-2xl border border-outline-variant/40 hover:shadow-lg transition-all group relative cursor-pointer tactile-button"
-                >
-                  <div className="w-24 h-24 rounded-xl overflow-hidden flex-shrink-0 shadow-md border border-outline-variant/20 relative bg-black">
-                    {creation.media_type === "video" && creation.video_url ? (
-                      <video
-                        src={creation.video_url}
-                        autoPlay
-                        loop
-                        muted
-                        playsInline
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <img
-                        alt={creation.name || "Creation"}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                        src={creation.image_url || ""}
-                        referrerPolicy="no-referrer"
-                      />
-                    )}
-                    {creation.media_type === "video" && (
-                      <div className="absolute bottom-1 right-1 bg-black/60 text-white rounded-full p-1">
-                        <Play size={10} fill="white" />
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex flex-col justify-between flex-1">
-                    <div>
-                      <span className="text-[9px] font-bold text-secondary uppercase tracking-widest mb-1">
-                        {creation.created_at ? new Date(creation.created_at).toLocaleDateString() : "Recent"}
-                      </span>
-                      <h4 className="text-sm font-bold text-on-surface mb-1">
-                        {creation.name || "Untitled Memory"}
-                      </h4>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="px-2.5 py-0.5 bg-primary/10 text-primary rounded-full text-[10px] font-bold font-sans">
-                          {creation.style} Style
-                        </span>
-                        <span className="px-2.5 py-0.5 bg-secondary-container/10 text-on-secondary-container rounded-full text-[10px] font-bold font-sans">
-                          📍 {creation.preset_name || creation.place_label || "Custom"}
-                        </span>
-                      </div>
-                    </div>
-                    
-                    {creation.media_type === "still" && !animating && userProfile.isAdmin && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleAnimateClick(creation);
-                        }}
-                        className="mt-2 w-full py-1.5 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer"
-                      >
-                        <Video size={10} />
-                        Animate (Admin)
-                      </button>
-                    )}
-                    
-                    {animating && (
-                      <div className="mt-2 w-full py-1.5 bg-secondary/10 text-secondary rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 animate-pulse">
-                        <RefreshCw size={10} className="animate-spin" />
-                        {animating.status === "queued" ? "Queued..." : "Rendering..."}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Quick creations instructions banner */}
-          <div className="mt-6 p-4 bg-secondary/5 rounded-2xl border border-secondary/20 flex items-start gap-3">
-            <Sparkles size={16} className="text-secondary mt-0.5 flex-shrink-0" />
-            <p className="text-xs text-secondary leading-normal">
-              Configure different environments inside the <span className="font-bold">Creations</span> styles tab or click on any creation above to share!
-            </p>
-          </div>
-        </section>
+        </button>
       </div>
 
-      {showCreateAlbumModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-3xl p-6 max-w-sm w-full soft-glow-shadow border border-outline-variant/30">
-            <h3 className="text-lg font-bold text-on-surface mb-2">Create New Album</h3>
-            <p className="text-xs text-on-surface-variant mb-4">Provide a descriptive name to organize your custom digital pet heirlooms.</p>
-            <input
-              type="text"
-              placeholder="e.g. Daisy's Roadtrip"
-              value={createAlbumName}
-              onChange={(e) => setCreateAlbumName(e.target.value)}
-              className="w-full px-4 py-3 border border-outline-variant rounded-xl bg-surface-container-low mb-4 text-sm focus:outline-none focus:border-primary"
-            />
-            <div className="flex gap-3 justify-end">
-              <button
-                onClick={() => setShowCreateAlbumModal(false)}
-                className="px-4 py-2 text-xs font-semibold text-on-surface-variant hover:bg-surface-container rounded-lg"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={async () => {
-                  if (!createAlbumName.trim()) return;
-                  await onCreateAlbum(createAlbumName);
-                  setShowCreateAlbumModal(false);
-                  setCreateAlbumName("");
-                }}
-                className="px-4 py-2 text-xs font-bold text-white bg-primary rounded-lg hover:bg-primary/95"
-              >
-                Create Album
-              </button>
+      {/* Bottom: Bento Stats & Tips */}
+      <div className="w-full max-w-5xl grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 z-10">
+        
+        {/* Happiness Card */}
+        <div className="glass-card p-5 rounded-3xl flex items-center justify-between border-t border-white/20">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <Heart size={16} className="text-secondary" fill="currentColor" />
+              <span className="text-xs font-extrabold uppercase tracking-widest opacity-70">Happiness</span>
             </div>
+            <h3 className="font-headline-lg text-2xl font-bold">98%</h3>
+          </div>
+          <div className="w-14 h-14 rounded-full border-4 border-secondary/20 border-t-secondary border-r-secondary flex items-center justify-center rotate-45 shadow-inner">
+            <div className="w-10 h-10 bg-surface rounded-full flex items-center justify-center -rotate-45 font-bold text-secondary text-sm">:)</div>
           </div>
         </div>
-      )}
 
-      {/* Phase 4: Animate Memory Modal */}
-      {showAnimateModal && selectedCreationForAnimate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 max-w-md w-full shadow-2xl border border-outline-variant/30">
-            <h3 className="text-lg font-bold text-on-surface mb-2 flex items-center gap-2">
-              <Video className="text-primary" size={20} />
-              Animate Memory
-            </h3>
-            <p className="text-xs text-on-surface-variant mb-4">
-              Bring "{selectedCreationForAnimate.name || 'your pet'}" to life for 250 credits. Choose a motion style:
-            </p>
-            
-            <div className="space-y-2 mb-4">
-              {MOTION_PRESETS.map((preset) => (
-                <label
-                  key={preset}
-                  className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
-                    selectedMotion === preset
-                      ? "border-primary bg-primary/5"
-                      : "border-outline-variant hover:bg-surface-container"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="motion"
-                    value={preset}
-                    checked={selectedMotion === preset}
-                    onChange={(e) => setSelectedMotion(e.target.value)}
-                    className="mt-1 accent-primary"
-                  />
-                  <span className="text-sm text-on-surface">{preset}</span>
-                </label>
-              ))}
+        {/* Activity Card */}
+        <div className="glass-card p-5 rounded-3xl flex items-center justify-between border-t border-white/20">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <Activity size={16} className="text-primary" />
+              <span className="text-xs font-extrabold uppercase tracking-widest opacity-70">Daily Steps</span>
             </div>
-
-
-            {/* Aspect Ratio picker */}
-            <div className="flex items-center justify-between p-3 bg-surface-container rounded-xl mb-3">
-              <div>
-                <span className="text-sm font-bold text-on-surface">Aspect Ratio</span>
-                <p className="text-[10px] text-on-surface-variant">Landscape (16:9) or Portrait (9:16)</p>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setSelectedAspectRatio("16:9")}
-                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all border ${
-                    selectedAspectRatio === "16:9"
-                      ? "bg-primary text-white border-primary"
-                      : "bg-surface-container-high text-on-surface-variant border-outline-variant hover:bg-outline-variant/20"
-                  }`}
-                >
-                  ⬛ 16:9
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedAspectRatio("9:16")}
-                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all border ${
-                    selectedAspectRatio === "9:16"
-                      ? "bg-primary text-white border-primary"
-                      : "bg-surface-container-high text-on-surface-variant border-outline-variant hover:bg-outline-variant/20"
-                  }`}
-                >
-                  📱 9:16
-                </button>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between p-3 bg-surface-container rounded-xl mb-6">
-              <div>
-                <span className="text-sm font-bold text-on-surface">Include Audio</span>
-                <p className="text-[10px] text-on-surface-variant">Add ambient sound effects to the video</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setEnableAudio(!enableAudio)}
-                className={`w-12 h-7 rounded-full transition-colors relative ${enableAudio ? "bg-primary" : "bg-outline-variant"}`}
-              >
-                <span
-                  className={`absolute top-1 w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${
-                    enableAudio ? "left-6" : "left-1"
-                  }`}
-                />
-              </button>
-            </div>
-
-            <div className="flex gap-3 justify-end">
-              <button
-                onClick={() => setShowAnimateModal(false)}
-                className="px-4 py-2.5 text-xs font-semibold text-on-surface-variant hover:bg-surface-container rounded-xl"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmAnimate}
-                className="px-6 py-2.5 text-xs font-bold text-white bg-primary rounded-xl hover:bg-primary/95 flex items-center gap-2"
-              >
-                <span>Animate (250cr)</span>
-                <Video size={14} />
-              </button>
-            </div>
+            <h3 className="font-headline-lg text-2xl font-bold">4,280</h3>
+          </div>
+          <div className="w-14 h-14 bg-primary-container rounded-2xl flex items-center justify-center text-primary-fixed font-bold shadow-inner">
+             <span className="material-symbols-outlined">pets</span>
           </div>
         </div>
-      )}
+
+        {/* Tip Card */}
+        <div className="glass-card p-5 rounded-3xl bg-gradient-to-br from-primary/10 to-transparent flex flex-col justify-center relative overflow-hidden group cursor-pointer border-t border-white/20">
+          <div className="absolute -right-4 -top-4 opacity-10 group-hover:opacity-20 transition-opacity">
+            <Sparkles size={80} />
+          </div>
+          <span className="text-xs font-extrabold uppercase tracking-widest text-primary mb-1">Pro Tip</span>
+          <p className="font-medium text-sm text-on-surface-variant line-clamp-2">Capture {petName} in the backyard during golden hour for stunning lighting effects.</p>
+          <div className="mt-2 flex items-center gap-1 text-primary text-xs font-bold group-hover:underline">
+            Read more <ArrowRight size={12} />
+          </div>
+        </div>
+
+      </div>
+      
     </div>
   );
 }

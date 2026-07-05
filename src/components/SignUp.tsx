@@ -134,12 +134,6 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
 
   return (
     <div className="w-full mx-auto px-6 py-8 relative overflow-hidden flex flex-col justify-end min-h-[100dvh]">
-      {/* Background Layer: Soft Focus 3D Living Room */}
-      <div className="fixed inset-0 z-0">
-        <div className="w-full h-full bg-cover bg-center brightness-110" style={{ backgroundImage: "url('https://lh3.googleusercontent.com/aida-public/AB6AXuCmslfv27LqlVMb1iuCR2TrSUwoT353IiT_gWKMl14O92VmFnHi2E8S929WES9WwP9GPma1pMS41leh3yt8b3fWbwxyAiiUnVWH1bo0JurybYizIl3gqDqt7QXuX_ROvOdMuNEXDDL6wROgii8esA6ZHcLveSz-KaMPGvrW1nohZmCDHgrYLS5rwnVioKaDY32yB5uN6cc2ssMxeVYbQDRcXGOq-u9eZa2k3n40WulEBsZ9d99kKU5RzhPvCobQsXyslauPvYhitU2s')" }}></div>
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-background/20 to-background/90"></div>
-      </div>
-
       <div className="z-10 w-full max-w-md mx-auto relative pt-[80px]">
         {/* Header Section */}
         <div className="text-center mb-10">

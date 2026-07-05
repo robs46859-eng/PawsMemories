@@ -168,11 +168,20 @@ body {
 
 /* New Prototype Aesthetics */
 .glass-card, .glass-panel {
-  background: rgba(255, 255, 255, 0.4);
+  background: rgba(250, 249, 245, 0.75);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
   border: 1px solid rgba(255, 255, 255, 0.5);
   box-shadow: 0 8px 32px 0 rgba(68, 42, 34, 0.08);
+}
+
+.dark .glass-card, .dark .glass-panel {
+  background: rgba(23, 18, 15, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.bg-transition {
+  transition: background-image 0.8s ease-in-out, opacity 0.8s ease-in-out;
 }
 
 .tactile-button {

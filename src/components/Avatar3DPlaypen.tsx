@@ -234,9 +234,13 @@ export default function Avatar3DPlaypen({
 
   // Determine display mode
   const hasSpriteSheet = !!avatar.sprite_sheet_url && spriteLoaded;
+  const hasModel = !!avatar.model_url;
   const isGenerating = avatar.generation_status !== "done" && avatar.generation_status !== "failed";
-  const showSpriteError = avatar.generation_status === "done" && !hasSpriteSheet && !isGenerating;
-  const showFallbackImage = (spriteLoadFailed || (!avatar.sprite_sheet_url && avatar.generation_status === "done")) && !!avatar.image_url;
+  // Show the model viewer whenever model_url exists, even if baking_clips is
+  // still running — the plain mesh is already viewable.
+  const isFullyGenerating = isGenerating && !hasModel;
+  const showSpriteError = avatar.generation_status === "done" && !hasSpriteSheet && !hasModel;
+  const showFallbackImage = (spriteLoadFailed || (!avatar.sprite_sheet_url && avatar.generation_status === "done")) && !!avatar.image_url && !hasModel;
 
   return (
     <div
@@ -272,18 +276,19 @@ export default function Avatar3DPlaypen({
         <div className="absolute top-[55%] left-[45%] text-[10px] opacity-20">🌱</div>
         <div className="absolute top-[75%] left-[15%] text-[10px] opacity-25">🌼</div>
 
-        {/* Generation Progress Overlay */}
-        {isGenerating && (
+        {/* Generation Progress Overlay — full overlay only when no model yet */}
+        {isFullyGenerating && (
           <div className="absolute inset-0 z-30 bg-black/40 backdrop-blur-sm flex flex-col items-center justify-center text-white">
             <div className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full animate-spin mb-3" />
             <p className="text-xs font-bold mb-1">
               {avatar.generation_status === "pending" && "⏳ Analyzing photo..."}
               {avatar.generation_status === "generating_mesh" && "🧊 Generating 3D mesh..."}
               {avatar.generation_status === "rigging" && "🦴 Rigging skeleton..."}
+              {avatar.generation_status === "baking_clips" && "🎭 Baking skeletal clips..."}
               {avatar.generation_status === "baking_sprites" && "🎬 Baking animations..."}
             </p>
             <div className="flex gap-1 mt-2">
-              {["pending", "generating_mesh", "rigging", "baking_sprites"].map((step, i) => (
+              {["pending", "generating_mesh", "rigging", "baking_clips", "baking_sprites"].map((step, i) => (
                 <div
                   key={step}
                   className={`w-2 h-2 rounded-full transition-all ${
@@ -294,6 +299,13 @@ export default function Avatar3DPlaypen({
                 />
               ))}
             </div>
+          </div>
+        )}
+        {/* Small badge when model is visible but clip baking is still running */}
+        {hasModel && isGenerating && (
+          <div className="absolute top-12 right-3 z-30 bg-black/50 backdrop-blur-sm rounded-full px-2 py-1 flex items-center gap-1">
+            <div className="w-3 h-3 border border-white/30 border-t-white rounded-full animate-spin" />
+            <span className="text-[9px] text-white font-bold">Finishing…</span>
           </div>
         )}
 
@@ -318,7 +330,7 @@ export default function Avatar3DPlaypen({
 
         {/* Pet Avatar — GLB or Sprite fallback or Error state */}
         <div className="absolute inset-0 flex items-center justify-center">
-          {avatar.model_url && !isGenerating ? (
+          {hasModel ? (
             <div className="absolute inset-0 pb-10">
               <PetModelViewer
                 src={avatar.model_url}
@@ -425,6 +437,6 @@ export default function Avatar3DPlaypen({
 }
 
 function getStepIndex(status: string): number {
-  const steps = ["pending", "generating_mesh", "rigging", "baking_sprites"];
+  const steps = ["pending", "generating_mesh", "rigging", "baking_clips", "baking_sprites"];
   return steps.indexOf(status);
 }
