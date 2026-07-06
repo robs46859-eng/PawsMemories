@@ -14,6 +14,8 @@ import { Router, type Request, type Response } from 'express';
 import { getConfig } from '../config.js';
 import { buildAuthorizeUrl, exchangeCode } from '../xClient.js';
 import { persistTokens } from '../botTokenStore.js';
+import { ensureSubscriptions } from '../subscriptions.js';
+import { kvGet, KV_KEYS } from '../db.js';
 
 // ---------------------------------------------------------------------------
 // In-memory PKCE state store (single-user — only the bot account does this)
@@ -112,6 +114,17 @@ export function createOAuthRouter(): Router {
       pendingState = null;
 
       console.log('[OAuth] Bot tokens acquired and persisted successfully');
+
+      // Try to set up subscriptions now that we have a user token
+      try {
+        const storedWebhookId = await kvGet(KV_KEYS.WEBHOOK_ID);
+        if (storedWebhookId) {
+          await ensureSubscriptions(storedWebhookId);
+          console.log('[OAuth] Subscriptions ensured after token acquisition');
+        }
+      } catch (subErr) {
+        console.warn(`[OAuth] Could not ensure subscriptions after token: ${(subErr as Error).message}`);
+      }
 
       res.status(200).json({
         ok: true,

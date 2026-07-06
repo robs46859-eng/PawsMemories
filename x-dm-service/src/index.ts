@@ -78,30 +78,74 @@ app.get('/', (_req, res) => {
 // Start
 // ---------------------------------------------------------------------------
 
-app.listen(config.PORT, async () => {
+/**
+ * Sleep helper — Promise-based setTimeout for delayed boot setup.
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+app.listen(config.PORT, () => {
   console.log(`[Boot] x-dm-service listening on :${config.PORT}`);
 
-  // Boot-time migrations (§3 — run before anything touches the DB).
-  // On failure: log loudly, skip boot-time setup (poller won't start),
-  // but keep the Express server alive for health checks.
-  try {
-    await runMigrations();
-    console.log('[Boot] DB migrations complete');
-  } catch (err) {
-    console.error(`[Boot] Migration error: ${(err as Error).message}`);
-    console.warn('[Boot] Server stays alive — DB tables unavailable, poller will not start');
-    return;
+  // Boot-time migrations — run before any DB touch.
+  // On failure: log, but still try boot setup (webhook may work without DB).
+  runMigrations()
+    .then(() => console.log('[Boot] DB migrations complete'))
+    .catch((err) => console.error(`[Boot] Migration error: ${(err as Error).message}`));
+
+  // Schedule delayed boot setup with retry (CRC deploy-race fix)
+  scheduleBootSetup();
+});
+
+/**
+ * Delayed boot-time setup with retry.
+ *
+ * Waits 30s before the first attempt (gives deploy time to settle so CRC
+ * succeeds). Retries up to 3 times at 60s intervals on failure.
+ *
+ * Once webhook + subscriptions succeed, starts the poller.
+ */
+async function scheduleBootSetup(): Promise<void> {
+  // Wait 30s for deploy to settle
+  await sleep(30_000);
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const webhookId = await ensureWebhookRegistered();
+      if (webhookId) {
+        await ensureSubscriptions(webhookId);
+        startPoller();
+        console.log(`[Boot] Setup complete on attempt ${attempt}`);
+        return;
+      }
+    } catch (err) {
+      console.error(`[Boot] Setup attempt ${attempt} error: ${(err as Error).message}`);
+    }
+
+    if (attempt < 3) {
+      console.warn(`[Boot] Setup attempt ${attempt} failed — retrying in 60s`);
+      await sleep(60_000);
+    }
   }
 
-  // Boot-time webhook lifecycle (§5.1)
-  const webhookId = await ensureWebhookRegistered();
+  console.error('[Boot] Setup failed after 3 attempts — server alive for health checks, poller not started');
+}
 
-  // Boot-time subscription setup (§5.3)
-  await ensureSubscriptions(webhookId);
+// ---------------------------------------------------------------------------
+// Hourly health check — re-ensure webhook + subscriptions
+// ---------------------------------------------------------------------------
 
-  // Start polling fallback (§5.4) — activates only when webhook is invalid/stale
-  startPoller();
-});
+setInterval(async () => {
+  try {
+    const webhookId = await ensureWebhookRegistered();
+    if (webhookId) {
+      await ensureSubscriptions(webhookId);
+    }
+  } catch (err) {
+    console.error(`[Boot] Hourly health check error: ${(err as Error).message}`);
+  }
+}, 3_600_000);
 
 export default app;
 
