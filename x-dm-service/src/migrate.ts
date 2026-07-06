@@ -4,7 +4,16 @@
  * Reads .sql files from migrations/ in order and executes them against the
  * MySQL database.
  *
- * Usage: npm run migrate
+ * Two modes:
+ *   - Imported by index.ts → exported runMigrations() runs on boot.
+ *   - Standalone CLI  → node dist/migrate.js or npm run migrate
+ *
+ * Path resolution uses fileURLToPath(import.meta.url) so it works correctly
+ * from both src/ (tsx dev) and dist/ (compiled production) — tsc does not
+ * copy .sql files into dist/, so the runner climbs one level up from its
+ * own directory to reach <project_root>/migrations/.
+ *
+ * Idempotent: skips migrations already recorded in the _migrations table.
  */
 
 import { readFileSync, readdirSync } from 'node:fs';
@@ -16,7 +25,20 @@ import { getConfig } from './config.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(__dirname, '..', 'migrations');
 
-async function runMigrations(): Promise<void> {
+/**
+ * Exported for testing — returns the absolute path to the migrations directory.
+ * Resolves correctly from both src/ (tsx dev) and dist/ (compiled production).
+ */
+export function getMigrationsDir(): string {
+  return MIGRATIONS_DIR;
+}
+
+/**
+ * Run all pending migrations against the configured MySQL database.
+ * Idempotent — skips already-applied migrations using the _migrations table.
+ * Throws on error; caller is responsible for catch/log.
+ */
+export async function runMigrations(): Promise<void> {
   const cfg = getConfig();
   console.log('[Migrate] Connecting to database...');
 
@@ -117,7 +139,11 @@ function splitStatements(sql: string): string[] {
   return statements.filter((s) => s.length > 0);
 }
 
-runMigrations().catch((err) => {
-  console.error('[Migrate] Fatal:', err);
-  process.exit(1);
-});
+// Auto-run when this module is the CLI entry point (npm run migrate)
+const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+if (isMain) {
+  runMigrations().catch((err) => {
+    console.error('[Migrate] Fatal:', err);
+    process.exit(1);
+  });
+}

@@ -20,6 +20,7 @@ import { createOAuthRouter } from './routes/oauth.js';
 import { ensureWebhookRegistered } from './webhookManager.js';
 import { ensureSubscriptions } from './subscriptions.js';
 import { startPoller } from './poller.js';
+import { runMigrations } from './migrate.js';
 
 // ---------------------------------------------------------------------------
 // Bootstrap
@@ -79,6 +80,18 @@ app.get('/', (_req, res) => {
 
 app.listen(config.PORT, async () => {
   console.log(`[Boot] x-dm-service listening on :${config.PORT}`);
+
+  // Boot-time migrations (§3 — run before anything touches the DB).
+  // On failure: log loudly, skip boot-time setup (poller won't start),
+  // but keep the Express server alive for health checks.
+  try {
+    await runMigrations();
+    console.log('[Boot] DB migrations complete');
+  } catch (err) {
+    console.error(`[Boot] Migration error: ${(err as Error).message}`);
+    console.warn('[Boot] Server stays alive — DB tables unavailable, poller will not start');
+    return;
+  }
 
   // Boot-time webhook lifecycle (§5.1)
   const webhookId = await ensureWebhookRegistered();
