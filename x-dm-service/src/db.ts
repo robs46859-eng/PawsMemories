@@ -3,10 +3,27 @@
  *
  * Provides a mysql2 connection pool and typed helpers for dm_events_log
  * INSERT + dedupe, and the key-value store (kvStore).
+ *
+ * Safety: nothing at module top level connects at import time — the pool
+ * is lazily created on first use via getPool().
  */
 
 import mysql from 'mysql2/promise';
 import { getConfig } from './config.js';
+
+// ---------------------------------------------------------------------------
+// Typed error for DB failures
+// ---------------------------------------------------------------------------
+
+export class DbError extends Error {
+  constructor(
+    message: string,
+    public readonly cause?: unknown,
+  ) {
+    super(message);
+    this.name = 'DbError';
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Pool
@@ -66,6 +83,7 @@ export interface DmEventRow {
 /**
  * Insert a DM event row, ignoring duplicates (idempotent dedupe by event_id).
  * Returns true if a new row was inserted, false if it already existed.
+ * Throws DbError on connection failure.
  */
 export async function insertDmEvent(row: {
   event_id: string;
@@ -78,38 +96,47 @@ export async function insertDmEvent(row: {
   received_via: 'webhook' | 'poll';
   created_at: string;
 }): Promise<boolean> {
-  const conn = getPool();
-  const [result] = await conn.execute(
-    `INSERT IGNORE INTO dm_events_log
+  try {
+    const conn = getPool();
+    const [result] = await conn.execute(
+      `INSERT IGNORE INTO dm_events_log
      (event_id, dm_conversation_id, sender_id, event_type, text, media_keys, raw, received_via, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      row.event_id,
-      row.dm_conversation_id,
-      row.sender_id,
-      row.event_type,
-      row.text,
-      row.media_keys ? JSON.stringify(row.media_keys) : null,
-      row.raw ? JSON.stringify(row.raw) : null,
-      row.received_via,
-      row.created_at,
-    ],
-  );
-  // insertId is 0 when INSERT IGNORE skips a duplicate
-  const info = result as mysql.ResultSetHeader;
-  return info.affectedRows === 1;
+      [
+        row.event_id,
+        row.dm_conversation_id,
+        row.sender_id,
+        row.event_type,
+        row.text,
+        row.media_keys ? JSON.stringify(row.media_keys) : null,
+        row.raw ? JSON.stringify(row.raw) : null,
+        row.received_via,
+        row.created_at,
+      ],
+    );
+    // insertId is 0 when INSERT IGNORE skips a duplicate
+    const info = result as mysql.ResultSetHeader;
+    return info.affectedRows === 1;
+  } catch (err) {
+    throw new DbError(`insertDmEvent failed for ${row.event_id}`, err);
+  }
 }
 
 /**
  * Check if an event_id already exists in dm_events_log (dedupe check).
+ * Throws DbError on connection failure.
  */
 export async function eventExists(eventId: string): Promise<boolean> {
-  const conn = getPool();
-  const [rows] = await conn.execute(
-    'SELECT 1 FROM dm_events_log WHERE event_id = ? LIMIT 1',
-    [eventId],
-  );
-  return (rows as unknown[]).length > 0;
+  try {
+    const conn = getPool();
+    const [rows] = await conn.execute(
+      'SELECT 1 FROM dm_events_log WHERE event_id = ? LIMIT 1',
+      [eventId],
+    );
+    return (rows as unknown[]).length > 0;
+  } catch (err) {
+    throw new DbError(`eventExists failed for ${eventId}`, err);
+  }
 }
 
 /**
@@ -117,12 +144,16 @@ export async function eventExists(eventId: string): Promise<boolean> {
  * Returns ISO string or null if no events exist.
  */
 export async function getLastEventCreatedAt(): Promise<string | null> {
-  const conn = getPool();
-  const [rows] = await conn.execute(
-    'SELECT created_at FROM dm_events_log ORDER BY created_at DESC LIMIT 1',
-  );
-  const data = rows as { created_at: string }[];
-  return data.length > 0 ? data[0].created_at : null;
+  try {
+    const conn = getPool();
+    const [rows] = await conn.execute(
+      'SELECT created_at FROM dm_events_log ORDER BY created_at DESC LIMIT 1',
+    );
+    const data = rows as { created_at: string }[];
+    return data.length > 0 ? data[0].created_at : null;
+  } catch (err) {
+    throw new DbError('getLastEventCreatedAt failed', err);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -131,34 +162,49 @@ export async function getLastEventCreatedAt(): Promise<string | null> {
 
 /**
  * Get a value from the kv store. Returns null if the key doesn't exist.
+ * Throws DbError on connection failure.
  */
 export async function kvGet(key: string): Promise<string | null> {
-  const conn = getPool();
-  const [rows] = await conn.execute(
-    'SELECT `value` FROM x_kv_store WHERE `key` = ? LIMIT 1',
-    [key],
-  );
-  const data = rows as { value: string }[];
-  return data.length > 0 ? data[0].value : null;
+  try {
+    const conn = getPool();
+    const [rows] = await conn.execute(
+      'SELECT `value` FROM x_kv_store WHERE `key` = ? LIMIT 1',
+      [key],
+    );
+    const data = rows as { value: string }[];
+    return data.length > 0 ? data[0].value : null;
+  } catch (err) {
+    throw new DbError(`kvGet failed for key "${key}"`, err);
+  }
 }
 
 /**
  * Set a value in the kv store (upsert).
+ * Throws DbError on connection failure.
  */
 export async function kvSet(key: string, value: string): Promise<void> {
-  const conn = getPool();
-  await conn.execute(
-    'INSERT INTO x_kv_store (`key`, `value`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)',
-    [key, value],
-  );
+  try {
+    const conn = getPool();
+    await conn.execute(
+      'INSERT INTO x_kv_store (`key`, `value`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)',
+      [key, value],
+    );
+  } catch (err) {
+    throw new DbError(`kvSet failed for key "${key}"`, err);
+  }
 }
 
 /**
  * Delete a key from the kv store.
+ * Throws DbError on connection failure.
  */
 export async function kvDelete(key: string): Promise<void> {
-  const conn = getPool();
-  await conn.execute('DELETE FROM x_kv_store WHERE `key` = ?', [key]);
+  try {
+    const conn = getPool();
+    await conn.execute('DELETE FROM x_kv_store WHERE `key` = ?', [key]);
+  } catch (err) {
+    throw new DbError(`kvDelete failed for key "${key}"`, err);
+  }
 }
 
 // ---------------------------------------------------------------------------

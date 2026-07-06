@@ -207,10 +207,16 @@ export function startPoller(): void {
     }
   }, 60_000);
 
-  // Also run an immediate check
-  shouldPoll().then((active) => {
-    if (active) pollOnce();
-  });
+  // Also run an immediate check — errors logged, never unhandled
+  shouldPoll()
+    .then((active) => {
+      if (active) pollOnce().catch((err) => {
+        console.error(`[Poller] Immediate poll cycle error: ${(err as Error).message}`);
+      });
+    })
+    .catch((err) => {
+      console.error(`[Poller] Immediate shouldPoll error: ${(err as Error).message}`);
+    });
 }
 
 /**

@@ -240,4 +240,16 @@ describe('pollOnce', () => {
     // MAX_PAGES = 10, so at most 10 calls
     expect(xFetch).toHaveBeenCalledTimes(10);
   });
+
+  it('should survive a kvGet rejection without crashing', async () => {
+    // kvGet throws (simulates MySQL connection failure)
+    vi.mocked(kvGet).mockRejectedValue(new Error('MySQL connection lost'));
+
+    // Should not throw — the error is caught by pollOnce's try/catch
+    const count = await pollOnce();
+
+    expect(count).toBe(0);
+    // Should not have attempted any API call
+    expect(xFetch).not.toHaveBeenCalled();
+  });
 });

@@ -91,3 +91,22 @@ app.listen(config.PORT, async () => {
 });
 
 export default app;
+
+// ---------------------------------------------------------------------------
+// Global error handlers — keep the server alive for DB/network failures
+// ---------------------------------------------------------------------------
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[Process] UNHANDLED REJECTION — server stays alive');
+  console.error(`  Reason: ${(reason as Error)?.message ?? reason}`);
+  if ((reason as Error)?.stack) {
+    const lines = (reason as Error).stack!.split('\n').slice(0, 5).join('\n');
+    console.error(`  Stack (top 5):\n${lines}`);
+  }
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[Process] UNCAUGHT EXCEPTION — server stays alive');
+  console.error(`  Error: ${err.message}`);
+  console.error(`  Stack (top 5):\n${err.stack?.split('\n').slice(0, 5).join('\n') ?? 'none'}`);
+});

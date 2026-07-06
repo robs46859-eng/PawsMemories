@@ -35,6 +35,8 @@ export interface Config {
   DM_DAILY_SEND_CAP: number;
   HARVEST_MAX_POSTS_PER_RUN: number;
   PORT: number;
+  /** Portal-issued app-only bearer token (optional). When set, bypasses the OAuth2 client_credentials fetch. */
+  X_BEARER_TOKEN: string;
 }
 
 export function loadConfig(): Config {
@@ -66,6 +68,7 @@ export function loadConfig(): Config {
   let DM_DAILY_SEND_CAP = env.DM_DAILY_SEND_CAP ? Number(env.DM_DAILY_SEND_CAP) : 400;
   let HARVEST_MAX_POSTS_PER_RUN = env.HARVEST_MAX_POSTS_PER_RUN ? Number(env.HARVEST_MAX_POSTS_PER_RUN) : 300;
   let PORT = env.PORT ? Number(env.PORT) : 3001;
+  const X_BEARER_TOKEN = env.X_BEARER_TOKEN ?? '';
 
   // Validate required strings
   const required: [string, string | undefined][] = [
@@ -140,6 +143,7 @@ export function loadConfig(): Config {
     DM_DAILY_SEND_CAP,
     HARVEST_MAX_POSTS_PER_RUN,
     PORT,
+    X_BEARER_TOKEN,
   };
 }
 

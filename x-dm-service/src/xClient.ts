@@ -147,22 +147,52 @@ export async function refreshBotToken(
 /**
  * Obtain an app-only bearer token using the API Key + API Key Secret.
  *
+ * Two strategies:
+ *   1. If X_BEARER_TOKEN env var is set, returns it directly (portal-issued
+ *      token) without any HTTP call.
+ *   2. Otherwise, fall back to the legacy app-only endpoint
+ *      POST https://api.x.com/oauth2/token (no /2/) with URL-encoded Basic
+ *      auth, consuming an API Key + Secret pair. The /2/ endpoint returns
+ *      400 "Missing required parameter [client_secret]" for client_credentials,
+ *      hence the explicit legacy path.
+ *
  * Used for: webhook management (§5.1), X Activity subscriptions (§5.3),
  * recent search + trends (Feature B).
+ *
+ * TODO(§7.6): Verify endpoint and body shape at
+ * https://docs.x.com/x-api/overview for the account's tier.
  */
 export async function getAppOnlyBearerToken(
   apiKey: string,
   apiKeySecret: string,
 ): Promise<TokenResponse> {
+  // Short-circuit: portal-issued token
+  const cfgToken = getConfig().X_BEARER_TOKEN;
+  if (cfgToken) {
+    return {
+      access_token: cfgToken,
+      expires_in: 86_400 * 365, // ~1 year — portal tokens are long-lived
+      token_type: 'bearer',
+    };
+  }
+
+  // Legacy endpoint (/oauth2/token — no /2/) with URL-encoded Basic auth.
+  // The /2/oauth2/token endpoint rejects client_credentials with
+  // "Missing required parameter [client_secret]".
+  const encodedKey = encodeURIComponent(apiKey);
+  const encodedSecret = encodeURIComponent(apiKeySecret);
+  const raw = `${encodedKey}:${encodedSecret}`;
+  const auth = `Basic ${Buffer.from(raw).toString('base64')}`;
+
   const body = new URLSearchParams({
     grant_type: 'client_credentials',
   });
 
-  const resp = await fetch('https://api.x.com/2/oauth2/token', {
+  const resp = await fetch('https://api.x.com/oauth2/token', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
-      Authorization: basicAuth(apiKey, apiKeySecret),
+      Authorization: auth,
     },
     body,
   });

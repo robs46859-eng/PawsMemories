@@ -181,4 +181,20 @@ describe('loadConfig', () => {
 
     exitMock.mockRestore();
   });
+
+  it('should default X_BEARER_TOKEN to empty string', async () => {
+    vi.resetModules();
+    // X_BEARER_TOKEN not set
+    const { loadConfig } = await import('../src/config.js');
+    const config = loadConfig();
+    expect(config.X_BEARER_TOKEN).toBe('');
+  });
+
+  it('should read X_BEARER_TOKEN from env', async () => {
+    vi.resetModules();
+    process.env.X_BEARER_TOKEN = 'portal-issued-token-abc';
+    const { loadConfig } = await import('../src/config.js');
+    const config = loadConfig();
+    expect(config.X_BEARER_TOKEN).toBe('portal-issued-token-abc');
+  });
 });
