@@ -242,13 +242,31 @@ export async function replayWebhook(
 // ---------------------------------------------------------------------------
 
 /**
+ * Persist a webhook's identity into the kv store and revalidate if invalid.
+ * Shared by exact and case-insensitive match paths.
+ */
+async function adoptWebhook(wh: WebhookResponse): Promise<void> {
+  console.log(`[WebhookManager] Adopting webhook ${wh.id} (valid=${wh.valid})`);
+  await kvSet(KV_KEYS.WEBHOOK_ID, wh.id);
+  await kvSet(KV_KEYS.WEBHOOK_VALID, String(wh.valid));
+
+  if (!wh.valid) {
+    console.log('[WebhookManager] Webhook is invalid — revalidating...');
+    await revalidateWebhook(wh.id);
+  }
+}
+
+/**
  * Called once on service boot. Ensures our webhook is registered and valid.
  *
  * 1. List existing webhooks.
- * 2. If our X_WEBHOOK_URL is found: check valid flag, revalidate if needed.
+ * 2. If our X_WEBHOOK_URL is found (exact or case-insensitive): adopt it.
  * 3. If not found: register a new webhook.
  *
  * Returns the active webhook id.
+ *
+ * Case-insensitive matching prevents a permanent wedge (WebhookLimitExceeded)
+ * when the stored webhook URL has different casing than the env var.
  */
 export async function ensureWebhookRegistered(): Promise<string> {
   const cfg = getConfig();
@@ -263,20 +281,26 @@ export async function ensureWebhookRegistered(): Promise<string> {
   try {
     const webhooks = await listWebhooks();
 
-    // Find our webhook by URL match
-    const existing = webhooks.find((wh) => wh.url === cfg.X_WEBHOOK_URL);
+    // Find our webhook by URL match — exact first, then case-insensitive.
+    // A case-insensitive match prevents a permanent wedge (WebhookLimitExceeded)
+    // when the stored URL has different casing than the env var (e.g. old deploy
+    // wrote /Webhooks/X but current config uses /webhooks/x).
+    const exact = webhooks.find((wh) => wh.url === cfg.X_WEBHOOK_URL);
+    if (exact) {
+      await adoptWebhook(exact);
+      return exact.id;
+    }
 
-    if (existing) {
-      console.log(`[WebhookManager] Found existing webhook ${existing.id} (valid=${existing.valid})`);
-      await kvSet(KV_KEYS.WEBHOOK_ID, existing.id);
-      await kvSet(KV_KEYS.WEBHOOK_VALID, String(existing.valid));
-
-      if (!existing.valid) {
-        console.log('[WebhookManager] Webhook is invalid — revalidating...');
-        await revalidateWebhook(existing.id);
-      }
-
-      return existing.id;
+    const fuzzy = webhooks.find(
+      (wh) => wh.url.toLowerCase() === cfg.X_WEBHOOK_URL.toLowerCase(),
+    );
+    if (fuzzy) {
+      console.warn(
+        `[WebhookManager] Found webhook ${fuzzy.id} at URL "${fuzzy.url}" — ` +
+        `adopting despite case mismatch with configured "${cfg.X_WEBHOOK_URL}"`,
+      );
+      await adoptWebhook(fuzzy);
+      return fuzzy.id;
     }
 
     // Register a new webhook
