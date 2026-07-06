@@ -37,6 +37,12 @@ export interface Config {
   PORT: number;
   /** Portal-issued app-only bearer token (optional). When set, bypasses the OAuth2 client_credentials fetch. */
   X_BEARER_TOKEN: string;
+  /** OAuth 1.0a consumer key (API Key) for subscription management — optional, warn-and-skip if absent */
+  X_CONSUMER_KEY: string;
+  /** OAuth 1.0a user access token for subscription management — optional, warn-and-skip if absent */
+  X_ACCESS_TOKEN: string;
+  /** OAuth 1.0a user access token secret for subscription management — optional, warn-and-skip if absent */
+  X_ACCESS_TOKEN_SECRET: string;
 }
 
 export function loadConfig(): Config {
@@ -69,6 +75,9 @@ export function loadConfig(): Config {
   let HARVEST_MAX_POSTS_PER_RUN = env.HARVEST_MAX_POSTS_PER_RUN ? Number(env.HARVEST_MAX_POSTS_PER_RUN) : 300;
   let PORT = env.PORT ? Number(env.PORT) : 3001;
   const X_BEARER_TOKEN = env.X_BEARER_TOKEN ?? '';
+  const X_CONSUMER_KEY = env.X_CONSUMER_KEY ?? '';
+  const X_ACCESS_TOKEN = env.X_ACCESS_TOKEN ?? '';
+  const X_ACCESS_TOKEN_SECRET = env.X_ACCESS_TOKEN_SECRET ?? '';
 
   // Validate required strings
   const required: [string, string | undefined][] = [
@@ -144,6 +153,9 @@ export function loadConfig(): Config {
     HARVEST_MAX_POSTS_PER_RUN,
     PORT,
     X_BEARER_TOKEN,
+    X_CONSUMER_KEY,
+    X_ACCESS_TOKEN,
+    X_ACCESS_TOKEN_SECRET,
   };
 }
 

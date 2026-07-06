@@ -4,7 +4,7 @@
  * Spec: X_DM_REFINEMENT_SPEC.md §5.3
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock botTokenStore
 vi.mock('../src/botTokenStore.js', () => ({
@@ -15,6 +15,11 @@ vi.mock('../src/botTokenStore.js', () => ({
 // Mock xClient
 vi.mock('../src/xClient.js', () => ({
   xFetch: vi.fn(),
+}));
+
+// Mock oauth1 — checks config internally, we mock config instead
+vi.mock('../src/oauth1.js', () => ({
+  signRequest: vi.fn(),
 }));
 
 // Mock db
@@ -28,19 +33,45 @@ vi.mock('../src/db.js', () => ({
 
 import { getBotUserToken, refreshAndPersist } from '../src/botTokenStore.js';
 import { xFetch } from '../src/xClient.js';
+import { signRequest } from '../src/oauth1.js';
+import { getConfig } from '../src/config.js';
 import {
   ensureSubscriptions,
   createSubscription,
   listSubscriptions,
 } from '../src/subscriptions.js';
 
-// Mock config
+// Mock config — use a mutable object that tests can directly modify
+const mockConfig: Record<string, unknown> = {
+  X_CLIENT_ID: 'test-client-id',
+  X_CLIENT_SECRET: 'test-client-secret',
+  X_BOT_USER_ID: 'bot-user-12345',
+  X_CONSUMER_KEY: '',
+  X_CONSUMER_SECRET: '',
+  X_ACCESS_TOKEN: '',
+  X_ACCESS_TOKEN_SECRET: '',
+  X_BEARER_TOKEN: '',
+  X_BOT_ACCESS_TOKEN: '',
+  X_BOT_REFRESH_TOKEN: '',
+  X_WEBHOOK_URL: '',
+  DB_HOST: '',
+  DB_NAME: '',
+  DB_USER: '',
+  DB_PASSWORD: '',
+  BLENDER_WORKER_URL: '',
+  WORKER_SHARED_SECRET: '',
+  LLM_API_KEY: '',
+  LLM_MODEL: '',
+  MEDIA_BUCKET_NAME: '',
+  MEDIA_BUCKET_URL: '',
+  MEDIA_BUCKET_KEY: '',
+  MEDIA_BUCKET_SECRET: '',
+  DM_DAILY_SEND_CAP: 400,
+  HARVEST_MAX_POSTS_PER_RUN: 300,
+  PORT: 3001,
+};
 vi.mock('../src/config.js', () => ({
-  getConfig: vi.fn(() => ({
-    X_CLIENT_ID: 'test-client-id',
-    X_CLIENT_SECRET: 'test-client-secret',
-    X_BOT_USER_ID: 'bot-user-12345',
-  })),
+  getConfig: vi.fn(() => mockConfig),
 }));
 
 // ---------------------------------------------------------------------------
@@ -237,6 +268,85 @@ describe('subscriptions — user-token auth', () => {
 
       // Only list was called, no creates
       expect(xFetch).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // OAuth 1.0a auth path (preferred over OAuth 2.0 user token)
+  // -----------------------------------------------------------------------
+
+  describe('with OAuth 1.0a credentials', () => {
+    const originalFetch = globalThis.fetch;
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+      mockConfig.X_CONSUMER_KEY = 'test-consumer-key';
+      mockConfig.X_CONSUMER_SECRET='***';
+      mockConfig.X_ACCESS_TOKEN='***';
+      mockConfig.X_ACCESS_TOKEN_SECRET='***';
+      vi.mocked(signRequest).mockReturnValue(
+        'OAuth oauth_consumer_key="test-consumer-key", oauth_nonce="abc", oauth_signature="test-sig"',
+      );
+    });
+
+    afterEach(() => {
+      globalThis.fetch = originalFetch;
+      mockConfig.X_CONSUMER_KEY = '';
+      mockConfig.X_CONSUMER_SECRET = '';
+      mockConfig.X_ACCESS_TOKEN = '';
+      mockConfig.X_ACCESS_TOKEN_SECRET = '';
+    });
+
+    it('should use OAuth 1.0a signing instead of user token', async () => {
+      let capturedAuthHeader = '';
+      globalThis.fetch = vi.fn().mockImplementation(
+        (_url: string, opts: RequestInit) => {
+          capturedAuthHeader = (opts.headers as Record<string, string>)?.Authorization ?? '';
+          return Promise.resolve(makeOkResponse({ data: existingSubscriptions }));
+        },
+      );
+
+      await listSubscriptions();
+
+      expect(signRequest).toHaveBeenCalledWith('GET', 'https://api.x.com/2/activity/subscriptions');
+      expect(capturedAuthHeader).toContain('OAuth oauth_consumer_key=');
+      expect(xFetch).not.toHaveBeenCalled();
+    });
+
+    it('should sign POST requests for createSubscription', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue(
+        makeOkResponse({
+          data: { id: 'sub-1a', event_type: 'dm.received', webhook_id: 'wh-001' },
+        }),
+      );
+
+      const result = await createSubscription('wh-001', 'dm.received', 'test-tag');
+
+      expect(result).toBe('sub-1a');
+      expect(signRequest).toHaveBeenCalledWith('POST', 'https://api.x.com/2/activity/subscriptions');
+      expect(xFetch).not.toHaveBeenCalled();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // No auth available
+  // -----------------------------------------------------------------------
+
+  describe('with no auth available (neither OAuth 1.0a nor OAuth 2.0)', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+      mockConfig.X_CONSUMER_KEY = '';
+      mockConfig.X_CONSUMER_SECRET = '';
+      mockConfig.X_ACCESS_TOKEN = '';
+      mockConfig.X_ACCESS_TOKEN_SECRET = '';
+      vi.mocked(getBotUserToken).mockRejectedValue(
+        new Error('No bot user token available — complete OAuth flow at /oauth/start'),
+      );
+    });
+
+    it('ensureSubscriptions should log waiting message and skip gracefully', async () => {
+      await expect(ensureSubscriptions('wh-001')).resolves.toBeUndefined();
+      expect(xFetch).not.toHaveBeenCalled();
     });
   });
 });

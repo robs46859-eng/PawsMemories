@@ -21,21 +21,52 @@ import { getConfig } from './config.js';
 import { kvSet, KV_KEYS } from './db.js';
 import { xFetch } from './xClient.js';
 import { getBotUserToken, refreshAndPersist } from './botTokenStore.js';
+import { signRequest } from './oauth1.js';
 
 // ---------------------------------------------------------------------------
 // API Base
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Auth helpers — OAuth 1.0a preferred, OAuth 2.0 user token fallback
+// ---------------------------------------------------------------------------
+
 const API_V2 = 'https://api.x.com/2';
 
-// ---------------------------------------------------------------------------
-// User-token auth helper
-// ---------------------------------------------------------------------------
+/**
+ * Do we have OAuth 1.0a credentials configured?
+ * The /2/activity/subscriptions endpoint requires OAuth 1.0a user context
+ * and returns bare 403 with OAuth 2.0 user tokens.
+ */
+function haveOAuth1Creds(): boolean {
+  const cfg = getConfig();
+  return !!(cfg.X_CONSUMER_KEY && cfg.X_ACCESS_TOKEN && cfg.X_ACCESS_TOKEN_SECRET);
+}
 
 /**
- * Get the bot user token, returning null if OAuth hasn't been seeded yet.
- * This allows ensureSubscriptions() to be called at boot before the operator
- * has completed the /oauth/start flow.
+ * Fetch using OAuth 1.0a signed request (raw fetch, no Bearer token).
+ * Called when 1.0a credentials are available.
+ */
+async function oauth1Fetch(
+  url: string,
+  opts: { method: string; body?: string },
+): Promise<Response> {
+  const authHeader = signRequest(opts.method, url);
+  const headers: Record<string, string> = {
+    Authorization: authHeader,
+  };
+  if (opts.body) {
+    headers['Content-Type'] = 'application/json';
+  }
+  return fetch(url, {
+    method: opts.method,
+    headers,
+    body: opts.body,
+  });
+}
+
+/**
+ * Get the bot OAuth 2.0 user token, returning null if not yet seeded.
  */
 async function getBotTokenSafe(): Promise<string | null> {
   try {
@@ -48,22 +79,28 @@ async function getBotTokenSafe(): Promise<string | null> {
     ) {
       return null;
     }
-    // Re-throw unexpected errors
     throw err;
   }
 }
 
 /**
- * Make an X API v2 call using the bot user token, with 401→refresh→retry
- * (same pattern as dmSender's sendWithRetry).
+ * Make an X API v2 call for subscription management.
  *
- * @returns The Response on success, or null when no token is available.
- * @throws On non-recoverable errors (403, refresh failure, etc.).
+ * Auth priority: OAuth 1.0a > OAuth 2.0 user token > skip (return null).
+ * OAuth 2.0 path includes 401→refresh→retry (same pattern as dmSender).
+ *
+ * @returns The Response on success, or null when no auth is available.
  */
-async function fetchWithUserToken(
+async function fetchWithAuth(
   url: string,
   opts: { method: string; body?: string },
 ): Promise<Response | null> {
+  // --- OAuth 1.0a path (preferred) ---
+  if (haveOAuth1Creds()) {
+    return oauth1Fetch(url, opts);
+  }
+
+  // --- OAuth 2.0 user token path (fallback) ---
   let token = await getBotTokenSafe();
   if (!token) return null;
 
@@ -79,7 +116,6 @@ async function fetchWithUserToken(
 
     if (resp.ok) return resp;
 
-    // 401 — token may be expired
     if (resp.status === 401 && !retried) {
       console.log('[Subscriptions] 401 — refreshing bot token and retrying...');
       try {
@@ -92,7 +128,7 @@ async function fetchWithUserToken(
       }
     }
 
-    return resp; // non-401 or already retried
+    return resp;
   }
 
   return null;
@@ -149,7 +185,7 @@ export async function createSubscription(
     webhook_id: webhookId,
   };
 
-  const resp = await fetchWithUserToken(`${API_V2}/activity/subscriptions`, {
+  const resp = await fetchWithAuth(`${API_V2}/activity/subscriptions`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
@@ -191,7 +227,7 @@ export async function createSubscription(
  * Returns empty array if token unavailable.
  */
 export async function listSubscriptions(): Promise<ListSubscriptionsResponse['data']> {
-  const resp = await fetchWithUserToken(`${API_V2}/activity/subscriptions`, {
+  const resp = await fetchWithAuth(`${API_V2}/activity/subscriptions`, {
     method: 'GET',
   });
 
@@ -221,7 +257,7 @@ export async function updateSubscription(
 ): Promise<void> {
   const body = { webhook_id: newWebhookId };
 
-  const resp = await fetchWithUserToken(
+  const resp = await fetchWithAuth(
     `${API_V2}/activity/subscriptions/${subscriptionId}`,
     { method: 'PUT', body: JSON.stringify(body) },
   );
@@ -246,7 +282,7 @@ export async function updateSubscription(
  * DELETE /2/activity/subscriptions/:id — teardown.
  */
 export async function deleteSubscription(subscriptionId: string): Promise<void> {
-  const resp = await fetchWithUserToken(
+  const resp = await fetchWithAuth(
     `${API_V2}/activity/subscriptions/${subscriptionId}`,
     { method: 'DELETE' },
   );
@@ -281,9 +317,10 @@ export async function ensureSubscriptions(webhookId: string): Promise<void> {
     return;
   }
 
-  // Check if user token is available before doing any work
+  // Check if any auth path is available before doing work
   const token = await getBotTokenSafe();
-  if (!token) {
+  const haveAnyAuth = token || haveOAuth1Creds();
+  if (!haveAnyAuth) {
     console.log('[Subscriptions] waiting for bot OAuth seeding — subscriptions will be created once /oauth/callback completes');
     return;
   }
