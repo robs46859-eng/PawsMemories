@@ -114,6 +114,7 @@ db.ts              MySQL pool, table init, user/account CRUD helpers
 src/               React frontend (App, components, api client, types)
   components/      SignUp, Dashboard, EditMemory, RequestMemory, AdminRequestPanel, ...
 blender-worker/    Standalone Express + Docker microservice for running Blender scripts
+x-dm-service/      X DM conversation refinement service (Node 20 + Express + TypeScript) — see X_DM_REFINEMENT_SPEC.md
 dist/              Build output (vite assets + server.cjs)
 .env.example       Documented environment variables
 ```
