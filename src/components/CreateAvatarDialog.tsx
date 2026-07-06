@@ -3,11 +3,25 @@ import { Camera, X, Check, Upload, Sparkles, Plus } from "lucide-react";
 
 interface CreateAvatarDialogProps {
   onClose: () => void;
-  onSubmit: (name: string, photos: string[]) => void;
+  onSubmit: (name: string, photos: string[], palette: string | null) => void;
   isDarkMode: boolean;
 }
 
 const MAX_PHOTOS = 5;
+
+/**
+ * Accent palettes for colour coordination. These tint the scene lighting and
+ * any collar/accessory accents — they never recolour the pet's real fur, so the
+ * likeness is preserved while the render stays colour-coordinated.
+ */
+const PALETTES: { id: string; label: string; swatch: string }[] = [
+  { id: "auto",       label: "Auto",       swatch: "linear-gradient(135deg,#a3a3a3,#e5e5e5)" },
+  { id: "warm",       label: "Warm",       swatch: "linear-gradient(135deg,#f59e0b,#ef4444)" },
+  { id: "cool",       label: "Cool",       swatch: "linear-gradient(135deg,#0ea5e9,#6366f1)" },
+  { id: "vibrant",    label: "Vibrant",    swatch: "linear-gradient(135deg,#ec4899,#8b5cf6)" },
+  { id: "pastel",     label: "Pastel",     swatch: "linear-gradient(135deg,#fbcfe8,#bfdbfe)" },
+  { id: "monochrome", label: "Mono",       swatch: "linear-gradient(135deg,#525252,#d4d4d4)" },
+];
 
 /** Downscale an image to max 1536px on the longest edge and re-encode as JPEG to keep payloads small. */
 function downscaleImage(dataUrl: string, maxDim = 1536): Promise<string> {
@@ -32,6 +46,7 @@ function downscaleImage(dataUrl: string, maxDim = 1536): Promise<string> {
 export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: CreateAvatarDialogProps) {
   const [name, setName] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
+  const [palette, setPalette] = useState<string>("auto");
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -88,7 +103,7 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
       alert("Please upload at least one photo of your pet.");
       return;
     }
-    onSubmit(name.trim(), photos);
+    onSubmit(name.trim(), photos, palette === "auto" ? null : palette);
   };
 
   return (
@@ -217,6 +232,35 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
               e.target.value = "";
             }}
           />
+        </div>
+
+        {/* Color coordination — accent palette picker */}
+        <div className="mb-6">
+          <label className="block text-xs font-bold mb-1.5 opacity-60 uppercase tracking-wider text-on-surface-variant">
+            Color Coordination
+          </label>
+          <div className="grid grid-cols-6 gap-2">
+            {PALETTES.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setPalette(p.id)}
+                className={`flex flex-col items-center gap-1 rounded-xl p-1.5 border transition-all ${
+                  palette === p.id
+                    ? "border-primary ring-1 ring-primary bg-primary/5"
+                    : "border-outline-variant/30 hover:border-primary/40"
+                }`}
+                aria-pressed={palette === p.id}
+                title={p.label}
+              >
+                <span className="w-full aspect-square rounded-lg" style={{ background: p.swatch }} />
+                <span className="text-[9px] font-bold text-on-surface-variant">{p.label}</span>
+              </button>
+            ))}
+          </div>
+          <p className="text-[10px] text-on-surface-variant opacity-60 mt-1.5">
+            Coordinates the render's lighting &amp; accent tones. Your pet's real fur &amp; eye colors are always kept true.
+          </p>
         </div>
 
         {/* What happens section */}

@@ -19,6 +19,10 @@ const CLIP_CANDIDATES: Record<BehaviorAction, string[]> = {
   pooping: ["poop", "squat", "defecate"],
   speaking: ["bark", "speak", "howl"],
   interacting: ["interact", "nuzzle", "sniff"],
+  wagging: ["tail_wag", "wag"],
+  stretching: ["stretch"],
+  shaking: ["shake_off", "shake"],
+  digging: ["dig_hole", "dig"],
 };
 
 /** Resolve the best-matching clip name in `available` for `action`, or null. */
@@ -49,4 +53,8 @@ export const LOOPING: Record<BehaviorAction, boolean> = {
   pooping: false,
   speaking: false,
   interacting: false,
+  wagging: true,
+  stretching: false,
+  shaking: false,
+  digging: true,
 };

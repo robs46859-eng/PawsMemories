@@ -182,7 +182,12 @@ export type BehaviorAction =
   | 'peeing'
   | 'pooping'
   | 'speaking'
-  | 'interacting';
+  | 'interacting'
+  // New abilities (skeletal-clip overhaul)
+  | 'wagging'
+  | 'stretching'
+  | 'shaking'
+  | 'digging';
 
 /** A skeletal animation clip embedded in a rigged GLB. */
 export interface SkeletalClip {

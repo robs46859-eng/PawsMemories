@@ -7,7 +7,7 @@ import Stripe from "stripe";
 import fs from "fs";
 import twilio from "twilio";
 import rateLimit from "express-rate-limit";
-import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, getPool, claimDailyStreak, claimAchievement } from "./db";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement } from "./db";
 import { uploadBase64Image, uploadBinaryFromUrl, fetchUrlAsBase64 } from "./storage";
 import { runBuildPipeline } from "./agent/graph/orchestrator";
 import { analyzePetImage } from "./ollama-agent";
@@ -647,41 +647,102 @@ async function startServer() {
     `Full body visible with generous margin on all sides. Sharp focus, even soft studio lighting, plain neutral ` +
     `light-gray seamless background, no shadow on walls, no props, no people, no text, no watermark.`;
 
-  const REFERENCE_IMAGE_PROMPT =
-    `You are given one or more reference photos, all of the SAME pet. ` +
-    `Generate ONE image of this exact pet seen DIRECTLY FROM THE FRONT (head and body facing straight toward the camera). ` +
-    REFERENCE_STYLE + ` Respond with only the generated image.`;
+  /**
+   * Optional user-selected ACCENT palette. This coordinates the scene's
+   * lighting tint and any collar/accessory accents WITHOUT recolouring the
+   * pet's real fur/eye colours (that would break the likeness). Selected in the
+   * avatar builder UI ("color coordination"); "auto" / unknown = no accent.
+   */
+  const ACCENT_PROMPTS: Record<string, string> = {
+    warm:
+      ` Give the scene a coordinated WARM accent palette — soft golden-hour key light and, if a collar is present, ` +
+      `warm amber/terracotta tones — WITHOUT altering the pet's natural fur, nose or eye colours.`,
+    cool:
+      ` Give the scene a coordinated COOL accent palette — soft blue-hour rim light and cool teal/slate collar accents ` +
+      `if a collar is present — WITHOUT altering the pet's natural fur, nose or eye colours.`,
+    vibrant:
+      ` Give the scene a coordinated VIBRANT accent palette — punchy saturated studio accent lighting and a bright ` +
+      `collar accent if present — WITHOUT altering the pet's natural fur, nose or eye colours.`,
+    pastel:
+      ` Give the scene a coordinated soft PASTEL accent palette — gentle low-contrast lighting and pale collar accents ` +
+      `if present — WITHOUT altering the pet's natural fur, nose or eye colours.`,
+    monochrome:
+      ` Give the scene a coordinated NEUTRAL monochrome accent palette — clean balanced greyscale studio lighting and a ` +
+      `neutral collar accent if present — WITHOUT altering the pet's natural fur, nose or eye colours.`,
+  };
+
+  function buildReferencePrompt(accent?: string | null): string {
+    const accentClause = (accent && ACCENT_PROMPTS[accent]) || "";
+    return (
+      `You are given one or more reference photos, all of the SAME pet. ` +
+      `Generate ONE image of this exact pet seen DIRECTLY FROM THE FRONT (head and body facing straight toward the camera). ` +
+      REFERENCE_STYLE + accentClause + ` Respond with only the generated image.`
+    );
+  }
 
   /**
    * Turnaround views generated FROM the approved front view so the character
-   * stays consistent. Keys are also the view names sent to Tripo multiview.
+   * stays consistent. Keys are the Tripo multiview slots — [FRONT, LEFT, BACK,
+   * RIGHT]. (There is no "top" slot in Tripo multiview.)
    */
-  const TURNAROUND_VIEWS: { view: "left" | "back" | "top"; prompt: string }[] = [
+  const TURNAROUND_VIEWS: { view: "left" | "back" | "right"; prompt: string }[] = [
     {
       view: "left",
       prompt:
         `This image is the FRONT view of a stylized 3D pet character. Generate the EXACT SAME character, same pose, ` +
         `same style, same lighting and background, but seen in a PERFECT LEFT SIDE PROFILE (camera at the pet's left, ` +
-        `pet's nose pointing to the left edge of the frame, full body and tail visible). ` +
-        `Character turnaround sheet consistency: identical fur colors, markings, proportions and fur texture.`,
+        `pet's nose pointing to the left edge of the frame, full body and tail visible).`,
     },
     {
       view: "back",
       prompt:
         `This image is the FRONT view of a stylized 3D pet character. Generate the EXACT SAME character, same pose, ` +
         `same style, same lighting and background, but seen DIRECTLY FROM BEHIND (camera behind the pet, tail toward ` +
-        `the camera and clearly visible, head facing away). ` +
-        `Character turnaround sheet consistency: identical fur colors, markings, proportions and fur texture.`,
+        `the camera and clearly visible, head facing away).`,
     },
     {
-      view: "top",
+      view: "right",
       prompt:
         `This image is the FRONT view of a stylized 3D pet character. Generate the EXACT SAME character, same pose, ` +
-        `same style, same lighting and background, but seen DIRECTLY FROM ABOVE (bird's-eye view looking straight ` +
-        `down: back, head-top, ears and tail all visible, nose toward the top of the frame). ` +
-        `Character turnaround sheet consistency: identical fur colors, markings, proportions and fur texture.`,
+        `same style, same lighting and background, but seen in a PERFECT RIGHT SIDE PROFILE (camera at the pet's right, ` +
+        `pet's nose pointing to the right edge of the frame, full body and tail visible).`,
     },
   ];
+
+  /**
+   * COLOR-COORDINATION LOCK. Extract a short, explicit palette descriptor from
+   * the approved front view and inject it verbatim into every turnaround prompt
+   * so all four views share exactly the same colours. Colour drift between views
+   * is the #1 failure mode of multiview-to-3D, producing muddy/striped textures.
+   */
+  async function extractPalette(frontDataUrl: string): Promise<string | null> {
+    const m = frontDataUrl.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
+    if (!m) return null;
+    const part = { inlineData: { data: m[2], mimeType: m[1] } };
+    const instruction =
+      `Describe this pet's exact colours as a short, comma-separated palette an artist could match precisely: ` +
+      `primary fur colour, secondary/undercoat colour, distinct markings and where they are, eye colour, and nose colour. ` +
+      `Reply with ONLY the palette phrase, no preamble, under 40 words.`;
+    for (const model of ["gemini-2.5-flash", "gemini-2.0-flash-exp"]) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: { parts: [part, { text: instruction }] },
+        });
+        const text = (response.text || "").trim().replace(/\s+/g, " ");
+        if (text) return text.slice(0, 300);
+      } catch (err) {
+        console.warn(`[palette] ${model} failed:`, err);
+      }
+    }
+    return null;
+  }
+
+  const paletteLockClause = (palette: string | null) =>
+    ` Character turnaround sheet consistency: IDENTICAL fur colours, markings, proportions and fur texture across every view.` +
+    (palette
+      ? ` The pet's colours MUST match this exact palette: ${palette}. Do not shift, desaturate or recolour anything.`
+      : ``);
 
   /** Generate one image from parts with model fallback; returns data URL or null. */
   async function generateImageWithFallback(
@@ -710,30 +771,36 @@ async function startServer() {
   }
 
   /**
-   * Generate the full turnaround (back, left side, top) from the front view.
+   * Generate the full turnaround (left side, back, right side) from the front
+   * view, with the palette lock injected so all four views stay colour-matched.
    * Returns whatever views succeeded — the Tripo caller degrades gracefully.
    */
   async function generateTurnaroundViews(
-    frontDataUrl: string
-  ): Promise<Partial<Record<"left" | "back" | "top", string>>> {
+    frontDataUrl: string,
+    palette: string | null
+  ): Promise<Partial<Record<"left" | "back" | "right", string>>> {
     const m = frontDataUrl.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
     if (!m) return {};
     const frontPart = { inlineData: { data: m[2], mimeType: m[1] } };
+    const lock = paletteLockClause(palette);
     const results = await Promise.all(
       TURNAROUND_VIEWS.map(async ({ view, prompt }) => {
         const img = await generateImageWithFallback(
-          [frontPart, { text: prompt + " Respond with only the generated image." }],
+          [frontPart, { text: prompt + lock + " Respond with only the generated image." }],
           `turnaround:${view}`
         );
         return [view, img] as const;
       })
     );
-    const out: Partial<Record<"left" | "back" | "top", string>> = {};
+    const out: Partial<Record<"left" | "back" | "right", string>> = {};
     for (const [view, img] of results) if (img) out[view] = img;
     return out;
   }
 
-  async function generatePetReferenceImage(photos: string[]): Promise<string | null> {
+  async function generatePetReferenceImage(
+    photos: string[],
+    accent?: string | null
+  ): Promise<string | null> {
     const imageParts = photos
       .map((p) => {
         const matches = p.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
@@ -744,12 +811,13 @@ async function startServer() {
 
     if (imageParts.length === 0) return null;
 
+    const referencePrompt = buildReferencePrompt(accent);
     // Try the dedicated image model first, then fall back to the model already used elsewhere in this app.
     for (const model of ["gemini-2.5-flash-image", "gemini-2.0-flash-exp"]) {
       try {
         const response = await ai.models.generateContent({
           model,
-          contents: { parts: [...imageParts, { text: REFERENCE_IMAGE_PROMPT }] },
+          contents: { parts: [...imageParts, { text: referencePrompt }] },
           config: { imageConfig: { aspectRatio: "1:1" } },
         });
         const parts = response.candidates?.[0]?.content?.parts || [];
@@ -768,11 +836,13 @@ async function startServer() {
 
   app.post("/api/avatars", requireAuth, async (req: AuthedRequest, res) => {
     try {
-      const { name, photo, photos } = req.body;
+      const { name, photo, photos, palette } = req.body;
       // Accept new multi-photo payload; keep backward compat with single `photo`.
       const photoList: string[] = Array.isArray(photos) && photos.length > 0
         ? photos.filter((p: unknown) => typeof p === "string" && p.length > 0)
         : (photo ? [photo] : []);
+      // Optional UI-selected accent palette for colour coordination.
+      const accent: string | null = typeof palette === "string" && palette ? palette : null;
 
       if (!name || photoList.length === 0) {
         return res.status(400).json({ error: "Name and at least one photo required." });
@@ -782,7 +852,7 @@ async function startServer() {
       }
 
       // Layer 1: generate a single hyper-realistic reference image from all photos.
-      let sourceImage = await generatePetReferenceImage(photoList);
+      let sourceImage = await generatePetReferenceImage(photoList, accent);
       let usedReferenceImage = true;
       if (!sourceImage) {
         console.warn("[POST /api/avatars] Reference image generation failed; falling back to first uploaded photo.");
@@ -790,14 +860,40 @@ async function startServer() {
         usedReferenceImage = false;
       }
 
+      // Layer 1.5: COLOR-COORDINATION LOCK + multiview turnaround. Extract the
+      // pet's palette from the approved front image, then generate colour-matched
+      // left/back/right views so Tripo can run multiview_to_model. Best-effort:
+      // any failure degrades to single-image generation.
+      let viewSet: { left?: string; back?: string; right?: string } | undefined;
+      try {
+        const palette = usedReferenceImage && sourceImage.startsWith("data:image")
+          ? await extractPalette(sourceImage)
+          : null;
+        if (sourceImage.startsWith("data:image")) {
+          const rawViews = await generateTurnaroundViews(sourceImage, palette);
+          const uploaded: { left?: string; back?: string; right?: string } = {};
+          for (const key of ["left", "back", "right"] as const) {
+            const v = rawViews[key];
+            if (v) uploaded[key] = v.startsWith("data:image") ? await uploadBase64Image(v) : v;
+          }
+          if (Object.keys(uploaded).length) viewSet = uploaded;
+        }
+      } catch (e: any) {
+        console.warn("[POST /api/avatars] Turnaround/multiview generation skipped:", e?.message || e);
+      }
+
       let finalImageUrl = sourceImage;
       if (sourceImage.startsWith("data:image")) {
         finalImageUrl = await uploadBase64Image(sourceImage);
       }
 
-      // Layer 2: start Tripo3D generation from the reference image.
-      const handle = await startImageTo3D({ imageUrl: finalImageUrl });
+      // Layer 2: start Tripo3D generation (multiview when turnaround views exist).
+      const handle = await startImageTo3D({ imageUrl: finalImageUrl, views: viewSet });
       const avatarId = await createAvatar(req.user!.phone, name, finalImageUrl, handle);
+      if (viewSet) {
+        try { await updateAvatarMultiview(avatarId, viewSet); }
+        catch (e: any) { console.warn("[POST /api/avatars] could not persist multiview views:", e?.message || e); }
+      }
 
       // Connection: persist the photos uploaded in the avatar builder into the
       // user's photo library so they show up (and are manageable) on the Profile
@@ -836,7 +932,7 @@ async function startServer() {
     let rows: any[] = [];
     try {
       const [result]: any = await getPool().query(
-        `SELECT id, image_url FROM avatars
+        `SELECT id, image_url, multiview_json FROM avatars
           WHERE generation_status IN ('rigging','retargeting','baking_clips','baking_sprites')
             AND (meshy_handle IS NULL OR meshy_handle = '')
             AND model_url IS NULL
@@ -859,7 +955,8 @@ async function startServer() {
           imageUrl = await uploadBase64Image(imageUrl);
           await getPool().query(`UPDATE avatars SET image_url = ? WHERE id = ?`, [imageUrl, avatarId]);
         }
-        const handle = await startImageTo3D({ imageUrl });
+        const views = parseMultiview(row.multiview_json) || undefined;
+        const handle = await startImageTo3D({ imageUrl, views });
         await getPool().query(
           `UPDATE avatars SET meshy_handle = ?, generation_status = 'pending', generation_error = NULL WHERE id = ?`,
           [handle, avatarId]
@@ -1012,7 +1109,8 @@ async function startServer() {
            // Also update the avatar image_url in DB if it was base64
            await getPool().query(`UPDATE avatars SET image_url = ? WHERE id = ?`, [finalImageUrl, avatarId]);
         }
-        const handle = await startImageTo3D({ imageUrl: finalImageUrl });
+        const views = parseMultiview((avatar as any).multiview_json) || undefined;
+        const handle = await startImageTo3D({ imageUrl: finalImageUrl, views });
         await getPool().query(`UPDATE avatars SET meshy_handle = ? WHERE id = ?`, [handle, avatarId]);
       } else {
         return res.status(400).json({ error: "Original photo not available for retry" });
@@ -1242,11 +1340,15 @@ async function startServer() {
 
   // API route to create custom styled pet images using Imagen or Gemini
   // Fix 5: Credit store — let users purchase credit packs via Stripe
+  // Credit packs — bulk buys cost less per credit ($5→5.00¢, $10→4.55¢,
+  // $25→4.17¢, $50→3.85¢/credit). Authoritative pricing (client mirrors this in
+  // src/components/CreditStore.tsx). Stripe checkout amount is derived from
+  // `price` at session-creation time, so changing these needs no Stripe setup.
   const CREDIT_PACKS = [
-    { id: "pack_100",  credits: 100,  price: 1.99,  label: "Starter Pack" },
-    { id: "pack_300",  credits: 300,  price: 4.99,  label: "Popular Pack" },
-    { id: "pack_700",  credits: 700,  price: 9.99,  label: "Pro Pack" },
-    { id: "pack_1500", credits: 1500, price: 17.99, label: "Studio Pack" },
+    { id: "pack_100",  credits: 100,  price: 5.0,   label: "Starter Pack" },
+    { id: "pack_220",  credits: 220,  price: 10.0,  label: "Popular Pack" },
+    { id: "pack_600",  credits: 600,  price: 25.0,  label: "Pro Pack" },
+    { id: "pack_1300", credits: 1300, price: 50.0,  label: "Studio Pack" },
   ] as const;
 
   app.post("/api/create-credits-session", requireAuth, async (req: AuthedRequest, res) => {

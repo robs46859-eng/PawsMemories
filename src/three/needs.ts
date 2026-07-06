@@ -162,6 +162,14 @@ export function durationFor(action: BehaviorAction): number {
       return 8; // re-evaluated each cycle; continues if still tired
     case "interacting":
       return 3;
+    case "stretching":
+      return 2;
+    case "shaking":
+      return 1.5;
+    case "wagging":
+      return 3;
+    case "digging":
+      return 4;
     default:
       return 0; // idle / walking are interruptible
   }
@@ -184,6 +192,14 @@ export function speechFor(action: BehaviorAction): string | null {
       return "💤";
     case "speaking":
       return "Woof!";
+    case "wagging":
+      return "🐕 !";
+    case "stretching":
+      return "🧘";
+    case "shaking":
+      return "💦";
+    case "digging":
+      return "🦴 ?";
     default:
       return null;
   }

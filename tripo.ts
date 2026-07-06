@@ -15,30 +15,60 @@ export function tripoTaskId(operationName: string): string {
   return operationName.slice(TRIPO_PREFIX.length);
 }
 
-export interface TripoJobInput {
-  imageUrl: string;
+/**
+ * Optional turnaround views used for Tripo's `multiview_to_model`. The front
+ * image is always `imageUrl`; any subset of the others may be supplied. When at
+ * least one of left/back/right is present the job runs as multiview, otherwise
+ * it degrades to single-image `image_to_model`.
+ *
+ * IMPORTANT: Tripo's multiview slot order is fixed — [FRONT, LEFT, BACK, RIGHT].
+ * There is no "top" slot; missing slots are sent as empty objects.
+ */
+export interface TripoViewSet {
+  left?: string;
+  back?: string;
+  right?: string;
 }
 
-export async function startImageTo3D(input: TripoJobInput): Promise<string> {
-  // 1. Download image
-  const imgRes = await fetch(input.imageUrl);
-  if (!imgRes.ok) throw new Error(`Failed to download image for Tripo: ${imgRes.statusText}`);
-  const arrayBuffer = await imgRes.arrayBuffer();
-  const mimeType = imgRes.headers.get("content-type") || "image/jpeg";
+export interface TripoJobInput {
+  /** Front / primary reference image (public URL or data URL). Always required. */
+  imageUrl: string;
+  /** Optional turnaround views. Presence of any one triggers multiview mode. */
+  views?: TripoViewSet;
+}
+
+interface UploadedImage {
+  ext: string;
+  token: string;
+}
+
+/** Download an image (URL or data URL) and upload its bytes to Tripo → image_token. */
+async function uploadToTripo(imageUrl: string): Promise<UploadedImage> {
+  let arrayBuffer: ArrayBuffer;
+  let mimeType = "image/jpeg";
+
+  const dataMatch = imageUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (dataMatch) {
+    mimeType = dataMatch[1] || "image/jpeg";
+    arrayBuffer = Buffer.from(dataMatch[2], "base64").buffer;
+  } else {
+    const imgRes = await fetch(imageUrl);
+    if (!imgRes.ok) throw new Error(`Failed to download image for Tripo: ${imgRes.statusText}`);
+    arrayBuffer = await imgRes.arrayBuffer();
+    mimeType = imgRes.headers.get("content-type") || "image/jpeg";
+  }
+
   let ext = "jpg";
   if (mimeType.includes("png")) ext = "png";
+  if (mimeType.includes("webp")) ext = "webp";
 
-  // 2. Upload to Tripo using native FormData and Blob (Node 18+)
   const blob = new Blob([arrayBuffer], { type: mimeType });
   const formData = new FormData();
   formData.append("file", blob, `upload.${ext}`);
 
   const uploadRes = await fetch(`${TRIPO_BASE}/upload`, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey()}`,
-      // Native fetch automatically sets Content-Type boundary for native FormData
-    },
+    headers: { Authorization: `Bearer ${apiKey()}` },
     body: formData,
   });
 
@@ -46,28 +76,14 @@ export async function startImageTo3D(input: TripoJobInput): Promise<string> {
   if (!uploadRes.ok) {
     throw new Error(`Tripo upload failed (${uploadRes.status}): ${JSON.stringify(uploadJson)}`);
   }
-  
-  // Tripo v2 upload endpoint returns data.image_token
-  const fileToken = uploadJson?.data?.image_token;
-  if (!fileToken) {
+  const token = uploadJson?.data?.image_token;
+  if (!token) {
     throw new Error(`Tripo upload returned no image_token: ${JSON.stringify(uploadJson)}`);
   }
+  return { ext, token };
+}
 
-  // 3. Start task with high-fidelity flags (Phase 3.2 & 3.6)
-  // NOTE: do NOT set quad: true — Tripo forces FBX output when quad is
-  // enabled, but this pipeline downloads output.model expecting a GLB.
-  // Blender's glTF importer then fails with "Bad glTF: json error: utf-8".
-  const body = {
-    type: "image_to_model",
-    file: {
-      type: ext,
-      file_token: fileToken
-    },
-    texture: true,
-    pbr: true,
-    face_limit: 40000
-  };
-
+async function submitTask(body: Record<string, unknown>): Promise<string> {
   const res = await fetch(`${TRIPO_BASE}/task`, {
     method: "POST",
     headers: {
@@ -76,17 +92,75 @@ export async function startImageTo3D(input: TripoJobInput): Promise<string> {
     },
     body: JSON.stringify(body),
   });
-
   const json: any = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(`Tripo image-to-3d failed (${res.status}): ${JSON.stringify(json)}`);
+    throw new Error(`Tripo task failed (${res.status}): ${JSON.stringify(json)}`);
   }
-  
   const taskId = json?.data?.task_id;
   if (!taskId) {
-    throw new Error(`Tripo image-to-3d returned no task id: ${JSON.stringify(json)}`);
+    throw new Error(`Tripo task returned no task id: ${JSON.stringify(json)}`);
   }
   return `${TRIPO_PREFIX}${taskId}`;
+}
+
+/**
+ * Start a Tripo 3D generation.
+ *
+ * - With turnaround views → `multiview_to_model` (front/left/back/right) for
+ *   dramatically better geometry + texture wrap on the sides and back.
+ * - Without → `image_to_model` from the single front image.
+ *
+ * Both request DETAILED PBR textures (texture_quality="detailed") for the
+ * richest color/fur fidelity. `texture_alignment: "original_image"` keeps the
+ * generated texture faithful to the reference colours (the "color coordination"
+ * requirement) rather than letting Tripo re-tint from geometry.
+ *
+ * NOTE: do NOT set quad: true — Tripo forces FBX output when quad is enabled,
+ * but this pipeline downloads output.model expecting a GLB.
+ */
+export async function startImageTo3D(input: TripoJobInput): Promise<string> {
+  const left = input.views?.left;
+  const back = input.views?.back;
+  const right = input.views?.right;
+  const hasMultiview = !!(left || back || right);
+
+  // Shared high-fidelity flags.
+  const common = {
+    texture: true,
+    pbr: true,
+    texture_quality: "detailed",
+    texture_alignment: "original_image",
+    face_limit: 40000,
+  };
+
+  if (!hasMultiview) {
+    const front = await uploadToTripo(input.imageUrl);
+    return submitTask({
+      type: "image_to_model",
+      file: { type: front.ext, file_token: front.token },
+      ...common,
+    });
+  }
+
+  // Multiview: upload each present view; keep Tripo's fixed slot order.
+  // Empty slots must be sent as {} so the array stays [front, left, back, right].
+  const [frontU, leftU, backU, rightU] = await Promise.all([
+    uploadToTripo(input.imageUrl),
+    left ? uploadToTripo(left) : Promise.resolve(null),
+    back ? uploadToTripo(back) : Promise.resolve(null),
+    right ? uploadToTripo(right) : Promise.resolve(null),
+  ]);
+
+  const slot = (u: UploadedImage | null) =>
+    u ? { type: u.ext, file_token: u.token } : {};
+
+  // Files are ordered by Tripo's fixed convention [FRONT, LEFT, BACK, RIGHT];
+  // no separate orientation field is sent so unknown-param validation can't fail.
+  return submitTask({
+    type: "multiview_to_model",
+    files: [slot(frontU), slot(leftU), slot(backU), slot(rightU)],
+    ...common,
+  });
 }
 
 export interface TripoPollResult {

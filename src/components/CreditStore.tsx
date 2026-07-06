@@ -11,11 +11,13 @@ interface CreditPack {
   highlight?: boolean;
 }
 
+// NOTE: must stay in sync with CREDIT_PACKS in server.ts (authoritative pricing).
+// Bulk buys cost less per credit: $5→5.00¢, $10→4.55¢, $25→4.17¢, $50→3.85¢/cr.
 const PACKS: CreditPack[] = [
-  { id: "pack_100",  credits: 100,  price: 1.99,  label: "Starter Pack",  badge: "2 Avatar styles" },
-  { id: "pack_300",  credits: 300,  price: 4.99,  label: "Popular Pack",  badge: "7 Avatar styles", highlight: true },
-  { id: "pack_700",  credits: 700,  price: 9.99,  label: "Pro Pack",       badge: "17 Avatar styles" },
-  { id: "pack_1500", credits: 1500, price: 17.99, label: "Studio Pack",    badge: "37 Avatar styles + album" },
+  { id: "pack_100",  credits: 100,  price: 5.0,   label: "Starter Pack",  badge: "2 Avatar styles" },
+  { id: "pack_220",  credits: 220,  price: 10.0,  label: "Popular Pack",  badge: "5 Avatar styles", highlight: true },
+  { id: "pack_600",  credits: 600,  price: 25.0,  label: "Pro Pack",       badge: "14 Avatar styles" },
+  { id: "pack_1300", credits: 1300, price: 50.0,  label: "Studio Pack",    badge: "30 Avatar styles + album" },
 ];
 
 interface CreditStoreProps {
@@ -24,7 +26,7 @@ interface CreditStoreProps {
 }
 
 export default function CreditStore({ onClose, currentCredits }: CreditStoreProps) {
-  const [selectedPack, setSelectedPack] = useState<string>("pack_300");
+  const [selectedPack, setSelectedPack] = useState<string>("pack_220");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 

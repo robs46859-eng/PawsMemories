@@ -5,7 +5,7 @@
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>Pawsome3D - Confirm Shoot</title>
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;700;800&amp;family=Be+Vietnam+Pro:wght@400;600&amp;family=Space+Grotesk:wght@600&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@100..900&amp;family=Plus+Jakarta+Sans:wght@100..900&amp;family=Space+Grotesk:wght@100..900&amp;display=swap" rel="stylesheet"/>
 <script id="tailwind-config">
@@ -13,89 +13,51 @@
             darkMode: "class",
             theme: {
                 extend: {
-                    "colors": {
-                        "tertiary-fixed-dim": "#cfc4c0",
-                        "outline": "#827470",
-                        "on-secondary": "#ffffff",
-                        "on-secondary-container": "#526772",
-                        "tertiary-container": "#4c4542",
-                        "surface-container-low": "#f4f4f0",
-                        "surface-container-highest": "#e2e3df",
-                        "surface-container": "#eeeeea",
-                        "secondary-fixed": "#cfe6f2",
-                        "on-primary": "#ffffff",
-                        "secondary-fixed-dim": "#b4cad6",
-                        "on-tertiary-container": "#bdb3af",
-                        "on-primary-fixed": "#2c160e",
-                        "surface-tint": "#77574d",
-                        "surface-bright": "#faf9f5",
-                        "outline-variant": "#d4c3be",
-                        "error-container": "#ffdad6",
-                        "primary": "#442a22",
-                        "on-primary-fixed-variant": "#5d4037",
-                        "tertiary": "#352f2c",
-                        "inverse-on-surface": "#f1f1ed",
-                        "primary-fixed": "#ffdbd0",
-                        "surface-container-high": "#e8e8e4",
-                        "surface-variant": "#e2e3df",
-                        "error": "#ba1a1a",
-                        "on-primary-container": "#d4ada1",
-                        "surface-dim": "#dadad6",
-                        "background": "#faf9f5",
-                        "on-surface-variant": "#504441",
-                        "primary-fixed-dim": "#e7bdb1",
-                        "on-secondary-fixed-variant": "#354a53",
-                        "on-secondary-fixed": "#071e27",
-                        "on-error-container": "#93000a",
-                        "secondary-container": "#cfe6f2",
-                        "on-tertiary": "#ffffff",
-                        "secondary": "#4c616c",
-                        "on-background": "#1a1c1a",
-                        "tertiary-fixed": "#ece0dc",
-                        "primary-container": "#5d4037",
-                        "on-tertiary-fixed-variant": "#4c4542",
-                        "surface": "#faf9f5",
-                        "inverse-primary": "#e7bdb1",
-                        "on-tertiary-fixed": "#201a18",
-                        "surface-container-lowest": "#ffffff",
-                        "on-error": "#ffffff",
+                    colors: {
+                        primary: "#4a6545",
+                        "primary-container": "#a8c69f",
+                        secondary: "#964826",
+                        "secondary-container": "#fd9a71",
+                        surface: "#fff8f3",
+                        "surface-container-low": "#faf9f5",
                         "on-surface": "#1a1c1a",
-                        "inverse-surface": "#2f312e"
+                        "on-surface-variant": "#504441",
+                        "outline-variant": "#d4c3be",
+                        error: "#ba1a1a"
                     },
-                    "borderRadius": {
-                        "DEFAULT": "0.25rem",
-                        "lg": "0.5rem",
-                        "xl": "0.75rem",
-                        "full": "9999px"
-                    },
-                    "spacing": {
-                        "container-max": "1200px",
-                        "margin-mobile": "20px",
-                        "unit": "4px",
-                        "margin-desktop": "64px",
-                        "gutter": "16px"
-                    },
-                    "fontFamily": {
-                        "headline-xl": ["Plus Jakarta Sans"],
-                        "headline-lg-mobile": ["Plus Jakarta Sans"],
-                        "body-md": ["Be Vietnam Pro"],
-                        "label-caps": ["Space Grotesk"],
-                        "body-sm": ["Be Vietnam Pro"],
-                        "headline-lg": ["Plus Jakarta Sans"]
-                    },
-                    "fontSize": {
-                        "headline-xl": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "800"}],
-                        "headline-lg-mobile": ["28px", {"lineHeight": "34px", "fontWeight": "700"}],
-                        "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
-                        "label-caps": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
-                        "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
-                        "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700"}]
+                    fontFamily: {
+                        sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+                        mono: ['"JetBrains Mono"', 'monospace'],
+                        "headline-xl": ['"Plus Jakarta Sans"', 'sans-serif'],
+                        "headline-lg": ['"Plus Jakarta Sans"', 'sans-serif'],
+                        "label-caps": ['"Plus Jakarta Sans"', 'sans-serif'],
+                        "body-md": ['"Plus Jakarta Sans"', 'sans-serif'],
+                        "body-sm": ['"Plus Jakarta Sans"', 'sans-serif']
                     }
-                },
-            },
+                }
+            }
         }
     </script>
 <style>
+
+        .soft-glow-shadow { box-shadow: 0 10px 25px -5px rgba(74, 101, 69, 0.2); }
+        .glowing-shadow-sage { box-shadow: 0 0 30px rgba(168, 198, 159, 0.5); }
+        .shimmer-button { position: relative; overflow: hidden; }
+        .shimmer-button::after {
+            content: '';
+            position: absolute;
+            top: 0; left: -100%;
+            width: 50%; height: 100%;
+            background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.2) 50%, rgba(255,255,255,0) 100%);
+            animation: shimmer 2.5s infinite;
+        }
+        @keyframes shimmer { 100% { left: 200%; } }
+        .soft-float { animation: softFloat 6s ease-in-out infinite; }
+        @keyframes softFloat {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+        }
+
         .material-symbols-outlined {
             font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
         }

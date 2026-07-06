@@ -321,6 +321,9 @@ export async function initDb(): Promise<void> {
       // Rigged skeletal model + clip manifest (Phase 5).
       { name: "rigged_model_url",   ddl: "ADD COLUMN rigged_model_url LONGTEXT NULL" },
       { name: "clips_json",         ddl: "ADD COLUMN clips_json JSON NULL" },
+      // Multiview turnaround view URLs ({left,back,right}) so retry/resume can
+      // re-run Tripo multiview without regenerating the images.
+      { name: "multiview_json",     ddl: "ADD COLUMN multiview_json JSON NULL" },
     ];
     for (const col of requiredAvatarColumns) {
       if (!avatarColumnNames.includes(col.name)) {
@@ -1033,6 +1036,7 @@ export interface AvatarRow {
   model_url: string | null;
   rigged_model_url: string | null;
   clips_json: string | null;
+  multiview_json: string | null;
   sprite_sheet_url: string | null;
   animation_data: any | null;
   meshy_handle: string | null;
@@ -1098,6 +1102,40 @@ export async function updateAvatarRiggedModel(
     [riggedModelUrl, JSON.stringify(clips || []), id, phone]
   )) as any;
   return result.affectedRows === 1;
+}
+
+export interface MultiviewSet {
+  left?: string;
+  back?: string;
+  right?: string;
+}
+
+/** Persist the generated turnaround view URLs so retry/resume can reuse them. */
+export async function updateAvatarMultiview(
+  id: number,
+  views: MultiviewSet
+): Promise<boolean> {
+  const [result] = (await getPool().query(
+    `UPDATE avatars SET multiview_json = ? WHERE id = ?`,
+    [JSON.stringify(views || {}), id]
+  )) as any;
+  return result.affectedRows === 1;
+}
+
+/** Read persisted turnaround views for an avatar, or null if none/invalid. */
+export function parseMultiview(raw: unknown): MultiviewSet | null {
+  if (!raw) return null;
+  try {
+    const obj = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (obj && typeof obj === "object") {
+      const out: MultiviewSet = {};
+      for (const k of ["left", "back", "right"] as const) {
+        if (typeof (obj as any)[k] === "string" && (obj as any)[k]) out[k] = (obj as any)[k];
+      }
+      return Object.keys(out).length ? out : null;
+    }
+  } catch { /* ignore */ }
+  return null;
 }
 
 export async function updateAvatarGenerationStatus(
