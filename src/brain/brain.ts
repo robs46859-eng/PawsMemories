@@ -17,7 +17,7 @@ import {
   Temperament,
 } from "./types";
 import { DEFAULT_DRIVES, decayDrives, recoverDrives, criticalDrives } from "./drives";
-import { DEFAULT_HORMONES, relaxHormones } from "./hormones";
+import { DEFAULT_HORMONES, relaxHormones, applyHormoneEvent, HormoneEvent } from "./hormones";
 import { ACTIONS, actionById, weightsFromTemperament } from "./actions";
 import { Rng, makeRng, selectAction, shouldReselect } from "./utility";
 import { BTContext, BTNode, LeafRegistry } from "./behaviorTree";
@@ -43,6 +43,8 @@ export interface Brain {
   getState(): BrainState;
   getContext(): BrainContext;
   setWeights(w: Record<ActionId, number>): void;
+  /** Push a hormone event (play/scold/neglect/pet/feed) — used by gestures (§4.5). */
+  applyHormoneEvent(event: HormoneEvent): void;
 }
 
 const DEFAULT_TEMPERAMENT: Temperament = {
@@ -158,6 +160,10 @@ export function createBrain(options?: Partial<BrainOptions>): Brain {
 
     setWeights(w) {
       weights = { ...w };
+    },
+
+    applyHormoneEvent(event) {
+      hormones = applyHormoneEvent(hormones, event);
     },
   };
 }

@@ -15,6 +15,8 @@ import { useDepthOcclusion } from "./occlusion";
 import { makeContactShadow } from "./shadows";
 import { buildLegIK, headLookAt, LegIKRig } from "./ik";
 import { chooseStageModelUrl } from "./stageModel";
+import { usePetBrain } from "./brainBridge";
+import { applyGestureToBrain, type PointerSample } from "./gestures";
 
 /**
  * ARPetStage — AR_PET_SIM_SPEC §6 (milestone AR4).
@@ -108,6 +110,11 @@ function PetStageContent({
   useDepthOcclusion(anchorRef);
   useHeadLookAt(anchorRef, placed);
 
+  // AR5 — the brain drives clips + walk targets once the pet is placed.
+  const bridge = usePetBrain(placed);
+  const gestureSamples = useRef<PointerSample[]>([]);
+  const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+
   // Contact shadow plane under the pet (grounding fallback, §6.2).
   const contactShadow = useMemo(() => makeContactShadow(0.6), []);
 
@@ -176,7 +183,23 @@ function PetStageContent({
         </mesh>
       </group>
 
-      <group ref={anchorRef} visible={placed}>
+      <group
+        ref={anchorRef}
+        visible={placed}
+        onPointerDown={(e) => {
+          gestureSamples.current = [{ t: now(), x: e.nativeEvent.clientX, y: e.nativeEvent.clientY }];
+        }}
+        onPointerMove={(e) => {
+          if (gestureSamples.current.length)
+            gestureSamples.current.push({ t: now(), x: e.nativeEvent.clientX, y: e.nativeEvent.clientY });
+        }}
+        onPointerUp={() => {
+          if (gestureSamples.current.length) {
+            applyGestureToBrain(bridge, gestureSamples.current); // stroke/slap/tap → reinforcement
+            gestureSamples.current = [];
+          }
+        }}
+      >
         <primitive object={contactShadow} />
         {modelUrl ? <AvatarModel url={modelUrl} /> : null}
         <PlacedObjects />

@@ -1,13 +1,12 @@
 /**
  * src/three/ar/gestures.ts — AR_PET_SIM_SPEC §7.1
  * Pointer-events on the pet raycast hit → stroke | slap | tap by velocity+duration.
- * Delegates classification to the pure brain (reinforcement.classifyGesture).
- *
- * TODO(AR5): wire pointer sampling on the AR canvas; feed classified gesture into
- * reinforceWeight / reinforceCompliance and emit the matching hormone event.
+ * Delegates classification to the pure brain (reinforcement.classifyGesture) and,
+ * via the brain bridge, feeds the result into reinforcement + hormones (§4.5).
  */
 
 import { classifyGesture, type Gesture } from "../../brain/reinforcement";
+import type { BrainBridge } from "./brainBridgeCore";
 
 export interface PointerSample {
   t: number; // ms
@@ -28,4 +27,11 @@ export function classifyPointerStroke(samples: PointerSample[]): Gesture {
     if (v > peak) peak = v;
   }
   return classifyGesture(durationMs, peak * 1000); // → units/sec to match classifier scale
+}
+
+/** Classify a pointer stroke and forward it to the brain bridge. Returns the gesture. */
+export function applyGestureToBrain(bridge: BrainBridge, samples: PointerSample[]): Gesture {
+  const g = classifyPointerStroke(samples);
+  bridge.applyGesture(g);
+  return g;
 }
