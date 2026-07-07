@@ -7,8 +7,10 @@ import Stripe from "stripe";
 import fs from "fs";
 import twilio from "twilio";
 import rateLimit from "express-rate-limit";
-import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls } from "./db";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan } from "./db";
 import { classifyPetImage, type GenerateFn } from "./server/petClassify";
+import { semanticScan as runSemanticScan } from "./server/semanticScan";
+import { createHash } from "crypto";
 import { resolveBreedProfile } from "./server/breedProfiles";
 import { decayDrives, DEFAULT_DRIVES, DEFAULT_HORMONES, weightsFromTemperament } from "./src/brain";
 import { uploadBase64Image, uploadBinaryFromUrl, fetchUrlAsBase64, uploadBase64Binary } from "./storage";
@@ -1479,6 +1481,46 @@ async function startServer() {
     } catch (err: any) {
       console.error("[pets/rig] failed:", err?.message || err);
       res.status(502).json({ error: "Rig pipeline failed." });
+    }
+  });
+
+  // POST /api/ar/semantic-scan — AR_PET_SIM_SPEC §6.4
+  // One camera frame → vision LLM → zone polygons. Cached per anchor hash so a
+  // session doesn't pay for the LLM twice on the same spot (H7).
+  app.post("/api/ar/semantic-scan", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { imageBase64, imageUrl, anchorHash, force } = req.body || {};
+
+      let img = "";
+      let mimeType = "image/jpeg";
+      if (typeof imageBase64 === "string" && imageBase64) {
+        const s = splitDataUrl(imageBase64);
+        img = s.data;
+        mimeType = s.mimeType;
+      } else if (typeof imageUrl === "string" && imageUrl) {
+        const s = splitDataUrl(await fetchUrlAsBase64(imageUrl));
+        img = s.data;
+        mimeType = s.mimeType;
+      } else {
+        return res.status(400).json({ error: "imageBase64 or imageUrl required." });
+      }
+
+      // Anchor key: client-provided anchor id, else a content hash of the frame.
+      const key: string =
+        (typeof anchorHash === "string" && anchorHash) ||
+        createHash("sha256").update(img).digest("hex").slice(0, 64);
+
+      if (!force) {
+        const cached = await getSemanticScan(req.user!.phone, key);
+        if (cached) return res.json({ anchorHash: key, zones: cached.zones ?? cached, cached: true });
+      }
+
+      const result = await runSemanticScan(classifyGenerate, { imageBase64: img, mimeType });
+      await saveSemanticScan(req.user!.phone, key, result);
+      res.json({ anchorHash: key, zones: result.zones, cached: false });
+    } catch (err: any) {
+      console.error("[ar/semantic-scan] failed:", err?.message || err);
+      res.status(502).json({ error: "Semantic scan failed." });
     }
   });
 

@@ -5,7 +5,8 @@
 **Spec:** `AR_PET_SIM_SPEC.md` · **Plans:** `AR_PET_SIM_SCAFFOLD_PLAN.md`, `AR_PET_SIM_HARDENING_PLAN.md`
 **Test runner:** repo `node:test` via `tsx` — NOT Vitest.
 `npm run test:ar` runs all AR-sim tests (`tests/brain_*`, `tests/pets_*`, `tests/ar_*`).
-**Current tests:** 63 passing. `npx tsc --noEmit` clean.
+**Current tests:** 76 passing. `npx tsc --noEmit` clean.
+**Deployment gotchas:** see `DEPLOYMENT_NOTES.md` (index.html is a Vite dev template — prod needs `npm run build`; SPA catch-all masks unknown /api routes; deploy zip = `git archive HEAD`; etc).
 
 ---
 
@@ -17,27 +18,22 @@
 | AR2 | pet data model + `/api/pets/classify` + state sync | `bcbe742` | ✅ committed & pushed |
 | AR3 | rig pipeline (Tripo → worker bake-lod → B2) | `cf2fad7` | ✅ committed (push if not already) |
 | AR4 | `ARPetStage` (reticle, shadows, head-look-at IK) | — | ⏳ **staged, not committed** (see below) |
-| AR5 | brain↔stage bridge, object utilityTags, gestures→reinforcement | — | ⏳ **uncommitted** (see below) |
-| AR6–AR9 | semantic scan, voice/buttons, progression, polish | — | ⬜ not started |
+| AR5 | brain↔stage bridge, object utilityTags, gestures→reinforcement | `4429c95` | ✅ committed |
+| AR6 | semantic scan + navmesh cost/behaviour + iOS occlusion-fade/luminance | — | ⏳ **uncommitted** (see below) |
+| AR7–AR9 | voice/buttons, progression, polish | — | ⬜ not started |
 
-### ⏳ Finish the AR4 + AR5 commits (git lock blocked the build env only)
-The sandbox intermittently leaves an un-deletable `.git/HEAD.lock`/`.git/index.lock`.
-AR4 is staged; AR5 files are on disk. On your Mac:
+### ⏳ Finish the AR6 commit (git lock blocked the build env only)
+AR1–AR5 are committed (`c3478a0`, `bcbe742`, `cf2fad7`, `10956c1`, `4429c95`). The sandbox
+intermittently leaves an un-deletable `.git/*.lock`. If AR6 wasn't committed automatically,
+on your Mac:
 
 ```bash
 cd ~/Desktop/claude7126/PawsMemories
 rm -f .git/*.lock
-
-# AR4 (already staged)
-git commit -m "AR4: ARPetStage skeleton — rigged pet, reticle, contact shadows, head-look-at IK"
-
-# AR5
-git add src/brain/brain.ts src/brain/index.ts \
-        src/three/objects/utilityTags.ts \
-        src/three/ar/brainBridge.ts src/three/ar/brainBridgeCore.ts \
-        src/three/ar/gestures.ts src/three/ar/ARPetStage.tsx \
-        tests/ar_brainbridge.test.mjs .env.example AR_PET_SIM_HANDOFF.md
-git commit -m "AR5: brain->stage bridge, object utilityTags, gestures->reinforcement"
+git add server/semanticScan.ts db.ts server.ts \
+        src/three/ar/navmesh.ts src/three/ar/luminance.ts \
+        tests/ar_semantic.test.mjs DEPLOYMENT_NOTES.md AR_PET_SIM_HANDOFF.md
+git commit -m "AR6: semantic scan + navmesh cost/behaviour + iOS occlusion-fade/luminance; deployment notes"
 git push
 ```
 

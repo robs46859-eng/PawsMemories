@@ -1700,6 +1700,34 @@ export async function upsertPetProfile(
   return getPetProfileByAvatar(avatarId, phone);
 }
 
+/** Cached semantic scan for an anchor (AR6, §6.4). Returns zones JSON or null. */
+export async function getSemanticScan(
+  userPhone: string,
+  anchorHash: string
+): Promise<any | null> {
+  const [rows] = await getPool().query(
+    `SELECT zones FROM semantic_scans WHERE user_phone = ? AND anchor_hash = ?
+      ORDER BY created_at DESC LIMIT 1`,
+    [userPhone, anchorHash]
+  );
+  const arr = rows as any[];
+  if (!arr.length) return null;
+  const z = arr[0].zones;
+  return typeof z === "string" ? JSON.parse(z) : z;
+}
+
+/** Persist a semantic scan for an anchor (AR6). */
+export async function saveSemanticScan(
+  userPhone: string,
+  anchorHash: string,
+  zones: any
+): Promise<void> {
+  await getPool().query(
+    `INSERT INTO semantic_scans (user_phone, anchor_hash, zones) VALUES (?, ?, ?)`,
+    [userPhone, anchorHash, JSON.stringify(zones ?? {})]
+  );
+}
+
 /** Persist rigged + LOD GLB URLs on a pet. Ownership-checked. (AR3) */
 export async function savePetRigUrls(
   petId: number,
