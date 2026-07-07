@@ -193,7 +193,12 @@ function verifySig(rawBody, header) {
 
 Notes from docs: use the **consumer secret** (not bearer/access token); events may arrive **duplicated → dedupe by event id**; our own outbound DMs are also delivered back to the webhook (filter `sender_id === X_BOT_USER_ID`).
 
-### 5.3 Event subscription — X Activity API (app-only bearer)
+### 5.3 Event subscription — X Activity API (bot USER token — verified in production)
+
+**Auth correction (2026-07-06):** dm.* event types are PRIVATE events; creating their
+subscriptions requires the bot's OAuth user token (app-only bearer returns 400
+`OauthAccessTokenRequired`). Webhook management (§5.1) still uses the app-only bearer.
+Consequence: OAuth seeding (§4.1) must complete before subscriptions can be created.
 
 Subscribe the bot account's DM traffic to our webhook:
 
