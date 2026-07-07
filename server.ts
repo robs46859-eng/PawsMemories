@@ -7,16 +7,17 @@ import Stripe from "stripe";
 import fs from "fs";
 import twilio from "twilio";
 import rateLimit from "express-rate-limit";
-import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState } from "./db";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls } from "./db";
 import { classifyPetImage, type GenerateFn } from "./server/petClassify";
 import { resolveBreedProfile } from "./server/breedProfiles";
 import { decayDrives, DEFAULT_DRIVES, DEFAULT_HORMONES, weightsFromTemperament } from "./src/brain";
-import { uploadBase64Image, uploadBinaryFromUrl, fetchUrlAsBase64 } from "./storage";
+import { uploadBase64Image, uploadBinaryFromUrl, fetchUrlAsBase64, uploadBase64Binary } from "./storage";
 import { runBuildPipeline } from "./agent/graph/orchestrator";
 import { analyzePetImage } from "./ollama-agent";
 import { getBlenderClient } from "./agent/tools/blender_client";
 import { startTalkingVideo, pollTalkingVideo, fetchMp4AsDataUrl, isHeyGenHandle } from "./heygen";
-import { startImageTo3D, pollImageTo3D, isTripoHandle } from "./tripo";
+import { startImageTo3D, pollImageTo3D, isTripoHandle, startRig, pollTripoTask } from "./tripo";
+import { checkBudget, needsRetargetFallback, type BakeStats } from "./server/rigBudget";
 import {
   signToken,
   requireAuth,
@@ -1397,6 +1398,87 @@ async function startServer() {
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: "Failed to save pet state." });
+    }
+  });
+
+  // Poll a Tripo task (rig/retarget/gen) until done or attempts exhausted.
+  const pollTripoUntilDone = async (handle: string, tries = 60, delayMs = 5000) => {
+    for (let i = 0; i < tries; i++) {
+      const r = await pollTripoTask(handle);
+      if (r.done) return r;
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+    return { done: false, error: "Tripo task timed out." } as Awaited<ReturnType<typeof pollTripoTask>>;
+  };
+
+  // POST /api/pets/:id/rig — Tripo animate_rig → blender-worker bake-lod → B2.
+  // Feature-flagged: when off, avatars keep the current (unrigged) render path.
+  app.post("/api/pets/:id/rig", requireAuth, async (req: AuthedRequest, res) => {
+    if (process.env.PETSIM_RIG_ENABLED !== "true") {
+      return res.status(501).json({ error: "Rig pipeline disabled.", featureFlag: "PETSIM_RIG_ENABLED" });
+    }
+    try {
+      const petId = Number(req.params.id);
+      const pet = await getPetProfileById(petId, req.user!.phone);
+      if (!pet) return res.status(404).json({ error: "Pet not found." });
+
+      // Source model task id: explicit body, else the avatar's stored Tripo handle.
+      let genTaskId: string = (req.body && req.body.genTaskId) || "";
+      if (!genTaskId) {
+        const avatar = await getAvatarById(pet.avatar_id, req.user!.phone);
+        genTaskId = avatar?.meshy_handle || "";
+      }
+      if (!genTaskId) {
+        return res.status(400).json({ error: "No source model task id (genTaskId) available for this pet." });
+      }
+
+      // 1) Kick Tripo auto-rig and poll to completion (bounded).
+      const rigHandle = await startRig(genTaskId);
+      const rig = await pollTripoUntilDone(rigHandle, 60, 5000);
+      if (!rig.glbUrl) {
+        return res.status(502).json({ error: rig.error || "Rig did not produce a model." });
+      }
+
+      // 2) Mirror the rigged GLB to B2.
+      const riggedGlbUrl = await uploadBinaryFromUrl(rig.glbUrl, "model/gltf-binary");
+
+      // 3) blender-worker bake-lod → budget LOD GLB bytes.
+      const workerUrl = (process.env.BLENDER_WORKER_URL || "http://localhost:10000").replace(/\/render$/, "");
+      const bakeRes = await fetch(`${workerUrl}/bake-lod`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-worker-secret": process.env.WORKER_SHARED_SECRET || "",
+        },
+        body: JSON.stringify({ glb_url: rig.glbUrl }),
+      });
+      const bakeJson: any = await bakeRes.json().catch(() => ({}));
+      if (!bakeRes.ok || !bakeJson.glb_base64) {
+        return res.status(502).json({ error: `bake-lod failed: ${bakeJson.error || bakeRes.status}` });
+      }
+      const stats: BakeStats = bakeJson.stats || {
+        tris: 0, bones: 0, bytes: 0, retarget_confidence: 0, leg_chains_ok: false,
+      };
+      const lodGlbUrl = await uploadBase64Binary(bakeJson.glb_base64, "model/gltf-binary");
+
+      // 4) Persist URLs; report budget + retarget-fallback decision (spec §3.1).
+      await savePetRigUrls(petId, req.user!.phone, {
+        rigged_glb_url: riggedGlbUrl,
+        lod_glb_url: lodGlbUrl,
+      });
+      const budget = checkBudget(stats);
+      const retargetFallbackRecommended = needsRetargetFallback(stats);
+      if (retargetFallbackRecommended) {
+        console.warn(
+          `[pets/rig] pet ${petId}: low retarget confidence / missing leg chains — ` +
+          `recommend Tripo preset animations. stats=${JSON.stringify(stats)}`
+        );
+      }
+
+      res.json({ success: true, riggedGlbUrl, lodGlbUrl, stats, budget, retargetFallbackRecommended });
+    } catch (err: any) {
+      console.error("[pets/rig] failed:", err?.message || err);
+      res.status(502).json({ error: "Rig pipeline failed." });
     }
   });
 

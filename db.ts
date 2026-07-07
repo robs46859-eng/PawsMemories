@@ -1700,6 +1700,23 @@ export async function upsertPetProfile(
   return getPetProfileByAvatar(avatarId, phone);
 }
 
+/** Persist rigged + LOD GLB URLs on a pet. Ownership-checked. (AR3) */
+export async function savePetRigUrls(
+  petId: number,
+  phone: string,
+  urls: { rigged_glb_url?: string | null; lod_glb_url?: string | null }
+): Promise<boolean> {
+  const [result] = (await getPool().query(
+    `UPDATE pet_profiles p
+       JOIN avatars a ON a.id = p.avatar_id
+        SET p.rigged_glb_url = COALESCE(?, p.rigged_glb_url),
+            p.lod_glb_url = COALESCE(?, p.lod_glb_url)
+      WHERE p.id = ? AND a.user_phone = ?`,
+    [urls.rigged_glb_url ?? null, urls.lod_glb_url ?? null, petId, phone]
+  )) as any;
+  return result.affectedRows >= 1;
+}
+
 /** Persist drives/hormones/weights + trainer score for a pet. Ownership-checked. */
 export async function savePetState(
   petId: number,

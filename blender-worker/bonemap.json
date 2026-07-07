@@ -1,23 +1,32 @@
 {
-  "_comment": "AR_PET_SIM_SPEC §3.1 — Tripo/UniRig bone name -> canonical clip skeleton. TODO(AR3): fill from a real rigged sample; used by bake-lod retarget step. If retarget confidence < threshold, fall back to Tripo animation presets and log for manual review.",
+  "_comment": "AR_PET_SIM_SPEC §3.1 — retarget map for bake-lod. Renames Tripo/UniRig quadruped bones to the CANONICAL clip skeleton used by skeletal-clips.js (hips, spine, chest, neck, head, front_leg_upper.L/R, front_leg_lower.L/R, front_paw.L/R, back_leg_upper.L/R, back_leg_lower.L/R, back_paw.L/R, tail_01/02/03). For each canonical bone, `candidates` is an ordered list of case-insensitive source-name fragments; bake_lod picks the first existing armature bone that matches. confidence = matched canonical bones / total. Below confidenceThreshold -> fall back to Tripo animate_retarget presets and log for manual review. TODO(AR3): tighten candidates against a real Tripo-rigged sample.",
   "confidenceThreshold": 0.7,
-  "map": {
-    "spine": "spine.001",
-    "spine1": "spine.002",
-    "neck": "spine.003",
-    "head": "head",
-    "tail": "tail.001",
-    "front_left_upper": "leg.FL.upper",
-    "front_left_lower": "leg.FL.lower",
-    "front_left_paw": "leg.FL.paw",
-    "front_right_upper": "leg.FR.upper",
-    "front_right_lower": "leg.FR.lower",
-    "front_right_paw": "leg.FR.paw",
-    "back_left_upper": "leg.BL.upper",
-    "back_left_lower": "leg.BL.lower",
-    "back_left_paw": "leg.BL.paw",
-    "back_right_upper": "leg.BR.upper",
-    "back_right_lower": "leg.BR.lower",
-    "back_right_paw": "leg.BR.paw"
-  }
+  "canonical": {
+    "hips": ["hips", "pelvis", "spine_root", "root", "cog"],
+    "spine": ["spine_01", "spine.001", "spine1", "spine", "back"],
+    "chest": ["chest", "spine_02", "spine.002", "spine2", "thorax"],
+    "neck": ["neck", "neck_01", "neck.001"],
+    "head": ["head", "skull"],
+    "front_leg_upper.L": ["front_left_upper", "frontleftupper", "lf_upper", "front_upper_l", "upperarm.l", "shoulder.l"],
+    "front_leg_lower.L": ["front_left_lower", "frontleftlower", "lf_lower", "front_lower_l", "forearm.l", "elbow.l"],
+    "front_paw.L": ["front_left_paw", "frontleftpaw", "lf_paw", "front_paw_l", "hand.l", "front_foot_l"],
+    "front_leg_upper.R": ["front_right_upper", "frontrightupper", "rf_upper", "front_upper_r", "upperarm.r", "shoulder.r"],
+    "front_leg_lower.R": ["front_right_lower", "frontrightlower", "rf_lower", "front_lower_r", "forearm.r", "elbow.r"],
+    "front_paw.R": ["front_right_paw", "frontrightpaw", "rf_paw", "front_paw_r", "hand.r", "front_foot_r"],
+    "back_leg_upper.L": ["back_left_upper", "backleftupper", "lb_upper", "back_upper_l", "thigh.l", "hip.l"],
+    "back_leg_lower.L": ["back_left_lower", "backleftlower", "lb_lower", "back_lower_l", "shin.l", "knee.l"],
+    "back_paw.L": ["back_left_paw", "backleftpaw", "lb_paw", "back_paw_l", "foot.l", "back_foot_l"],
+    "back_leg_upper.R": ["back_right_upper", "backrightupper", "rb_upper", "back_upper_r", "thigh.r", "hip.r"],
+    "back_leg_lower.R": ["back_right_lower", "backrightlower", "rb_lower", "back_lower_r", "shin.r", "knee.r"],
+    "back_paw.R": ["back_right_paw", "backrightpaw", "rb_paw", "back_paw_r", "foot.r", "back_foot_r"],
+    "tail_01": ["tail_01", "tail.001", "tail1", "tail_root", "tail"],
+    "tail_02": ["tail_02", "tail.002", "tail2", "tail_mid"],
+    "tail_03": ["tail_03", "tail.003", "tail3", "tail_tip"]
+  },
+  "legChains": [
+    ["front_leg_upper.L", "front_leg_lower.L", "front_paw.L"],
+    ["front_leg_upper.R", "front_leg_lower.R", "front_paw.R"],
+    ["back_leg_upper.L", "back_leg_lower.L", "back_paw.L"],
+    ["back_leg_upper.R", "back_leg_lower.R", "back_paw.R"]
+  ]
 }

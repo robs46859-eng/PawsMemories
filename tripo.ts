@@ -163,12 +163,59 @@ export async function startImageTo3D(input: TripoJobInput): Promise<string> {
   });
 }
 
+/**
+ * Start a Tripo auto-rig (UniRig quadruped) on a previously generated model.
+ * Body confirmed against Tripo docs (platform.tripo3d.ai/docs/animation) + the
+ * ComfyUI-Tripo node schema: { type:"animate_rig", original_model_task_id,
+ * out_format:"glb", spec:"tripo", model_version }.
+ *
+ * `originalModelTaskId` may be passed with or without the `tripo:` prefix.
+ */
+export async function startRig(
+  originalModelTaskId: string,
+  opts?: { modelVersion?: string }
+): Promise<string> {
+  const original = originalModelTaskId.startsWith(TRIPO_PREFIX)
+    ? tripoTaskId(originalModelTaskId)
+    : originalModelTaskId;
+  return submitTask({
+    type: "animate_rig",
+    original_model_task_id: original,
+    out_format: "glb",
+    spec: "tripo",
+    // Pin a rig model version for reproducibility; override via env if Tripo bumps it.
+    model_version: opts?.modelVersion || process.env.TRIPO_RIG_MODEL_VERSION || "v2.0-20250506",
+  });
+}
+
+/**
+ * Fallback path (spec §3.1): if clip retarget confidence is too low, request one
+ * of Tripo's own preset animations on the rigged model via `animate_retarget`.
+ */
+export async function startRetarget(
+  originalModelTaskId: string,
+  animation: "preset:walk" | "preset:run" | "preset:idle"
+): Promise<string> {
+  const original = originalModelTaskId.startsWith(TRIPO_PREFIX)
+    ? tripoTaskId(originalModelTaskId)
+    : originalModelTaskId;
+  return submitTask({
+    type: "animate_retarget",
+    original_model_task_id: original,
+    out_format: "glb",
+    animation,
+  });
+}
+
 export interface TripoPollResult {
   done: boolean;
   glbUrl?: string;
   error?: string;
   progress?: number;
 }
+
+/** Poll any Tripo task (generation, rig, or retarget) for its GLB output. */
+export const pollTripoTask = pollImageTo3D;
 
 export async function pollImageTo3D(operationName: string): Promise<TripoPollResult> {
   const taskId = tripoTaskId(operationName);

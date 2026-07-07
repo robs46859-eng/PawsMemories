@@ -296,6 +296,7 @@ app.use([
   "/export-glb",
   "/import-glb",
   "/agent/build",
+  "/bake-lod",
 ], requireWorkerAuth, requireBridge);
 
 // Read the current Blender scene graph
@@ -399,6 +400,76 @@ app.post("/import-glb", async (req, res) => {
     const result = await bridge.send("import_glb", { glb_base64 });
     res.json(result);
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// =============================================================================
+// POST /bake-lod — AR_PET_SIM_SPEC §3.1/§3.3
+// Receives: { glb_base64 | glb_url, bonemap? }
+// Imports the rigged GLB, runs jobs/bake_lod.py (decimate/atlas/bone-rename/
+// validate/budget), and returns { stats, glb_base64 } for the caller to upload to B2.
+// =============================================================================
+const BAKE_LOD_SCRIPT_PATH = path.join(__dirname, "jobs", "bake_lod.py");
+const DEFAULT_BONEMAP_PATH = path.join(__dirname, "bonemap.json");
+
+app.post("/bake-lod", async (req, res) => {
+  try {
+    let { glb_base64, glb_url, bonemap } = req.body || {};
+
+    if (!glb_base64 && glb_url) {
+      const r = await fetch(glb_url);
+      if (!r.ok) throw new Error(`Failed to download glb_url (${r.status})`);
+      const buf = Buffer.from(await r.arrayBuffer());
+      glb_base64 = buf.toString("base64");
+    }
+    if (!glb_base64) {
+      return res.status(400).json({ error: "Provide glb_base64 or glb_url." });
+    }
+    if (glb_base64.startsWith("data:")) {
+      glb_base64 = glb_base64.split(",")[1] || glb_base64;
+    }
+    if (!bonemap) {
+      bonemap = JSON.parse(fs.readFileSync(DEFAULT_BONEMAP_PATH, "utf8"));
+    }
+
+    const tempGlbPath = `/tmp/bake_input_${crypto.randomUUID()}.glb`;
+    const outPath = `/tmp/bake_output_${crypto.randomUUID()}.glb`;
+
+    // 1) Clear scene + import the rigged GLB.
+    const importRes = await bridge.executeCode(`
+import bpy, base64, os
+for obj in list(bpy.data.objects):
+    bpy.data.objects.remove(obj, do_unlink=True)
+glb_bytes = base64.b64decode("""${glb_base64}""")
+with open("${tempGlbPath}", "wb") as f:
+    f.write(glb_bytes)
+bpy.ops.import_scene.gltf(filepath="${tempGlbPath}")
+os.remove("${tempGlbPath}")
+print("IMPORT_COMPLETE")
+`);
+    if (!importRes.success) {
+      throw new Error(`GLB import failed: ${importRes.error}`);
+    }
+
+    // 2) Load bake_lod.py and run it with the bonemap.
+    const bakeScript = fs.readFileSync(BAKE_LOD_SCRIPT_PATH, "utf8");
+    const params = JSON.stringify({ out_path: outPath, bonemap });
+    const bakeRes = await bridge.executeCode(
+      `${bakeScript}\nrun_bake_lod(json.loads(r'''${params}'''))\n`
+    );
+    if (!bakeRes.success) {
+      throw new Error(`bake-lod failed: ${bakeRes.error}`);
+    }
+    const m = /BAKE_RESULT:(\{.*\})/.exec(bakeRes.stdout || "");
+    const stats = m ? JSON.parse(m[1]) : null;
+
+    // 3) Export the baked scene bytes for the caller to upload to B2.
+    const exported = await bridge.exportGlb();
+
+    res.json({ success: true, stats, glb_base64: exported.glb_base64, size_bytes: exported.size_bytes });
+  } catch (err) {
+    console.error("[bake-lod] error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });

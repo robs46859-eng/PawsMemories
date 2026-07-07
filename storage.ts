@@ -108,6 +108,38 @@ export async function uploadBase64Image(base64String: string): Promise<string> {
 }
 
 /**
+ * Uploads raw base64-encoded binary (e.g. a baked LOD GLB returned by the
+ * blender-worker) to the configured bucket. Accepts an optional data: URL.
+ * @returns The public URL of the uploaded object.
+ */
+export async function uploadBase64Binary(
+  base64: string,
+  mimeType: string = "model/gltf-binary"
+): Promise<string> {
+  if (!bucketName || !bucketEndpoint) {
+    throw new Error("Object storage is not configured. Please check MEDIA_BUCKET_* environment variables.");
+  }
+  const raw = base64.startsWith("data:") ? base64.split(",")[1] || base64 : base64;
+  const buffer = Buffer.from(raw, "base64");
+
+  const extension = getExtensionFromMime(mimeType);
+  const folder = getFolderFromMime(mimeType);
+  const fileName = `${folder}/${Date.now()}-${uuidv4()}.${extension}`;
+
+  await s3Client.send(
+    new PutObjectCommand({
+      Bucket: bucketName,
+      Key: fileName,
+      Body: buffer,
+      ContentType: mimeType,
+      ACL: "public-read",
+    })
+  );
+  const url = new URL(bucketEndpoint);
+  return `${url.protocol}//${bucketName}.${url.host}/${fileName}`;
+}
+
+/**
  * Downloads a remote binary (e.g. a Meshy GLB model) and uploads it to the
  * configured bucket. Streams bytes directly without a base64 round-trip, which
  * matters for larger 3D model files.
