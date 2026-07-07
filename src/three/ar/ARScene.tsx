@@ -10,19 +10,28 @@ import EighthWallARView from "./EighthWallARView";
 import ARCommandOverlay from "../../components/ARCommandOverlay";
 import ARObjectOverlay from "../../components/ARObjectOverlay";
 import { addObjectAtPosition } from "../objects/placement";
+import { useARLightEstimation } from "./lightProbe";
+import ARPlaneGrid from "./planeGrid";
+import { useDepthOcclusion } from "./occlusion";
 
-// Request the features this scene uses. domOverlay = floating command buttons;
-// hitTest = surface reticle; anchors = drift-free placement (Phase 2);
-// planeDetection + meshDetection = snap placement to real detected geometry
-// (Phase 3, "meshing"). All are requested as OPTIONAL, so the session still
-// starts on devices that lack any of them.
+// ---------------------------------------------------------------------------
+// XR Store — request all optional features (degrade silently per device).
+// ---------------------------------------------------------------------------
 const store = createXRStore({
   domOverlay: true,
   hitTest: true,
   anchors: true,
   planeDetection: true,
   meshDetection: true,
-});
+  // Phase 4 — depth sensing (GPU-optimized, luminance-alpha format).
+  depthSensing: {
+    usagePreference: ["gpu-optimized"],
+    dataFormatPreference: ["luminance-alpha"],
+  } as any,
+  // Phase 5 — light estimation. If the store doesn't expose a direct key,
+  // fall through to session.requestLightProbe() in lightProbe.ts.
+  lightEstimation: true,
+} as any);
 
 // Snap the reticle/placement to real detected planes AND meshes (not just the
 // raw viewer ray), so the pet lands on actual surfaces the device has meshed.
@@ -42,6 +51,11 @@ function PlacedObjects() {
 /**
  * AR content: a hit-test reticle finds a real surface; tapping anchors the pet
  * (and any placed objects) there. Before placement only the reticle shows.
+ *
+ * Phases 3–5 modules are mounted here:
+ *  - Phase 3: <ARPlaneGrid /> — subtle plane visualization
+ *  - Phase 4: useDepthOcclusion() — real-world occlusion shader
+ *  - Phase 5: useARLightEstimation() — adaptive directional + ambient lights
  */
 function ARContent({ avatar }: { avatar: Avatar }) {
   const url = avatar.rigged_model_url || avatar.model_url || "";
@@ -58,6 +72,12 @@ function ARContent({ avatar }: { avatar: Avatar }) {
   const xrAnchor = useRef<XRAnchor | null>(null);
   const placedRef = useRef(false);
   const [placed, setPlaced] = useState(false);
+
+  // ------ Phase 5 — Light estimation (replaces hardcoded lights) -----------
+  const { directionalRef, ambientProbeRef } = useARLightEstimation();
+
+  // ------ Phase 4 — Depth occlusion ----------------------------------------
+  useDepthOcclusion(anchorRef);
 
   // Phase 1 — reticle follows the hit-test pose with FULL orientation (oriented
   // points), so it lies flat on angled surfaces instead of only the floor.
@@ -134,8 +154,23 @@ function ARContent({ avatar }: { avatar: Avatar }) {
 
   return (
     <>
-      <hemisphereLight intensity={0.9} />
-      <directionalLight position={[2, 4, 2]} intensity={1} />
+      {/* Phase 5 — Adaptive lighting (replaces hardcoded hemisphereLight + directionalLight).
+          Falls back to these default values if light estimation is unavailable. */}
+      <directionalLight
+        ref={directionalRef}
+        position={[2, 4, 2]}
+        intensity={1}
+        castShadow
+      />
+      <primitive
+        object={new THREE.LightProbe()}
+        ref={ambientProbeRef}
+        intensity={0.9}
+      />
+
+      {/* Phase 3 — Plane visualization (fades out once pet is placed) */}
+      <ARPlaneGrid fadeOut={placed} />
+
       {/* Oriented reticle */}
       <group ref={reticleRef} visible={false}>
         <mesh rotation={[-Math.PI / 2, 0, 0]}>

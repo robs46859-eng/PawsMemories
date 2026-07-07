@@ -26,6 +26,8 @@ interface AvatarSceneState {
   pendingObjectKind: PetObjectKind | null;
   /** Transient speech/emote bubble text, or null. */
   speech: string | null;
+  /** Whether GPU depth occlusion is enabled (Phase 4). Users can toggle off for perf. */
+  depthOcclusionEnabled: boolean;
 
   setNeeds: (n: Partial<AvatarNeeds>) => void;
   replaceNeeds: (n: AvatarNeeds) => void;
@@ -41,6 +43,7 @@ interface AvatarSceneState {
   removePlacedObject: (id: string) => void;
   setPendingObjectKind: (k: PetObjectKind | null) => void;
   say: (msg: string | null) => void;
+  setDepthOcclusionEnabled: (on: boolean) => void;
 }
 
 export const DEFAULT_NEEDS: AvatarNeeds = {
@@ -63,6 +66,7 @@ export const useAvatarScene = create<AvatarSceneState>((set, get) => ({
   placedObjects: [],
   pendingObjectKind: null,
   speech: null,
+  depthOcclusionEnabled: true,
 
   setNeeds: (n) => set((s) => ({ needs: { ...s.needs, ...n } })),
   replaceNeeds: (n) => set({ needs: n }),
@@ -85,4 +89,5 @@ export const useAvatarScene = create<AvatarSceneState>((set, get) => ({
     set((s) => ({ placedObjects: s.placedObjects.filter((p) => p.id !== id) })),
   setPendingObjectKind: (k) => set({ pendingObjectKind: k }),
   say: (msg) => set({ speech: msg }),
+  setDepthOcclusionEnabled: (on) => set({ depthOcclusionEnabled: on }),
 }));
