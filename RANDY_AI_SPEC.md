@@ -130,4 +130,4 @@ Implementation notes: Gemini can emit the `action` via a strict JSON response co
 - `src/three/randyVisemes.ts` *(new)* — amplitude→mouth and (later) viseme→morph mapping.
 - `server.ts` *(edit)* — Randy system prompt + `{text, action}` schema; `POST /api/randy-tts` *(new)*.
 
-*Cross‑reference: `BLENDER_RIG_PIPELINE.md` (how to add morph targets if generating the head via the pipeline) and `ARCORE_BUILD_SPEC.md` (the AR flow Randy's tour walks through).*
+*Cross‑reference: `BLENDER_RIG_PIPELINE.md` (how to add morph targets if generating the head via the pipeline) and `AR_PET_SIM_SPEC.md` (the AR flow Randy's tour walks through).*

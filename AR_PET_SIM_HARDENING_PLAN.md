@@ -2,7 +2,7 @@
 # Pawsome3D AR Virtual Pet — Phased Production-Hardening Plan
 
 **Version:** 1.0 · **Date:** 2026-07-06
-**Companion to:** `AR_PET_SIM_SPEC.md` and `AR_PET_SIM_SCAFFOLD_PLAN.md`
+**Companion to:** `AR_PET_SIM_SPEC.md` (scaffold plan retired after AR1–AR9 shipped)
 **When to run:** after the scaffolding phases (AR1–AR9) reach functional parity. Hardening
 phases H1–H8 can be interleaved, but H1 (tests/CI) should land early because every later
 phase relies on it.

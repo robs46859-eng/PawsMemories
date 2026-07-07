@@ -7,7 +7,7 @@ Live site: https://pawsome3d.com  (formerly mypets.cc)
 ## Features
 
 - **3D pet avatars** — photos → a rigged, animated 3D avatar via Tripo3D + a multi‑agent Blender pipeline.
-- **AR mode (WebXR / ARCore)** — place your avatar on real surfaces on Android Chrome; plane + mesh detection, drift‑free `XRAnchor` placement, and objective footprint center‑of‑gravity grounding so the pet plants on its feet. iOS falls back to the 8th Wall engine.
+- **AR virtual pet (WebXR / ARCore)** — place your avatar on real surfaces on Android Chrome; plane + mesh detection, drift‑free `XRAnchor` placement, and footprint center‑of‑gravity grounding so the pet plants on its feet. iOS falls back to the 8th Wall engine. The AR view is driven by an autonomous **behavior brain** (drives, hormones, reinforcement) with voice‑command training, gesture reinforcement, semantic‑scan navigation, and disc/agility trials — see `AR_PET_SIM_SPEC.md`.
 - **Store** — merch (3D prints, plush, accessories) with your Albums folded in as a tab.
 - **Community** — local info (nearby parks, weather, pet‑recall news), a live pet inspiration board (dog.ceo + dogapi.dog) with user‑uploaded memories, and a coming‑soon roadmap.
 - **Credits** — server‑backed ledger with earn/spend history, persisted daily bonus, per‑day‑capped share rewards, and Stripe credit‑pack purchases (webhook + redirect‑confirm double safety net).
@@ -83,7 +83,7 @@ Direct AI generation of photos and videos is restricted to **Admins**. Regular u
 
 ## AI Pet Avatar & Tamagotchi System
 
-Paws & Memories features an interactive, Tamagotchi-style pet avatar system with the following mechanics:
+Pawsome3D features an interactive, Tamagotchi-style pet avatar system with the following mechanics:
 
 - **Multi-Agent 3D Avatar Stack**: Pet photos are converted to 3D meshes via **Tripo3D** (Image-to-3D), then processed by an autonomous multi-agent pipeline (built on LangGraph). The pipeline includes:
   - *Perceive*: Analyzes the uploaded photo to determine species, breed, body type, and proportions.
@@ -105,6 +105,17 @@ The rendering engine has been upgraded to **Blender 5.1**. Due to significant AP
 - **Lighting Deprecations:** Legacy `PointLight.distance` falloffs are intercepted and swapped/commented in favor of `energy`.
 - **Animation 2.0 / Slotted Actions:** Blender 4.3+ removed `Action.fcurves`. The agent prompt explicitly bans direct `.fcurves` access, and the safety net neutralizes any hallucinated attempts.
 
+## AR Virtual Pet System
+
+The AR mode is a full behavior simulation, not a static model placement. When a user opens an avatar's **Live 3D (beta)** view and taps **AR**, `ARPetStage` mounts an autonomous virtual pet:
+
+- **Behavior brain** (`src/brain/`, framework‑agnostic pure TS): drives, hormones, considerations, a seeded‑RNG utility selector, a behavior tree, reinforcement learning (gesture‑driven weight changes with forgetting), pacing/unlocks, aging, and progression. Kept free of React/three/DOM imports so it can be ported to a native (Unity/C#) client.
+- **AR stage** (`src/three/ar/`): WebXR primary path (Android/ARCore) with an 8th Wall iOS fallback, hit‑test reticle, real `XRAnchor` placement, contact shadows, head‑look‑at IK, light estimation, and depth occlusion. `ARPetStage.tsx` is the live entry point (replaced the older `ARScene.tsx`, which remains as a fallback).
+- **Interaction**: pointer strokes become gesture reinforcement; a semantic camera scan builds a navmesh with per‑zone movement cost + behaviors; voice commands train recall; disc and agility trials award care points → credits.
+- **Backend**: `POST /api/pets/classify` (Gemini vision), `GET/PATCH /api/pets/:id/state`, `POST /api/pets/:id/rig` (Tripo auto‑rig → Blender bake‑LOD → B2, behind `PETSIM_RIG_ENABLED`), `/commands`, `/buttons`, `/api/ar/semantic-scan`, `/api/trials/:type/result`.
+
+Full spec: `AR_PET_SIM_SPEC.md`. Build status + decisions: `AR_PET_SIM_HANDOFF.md`. Future hardening: `AR_PET_SIM_HARDENING_PLAN.md`.
+
 ## Project structure
 
 ```
@@ -113,11 +124,16 @@ auth.ts            Email/password helpers, JWT sign/verify, requireAuth middlewa
 db.ts              MySQL pool, table init, user/account CRUD helpers
 src/               React frontend (App, components, api client, types)
   components/      SignUp, Dashboard, EditMemory, RequestMemory, AdminRequestPanel, ...
-blender-worker/    Standalone Express + Docker microservice for running Blender scripts
+  brain/           Framework-agnostic pet behavior engine (drives, brain tick, reinforcement)
+  three/ar/        AR stage + brain bridge (ARPetStage, IK, navmesh, voice, trials)
+blender-worker/    Standalone Express + Docker microservice for running Blender scripts (+ bake_lod.py)
 x-dm-service/      X DM conversation refinement service (Node 20 + Express + TypeScript) — see X_DM_REFINEMENT_SPEC.md
+scripts/           build-deploy-zip.sh (git archive HEAD → source deploy zip)
 dist/              Build output (vite assets + server.cjs)
 .env.example       Documented environment variables
 ```
+
+Test runner is the built-in `node:test` via `tsx` (not Vitest): `npm test`, or scoped `npm run test:brain` / `test:pets` / `test:ar`.
 
 ## Environment variables
 
@@ -163,14 +179,13 @@ npm run lint         # type-check with tsc --noEmit
 
 ## Deployment
 
-The pawsome3d.com Hostinger site is a **Node.js app configured for manual zip upload** — it is **not** wired to auto‑deploy from GitHub (that was the old mypets.cc site). Pushing to `main` updates the repo but does **not** change the live site.
+The pawsome3d.com Hostinger site is a **Node.js app deployed by manual zip upload** — it is **not** wired to auto‑deploy from GitHub. Pushing to `main` updates the repo but does **not** change the live site.
 
-Because Hostinger installs with `NODE_ENV=production` (which skips the devDependencies that `vite`/`esbuild` live in), the site is deployed as a **prebuilt bundle**, not built on the host:
+The deploy zip is **source only** and Hostinger builds it on the host. `vite` and `esbuild` are in `dependencies` (not `devDependencies`), so they survive `npm install` under `NODE_ENV=production` and `npm run build` succeeds on Hostinger.
 
-1. Build locally: `npm run build` → produces `dist/` (frontend + `dist/server.cjs`).
-2. Package a zip containing `package.json`, `package-lock.json`, `.env.example`, and `dist/`.
-   - The shipped `package.json`'s `build` script is a no‑op (`echo …`) so Hostinger's pipeline doesn't try to rebuild from source; the real build script is preserved as `build:full`.
+1. Commit your work (the zip archives `HEAD`, so uncommitted changes are excluded).
+2. Build the zip: `bash scripts/build-deploy-zip.sh` → `pawsome3d-deploy.zip` (runs `git archive HEAD`, includes every tracked file, respects `.gitignore`).
 3. In hPanel: **Websites → pawsome3d.com → Deployments → Settings and redeploy → Upload new files** → upload the zip → redeploy.
-4. Hostinger runs `npm install`, the no‑op build, then starts the entry file **`dist/server.cjs`**. Tables auto‑create on boot via `initDb()`.
+4. Hostinger runs `npm install && npm run build` (produces `dist/`), then starts **`dist/server.cjs`**. Tables auto‑create on boot via `initDb()`.
 
-Environment variables live in Hostinger's deployment config (Deployments → Settings), not in a committed file. Build output paths: entry `dist/server.cjs`, install command `npm install`, framework preset Express, Node 22.
+The server auto‑detects prod by the presence of `dist/index.html`; if the build is skipped, `index.html` at the repo root is a Vite **dev** template (`/src/main.tsx`) and the page renders blank. Environment variables live in Hostinger's deployment config (Deployments → Settings), not in a committed file. For the full set of deploy gotchas — SPA catch-all masking `/api` 404s, the stale `.git/*.lock` workaround, three.js dedupe, CDN pins — see **`DEPLOYMENT_NOTES.md`**.

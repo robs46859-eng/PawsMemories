@@ -1,8 +1,14 @@
 # AR_PET_SIM_HANDOFF.md
 # Pawsome3D AR Virtual Pet — Build Handoff (AR1–AR4)
 
-**Updated:** 2026-07-06
-**Spec:** `AR_PET_SIM_SPEC.md` · **Plans:** `AR_PET_SIM_SCAFFOLD_PLAN.md`, `AR_PET_SIM_HARDENING_PLAN.md`
+**Updated:** 2026-07-07
+**Spec:** `AR_PET_SIM_SPEC.md` · **Plan:** `AR_PET_SIM_HARDENING_PLAN.md` (scaffold plan retired)
+
+> **SHIPPED (2026-07-07):** AR1–AR9 all committed & pushed. `ARPetStage` is wired into the live
+> UI (`src/components/LivingAvatarView.tsx`, commit `4b900d5`) — replaced legacy `ARScene`,
+> which stays as a fallback. Deployed to Hostinger. Remaining: real-hardware smoke test
+> (Android WebXR + iPhone 8th Wall) and the `AR_PET_SIM_HARDENING_PLAN` items.
+
 **Test runner:** repo `node:test` via `tsx` — NOT Vitest.
 `npm run test:ar` runs all AR-sim tests (`tests/brain_*`, `tests/pets_*`, `tests/ar_*`).
 **Current tests:** 115 passing (`npm test` — now runs via `tsx`). `npx tsc --noEmit` clean.
@@ -17,34 +23,32 @@
 | AR1 | `src/brain/` engine + tests | `c3478a0` | ✅ committed & pushed |
 | AR2 | pet data model + `/api/pets/classify` + state sync | `bcbe742` | ✅ committed & pushed |
 | AR3 | rig pipeline (Tripo → worker bake-lod → B2) | `cf2fad7` | ✅ committed (push if not already) |
-| AR4 | `ARPetStage` (reticle, shadows, head-look-at IK) | — | ⏳ **staged, not committed** (see below) |
-| AR5 | brain↔stage bridge, object utilityTags, gestures→reinforcement | `4429c95` | ✅ committed |
-| AR6 | semantic scan + navmesh cost/behaviour + iOS occlusion-fade/luminance | `eee0ca5` | ✅ committed |
-| AR7 | voice command training + spatial buttons | `31ade88` | ✅ committed |
-| AR8 | progression + disc/agility trials + aging settings | — | ⏳ **staged** (see below) |
-| AR9 | dispose/cleanup + capability matrix + error boundary + budget audit | — | ⏳ **staged** (see below) |
+| AR4 | `ARPetStage` (reticle, shadows, head-look-at IK) | `10956c1` | ✅ committed & pushed |
+| AR5 | brain↔stage bridge, object utilityTags, gestures→reinforcement | `4429c95` | ✅ committed & pushed |
+| AR6 | semantic scan + navmesh cost/behaviour + iOS occlusion-fade/luminance | `eee0ca5` | ✅ committed & pushed |
+| AR7 | voice command training + spatial buttons | `31ade88` | ✅ committed & pushed |
+| AR8 | progression + disc/agility trials + aging settings | `de10224` | ✅ committed & pushed |
+| AR9 | dispose/cleanup + capability matrix + error boundary + budget audit | `de10224` | ✅ committed & pushed |
+| — | **wire `ARPetStage` into live UI** (`LivingAvatarView`) | `4b900d5` | ✅ committed, pushed & **deployed** |
 | AR10 | Option B: Unity + Lightship client (separate project) | — | ⬜ out of scope here |
 
-**All web milestones AR1–AR9 are code-complete.** AR10 is the native Unity/Lightship
-port (separate project) — it reuses this backend and ports `src/brain/` to C#.
+**All web milestones AR1–AR9 are code-complete, committed, wired into the live UI, and deployed.**
+AR10 is the native Unity/Lightship port (separate project) — it reuses this backend and ports
+`src/brain/` to C#.
 
-### ⏳ Finish the AR8 + AR9 commits (git lock blocked the build env only)
-Committed: AR1 `c3478a0`, AR2 `bcbe742`, AR3 `cf2fad7`, AR4 `10956c1`, AR5 `4429c95`,
-AR6 `eee0ca5`, AR7 `31ade88`. AR8 + AR9 are **staged**; the sandbox left a stale
-`.git/*.lock`. On your Mac:
+### Next steps
+1. **Smoke-test on real hardware:** Android Chrome (WebXR `Enter AR`) + iPhone Safari (8th Wall
+   `Start AR (beta)`). CI can't exercise these paths.
+2. Work the `AR_PET_SIM_HARDENING_PLAN.md` items (H1–H8).
 
-```bash
-cd ~/Desktop/claude7126/PawsMemories
-rm -f .git/*.lock
-git add -A
-git commit -m "AR8+AR9: progression/trials/aging + polish (dispose, capability matrix, error boundary)"
-git push
-```
+<details><summary>Historical: the AR8+AR9 commit recovery (git lock)</summary>
 
-(`git add -A` picks up all AR8/AR9 files: `src/brain/{aging,progression,index}.ts`,
+(`git add -A` picked up all AR8/AR9 files: `src/brain/{aging,progression,index}.ts`,
 `src/three/ar/{trials/disc,trials/agility,dispose,capabilities,capabilityMatrix,ARErrorBoundary,ARPetStage}.tsx?`,
 `server.ts`, `db.ts`, `package.json`, `tests/ar_progression.test.mjs`, `tests/ar_polish.test.mjs`,
 `AR_PET_SIM_HANDOFF.md`.)
+
+</details>
 
 ---
 
