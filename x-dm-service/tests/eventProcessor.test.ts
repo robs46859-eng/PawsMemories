@@ -396,3 +396,241 @@ describe('processEvent', () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Data payload envelope (production shape) — normalizePayload
+// ---------------------------------------------------------------------------
+
+const dataPayloadReal = {
+  data: {
+    event_uuid: 'ev-uuid-001',
+    filter: { user_id: 'bot-user-12345' },
+    event_type: 'dm.received',
+    tag: 'pawsome3d-dm-in',
+    payload: {
+      direct_message_events: [
+        {
+          type: 'message_create',
+          id: '2074317363693203632',
+          created_timestamp: '1783390773146',
+          message_create: {
+            target: { recipient_id: 'bot-user-12345' },
+            sender_id: 'user-999',
+            message_data: {
+              text: 'Make my cat look like a dragon!',
+              entities: {},
+            },
+          },
+        },
+      ],
+      users: {
+        'user-999': { screen_name: 'catfan42' },
+        'bot-user-12345': { screen_name: 'pawsome3d' },
+      },
+    },
+  },
+};
+
+const dataPayloadRealWithMedia = {
+  data: {
+    event_uuid: 'ev-uuid-002',
+    filter: { user_id: 'bot-user-12345' },
+    event_type: 'dm.received',
+    tag: 'pawsome3d-dm-in',
+    payload: {
+      direct_message_events: [
+        {
+          type: 'message_create',
+          id: '2074317363693203633',
+          created_timestamp: '1783390774146',
+          message_create: {
+            target: { recipient_id: 'bot-user-12345' },
+            sender_id: 'user-888',
+            message_data: {
+              text: 'Make it more shiny!',
+              attachment: {
+                media: {
+                  id_str: 'media_12345',
+                  media_url_https: 'https://pbs.twimg.com/media/xxx.jpg',
+                  type: 'photo',
+                },
+              },
+            },
+          },
+        },
+      ],
+      users: {
+        'user-888': { screen_name: 'petlover' },
+      },
+    },
+  },
+};
+
+const dataPayloadBotEcho = {
+  data: {
+    event_uuid: 'ev-uuid-003',
+    filter: { user_id: 'bot-user-12345' },
+    event_type: 'dm.received',
+    tag: 'pawsome3d-dm-in',
+    payload: {
+      direct_message_events: [
+        {
+          type: 'message_create',
+          id: '2074317363693204444',
+          created_timestamp: '1783390775146',
+          message_create: {
+            target: { recipient_id: 'user-999' },
+            sender_id: 'bot-user-12345',
+            message_data: {
+              text: 'Got it! 🐾 (echo: Make my cat look like a dragon!)',
+            },
+          },
+        },
+      ],
+    },
+  },
+};
+
+describe('normalizePayload — data.payload production shape', () => {
+  it('should parse the real production shape', () => {
+    const events = normalizePayload(dataPayloadReal);
+    expect(events).toHaveLength(1);
+    expect(events[0].event_id).toBe('2074317363693203632');
+    expect(events[0].sender_id).toBe('user-999');
+    expect(events[0].sender_username).toBe('catfan42');
+    expect(events[0].event_type).toBe('MessageCreate');
+    expect(events[0].text).toBe('Make my cat look like a dragon!');
+    expect(events[0].created_at).toBe(new Date(1783390773146).toISOString());
+  });
+
+  it('should derive dm_conversation_id from sender+recipient numeric sort', () => {
+    const events = normalizePayload(dataPayloadReal);
+    expect(events[0].dm_conversation_id).toBe('bot-user-12345-user-999');
+  });
+
+  it('should expose participant_id for A16 fallback echo reply', () => {
+    const events = normalizePayload(dataPayloadReal);
+    expect(events[0].participant_id).toBe('user-999');
+  });
+
+  it('should extract media_url_https from attachment.media', () => {
+    const events = normalizePayload(dataPayloadRealWithMedia);
+    expect(events).toHaveLength(1);
+    expect(events[0].media_keys).toEqual(['https://pbs.twimg.com/media/xxx.jpg']);
+  });
+
+  it('should return empty array for payload without data event_type dm.*', () => {
+    const noDm = { data: { event_type: 'tweet.create', payload: { direct_message_events: [] } } };
+    expect(normalizePayload(noDm)).toEqual([]);
+  });
+
+  it('should return empty array for payload without direct_message_events', () => {
+    const noDme = { data: { event_type: 'dm.received', payload: {} } };
+    expect(normalizePayload(noDme)).toEqual([]);
+  });
+
+  it('should not interfere with existing X Activity shape parsing', () => {
+    const xActivity = {
+      dm_event: {
+        id: 'evt-xact',
+        text: 'X Activity DM',
+        event_type: 'MessageCreate',
+        dm_conversation_id: 'conv-001',
+        sender_id: 'user-999',
+        created_at: '2026-07-06T12:00:00Z',
+      },
+    };
+    const events = normalizePayload(xActivity);
+    expect(events).toHaveLength(1);
+    expect(events[0].event_id).toBe('evt-xact');
+  });
+
+  it('should not interfere with existing legacy envelope parsing', () => {
+    const legacy = {
+      direct_message_events: [
+        {
+          id: 'legacy-001',
+          type: 'message_create',
+          message_create: {
+            sender_id: 'user-777',
+            target: { recipient_id: 'bot-123' },
+            message_data: { text: 'legacy dm' },
+          },
+        },
+      ],
+    };
+    const events = normalizePayload(legacy);
+    expect(events).toHaveLength(1);
+    expect(events[0].event_id).toBe('legacy-001');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Data payload envelope — processEvent (echo reply, bot filter, dedupe)
+// ---------------------------------------------------------------------------
+
+describe('processEvent — data.payload production shape', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(eventExists).mockReset();
+    vi.mocked(insertDmEvent).mockReset();
+    vi.mocked(sendDm).mockReset();
+  });
+
+  it('should trigger echo reply via participant_id for data.payload events', async () => {
+    vi.mocked(eventExists).mockResolvedValue(false);
+    vi.mocked(insertDmEvent).mockResolvedValue(true);
+    vi.mocked(sendDm).mockResolvedValue('mocked-event-id');
+
+    const events = normalizePayload(dataPayloadReal);
+    const result = await processEvent(events[0], 'webhook');
+
+    expect(result).toBe(true);
+    expect(sendDm).toHaveBeenCalledWith({
+      participantId: 'user-999',
+      text: expect.stringContaining('Got it!'),
+    });
+  });
+
+  it('should NOT trigger echo for bot echo events (sender === X_BOT_USER_ID)', async () => {
+    const events = normalizePayload(dataPayloadBotEcho);
+
+    const result = await processEvent(events[0], 'webhook');
+
+    expect(result).toBe(false);
+    expect(sendDm).not.toHaveBeenCalled();
+  });
+
+  it('should dedupe by event_id (entry.id)', async () => {
+    vi.mocked(eventExists).mockResolvedValue(true);
+
+    const events = normalizePayload(dataPayloadReal);
+    const result = await processEvent(events[0], 'webhook');
+
+    expect(result).toBe(false);
+    expect(insertDmEvent).not.toHaveBeenCalled();
+    expect(sendDm).not.toHaveBeenCalled();
+  });
+
+  it('should process new event and reply when both subscriptions already exist', async () => {
+    vi.mocked(eventExists).mockResolvedValue(false);
+    vi.mocked(insertDmEvent).mockResolvedValue(true);
+    vi.mocked(sendDm).mockResolvedValue('mocked-event-id');
+
+    const events = normalizePayload(dataPayloadRealWithMedia);
+    const result = await processEvent(events[0], 'webhook');
+
+    expect(result).toBe(true);
+    expect(insertDmEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event_id: '2074317363693203633',
+        sender_id: 'user-888',
+        text: 'Make it more shiny!',
+      }),
+    );
+    expect(sendDm).toHaveBeenCalledWith({
+      participantId: 'user-888',
+      text: expect.stringContaining('Got it!'),
+    });
+  });
+});

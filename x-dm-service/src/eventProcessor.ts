@@ -28,6 +28,8 @@ export interface DmEvent {
   sender_id: string;
   /** The X user who sent the event */
   sender_username?: string;
+  /** Recipient id from legacy shapes — used for A16 (participantId) fallback */
+  participant_id?: string;
   event_type: 'MessageCreate' | 'ParticipantsJoin' | 'ParticipantsLeave' | string;
   text: string | null;
   media_keys: string[] | null;
@@ -179,27 +181,128 @@ function tryParseLegacyEnvelope(payload: Record<string, unknown>): DmEvent[] {
 }
 
 // ---------------------------------------------------------------------------
+// Data payload envelope (production shape)
+// ---------------------------------------------------------------------------
+
+/**
+ * Try to parse a webhook payload as an X Activity envelope where the
+ * subscription event wraps a legacy payload:
+ *
+ *   {
+ *     "data": {
+ *       "event_uuid": "...",
+ *       "filter": { "user_id": "..." },
+ *       "event_type": "dm.received",
+ *       "tag": "...",
+ *       "payload": {
+ *         "direct_message_events": [ ... ],
+ *         "users": { ... }
+ *       }
+ *     }
+ *   }
+ *
+ * This is the REAL production shape — detect by `data.event_type` starting
+ * with `dm.` AND `data.payload.direct_message_events` existing.
+ */
+function tryParseDataPayloadEnvelope(payload: Record<string, unknown>): DmEvent[] {
+  const data = payload.data as Record<string, unknown> | undefined;
+  if (!data) return [];
+
+  const eventType = data.event_type as string | undefined;
+  if (!eventType || !eventType.startsWith('dm.')) return [];
+
+  const payloadObj = data.payload as Record<string, unknown> | undefined;
+  if (!payloadObj) return [];
+
+  const directEvents = payloadObj.direct_message_events as unknown[] | undefined;
+  if (!directEvents || !Array.isArray(directEvents) || directEvents.length === 0) return [];
+
+  const users = payloadObj.users as Record<string, { screen_name?: string }> | undefined;
+  const results: DmEvent[] = [];
+
+  for (const raw of directEvents) {
+    const ev = raw as Record<string, unknown>;
+    const eventId = ev.id as string | undefined;
+    if (!eventId) continue;
+
+    const msgCreate = ev.message_create as Record<string, unknown> | undefined;
+    if (!msgCreate) continue;
+
+    const senderId = msgCreate.sender_id as string | undefined;
+    const recipientId = (msgCreate.target as Record<string, unknown> | undefined)
+      ?.recipient_id as string | undefined;
+    const msgData = msgCreate.message_data as Record<string, unknown> | undefined;
+    const text = msgData?.text as string | undefined;
+    const createdTimestamp = ev.created_timestamp as string | undefined;
+
+    // Legacy events lack dm_conversation_id — derive a 1:1 convention
+    // from sender/recipient numeric ids: `${min}-${max}`
+    let convId = ev.dm_conversation_id as string | undefined;
+    if (!convId && senderId && recipientId) {
+      const sorted = [senderId, recipientId].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+      convId = `${sorted[0]}-${sorted[1]}`;
+    }
+
+    // Extract media (message_data.attachment.media)
+    let mediaKeys: string[] | null = null;
+    const attachment = msgData?.attachment as Record<string, unknown> | undefined;
+    const attachmentMedia = attachment?.media as Record<string, unknown> | undefined;
+    if (attachmentMedia?.media_url_https) {
+      mediaKeys = [attachmentMedia.media_url_https as string];
+    } else if (attachmentMedia?.id_str) {
+      mediaKeys = [attachmentMedia.id_str as string];
+    } else if (attachmentMedia?.id) {
+      mediaKeys = [String(attachmentMedia.id)];
+    }
+
+    const eventTypeNorm = (ev.type as string) === 'message_create' ? 'MessageCreate' : (ev.type as string || 'MessageCreate');
+    const senderUsername = senderId ? users?.[senderId]?.screen_name : undefined;
+
+    results.push({
+      event_id: eventId,
+      dm_conversation_id: convId ?? '',
+      sender_id: senderId ?? '',
+      sender_username: senderUsername,
+      participant_id: senderId,
+      event_type: eventTypeNorm,
+      text: text ?? null,
+      media_keys: mediaKeys,
+      raw: data, // store the whole data object as raw
+      created_at: createdTimestamp
+        ? new Date(Number(createdTimestamp)).toISOString()
+        : new Date().toISOString(),
+    });
+  }
+
+  return results;
+}
+
+// ---------------------------------------------------------------------------
 // Main processor
 // ---------------------------------------------------------------------------
 
 /**
  * Normalize a webhook payload into an array of DmEvents.
- * Tolerates both X Activity and legacy Account Activity shapes.
+ * Tolerates all known X API shapes (data.payload, X Activity, legacy).
  */
 export function normalizePayload(payload: unknown): DmEvent[] {
   if (!payload || typeof payload !== 'object') return [];
 
   const obj = payload as Record<string, unknown>;
 
-  // Try X Activity envelope first
+  // 1. Try data.payload shape (production — most common)
+  const dataPayload = tryParseDataPayloadEnvelope(obj);
+  if (dataPayload.length > 0) return dataPayload;
+
+  // 2. Try X Activity envelope (dm_event)
   const single = tryParseXActivityEnvelope(obj);
   if (single) return [single];
 
-  // Try legacy Account Activity envelope
+  // 3. Try legacy Account Activity envelope (direct_message_events at root)
   const legacy = tryParseLegacyEnvelope(obj);
   if (legacy.length > 0) return legacy;
 
-  // Unknown shape — log and return empty
+  // 4. Unknown shape — log and return empty
   console.warn('[EventProcessor] Unknown webhook payload shape:', JSON.stringify(payload).slice(0, 500));
   return [];
 }
@@ -247,14 +350,19 @@ export async function processEvent(
   }
 
   // 5. M3 echo reply — temporary; TODO(M5): replace with real refinement engine
-  if (event.event_type === 'MessageCreate' && event.dm_conversation_id) {
+  if (event.event_type === 'MessageCreate') {
+    // For data.payload shape events, always reply via participantId (sender)
+    // since the derived conversation id may not be accepted by the API.
     const echoText = event.text
       ? `Got it! 🐾 (echo: ${event.text.slice(0, 100)})`
       : 'Got it! 🐾';
-    sendDm({
-      conversationId: event.dm_conversation_id,
-      text: echoText,
-    }).catch((err) => {
+    const dmOpts: { conversationId?: string; participantId?: string; text: string } =
+      event.participant_id
+        ? { participantId: event.participant_id, text: echoText }
+        : event.dm_conversation_id
+          ? { conversationId: event.dm_conversation_id, text: echoText }
+          : { participantId: event.sender_id, text: echoText };
+    sendDm(dmOpts).catch((err) => {
       console.error(`[EventProcessor] Echo reply failed: ${(err as Error).message}`);
     });
   }
