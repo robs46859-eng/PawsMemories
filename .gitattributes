@@ -1,0 +1,3 @@
+# Keep build-artifact zips out of `git archive` output (the deploy zip).
+# They remain tracked in the repo but are excluded from `scripts/build-deploy-zip.sh`.
+*.zip export-ignore
