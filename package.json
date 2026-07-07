@@ -13,7 +13,7 @@
     "test": "node --test tests/*.test.mjs",
     "test:brain": "tsx --test tests/brain_*.test.mjs",
     "test:pets": "tsx --test tests/pets_*.test.mjs",
-    "test:ar": "tsx --test tests/brain_*.test.mjs tests/pets_*.test.mjs"
+    "test:ar": "tsx --test tests/brain_*.test.mjs tests/pets_*.test.mjs tests/ar_*.test.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1063.0",
