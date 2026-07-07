@@ -7,7 +7,10 @@ import Stripe from "stripe";
 import fs from "fs";
 import twilio from "twilio";
 import rateLimit from "express-rate-limit";
-import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement } from "./db";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState } from "./db";
+import { classifyPetImage, type GenerateFn } from "./server/petClassify";
+import { resolveBreedProfile } from "./server/breedProfiles";
+import { decayDrives, DEFAULT_DRIVES, DEFAULT_HORMONES, weightsFromTemperament } from "./src/brain";
 import { uploadBase64Image, uploadBinaryFromUrl, fetchUrlAsBase64 } from "./storage";
 import { runBuildPipeline } from "./agent/graph/orchestrator";
 import { analyzePetImage } from "./ollama-agent";
@@ -1238,6 +1241,162 @@ async function startServer() {
       headers: {
         'User-Agent': 'aistudio-build',
       }
+    }
+  });
+
+  // --- AR virtual-pet simulator (AR_PET_SIM_SPEC, milestone AR2) -------------
+
+  // Gemini-backed generate fn injected into the (provider-agnostic) classify core.
+  const classifyGenerate: GenerateFn = async ({ prompt, imageBase64, mimeType, temperature }) => {
+    const part = { inlineData: { data: imageBase64, mimeType } };
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: { parts: [part, { text: prompt }] },
+      config: { temperature, responseMimeType: "application/json" },
+    });
+    return (response.text || "").trim();
+  };
+
+  // Strip a data: URL prefix if present, returning { data, mimeType }.
+  const splitDataUrl = (s: string): { data: string; mimeType: string } => {
+    const m = /^data:([^;]+);base64,(.*)$/s.exec(s);
+    if (m) return { mimeType: m[1], data: m[2] };
+    return { mimeType: "image/jpeg", data: s };
+  };
+
+  // POST /api/pets/classify — one vision-LLM call → breed/build/temperament,
+  // resolved to a breed profile and persisted onto the avatar's pet_profiles row.
+  app.post("/api/pets/classify", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { avatarId, imageBase64, imageUrl, force } = req.body || {};
+      const aId = Number(avatarId);
+      if (!Number.isFinite(aId)) {
+        return res.status(400).json({ error: "avatarId required." });
+      }
+      // Ownership check up-front (before any paid LLM call).
+      const owned = await getAvatarById(aId, req.user!.phone);
+      if (!owned) return res.status(404).json({ error: "Avatar not found." });
+
+      // Cache: never re-classify the same avatar unless force=true (hardening H7).
+      if (!force) {
+        const existing = await getPetProfileByAvatar(aId, req.user!.phone);
+        if (existing && existing.breed) {
+          return res.json({ profile: existing, cached: true });
+        }
+      }
+
+      let img = "";
+      let mimeType = "image/jpeg";
+      if (typeof imageBase64 === "string" && imageBase64) {
+        const s = splitDataUrl(imageBase64);
+        img = s.data;
+        mimeType = s.mimeType;
+      } else if (typeof imageUrl === "string" && imageUrl) {
+        const b64 = await fetchUrlAsBase64(imageUrl);
+        const s = splitDataUrl(b64);
+        img = s.data;
+        mimeType = s.mimeType;
+      } else {
+        return res.status(400).json({ error: "imageBase64 or imageUrl required." });
+      }
+
+      const result = await classifyPetImage(classifyGenerate, { imageBase64: img, mimeType });
+      const breedProfile = resolveBreedProfile(result.breed, result.size_class);
+
+      // Seed brain state: weights from temperament, default drives/hormones.
+      const t = result.temperament as Record<string, number>;
+      const temperament = {
+        energy: Number(t.energy) || 0.5,
+        sociability: Number(t.sociability) || 0.5,
+        stubbornness: Number(t.stubbornness) || 0.5,
+        foodMotivation: Number(t.foodMotivation) || 0.5,
+        vocality: Number(t.vocality) || 0.5,
+      };
+      const weights = weightsFromTemperament(temperament);
+      const saved = await upsertPetProfile(aId, req.user!.phone, {
+        breed: result.breed,
+        breed_confidence: result.breed_confidence,
+        size_class: result.size_class,
+        build: result.build,
+        temperament: result.temperament,
+        personality_weights: weights,
+        hormones: { ...DEFAULT_HORMONES },
+        drives: { ...DEFAULT_DRIVES },
+      });
+
+      res.json({ profile: saved, classification: result, breedProfile, cached: false });
+    } catch (err: any) {
+      console.error("[pets/classify] failed:", err?.message || err);
+      res.status(502).json({ error: "Classification failed." });
+    }
+  });
+
+  // GET /api/pets/:id/state — drives/hormones/weights with offline decay applied.
+  app.get("/api/pets/:id/state", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const pet = await getPetProfileById(Number(req.params.id), req.user!.phone);
+      if (!pet) return res.status(404).json({ error: "Pet not found." });
+
+      const drives = pet.drives || { ...DEFAULT_DRIVES };
+      const hormones = pet.hormones || { ...DEFAULT_HORMONES };
+      const pt = (pet.temperament || {}) as Record<string, number>;
+      const weights =
+        pet.personality_weights ||
+        weightsFromTemperament({
+          energy: Number(pt.energy) || 0.5,
+          sociability: Number(pt.sociability) || 0.5,
+          stubbornness: Number(pt.stubbornness) || 0.5,
+          foodMotivation: Number(pt.foodMotivation) || 0.5,
+          vocality: Number(pt.vocality) || 0.5,
+        });
+
+      // Offline decay from updated_at, capped at 24h (mirrors needs.ts offline sync).
+      const last = new Date(pet.updated_at).getTime();
+      const elapsedSec = Number.isFinite(last)
+        ? Math.min(Math.max(0, (Date.now() - last) / 1000), 24 * 3600)
+        : 0;
+      const bp = resolveBreedProfile(pet.breed || undefined, pet.size_class || "medium");
+      const decayed = decayDrives(drives, elapsedSec, {
+        decay: bp.decay,
+        exerciseNeed: bp.exerciseNeed,
+        complianceBase: bp.complianceBase,
+        scale: bp.scale,
+      });
+
+      res.json({
+        drives: decayed,
+        hormones,
+        weights,
+        trainer_score: pet.trainer_score,
+        life_stage: pet.life_stage,
+        aging_mode: pet.aging_mode,
+        mortality_enabled: !!pet.mortality_enabled,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to load pet state." });
+    }
+  });
+
+  // PATCH /api/pets/:id/state — persist client brain state (offline-aware sync).
+  app.patch("/api/pets/:id/state", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { drives, hormones, weights, trainer_score } = req.body || {};
+      if (drives != null && typeof drives !== "object") {
+        return res.status(400).json({ error: "drives must be an object." });
+      }
+      if (hormones != null && typeof hormones !== "object") {
+        return res.status(400).json({ error: "hormones must be an object." });
+      }
+      const ok = await savePetState(Number(req.params.id), req.user!.phone, {
+        drives,
+        hormones,
+        personality_weights: weights,
+        trainer_score: typeof trainer_score === "number" ? trainer_score : undefined,
+      });
+      if (!ok) return res.status(404).json({ error: "Pet not found." });
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to save pet state." });
     }
   });
 

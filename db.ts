@@ -368,6 +368,77 @@ export async function initDb(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
+    // --- AR virtual-pet simulator (AR_PET_SIM_SPEC §8, milestone AR2) ---------
+    // pet_profiles extends an avatar with breed-aware gameplay + persisted brain state.
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS pet_profiles (
+        id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
+        avatar_id           INT NOT NULL,
+        breed               VARCHAR(64) NULL,
+        breed_confidence    DOUBLE NULL,
+        size_class          VARCHAR(16) NULL,
+        build               JSON NULL,
+        temperament         JSON NULL,
+        personality_weights JSON NULL,
+        hormones            JSON NULL,
+        drives              JSON NULL,
+        life_stage          ENUM('puppy','adult','senior') NOT NULL DEFAULT 'adult',
+        aging_mode          ENUM('off','slow','realistic') NOT NULL DEFAULT 'off',
+        mortality_enabled   TINYINT(1) NOT NULL DEFAULT 0,
+        trainer_score       INT NOT NULL DEFAULT 0,
+        rigged_glb_url      LONGTEXT NULL,
+        lod_glb_url         LONGTEXT NULL,
+        created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_avatar (avatar_id),
+        INDEX (avatar_id),
+        FOREIGN KEY (avatar_id) REFERENCES avatars(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS pet_commands (
+        id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+        pet_id          BIGINT NOT NULL,
+        phrase          VARCHAR(120) NULL,
+        metaphone_keys  JSON NULL,
+        action          VARCHAR(48) NULL,
+        compliance      DOUBLE NOT NULL DEFAULT 0.5,
+        last_reinforced DATETIME NULL,
+        created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX (pet_id),
+        FOREIGN KEY (pet_id) REFERENCES pet_profiles(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS pet_buttons (
+        id                   BIGINT AUTO_INCREMENT PRIMARY KEY,
+        pet_id               BIGINT NOT NULL,
+        label                VARCHAR(48) NULL,
+        audio_url            LONGTEXT NULL,
+        linked_action        VARCHAR(48) NULL,
+        association_strength DOUBLE NOT NULL DEFAULT 0,
+        anchor               JSON NULL,
+        created_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX (pet_id),
+        FOREIGN KEY (pet_id) REFERENCES pet_profiles(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS semantic_scans (
+        id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+        user_phone  VARCHAR(32) NOT NULL,
+        anchor_hash VARCHAR(64) NULL,
+        zones       JSON NULL,
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX (user_phone),
+        INDEX (anchor_hash),
+        FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
     await getPool().query(`
       CREATE TABLE IF NOT EXISTS photo_requests (
         id                INT AUTO_INCREMENT PRIMARY KEY,
@@ -1494,4 +1565,168 @@ export async function getPhotoRequestByStripeSession(sessionId: string): Promise
   );
   const arr = rows as unknown as PhotoRequestRow[];
   return arr.length ? arr[0] : null;
+}
+
+// --- AR virtual-pet simulator (AR_PET_SIM_SPEC §8, milestone AR2) -----------
+// Pets are owned transitively: pet_profiles.avatar_id -> avatars.user_phone.
+// Every accessor below takes `phone` and joins avatars so a user can only reach
+// their own pets (hardening H3).
+
+export interface PetProfileRow {
+  id: number;
+  avatar_id: number;
+  breed: string | null;
+  breed_confidence: number | null;
+  size_class: string | null;
+  build: any;
+  temperament: any;
+  personality_weights: any;
+  hormones: any;
+  drives: any;
+  life_stage: "puppy" | "adult" | "senior";
+  aging_mode: "off" | "slow" | "realistic";
+  mortality_enabled: number;
+  trainer_score: number;
+  rigged_glb_url: string | null;
+  lod_glb_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+function parseJsonMaybe(v: any): any {
+  if (v == null) return null;
+  if (typeof v === "string") {
+    try {
+      return JSON.parse(v);
+    } catch {
+      return null;
+    }
+  }
+  return v;
+}
+
+/** Return the pet profile for an avatar the user owns, or null. */
+export async function getPetProfileByAvatar(
+  avatarId: number,
+  phone: string
+): Promise<PetProfileRow | null> {
+  const [rows] = await getPool().query(
+    `SELECT p.* FROM pet_profiles p
+       JOIN avatars a ON a.id = p.avatar_id
+      WHERE p.avatar_id = ? AND a.user_phone = ? LIMIT 1`,
+    [avatarId, phone]
+  );
+  const arr = rows as unknown as PetProfileRow[];
+  if (!arr.length) return null;
+  const r = arr[0];
+  r.build = parseJsonMaybe(r.build);
+  r.temperament = parseJsonMaybe(r.temperament);
+  r.personality_weights = parseJsonMaybe(r.personality_weights);
+  r.hormones = parseJsonMaybe(r.hormones);
+  r.drives = parseJsonMaybe(r.drives);
+  return r;
+}
+
+/** Return a pet profile by its own id, ownership-checked, or null. */
+export async function getPetProfileById(
+  petId: number,
+  phone: string
+): Promise<PetProfileRow | null> {
+  const [rows] = await getPool().query(
+    `SELECT p.* FROM pet_profiles p
+       JOIN avatars a ON a.id = p.avatar_id
+      WHERE p.id = ? AND a.user_phone = ? LIMIT 1`,
+    [petId, phone]
+  );
+  const arr = rows as unknown as PetProfileRow[];
+  if (!arr.length) return null;
+  const r = arr[0];
+  r.build = parseJsonMaybe(r.build);
+  r.temperament = parseJsonMaybe(r.temperament);
+  r.personality_weights = parseJsonMaybe(r.personality_weights);
+  r.hormones = parseJsonMaybe(r.hormones);
+  r.drives = parseJsonMaybe(r.drives);
+  return r;
+}
+
+export interface PetProfileInput {
+  breed?: string | null;
+  breed_confidence?: number | null;
+  size_class?: string | null;
+  build?: any;
+  temperament?: any;
+  personality_weights?: any;
+  hormones?: any;
+  drives?: any;
+}
+
+/**
+ * Create or update the pet profile for an avatar (one profile per avatar).
+ * Ownership is enforced up-front. Returns the stored row, or null if the avatar
+ * isn't owned by `phone`.
+ */
+export async function upsertPetProfile(
+  avatarId: number,
+  phone: string,
+  data: PetProfileInput
+): Promise<PetProfileRow | null> {
+  const owned = await getAvatarById(avatarId, phone);
+  if (!owned) return null;
+  await getPool().query(
+    `INSERT INTO pet_profiles
+       (avatar_id, breed, breed_confidence, size_class, build, temperament, personality_weights, hormones, drives)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       breed = VALUES(breed),
+       breed_confidence = VALUES(breed_confidence),
+       size_class = VALUES(size_class),
+       build = VALUES(build),
+       temperament = VALUES(temperament),
+       personality_weights = COALESCE(VALUES(personality_weights), personality_weights),
+       hormones = COALESCE(VALUES(hormones), hormones),
+       drives = COALESCE(VALUES(drives), drives)`,
+    [
+      avatarId,
+      data.breed ?? null,
+      data.breed_confidence ?? null,
+      data.size_class ?? null,
+      data.build != null ? JSON.stringify(data.build) : null,
+      data.temperament != null ? JSON.stringify(data.temperament) : null,
+      data.personality_weights != null ? JSON.stringify(data.personality_weights) : null,
+      data.hormones != null ? JSON.stringify(data.hormones) : null,
+      data.drives != null ? JSON.stringify(data.drives) : null,
+    ]
+  );
+  return getPetProfileByAvatar(avatarId, phone);
+}
+
+/** Persist drives/hormones/weights + trainer score for a pet. Ownership-checked. */
+export async function savePetState(
+  petId: number,
+  phone: string,
+  state: {
+    drives?: any;
+    hormones?: any;
+    personality_weights?: any;
+    trainer_score?: number;
+  }
+): Promise<boolean> {
+  const [result] = (await getPool().query(
+    `UPDATE pet_profiles p
+       JOIN avatars a ON a.id = p.avatar_id
+        SET p.drives = COALESCE(?, p.drives),
+            p.hormones = COALESCE(?, p.hormones),
+            p.personality_weights = COALESCE(?, p.personality_weights),
+            p.trainer_score = COALESCE(?, p.trainer_score)
+      WHERE p.id = ? AND a.user_phone = ?`,
+    [
+      state.drives != null ? JSON.stringify(state.drives) : null,
+      state.hormones != null ? JSON.stringify(state.hormones) : null,
+      state.personality_weights != null ? JSON.stringify(state.personality_weights) : null,
+      state.trainer_score ?? null,
+      petId,
+      phone,
+    ]
+  )) as any;
+  return result.affectedRows >= 1;
 }
