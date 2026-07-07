@@ -66,6 +66,16 @@ export async function startEighthWallAR(
   opts: StartOptions
 ): Promise<EighthWallHandle> {
   const XR8 = await loadXR8();
+
+  // XR8's Three.js pipeline module (XR8.Threejs) resolves three.js from the
+  // global `window.THREE`. We bundle three as an ES module, so without this the
+  // engine throws "window.THREE is required by the three.js module but doesn't
+  // exist." Assigning our bundled instance both satisfies that requirement and
+  // ensures XR8's xrScene() shares the SAME three.js instance we use here
+  // (avoids "Multiple instances of Three.js"). Must run before the Threejs
+  // pipeline module is registered below.
+  (window as any).THREE = (window as any).THREE || THREE;
+
   const loader = new GLTFLoader();
   const clock = new THREE.Clock();
 
