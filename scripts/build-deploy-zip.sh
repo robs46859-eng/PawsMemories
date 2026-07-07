@@ -29,9 +29,10 @@ git archive --format=zip --output="$ZIP_NAME" HEAD
 echo ""
 echo "── Sanity check ──"
 MUST_HAVE=("index.html" "server.ts" "package.json" "vite.config.ts" "src/main.tsx" "agent/graph/orchestrator.ts" "agent/tools/blender_client.ts")
+ZIP_LIST=$(unzip -l "$ZIP_NAME")
 ALL_OK=true
 for f in "${MUST_HAVE[@]}"; do
-  if unzip -l "$ZIP_NAME" | grep -q "$f"; then
+  if echo "$ZIP_LIST" | grep -qF "  $f"; then
     echo "  ✅  $f"
   else
     echo "  ❌  MISSING: $f"
