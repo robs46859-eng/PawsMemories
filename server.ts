@@ -7,7 +7,8 @@ import Stripe from "stripe";
 import fs from "fs";
 import twilio from "twilio";
 import rateLimit from "express-rate-limit";
-import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings } from "./db";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage } from "./db";
+import { isEndpointEnabled, dailyCapFor, withinDailyCap, type PaidEndpoint } from "./server/paidApiGuards";
 import { classifyPetImage, type GenerateFn } from "./server/petClassify";
 import { semanticScan as runSemanticScan } from "./server/semanticScan";
 import { phraseKey } from "./src/three/ar/voice";
@@ -223,6 +224,41 @@ async function startServer() {
   app.use("/api/auth/login", authLimiter);
   app.use("/api/auth/signup", authLimiter);
   app.use("/api/create-video", authLimiter);
+
+  // Per-USER limiter (keyed by JWT subject, not IP) for the paid AR endpoints
+  // (classify / rig / semantic-scan). Applied as route middleware AFTER
+  // requireAuth so req.user is populated for the key. (H2)
+  const paidLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: any) => req.user?.phone || "anon",
+    message: { error: "Too many requests. Please slow down and try again in a minute." },
+  });
+
+  /**
+   * Kill-switch + per-user daily-cap guard for a paid AR endpoint (H2/H7).
+   * Returns true if the caller may proceed. Call AFTER cache/ownership checks
+   * so cached hits and validation failures never consume paid quota.
+   */
+  const guardPaidCall = async (
+    ep: PaidEndpoint,
+    req: AuthedRequest,
+    res: express.Response,
+  ): Promise<boolean> => {
+    if (!isEndpointEnabled(ep)) {
+      res.status(503).json({ error: "This feature is temporarily unavailable. Please try again later.", endpoint: ep });
+      return false;
+    }
+    const used = await bumpDailyUsage(req.user!.phone, ep);
+    if (!withinDailyCap(ep, used)) {
+      const cap = dailyCapFor(ep);
+      res.status(429).json({ error: `Daily limit reached (${cap}/day for ${ep}). Please try again tomorrow.`, endpoint: ep, cap });
+      return false;
+    }
+    return true;
+  };
 
   // ---------------------------------------------------------------------------
   // Authentication: email/password + session tokens (JWT)
@@ -1271,7 +1307,7 @@ async function startServer() {
 
   // POST /api/pets/classify — one vision-LLM call → breed/build/temperament,
   // resolved to a breed profile and persisted onto the avatar's pet_profiles row.
-  app.post("/api/pets/classify", requireAuth, async (req: AuthedRequest, res) => {
+  app.post("/api/pets/classify", requireAuth, paidLimiter, async (req: AuthedRequest, res) => {
     try {
       const { avatarId, imageBase64, imageUrl, force } = req.body || {};
       const aId = Number(avatarId);
@@ -1304,6 +1340,9 @@ async function startServer() {
       } else {
         return res.status(400).json({ error: "imageBase64 or imageUrl required." });
       }
+
+      // H2/H7: kill-switch + per-user daily cap (only paid, non-cached calls count).
+      if (!(await guardPaidCall("classify", req, res))) return;
 
       const result = await classifyPetImage(classifyGenerate, { imageBase64: img, mimeType });
       const breedProfile = resolveBreedProfile(result.breed, result.size_class);
@@ -1417,7 +1456,7 @@ async function startServer() {
 
   // POST /api/pets/:id/rig — Tripo animate_rig → blender-worker bake-lod → B2.
   // Feature-flagged: when off, avatars keep the current (unrigged) render path.
-  app.post("/api/pets/:id/rig", requireAuth, async (req: AuthedRequest, res) => {
+  app.post("/api/pets/:id/rig", requireAuth, paidLimiter, async (req: AuthedRequest, res) => {
     if (process.env.PETSIM_RIG_ENABLED !== "true") {
       return res.status(501).json({ error: "Rig pipeline disabled.", featureFlag: "PETSIM_RIG_ENABLED" });
     }
@@ -1435,6 +1474,9 @@ async function startServer() {
       if (!genTaskId) {
         return res.status(400).json({ error: "No source model task id (genTaskId) available for this pet." });
       }
+
+      // H2/H7: master kill-switch + per-user daily cap before any paid Tripo work.
+      if (!(await guardPaidCall("rig", req, res))) return;
 
       // 1) Kick Tripo auto-rig and poll to completion (bounded).
       const rigHandle = await startRig(genTaskId);
@@ -1489,7 +1531,7 @@ async function startServer() {
   // POST /api/ar/semantic-scan — AR_PET_SIM_SPEC §6.4
   // One camera frame → vision LLM → zone polygons. Cached per anchor hash so a
   // session doesn't pay for the LLM twice on the same spot (H7).
-  app.post("/api/ar/semantic-scan", requireAuth, async (req: AuthedRequest, res) => {
+  app.post("/api/ar/semantic-scan", requireAuth, paidLimiter, async (req: AuthedRequest, res) => {
     try {
       const { imageBase64, imageUrl, anchorHash, force } = req.body || {};
 
@@ -1516,6 +1558,9 @@ async function startServer() {
         const cached = await getSemanticScan(req.user!.phone, key);
         if (cached) return res.json({ anchorHash: key, zones: cached.zones ?? cached, cached: true });
       }
+
+      // H2/H7: kill-switch + per-user daily cap (only paid, non-cached scans count).
+      if (!(await guardPaidCall("semantic_scan", req, res))) return;
 
       const result = await runSemanticScan(classifyGenerate, { imageBase64: img, mimeType });
       await saveSemanticScan(req.user!.phone, key, result);

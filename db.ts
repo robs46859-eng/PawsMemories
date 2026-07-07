@@ -439,6 +439,18 @@ export async function initDb(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
+    // Per-user, per-day usage counter for the paid AR endpoints (H2/H7 cost caps).
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS api_usage_daily (
+        user_phone  VARCHAR(32)  NOT NULL,
+        endpoint    VARCHAR(32)  NOT NULL,
+        day         DATE         NOT NULL,
+        count       INT          NOT NULL DEFAULT 0,
+        PRIMARY KEY (user_phone, endpoint, day),
+        FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
     await getPool().query(`
       CREATE TABLE IF NOT EXISTS photo_requests (
         id                INT AUTO_INCREMENT PRIMARY KEY,
@@ -1046,6 +1058,36 @@ export async function getDailyVideoCount(phone: string): Promise<number> {
   );
   const arr = rows as unknown as { count: string | number }[];
   return Number(arr[0].count);
+}
+
+/**
+ * Atomically increment today's usage count for (user, endpoint) and return the
+ * new count. Used to enforce per-user daily caps on the paid AR endpoints
+ * (classify/rig/semantic_scan) — see server/paidApiGuards.ts.
+ */
+export async function bumpDailyUsage(phone: string, endpoint: string): Promise<number> {
+  await getPool().query(
+    `INSERT INTO api_usage_daily (user_phone, endpoint, day, count)
+     VALUES (?, ?, CURDATE(), 1)
+     ON DUPLICATE KEY UPDATE count = count + 1`,
+    [phone, endpoint]
+  );
+  const [rows] = await getPool().query(
+    `SELECT count FROM api_usage_daily WHERE user_phone = ? AND endpoint = ? AND day = CURDATE()`,
+    [phone, endpoint]
+  );
+  const arr = rows as unknown as { count: string | number }[];
+  return arr.length ? Number(arr[0].count) : 0;
+}
+
+/** Read today's usage count for (user, endpoint) without incrementing. */
+export async function getDailyUsage(phone: string, endpoint: string): Promise<number> {
+  const [rows] = await getPool().query(
+    `SELECT count FROM api_usage_daily WHERE user_phone = ? AND endpoint = ? AND day = CURDATE()`,
+    [phone, endpoint]
+  );
+  const arr = rows as unknown as { count: string | number }[];
+  return arr.length ? Number(arr[0].count) : 0;
 }
 
 export async function isUserAdmin(phone: string): Promise<boolean> {

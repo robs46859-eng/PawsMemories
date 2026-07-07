@@ -11,6 +11,34 @@ Test runner: repo built-in `node:test` (`node --test tests/*.test.mjs`).
 
 ---
 
+## Status checklist (as of 2026-07-07)
+
+Legend: ✅ done · 🟡 partial · ⬜ not started · **[S]** shared backend (protects the Unity/AR10
+client too — do regardless) · **[W]** web-client-only (defer if Unity replaces web AR).
+
+- [ ] 🟡 **H1 — Test coverage & CI gate** `[S]` — ~105 seeded/deterministic tests pass; **no
+  `.github/workflows/ci.yml`** and no contract tests. (CI + seeds also validate the C# brain port.)
+- [ ] 🟡 **H2 — Input validation & abuse limits** `[S]` — zod on classify/scan ✅; rate-limit only
+  on auth, **not** on `/classify`, `/rig`, `/semantic-scan`; upload guards missing. **Urgent (live).**
+- [ ] 🟡 **H3 — Auth & data isolation** `[S]` — per-route ownership checks ✅; **signed/expiring B2
+  URLs missing.**
+- [ ] 🟡 **H4 — AR performance & memory** `[W]` (budget rules `[S]`) — `dispose.ts` + `rigBudget.ts`
+  in code ✅; heap-growth + FPS not verified on hardware.
+- [ ] 🟡 **H5 — External-dependency resilience** `[S]` — rig feature-flag fallback + Tripo poll
+  ceiling ✅; 8th Wall not pinned/self-hosted/hashed; no circuit breakers.
+- [ ] ⬜ **H6 — Observability** `[S]` — no `/healthz`, no structured logs, no counters.
+- [ ] 🟡 **H7 — Cost controls** `[S]` — caching ✅; **no per-user caps / kill-switch / spend alerts
+  on paid endpoints.** **Urgent (live).**
+- [ ] 🟡 **H8 — Privacy, permissions & sensitive-data** — aging-off-default + polygon-only scans ✅
+  `[S]`; explicit camera/mic consent UX `[W]` + user export/delete `[S]` missing. Do before wider beta.
+
+**Given the AR10 (Unity + Lightship) plan:** Unity is a separate client that reuses this backend
+and ports `src/brain/` to C#. Prioritise the `[S]` backend items now (they protect both clients);
+do `[W]` web-only items lightly if Unity will supersede the web AR. H2 + H7 are live cost/abuse
+exposures today — treat as do-this-week, independent of the Unity timeline.
+
+---
+
 ## H1 — Test coverage & CI gate
 
 - Extend `node:test` coverage: brain engine (done AR1), server endpoints (mocked LLM/Tripo/DB),
