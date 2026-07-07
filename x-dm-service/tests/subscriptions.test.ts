@@ -96,20 +96,25 @@ const existingSubscriptions = [
 ];
 
 function makeOkResponse(body?: unknown): Response {
+  const data = body ?? { data: existingSubscriptions };
+  const text = '';
   return {
     ok: true,
     status: 200,
-    json: async () => body ?? { data: existingSubscriptions },
-    text: async () => '',
+    json: async () => data,
+    text: async () => text,
+    clone: () => ({ json: async () => data, text: async () => text, ok: true, status: 200, headers: new Headers() } as Response),
     headers: new Headers(),
   } as Response;
 }
 
 function makeErrorResponse(status: number, body?: string): Response {
+  const text = body ?? 'error';
   return {
     ok: false,
     status,
-    text: async () => body ?? 'error',
+    text: async () => text,
+    clone: () => ({ text: async () => text, ok: false, status, headers: new Headers() } as Response),
     headers: new Headers(),
     json: async () => ({}),
   } as Response;
@@ -325,6 +330,34 @@ describe('subscriptions — user-token auth', () => {
       expect(result).toBe('sub-1a');
       expect(signRequest).toHaveBeenCalledWith('POST', 'https://api.x.com/2/activity/subscriptions');
       expect(xFetch).not.toHaveBeenCalled();
+    });
+
+    it('ensureSubscriptions should run verify_credentials before listing subscriptions', async () => {
+      // Mock verify_credentials endpoint
+      globalThis.fetch = vi.fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ screen_name: 'Pawsome3D' }),
+          text: async () => '',
+          headers: new Headers(),
+        } as Response)
+        // Then list subscriptions
+        .mockResolvedValueOnce(makeOkResponse());
+
+      await ensureSubscriptions('wh-001');
+
+      // First fetch call should be to verify_credentials
+      const firstUrl = vi.mocked(globalThis.fetch).mock.calls[0][0] as string;
+      expect(firstUrl).toContain('verify_credentials.json');
+
+      // Second fetch call should be to activity/subscriptions (list)
+      const secondUrl = vi.mocked(globalThis.fetch).mock.calls[1][0] as string;
+      expect(secondUrl).toContain('/2/activity/subscriptions');
+
+      // Should have signed both requests
+      expect(signRequest).toHaveBeenCalledWith('GET', expect.stringContaining('verify_credentials.json'));
+      expect(signRequest).toHaveBeenCalledWith('GET', expect.stringContaining('activity/subscriptions'));
     });
   });
 

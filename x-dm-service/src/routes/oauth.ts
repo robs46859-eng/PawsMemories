@@ -120,7 +120,6 @@ export function createOAuthRouter(): Router {
         const storedWebhookId = await kvGet(KV_KEYS.WEBHOOK_ID);
         if (storedWebhookId) {
           await ensureSubscriptions(storedWebhookId);
-          console.log('[OAuth] Subscriptions ensured after token acquisition');
         }
       } catch (subErr) {
         console.warn(`[OAuth] Could not ensure subscriptions after token: ${(subErr as Error).message}`);

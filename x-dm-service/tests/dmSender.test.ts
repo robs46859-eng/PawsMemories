@@ -7,6 +7,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { sendDm } from '../src/dmSender.js';
 
+// Dynamic today for date-sensitive tests
+const TODAY = new Date().toISOString().slice(0, 10);
+const YESTERDAY = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+
 // Mock db
 vi.mock('../src/db.js', () => ({
   kvGet: vi.fn(),
@@ -83,8 +87,8 @@ describe('sendDm', () => {
   });
 
   it('should use A17 (dm_conversations/:id/messages) when conversationId is provided', async () => {
-    vi.mocked(kvGet).mockResolvedValue('2026-07-06'); // same day
-    vi.mocked(kvGet).mockResolvedValueOnce('2026-07-06').mockResolvedValueOnce('2'); // count=2
+    vi.mocked(kvGet).mockResolvedValue(TODAY); // same day
+    vi.mocked(kvGet).mockResolvedValueOnce(TODAY).mockResolvedValueOnce('2'); // count=2
     vi.mocked(xFetch).mockResolvedValue(makeOkResponse());
 
     const result = await sendDm({
@@ -99,7 +103,7 @@ describe('sendDm', () => {
   });
 
   it('should use A16 (dm_conversations/with/:participant_id/messages) when only participantId is provided', async () => {
-    vi.mocked(kvGet).mockResolvedValueOnce('2026-07-06').mockResolvedValueOnce('1');
+    vi.mocked(kvGet).mockResolvedValueOnce(TODAY).mockResolvedValueOnce('1');
     vi.mocked(xFetch).mockResolvedValue(makeOkResponse());
 
     const result = await sendDm({
@@ -113,7 +117,7 @@ describe('sendDm', () => {
   });
 
   it('should include mediaId in the body when provided', async () => {
-    vi.mocked(kvGet).mockResolvedValueOnce('2026-07-06').mockResolvedValueOnce('0');
+    vi.mocked(kvGet).mockResolvedValueOnce(TODAY).mockResolvedValueOnce('0');
     vi.mocked(xFetch).mockResolvedValue(makeOkResponse());
 
     await sendDm({
@@ -129,7 +133,7 @@ describe('sendDm', () => {
 
   it('should refuse to send when daily cap is reached', async () => {
     // Already at cap
-    vi.mocked(kvGet).mockResolvedValueOnce('2026-07-06').mockResolvedValueOnce('5');
+    vi.mocked(kvGet).mockResolvedValueOnce(TODAY).mockResolvedValueOnce('5');
     vi.mocked(getBotUserToken).mockResolvedValue('test-bot-token');
 
     const result = await sendDm({
@@ -143,7 +147,7 @@ describe('sendDm', () => {
 
   it('should reset daily counter for a new UTC day', async () => {
     // Stored date is yesterday
-    vi.mocked(kvGet).mockResolvedValueOnce('2026-07-05').mockResolvedValueOnce('99');
+    vi.mocked(kvGet).mockResolvedValueOnce(YESTERDAY).mockResolvedValueOnce('99');
     vi.mocked(xFetch).mockResolvedValue(makeOkResponse());
 
     const result = await sendDm({
@@ -153,12 +157,12 @@ describe('sendDm', () => {
 
     expect(result).toBe('evt-sent-001');
     // Should have reset counter
-    expect(kvSet).toHaveBeenCalledWith('dm_daily_date', expect.stringMatching(/^2026-07-0[67]/));
+    expect(kvSet).toHaveBeenCalledWith('dm_daily_date', expect.stringMatching(TODAY));
     expect(kvSet).toHaveBeenCalledWith('dm_daily_count', '1');
   });
 
   it('should retry once on 401 after token refresh', async () => {
-    vi.mocked(kvGet).mockResolvedValueOnce('2026-07-06').mockResolvedValueOnce('0');
+    vi.mocked(kvGet).mockResolvedValueOnce(TODAY).mockResolvedValueOnce('0');
     (getBotUserToken as unknown as { mockResolvedValue: (v: string) => void }).mockResolvedValue('stale-token');
 
     // First call returns 401, second (after refresh) returns 200
@@ -181,7 +185,7 @@ describe('sendDm', () => {
   });
 
   it('should NOT retry on 403 (blocked/closed DMs)', async () => {
-    vi.mocked(kvGet).mockResolvedValueOnce('2026-07-06').mockResolvedValueOnce('0');
+    vi.mocked(kvGet).mockResolvedValueOnce(TODAY).mockResolvedValueOnce('0');
     vi.mocked(xFetch).mockResolvedValue(makeErrorResponse(403));
 
     const result = await sendDm({
@@ -201,7 +205,7 @@ describe('sendDm', () => {
   });
 
   it('should increment daily counter on successful send', async () => {
-    vi.mocked(kvGet).mockResolvedValueOnce('2026-07-06').mockResolvedValueOnce('0');
+    vi.mocked(kvGet).mockResolvedValueOnce(TODAY).mockResolvedValueOnce('0');
     vi.mocked(xFetch).mockResolvedValue(makeOkResponse());
 
     await sendDm({

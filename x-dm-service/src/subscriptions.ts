@@ -97,7 +97,12 @@ async function fetchWithAuth(
 ): Promise<Response | null> {
   // --- OAuth 1.0a path (preferred) ---
   if (haveOAuth1Creds()) {
-    return oauth1Fetch(url, opts);
+    const resp = await oauth1Fetch(url, opts);
+    if (!resp.ok) {
+      const body = await resp.clone().text().catch(() => 'unknown');
+      console.error(`[Subscriptions] OAuth1 request failed: HTTP ${resp.status} — body: ${body.slice(0, 2000)}`);
+    }
+    return resp;
   }
 
   // --- OAuth 2.0 user token path (fallback) ---
@@ -115,6 +120,12 @@ async function fetchWithAuth(
     });
 
     if (resp.ok) return resp;
+
+    // Log the full body for diagnostics
+    if (!resp.ok && !retried) {
+      const body = await resp.clone().text().catch(() => 'unknown');
+      console.error(`[Subscriptions] OAuth2 request failed: HTTP ${resp.status} — body: ${body.slice(0, 2000)}`);
+    }
 
     if (resp.status === 401 && !retried) {
       console.log('[Subscriptions] 401 — refreshing bot token and retrying...');
@@ -300,6 +311,40 @@ export async function deleteSubscription(subscriptionId: string): Promise<void> 
 }
 
 // ---------------------------------------------------------------------------
+// OAuth 1.0a credential self-check
+// ---------------------------------------------------------------------------
+
+const VERIFY_CREDENTIALS_URL = 'https://api.x.com/1.1/account/verify_credentials.json';
+
+/**
+ * Verify OAuth 1.0a credentials by calling the X API 1.1 endpoint.
+ * Logs the authenticated screen_name on success, or the full error body on failure.
+ * Safe to call repeatedly — no side effects.
+ */
+async function verifyOAuth1Credentials(): Promise<void> {
+  if (!haveOAuth1Creds()) return;
+
+  try {
+    const authHeader = signRequest('GET', VERIFY_CREDENTIALS_URL);
+    const resp = await fetch(VERIFY_CREDENTIALS_URL, {
+      method: 'GET',
+      headers: { Authorization: authHeader },
+    });
+
+    if (resp.ok) {
+      const js = (await resp.json()) as { screen_name?: string };
+      const name = js.screen_name ?? 'unknown';
+      console.log(`[OAuth1] credentials OK for @${name}`);
+    } else {
+      const body = await resp.text().catch(() => 'unknown');
+      console.error(`[OAuth1] credential verification failed: HTTP ${resp.status} — body: ${body.slice(0, 2000)}`);
+    }
+  } catch (err) {
+    console.error(`[OAuth1] credential verification error: ${(err as Error).message}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Boot-time idempotent setup
 // ---------------------------------------------------------------------------
 
@@ -310,6 +355,13 @@ export async function deleteSubscription(subscriptionId: string): Promise<void> 
  * Idempotent — skips creation if a matching subscription already exists.
  * If the bot OAuth token has not been seeded yet, logs a warning and skips
  * without error.
+ *
+ * Before listing subscriptions, runs an OAuth 1.0a credential verification
+ * self-check (logs authenticated screen_name or error body).
+ *
+ * Note: errors are re-thrown so callers (index.ts health check, oauth.ts
+ * callback) can decide whether to log success or failure — do NOT catch
+ * silently here.
  */
 export async function ensureSubscriptions(webhookId: string): Promise<void> {
   if (!webhookId) {
@@ -324,6 +376,9 @@ export async function ensureSubscriptions(webhookId: string): Promise<void> {
     console.log('[Subscriptions] waiting for bot OAuth seeding — subscriptions will be created once /oauth/callback completes');
     return;
   }
+
+  // Self-check: verify OAuth 1.0a credentials before making subscription calls
+  await verifyOAuth1Credentials();
 
   console.log('[Subscriptions] Ensuring DM event subscriptions...');
 
@@ -350,8 +405,10 @@ export async function ensureSubscriptions(webhookId: string): Promise<void> {
     if (!needsReceived && !needsSent) {
       console.log('[Subscriptions] Both subscriptions already exist');
     }
+    console.log('[Subscriptions] Subscriptions ensured');
   } catch (err) {
     console.error(`[Subscriptions] Boot-time setup failed: ${(err as Error).message}`);
     console.warn('[Subscriptions] Will retry on next health check');
+    throw err; // propagate so caller knows it failed (e.g. oauth.ts log vs success)
   }
 }

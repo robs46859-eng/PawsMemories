@@ -161,4 +161,43 @@ describe('signRequest', () => {
     expect(sigIdx).toBeGreaterThan(consumerIdx);
     expect(sigIdx).toBeGreaterThan(nonceIdx);
   });
+
+  // -----------------------------------------------------------------------
+  // RFC 5849 §3.4.1 — query parameters in signature
+  // -----------------------------------------------------------------------
+
+  it('should include query params in the signature (GET with ?cursor=abc&limit=50)', () => {
+    const header = signRequest('GET', 'https://api.x.com/2/activity/subscriptions?cursor=abc&limit=50');
+
+    // Query params should NOT appear in the Authorization header
+    expect(header).not.toContain('cursor=');
+    expect(header).not.toContain('limit=');
+
+    // But they should affect the signature: the signature with query params
+    // should differ from the signature without
+    const sigNoQuery = signRequest('GET', 'https://api.x.com/2/activity/subscriptions');
+    expect(header).not.toBe(sigNoQuery);
+  });
+
+  it('should produce different signatures for different query param values', () => {
+    const sigA = signRequest('GET', 'https://api.x.com/2/activity/subscriptions?cursor=abc');
+    const sigB = signRequest('GET', 'https://api.x.com/2/activity/subscriptions?cursor=xyz');
+
+    const regex = /oauth_signature="([^"]+)"/;
+    const matchA = sigA.match(regex);
+    const matchB = sigB.match(regex);
+
+    expect(matchA?.[1]).not.toBe(matchB?.[1]);
+  });
+
+  it('should include multiple query params sorted alongside OAuth params', () => {
+    // Parameters: foo=bar and zoo=baz — the URL encodes them in an
+    // arbitrary order but the signature sorts them alphabetically
+    const header = signRequest('GET', 'https://api.x.com/2/x?zoo=baz&foo=bar');
+
+    // Header should start with OAuth and contain only oauth_* params
+    expect(header).toMatch(/^OAuth oauth_/);
+    expect(header).not.toContain('foo=');
+    expect(header).not.toContain('zoo=');
+  });
 });

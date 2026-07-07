@@ -65,18 +65,23 @@ export function _setTestOverrides(o: { nonce: string; timestamp: string }): void
  * Steps (RFC 5849 §3.4):
  *   1. Collect OAuth parameters (consumer_key, nonce, signature_method,
  *      timestamp, token, version).
- *   2. Percent-encode each key/value (RFC 3986 strict).
- *   3. Sort by encoded key (ASCII), build parameter string.
- *   4. Build signature base string: METHOD & base_url & parameter_string.
- *   5. Build signing key: consumer_secret & token_secret.
- *   6. HMAC-SHA1 → base64 → add to oauth_signature param.
- *   7. Return "OAuth key=val, ..." header string.
+ *   2. Parse query-string parameters — include them in the signature (but
+ *      NOT in the Authorization header) per RFC 5849 §3.4.1.1.
+ *   3. Normalize the request URL: lowercase scheme+host, remove default
+ *      port (80 for http, 443 for https), path without query string.
+ *   4. Percent-encode each key/value (RFC 3986 strict).
+ *   5. Sort by encoded key (ASCII), build parameter string.
+ *   6. Build signature base string: METHOD & normalized_url & parameter_string.
+ *   7. Build signing key: consumer_secret & token_secret (RFC 5849 §3.4.2).
+ *   8. HMAC-SHA1 → base64 → add to oauth_signature param.
+ *   9. Return "OAuth key=val, ..." header string.
+ *
+ * JSON bodies are NOT included in the signature per RFC 5849 §3.4.1.3
+ * (only application/x-www-form-urlencoded bodies contribute parameters).
  *
  * @param method - HTTP method (GET, POST, PUT, DELETE).
- * @param url    - Full request URL (query strings stripped internally).
- * @param body   - Optional JSON body string (NOT included in signature
- *                 for Content-Type: application/json — only form-urlencoded
- *                 body keys are included per RFC 5849 §3.4.1.3).
+ * @param url    - Full request URL (query params are parsed and included
+ *                 in the signature base string per spec).
  */
 export function signRequest(method: string, url: string): string {
   const cfg = getConfig();
@@ -96,24 +101,45 @@ export function signRequest(method: string, url: string): string {
     oauth_version: '1.0',
   };
 
-  // --- Step 2 & 3: Encode and sort parameters ------------------------------
+  // --- Step 2 & 3: Parse URL for query params + normalization -------------
 
-  const sorted = Object.entries(oauth)
+  const parsedUrl = new URL(url);
+  const scheme = parsedUrl.protocol.toLowerCase();
+  const host = parsedUrl.hostname.toLowerCase();
+  const port = parsedUrl.port;
+  // Remove default ports per RFC 5849 §3.4.1.2
+  const portStr =
+    !port ||
+    (port === '80' && scheme === 'http:') ||
+    (port === '443' && scheme === 'https:')
+      ? ''
+      : `:${port}`;
+  const normalizedBaseUrl = `${scheme}//${host}${portStr}${parsedUrl.pathname}`;
+
+  // --- Step 4: Collect all parameters (OAuth + query) ---------------------
+
+  const allParams: Record<string, string> = { ...oauth };
+  for (const [k, v] of parsedUrl.searchParams.entries()) {
+    allParams[k] = v;
+  }
+
+  // --- Step 5: Encode and sort --------------------------------------------
+
+  const sorted = Object.entries(allParams)
     .map(([k, v]) => [rfc3986(k), rfc3986(v)] as const)
     .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
 
   const paramString = sorted.map(([k, v]) => `${k}=${v}`).join('&');
 
-  // --- Step 4: Signature base string ---------------------------------------
+  // --- Step 6: Signature base string ---------------------------------------
 
-  const baseUrl = url.split('?')[0]; // strip query string
   const baseString = [
     method.toUpperCase(),
-    rfc3986(baseUrl),
+    rfc3986(normalizedBaseUrl),
     rfc3986(paramString),
   ].join('&');
 
-  // --- Step 5 & 6: Sign ----------------------------------------------------
+  // --- Step 7 & 8: Sign ----------------------------------------------------
 
   const signingKey = `${rfc3986(cfg.X_CONSUMER_SECRET)}&${rfc3986(cfg.X_ACCESS_TOKEN_SECRET)}`;
   const sig = createHmac('sha1', signingKey)
@@ -121,12 +147,13 @@ export function signRequest(method: string, url: string): string {
     .digest('base64');
   const encodedSig = rfc3986(sig);
 
-  // --- Step 7: Build Authorization header ----------------------------------
+  // --- Step 9: Build Authorization header (OAuth params only) -------------
 
-  const parts = [
-    ...sorted.map(([k, v]) => `${k}="${v}"`),
-    `oauth_signature="${encodedSig}"`,
-  ];
+  const oauthParts = sorted
+    .filter(([k]) => k.startsWith('oauth_'))
+    .map(([k, v]) => `${k}="${v}"`);
 
-  return `OAuth ${parts.join(', ')}`;
+  oauthParts.push(`oauth_signature="${encodedSig}"`);
+
+  return `OAuth ${oauthParts.join(', ')}`;
 }
