@@ -149,25 +149,50 @@ async function fetchWithAuth(
 // Types
 // ---------------------------------------------------------------------------
 
-interface SubscriptionResponse {
-  data?: {
-    id: string;
-    event_type: string;
-    tag?: string;
-    webhook_id: string;
-    filter?: { user_id: string };
-  };
-  errors?: Array<{ code?: string; message: string }>;
+/**
+ * Extract a subscription id from an X API response, accepting both
+ * array and object shapes for `data`, and both `subscription_id` and `id`
+ * field names.
+ *
+ * Real X API shapes:
+ *   {"data":[{"subscription_id":"..."}], "meta":{...}}
+ *   {"data":{"subscription_id":"..."}}
+ *   {"data":{"id":"..."}}        (older shape)
+ */
+function extractSubId(parsed: unknown): string | null {
+  if (!parsed || typeof parsed !== 'object') return null;
+  const root = parsed as Record<string, unknown>;
+  const data = root.data;
+  if (!data) return null;
+
+  // Array shape: data is an array of items
+  if (Array.isArray(data)) {
+    if (data.length === 0) return null;
+    const first = data[0] as Record<string, unknown> | undefined;
+    if (!first) return null;
+    return (first.subscription_id as string) ?? (first.id as string) ?? null;
+  }
+
+  // Object shape: data is a lone object
+  if (typeof data === 'object') {
+    const obj = data as Record<string, unknown>;
+    return (obj.subscription_id as string) ?? (obj.id as string) ?? null;
+  }
+
+  return null;
 }
 
-interface ListSubscriptionsResponse {
-  data: Array<{
-    id: string;
-    event_type: string;
-    tag?: string;
-    webhook_id: string;
-    filter?: { user_id: string };
-  }>;
+/**
+ * Normalize the `data` field from a subscription list/response.
+ * Accepts array, lone object, or missing — always returns an array.
+ */
+function extractSubs(parsed: unknown): Array<Record<string, unknown>> {
+  if (!parsed || typeof parsed !== 'object') return [];
+  const root = parsed as Record<string, unknown>;
+  const data = root.data;
+  if (!data) return [];
+  if (Array.isArray(data)) return data as Array<Record<string, unknown>>;
+  return [data as Record<string, unknown>];
 }
 
 // ---------------------------------------------------------------------------
@@ -210,8 +235,8 @@ export async function createSubscription(
     const text = await resp.text().catch(() => 'unknown');
     // 409 Conflict is fine — subscription already exists
     if (resp.status === 409) {
-      const js = (await resp.json().catch(() => ({}))) as { data?: { id?: string } };
-      const id = js.data?.id;
+      const js = await resp.json().catch(() => ({}));
+      const id = extractSubId(js);
       if (id) return id;
       console.warn(`[Subscriptions] ${eventType} already exists (conflict), continuing`);
       return '';
@@ -219,10 +244,12 @@ export async function createSubscription(
     throw new Error(`Subscription create failed for ${eventType}: HTTP ${resp.status} — ${text}`);
   }
 
-  const js = (await resp.json()) as SubscriptionResponse;
-  const subId = js.data?.id;
+  const js = await resp.json();
+  const subId = extractSubId(js);
   if (!subId) {
-    throw new Error(`Subscription created for ${eventType} but no id returned`);
+    const raw = JSON.stringify(js).slice(0, 500);
+    console.error(`[Subscriptions] Could not extract subscription id from response: ${raw}`);
+    return '';
   }
 
   console.log(`[Subscriptions] Created ${eventType} subscription: ${subId}`);
@@ -236,8 +263,18 @@ export async function createSubscription(
 /**
  * GET /2/activity/subscriptions — list all subscriptions.
  * Returns empty array if token unavailable.
+ *
+ * Normalizes the response: accepts both array and lone-object `data`,
+ * maps `subscription_id` to `id` so callers can use `.id` uniformly.
  */
-export async function listSubscriptions(): Promise<ListSubscriptionsResponse['data']> {
+export async function listSubscriptions(): Promise<
+  Array<{
+    id: string;
+    event_type: string;
+    webhook_id: string;
+    [key: string]: unknown;
+  }>
+> {
   const resp = await fetchWithAuth(`${API_V2}/activity/subscriptions`, {
     method: 'GET',
   });
@@ -251,8 +288,14 @@ export async function listSubscriptions(): Promise<ListSubscriptionsResponse['da
     throw new Error(`List subscriptions failed: HTTP ${resp.status}`);
   }
 
-  const js = (await resp.json()) as ListSubscriptionsResponse;
-  return js.data ?? [];
+  const js = await resp.json();
+  const items = extractSubs(js);
+  return items.map((item) => ({
+    id: (item.subscription_id as string) ?? (item.id as string) ?? '',
+    event_type: (item.event_type as string) ?? '',
+    webhook_id: (item.webhook_id as string) ?? '',
+    ...item,
+  }));
 }
 
 // ---------------------------------------------------------------------------

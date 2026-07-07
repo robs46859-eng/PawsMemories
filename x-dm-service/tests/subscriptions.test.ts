@@ -110,13 +110,20 @@ function makeOkResponse(body?: unknown): Response {
 
 function makeErrorResponse(status: number, body?: string): Response {
   const text = body ?? 'error';
+  // Try to parse body as JSON for json() calls
+  let parsedJson: unknown = {};
+  try {
+    if (body) parsedJson = JSON.parse(body);
+  } catch {
+    // not JSON, keep empty object
+  }
   return {
     ok: false,
     status,
     text: async () => text,
-    clone: () => ({ text: async () => text, ok: false, status, headers: new Headers() } as Response),
+    json: async () => parsedJson,
+    clone: () => ({ text: async () => text, json: async () => parsedJson, ok: false, status, headers: new Headers() } as Response),
     headers: new Headers(),
-    json: async () => ({}),
   } as Response;
 }
 
@@ -272,6 +279,121 @@ describe('subscriptions — user-token auth', () => {
       await ensureSubscriptions('wh-001');
 
       // Only list was called, no creates
+      expect(xFetch).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Response parsing — array vs lone-object, subscription_id vs id
+  // -----------------------------------------------------------------------
+
+  describe('response parsing', () => {
+    beforeEach(() => {
+      vi.mocked(getBotUserToken).mockResolvedValue('test-bot-token');
+    });
+
+    it('createSubscription accepts array shape with subscription_id', async () => {
+      vi.mocked(xFetch).mockResolvedValue(
+        makeOkResponse({
+          data: [{ subscription_id: 'sub-array-001', event_type: 'dm.received' }],
+          meta: { result_count: 1 },
+        }),
+      );
+
+      const result = await createSubscription('wh-001', 'dm.received', 'test-tag');
+      expect(result).toBe('sub-array-001');
+    });
+
+    it('createSubscription accepts lone-object shape with subscription_id', async () => {
+      vi.mocked(xFetch).mockResolvedValue(
+        makeOkResponse({
+          data: { subscription_id: 'sub-obj-002', event_type: 'dm.received' },
+        }),
+      );
+
+      const result = await createSubscription('wh-001', 'dm.received', 'test-tag');
+      expect(result).toBe('sub-obj-002');
+    });
+
+    it('createSubscription still works with old id field (backward compat)', async () => {
+      vi.mocked(xFetch).mockResolvedValue(
+        makeOkResponse({
+          data: { id: 'sub-old-003', event_type: 'dm.received', webhook_id: 'wh-001' },
+        }),
+      );
+
+      const result = await createSubscription('wh-001', 'dm.received', 'test-tag');
+      expect(result).toBe('sub-old-003');
+    });
+
+    it('createSubscription handles 409 with array data shape', async () => {
+      vi.mocked(xFetch).mockResolvedValue(
+        makeErrorResponse(409, JSON.stringify({
+          data: [{ subscription_id: 'sub-conflict-004', event_type: 'dm.received' }],
+        })),
+      );
+
+      const result = await createSubscription('wh-001', 'dm.received', 'test-tag');
+      // Should extract the id from conflict response
+      expect(result).toBe('sub-conflict-004');
+    });
+
+    it('listSubscriptions normalizes lone-object data into array', async () => {
+      vi.mocked(xFetch).mockResolvedValue(
+        makeOkResponse({
+          data: { subscription_id: 'sub-list-005', event_type: 'dm.received', webhook_id: 'wh-001' },
+        }),
+      );
+
+      const result = await listSubscriptions();
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe('sub-list-005');
+      expect(result[0].event_type).toBe('dm.received');
+    });
+
+    it('listSubscriptions maps subscription_id to id', async () => {
+      vi.mocked(xFetch).mockResolvedValue(
+        makeOkResponse({
+          data: [
+            { subscription_id: 'sub-a', event_type: 'dm.received', webhook_id: 'wh-001' },
+            { subscription_id: 'sub-b', event_type: 'dm.sent', webhook_id: 'wh-001' },
+          ],
+          meta: { result_count: 2 },
+        }),
+      );
+
+      const result = await listSubscriptions();
+      expect(result).toHaveLength(2);
+      expect(result[0].id).toBe('sub-a');
+      expect(result[1].id).toBe('sub-b');
+    });
+
+    it('createSubscription returns empty string on parse failure (logs error)', async () => {
+      vi.mocked(xFetch).mockResolvedValue(
+        // Valid HTTP 200 but completely unrecognisable body
+        makeOkResponse({ message: 'success', status: 'ok' }),
+      );
+
+      const result = await createSubscription('wh-001', 'dm.received', 'test-tag');
+      // Should not throw — logs and returns ''
+      expect(result).toBe('');
+    });
+
+    it('ensureSubscriptions adopts existing subscriptions by event_type + webhook_id', async () => {
+      // List returns 3 subscriptions — one matching ours, one for different webhook_id, one for different event_type
+      const listData = [
+        { subscription_id: 'sub-match', event_type: 'dm.received', webhook_id: 'wh-001' },
+        { subscription_id: 'sub-other-wh', event_type: 'dm.received', webhook_id: 'wh-999' },
+        { subscription_id: 'sub-other-type', event_type: 'dm.sent', webhook_id: 'wh-001' },
+      ];
+      // Both dm.received and dm.sent exist for wh-001 — should NOT create
+      vi.mocked(xFetch).mockResolvedValue(
+        makeOkResponse({ data: listData, meta: { result_count: 3 } }),
+      );
+
+      await expect(ensureSubscriptions('wh-001')).resolves.toBeUndefined();
+
+      // Only list was called — no create POST
       expect(xFetch).toHaveBeenCalledTimes(1);
     });
   });
