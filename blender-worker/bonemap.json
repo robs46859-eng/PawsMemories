@@ -1,0 +1,23 @@
+{
+  "_comment": "AR_PET_SIM_SPEC §3.1 — Tripo/UniRig bone name -> canonical clip skeleton. TODO(AR3): fill from a real rigged sample; used by bake-lod retarget step. If retarget confidence < threshold, fall back to Tripo animation presets and log for manual review.",
+  "confidenceThreshold": 0.7,
+  "map": {
+    "spine": "spine.001",
+    "spine1": "spine.002",
+    "neck": "spine.003",
+    "head": "head",
+    "tail": "tail.001",
+    "front_left_upper": "leg.FL.upper",
+    "front_left_lower": "leg.FL.lower",
+    "front_left_paw": "leg.FL.paw",
+    "front_right_upper": "leg.FR.upper",
+    "front_right_lower": "leg.FR.lower",
+    "front_right_paw": "leg.FR.paw",
+    "back_left_upper": "leg.BL.upper",
+    "back_left_lower": "leg.BL.lower",
+    "back_left_paw": "leg.BL.paw",
+    "back_right_upper": "leg.BR.upper",
+    "back_right_lower": "leg.BR.lower",
+    "back_right_paw": "leg.BR.paw"
+  }
+}

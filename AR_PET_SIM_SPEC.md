@@ -350,8 +350,9 @@ sync), `POST /api/ar/semantic-scan`, `POST/GET /api/pets/:id/commands`, `.../but
 ## 10. Milestones (one per coding-agent session; commit each; do not skip order)
 
 - **AR1** `src/brain/` engine, pure TS: drives, hormones, utility, considerations, BT
-  core, action catalog stubs, reinforcement. NO rendering. Vitest: decay math, utility
-  ordering, fuzzy-noise bounds, BT traversal, reinforcement clamps. (Biggest testable win first.)
+  core, action catalog stubs, reinforcement. NO rendering. Tests via the repo's built-in
+  `node:test` runner (`node --test tests/*.test.mjs`): decay math, utility ordering,
+  fuzzy-noise bounds, BT traversal, reinforcement clamps. (Biggest testable win first.)
 - **AR2** Server: migrations §8, `/api/pets/classify` (LLM, zod), breedProfiles table,
   state sync endpoints. Tests with mocked LLM.
 - **AR3** Rig pipeline: `/api/pets/:id/rig` → Tripo animate_rig → blender-worker
