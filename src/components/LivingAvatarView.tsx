@@ -2,7 +2,7 @@ import React, { Component, ReactNode, useEffect, useState } from "react";
 import { Boxes, Scan } from "lucide-react";
 import { Avatar, PetObjectKind } from "../types";
 import PetScene from "../three/PetScene";
-import ARScene from "../three/ar/ARScene";
+import ARPetStage from "../three/ar/ARPetStage";
 import CommandBar from "./CommandBar";
 import ObjectPalette from "./ObjectPalette";
 import { useAvatarBrain } from "../three/useAvatarBrain";
@@ -82,7 +82,7 @@ export default function LivingAvatarView({ avatar }: LivingAvatarViewProps) {
         {ready ? (
           <SceneBoundary poster={avatar.image_url}>
             {arMode ? (
-              <ARScene avatar={avatar} />
+              <ARPetStage avatar={avatar} />
             ) : (
               <PetScene avatar={avatar} onRemoveObject={handleRemove} className="absolute inset-0" />
             )}
