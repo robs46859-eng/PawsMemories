@@ -17,6 +17,8 @@ import { buildLegIK, headLookAt, LegIKRig } from "./ik";
 import { chooseStageModelUrl } from "./stageModel";
 import { usePetBrain } from "./brainBridge";
 import { applyGestureToBrain, type PointerSample } from "./gestures";
+import { disposeObject3D } from "./dispose";
+import ARErrorBoundary from "./ARErrorBoundary";
 
 /**
  * ARPetStage — AR_PET_SIM_SPEC §6 (milestone AR4).
@@ -117,6 +119,15 @@ function PetStageContent({
 
   // Contact shadow plane under the pet (grounding fallback, §6.2).
   const contactShadow = useMemo(() => makeContactShadow(0.6), []);
+
+  // AR9 — free GPU resources when the stage unmounts (session end / volumetric cleanup).
+  useEffect(() => {
+    return () => {
+      disposeObject3D(anchorRef.current);
+      contactShadow.geometry.dispose();
+      (contactShadow.material as THREE.Material).dispose();
+    };
+  }, [contactShadow]);
 
   useXRHitTest((results, getWorldMatrix) => {
     latestHit.current = results[0] ?? null;
@@ -265,15 +276,17 @@ export default function ARPetStage({ avatar, lodGlbUrl, riggedGlbUrl }: ARPetSta
       >
         {supported === null ? "Checking AR…" : "Enter AR"}
       </button>
-      <Canvas shadows camera={{ position: [0, 1.4, 2], fov: 50 }}>
-        <XR store={store}>
-          <PetStageContent avatar={avatar} modelUrl={modelUrl} />
-          <XRDomOverlay>
-            <ARObjectOverlay />
-            <ARCommandOverlay avatarId={avatar.id} />
-          </XRDomOverlay>
-        </XR>
-      </Canvas>
+      <ARErrorBoundary>
+        <Canvas shadows camera={{ position: [0, 1.4, 2], fov: 50 }}>
+          <XR store={store}>
+            <PetStageContent avatar={avatar} modelUrl={modelUrl} />
+            <XRDomOverlay>
+              <ARObjectOverlay />
+              <ARCommandOverlay avatarId={avatar.id} />
+            </XRDomOverlay>
+          </XR>
+        </Canvas>
+      </ARErrorBoundary>
     </div>
   );
 }

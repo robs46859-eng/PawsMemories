@@ -7,11 +7,11 @@ import Stripe from "stripe";
 import fs from "fs";
 import twilio from "twilio";
 import rateLimit from "express-rate-limit";
-import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton } from "./db";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings } from "./db";
 import { classifyPetImage, type GenerateFn } from "./server/petClassify";
 import { semanticScan as runSemanticScan } from "./server/semanticScan";
 import { phraseKey } from "./src/three/ar/voice";
-import { decayCompliance } from "./src/brain";
+import { decayCompliance, pointsForTrial, creditsFromPoints, type TrialType } from "./src/brain";
 import { createHash } from "crypto";
 import { resolveBreedProfile } from "./server/breedProfiles";
 import { decayDrives, DEFAULT_DRIVES, DEFAULT_HORMONES, weightsFromTemperament } from "./src/brain";
@@ -1608,6 +1608,57 @@ async function startServer() {
     } catch (err: any) {
       console.error("[pets/buttons] failed:", err?.message || err);
       res.status(500).json({ error: "Failed to save button." });
+    }
+  });
+
+  // POST /api/trials/:type/result — AR_PET_SIM_SPEC §7.4
+  // Award trainer points + credits for a completed disc/agility trial.
+  app.post("/api/trials/:type/result", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const type = req.params.type as TrialType;
+      if (type !== "disc" && type !== "agility") {
+        return res.status(400).json({ error: "Unknown trial type." });
+      }
+      const { petId, catches, score } = req.body || {};
+      const pet = await getPetProfileById(Number(petId), req.user!.phone);
+      if (!pet) return res.status(404).json({ error: "Pet not found." });
+
+      const points = pointsForTrial(type, {
+        catches: Number(catches) || 0,
+        score: Number(score) || 0,
+      });
+      const trainerScore = await incrementTrainerScore(Number(petId), req.user!.phone, points);
+      const credits = creditsFromPoints(points);
+      if (credits > 0) await addCredits(req.user!.phone, credits, `trial_${type}`);
+
+      res.json({ type, points, trainerScore, credits });
+    } catch (err: any) {
+      console.error("[trials/result] failed:", err?.message || err);
+      res.status(500).json({ error: "Failed to record trial result." });
+    }
+  });
+
+  // PATCH /api/pets/:id/settings — aging/mortality settings (§4.6; OFF by default).
+  app.patch("/api/pets/:id/settings", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const petId = Number(req.params.id);
+      const pet = await getPetProfileById(petId, req.user!.phone);
+      if (!pet) return res.status(404).json({ error: "Pet not found." });
+      const { aging_mode, mortality_enabled, life_stage } = req.body || {};
+      if (aging_mode != null && !["off", "slow", "realistic"].includes(aging_mode)) {
+        return res.status(400).json({ error: "aging_mode must be off|slow|realistic." });
+      }
+      if (life_stage != null && !["puppy", "adult", "senior"].includes(life_stage)) {
+        return res.status(400).json({ error: "life_stage must be puppy|adult|senior." });
+      }
+      const ok = await updatePetSettings(petId, req.user!.phone, {
+        aging_mode,
+        mortality_enabled: typeof mortality_enabled === "boolean" ? mortality_enabled : undefined,
+        life_stage,
+      });
+      res.json({ success: ok });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to update settings." });
     }
   });
 

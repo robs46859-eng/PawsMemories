@@ -1700,6 +1700,48 @@ export async function upsertPetProfile(
   return getPetProfileByAvatar(avatarId, phone);
 }
 
+// --- AR8: progression + settings (§4.6–4.7 / §7.4) -------------------------
+
+/** Add to a pet's trainer score; returns the new score, or null if not owned. */
+export async function incrementTrainerScore(
+  petId: number,
+  phone: string,
+  points: number
+): Promise<number | null> {
+  const [result] = (await getPool().query(
+    `UPDATE pet_profiles p JOIN avatars a ON a.id = p.avatar_id
+        SET p.trainer_score = p.trainer_score + ?
+      WHERE p.id = ? AND a.user_phone = ?`,
+    [Math.max(0, Math.round(points)), petId, phone]
+  )) as any;
+  if (result.affectedRows < 1) return null;
+  const prof = await getPetProfileById(petId, phone);
+  return prof ? prof.trainer_score : null;
+}
+
+/** Update aging/mortality settings (ownership-checked). */
+export async function updatePetSettings(
+  petId: number,
+  phone: string,
+  settings: { aging_mode?: string; mortality_enabled?: boolean; life_stage?: string }
+): Promise<boolean> {
+  const [result] = (await getPool().query(
+    `UPDATE pet_profiles p JOIN avatars a ON a.id = p.avatar_id
+        SET p.aging_mode = COALESCE(?, p.aging_mode),
+            p.mortality_enabled = COALESCE(?, p.mortality_enabled),
+            p.life_stage = COALESCE(?, p.life_stage)
+      WHERE p.id = ? AND a.user_phone = ?`,
+    [
+      settings.aging_mode ?? null,
+      settings.mortality_enabled == null ? null : settings.mortality_enabled ? 1 : 0,
+      settings.life_stage ?? null,
+      petId,
+      phone,
+    ]
+  )) as any;
+  return result.affectedRows >= 1;
+}
+
 // --- AR7: voice commands + spatial buttons (§7.2–7.3) ----------------------
 
 /** List a pet's learned voice commands (ownership-checked). */

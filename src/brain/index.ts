@@ -13,6 +13,8 @@ export * from "./actions";
 export * from "./behaviorTree";
 export * from "./reinforcement";
 export * from "./pacing";
+export * from "./aging";
+export * from "./progression";
 export * from "./bodyLanguage";
 export * from "./brain";
 export { buildTree, defaultRegistry, registerDefaultLeaves } from "./trees";

@@ -1,34 +1,41 @@
 /**
  * src/three/ar/capabilityMatrix.tsx — AR_PET_SIM_SPEC §6 / AR9
- * Capability-detect test page: WebXR depth / lighting estimation / Web Speech /
- * XR8 presence — so degradation paths are verifiable on real devices.
- *
- * TODO(AR9): render a live matrix of detected capabilities and the fallback each
- * triggers (occlusion→shadows, lighting→luminance sampling, voice→on-screen buttons).
+ * Capability-detect test page: shows which AR features are available on this
+ * device and the fallback each triggers. Pure logic lives in ./capabilities.
  */
 
-export interface CapabilityReport {
-  webxr: boolean;
-  webxrDepth: boolean;
-  webxrLighting: boolean;
-  webSpeech: boolean;
-  xr8: boolean;
-}
+import { detectCapabilities, degradationPlan } from "./capabilities";
 
-/** Best-effort capability probe (safe on non-browser/build environments). */
-export function detectCapabilities(): CapabilityReport {
-  const nav: any = typeof navigator !== "undefined" ? navigator : undefined;
-  const win: any = typeof window !== "undefined" ? window : undefined;
-  return {
-    webxr: !!nav?.xr,
-    webxrDepth: false, // TODO(AR9): probe XRSession depth-sensing feature
-    webxrLighting: false, // TODO(AR9): probe 'light-estimation' feature
-    webSpeech: !!(win && (win.SpeechRecognition || win.webkitSpeechRecognition)),
-    xr8: !!win?.XR8,
-  };
-}
+export type { CapabilityReport } from "./capabilities";
+export { detectCapabilities, degradationPlan } from "./capabilities";
 
 export default function CapabilityMatrix() {
-  // TODO(AR9): render detectCapabilities() as a table.
-  return null;
+  const report = detectCapabilities();
+  const plan = degradationPlan(report);
+  const rows: [string, string][] = [
+    ["WebXR", report.webxr ? "yes" : "no"],
+    ["WebXR depth", report.webxrDepth ? "yes" : "no"],
+    ["WebXR lighting", report.webxrLighting ? "yes" : "no"],
+    ["Web Speech", report.webSpeech ? "yes" : "no"],
+    ["8th Wall (XR8)", report.xr8 ? "yes" : "no"],
+    ["→ tracking", plan.tracking],
+    ["→ occlusion", plan.occlusion],
+    ["→ lighting", plan.lighting],
+    ["→ voice", plan.voice],
+  ];
+  return (
+    <div className="p-4 text-sm">
+      <h2 className="font-bold mb-2">AR capability matrix</h2>
+      <table className="w-full">
+        <tbody>
+          {rows.map(([k, v]) => (
+            <tr key={k}>
+              <td className="py-1 pr-4 opacity-70">{k}</td>
+              <td className="py-1 font-mono">{v}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
