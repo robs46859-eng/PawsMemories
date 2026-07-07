@@ -1700,6 +1700,75 @@ export async function upsertPetProfile(
   return getPetProfileByAvatar(avatarId, phone);
 }
 
+// --- AR7: voice commands + spatial buttons (§7.2–7.3) ----------------------
+
+/** List a pet's learned voice commands (ownership-checked). */
+export async function getPetCommands(petId: number, phone: string): Promise<any[]> {
+  const [rows] = await getPool().query(
+    `SELECT c.* FROM pet_commands c
+       JOIN pet_profiles p ON p.id = c.pet_id
+       JOIN avatars a ON a.id = p.avatar_id
+      WHERE c.pet_id = ? AND a.user_phone = ? ORDER BY c.created_at ASC`,
+    [petId, phone]
+  );
+  return (rows as any[]).map((r) => ({
+    ...r,
+    metaphone_keys: typeof r.metaphone_keys === "string" ? JSON.parse(r.metaphone_keys) : r.metaphone_keys,
+  }));
+}
+
+/** Add a learned command. Caller must have verified ownership of `petId`. */
+export async function addPetCommand(
+  petId: number,
+  data: { phrase: string; metaphone_keys: string[]; action: string; compliance?: number }
+): Promise<number> {
+  const [result] = (await getPool().query(
+    `INSERT INTO pet_commands (pet_id, phrase, metaphone_keys, action, compliance, last_reinforced)
+     VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+    [petId, data.phrase, JSON.stringify(data.metaphone_keys || []), data.action, data.compliance ?? 0.5]
+  )) as any;
+  return result.insertId;
+}
+
+/** Update a command's compliance + last_reinforced (reinforcement / forgetting sync). */
+export async function setCommandCompliance(
+  commandId: number,
+  compliance: number
+): Promise<void> {
+  await getPool().query(
+    `UPDATE pet_commands SET compliance = ?, last_reinforced = CURRENT_TIMESTAMP WHERE id = ?`,
+    [compliance, commandId]
+  );
+}
+
+/** List a pet's spatial buttons (ownership-checked). */
+export async function getPetButtons(petId: number, phone: string): Promise<any[]> {
+  const [rows] = await getPool().query(
+    `SELECT b.* FROM pet_buttons b
+       JOIN pet_profiles p ON p.id = b.pet_id
+       JOIN avatars a ON a.id = p.avatar_id
+      WHERE b.pet_id = ? AND a.user_phone = ? ORDER BY b.created_at ASC`,
+    [petId, phone]
+  );
+  return (rows as any[]).map((r) => ({
+    ...r,
+    anchor: typeof r.anchor === "string" ? JSON.parse(r.anchor) : r.anchor,
+  }));
+}
+
+/** Add a spatial button. Caller must have verified ownership of `petId`. */
+export async function addPetButton(
+  petId: number,
+  data: { label: string; audio_url: string; linked_action?: string | null; anchor: any }
+): Promise<number> {
+  const [result] = (await getPool().query(
+    `INSERT INTO pet_buttons (pet_id, label, audio_url, linked_action, anchor)
+     VALUES (?, ?, ?, ?, ?)`,
+    [petId, data.label, data.audio_url, data.linked_action ?? null, JSON.stringify(data.anchor || {})]
+  )) as any;
+  return result.insertId;
+}
+
 /** Cached semantic scan for an anchor (AR6, §6.4). Returns zones JSON or null. */
 export async function getSemanticScan(
   userPhone: string,

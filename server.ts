@@ -7,9 +7,11 @@ import Stripe from "stripe";
 import fs from "fs";
 import twilio from "twilio";
 import rateLimit from "express-rate-limit";
-import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan } from "./db";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton } from "./db";
 import { classifyPetImage, type GenerateFn } from "./server/petClassify";
 import { semanticScan as runSemanticScan } from "./server/semanticScan";
+import { phraseKey } from "./src/three/ar/voice";
+import { decayCompliance } from "./src/brain";
 import { createHash } from "crypto";
 import { resolveBreedProfile } from "./server/breedProfiles";
 import { decayDrives, DEFAULT_DRIVES, DEFAULT_HORMONES, weightsFromTemperament } from "./src/brain";
@@ -1521,6 +1523,91 @@ async function startServer() {
     } catch (err: any) {
       console.error("[ar/semantic-scan] failed:", err?.message || err);
       res.status(502).json({ error: "Semantic scan failed." });
+    }
+  });
+
+  // GET /api/pets/:id/commands — learned voice commands, with forgetting decay
+  // applied to compliance from last_reinforced (§7.2).
+  app.get("/api/pets/:id/commands", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const petId = Number(req.params.id);
+      const pet = await getPetProfileById(petId, req.user!.phone);
+      if (!pet) return res.status(404).json({ error: "Pet not found." });
+      const rows = await getPetCommands(petId, req.user!.phone);
+      const now = Date.now();
+      const commands = rows.map((c: any) => {
+        const last = c.last_reinforced ? new Date(c.last_reinforced).getTime() : now;
+        const days = Math.max(0, (now - last) / 86_400_000);
+        return { ...c, compliance: decayCompliance(Number(c.compliance), days) };
+      });
+      res.json({ commands });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to load commands." });
+    }
+  });
+
+  // POST /api/pets/:id/commands — teach a command. Body { phrase, action,
+  // samples?: string[] }. Server computes phonetic keys from the samples (or the
+  // phrase) so client + server stay consistent.
+  app.post("/api/pets/:id/commands", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const petId = Number(req.params.id);
+      const pet = await getPetProfileById(petId, req.user!.phone);
+      if (!pet) return res.status(404).json({ error: "Pet not found." });
+      const { phrase, action, samples } = req.body || {};
+      if (typeof phrase !== "string" || !phrase.trim() || typeof action !== "string") {
+        return res.status(400).json({ error: "phrase and action are required." });
+      }
+      const src: string[] = Array.isArray(samples) && samples.length ? samples : [phrase];
+      const keys = Array.from(new Set(src.map((s) => phraseKey(String(s))).filter(Boolean)));
+      const id = await addPetCommand(petId, { phrase, metaphone_keys: keys, action });
+      res.json({ id, phrase, action, metaphone_keys: keys, compliance: 0.5 });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to save command." });
+    }
+  });
+
+  // GET /api/pets/:id/buttons — spatial speech buttons.
+  app.get("/api/pets/:id/buttons", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const petId = Number(req.params.id);
+      const pet = await getPetProfileById(petId, req.user!.phone);
+      if (!pet) return res.status(404).json({ error: "Pet not found." });
+      res.json({ buttons: await getPetButtons(petId, req.user!.phone) });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to load buttons." });
+    }
+  });
+
+  // POST /api/pets/:id/buttons — create a button. Body { label, audioBase64|audioUrl,
+  // linkedAction?, anchor }. Audio is uploaded to B2.
+  app.post("/api/pets/:id/buttons", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const petId = Number(req.params.id);
+      const pet = await getPetProfileById(petId, req.user!.phone);
+      if (!pet) return res.status(404).json({ error: "Pet not found." });
+      const { label, audioBase64, audioUrl, linkedAction, anchor } = req.body || {};
+      if (typeof label !== "string" || !label.trim()) {
+        return res.status(400).json({ error: "label is required." });
+      }
+      let storedAudioUrl = "";
+      if (typeof audioBase64 === "string" && audioBase64) {
+        storedAudioUrl = await uploadBase64Binary(audioBase64, "audio/webm");
+      } else if (typeof audioUrl === "string" && audioUrl) {
+        storedAudioUrl = await uploadBinaryFromUrl(audioUrl, "audio/webm");
+      } else {
+        return res.status(400).json({ error: "audioBase64 or audioUrl required." });
+      }
+      const id = await addPetButton(petId, {
+        label,
+        audio_url: storedAudioUrl,
+        linked_action: typeof linkedAction === "string" ? linkedAction : null,
+        anchor: anchor || {},
+      });
+      res.json({ id, label, audio_url: storedAudioUrl, linked_action: linkedAction ?? null, anchor: anchor || {} });
+    } catch (err: any) {
+      console.error("[pets/buttons] failed:", err?.message || err);
+      res.status(500).json({ error: "Failed to save button." });
     }
   });
 
