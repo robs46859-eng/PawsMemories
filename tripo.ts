@@ -1,6 +1,25 @@
 const TRIPO_BASE = "https://api.tripo3d.ai/v2/openapi";
 export const TRIPO_PREFIX = "tripo:";
 
+export class TripoError extends Error {
+  constructor(
+    public status: number,
+    public code: number | null,
+    public rawMessage: string,
+    message: string
+  ) {
+    super(message);
+    this.name = "TripoError";
+  }
+}
+
+export function isTripoInsufficientCredit(err: any): boolean {
+  if (err instanceof TripoError) {
+    return err.status === 403 && err.code === 2010;
+  }
+  return err && err.message && err.message.includes("enough credit");
+}
+
 function apiKey(): string {
   const key = process.env.TRIPO_API_KEY;
   if (!key) throw new Error("TRIPO_API_KEY is not configured.");
@@ -74,7 +93,14 @@ async function uploadToTripo(imageUrl: string): Promise<UploadedImage> {
 
   const uploadJson: any = await uploadRes.json().catch(() => ({}));
   if (!uploadRes.ok) {
-    throw new Error(`Tripo upload failed (${uploadRes.status}): ${JSON.stringify(uploadJson)}`);
+    const code = typeof uploadJson?.code === "number" ? uploadJson.code : null;
+    const rawMsg = uploadJson?.message || "";
+    throw new TripoError(
+      uploadRes.status,
+      code,
+      rawMsg,
+      `Tripo upload failed (${uploadRes.status}): ${rawMsg || JSON.stringify(uploadJson)}`
+    );
   }
   const token = uploadJson?.data?.image_token;
   if (!token) {
@@ -94,7 +120,14 @@ async function submitTask(body: Record<string, unknown>): Promise<string> {
   });
   const json: any = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(`Tripo task failed (${res.status}): ${JSON.stringify(json)}`);
+    const code = typeof json?.code === "number" ? json.code : null;
+    const rawMsg = json?.message || "";
+    throw new TripoError(
+      res.status,
+      code,
+      rawMsg,
+      `Tripo task failed (${res.status}): ${rawMsg || JSON.stringify(json)}`
+    );
   }
   const taskId = json?.data?.task_id;
   if (!taskId) {
@@ -225,7 +258,14 @@ export async function pollImageTo3D(operationName: string): Promise<TripoPollRes
   });
   const json: any = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(`Tripo status check failed (${res.status}): ${JSON.stringify(json)}`);
+    const code = typeof json?.code === "number" ? json.code : null;
+    const rawMsg = json?.message || "";
+    throw new TripoError(
+      res.status,
+      code,
+      rawMsg,
+      `Tripo status check failed (${res.status}): ${rawMsg || JSON.stringify(json)}`
+    );
   }
 
   const status = json?.data?.status;

@@ -13,6 +13,7 @@ interface AvatarDashboardProps {
   userProfile: UserProfile;
   onUpdateUser: (user: PublicUser) => void;
   isDarkMode: boolean;
+  onOpenCreditStore?: () => void;
 }
 
 const ACTION_CONFIGS: {
@@ -30,7 +31,7 @@ const ACTION_CONFIGS: {
   { action: "photo",    icon: <Camera size={16} />,    label: "Photo",   color: "text-purple-600", bgColor: "bg-purple-500/10 hover:bg-purple-500/20" },
 ];
 
-export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode }: AvatarDashboardProps) {
+export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode, onOpenCreditStore }: AvatarDashboardProps) {
   const [avatars, setAvatars] = useState<Avatar[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -112,7 +113,13 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode 
       // Reload to get the new avatar with 'pending' status
       await loadAvatars();
     } catch (err: any) {
-      alert(err.message || "Failed to create avatar.");
+      if (err?.code === "GENERATION_SERVICE_UNAVAILABLE") {
+        alert("3D generation is temporarily unavailable. Please try again later.");
+      } else if (err?.status === 402) {
+        onOpenCreditStore ? onOpenCreditStore() : alert("You don't have enough credits.");
+      } else {
+        alert(err?.message || "Failed to create avatar.");
+      }
     }
     setCreating(false);
   };

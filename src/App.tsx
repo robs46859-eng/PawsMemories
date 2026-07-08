@@ -599,6 +599,7 @@ export default function App() {
                   applyUser(updatedUser);
                 }}
                 isDarkMode={isDarkMode}
+                onOpenCreditStore={() => setShowCreditStore(true)}
               />
             )}
 

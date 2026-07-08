@@ -21,7 +21,7 @@ import { runBuildPipeline } from "./agent/graph/orchestrator";
 import { analyzePetImage } from "./ollama-agent";
 import { getBlenderClient } from "./agent/tools/blender_client";
 import { startTalkingVideo, pollTalkingVideo, fetchMp4AsDataUrl, isHeyGenHandle } from "./heygen";
-import { startImageTo3D, pollImageTo3D, isTripoHandle, startRig, pollTripoTask } from "./tripo";
+import { startImageTo3D, pollImageTo3D, isTripoHandle, startRig, pollTripoTask, isTripoInsufficientCredit } from "./tripo";
 import { checkBudget, needsRetargetFallback, type BakeStats } from "./server/rigBudget";
 import { buildReferencePrompt, turnaroundViewsForType, paletteLockClause, extractPaletteInstruction } from "./avatarPrompts";
 import {
@@ -879,8 +879,15 @@ async function startServer() {
 
       res.json({ avatarId, status: "pending", referenceImageUrl: finalImageUrl, usedReferenceImage });
     } catch (err: any) {
+      if (isTripoInsufficientCredit(err)) {
+        console.error("[Tripo] Platform account out of credits — top up TRIPO_API_KEY account");
+        return res.status(503).json({
+          error: "3D generation is temporarily unavailable. Please try again later.",
+          code: "GENERATION_SERVICE_UNAVAILABLE"
+        });
+      }
       console.error("[POST /api/avatars] Error creating avatar:", err);
-      res.status(500).json({ error: err.message || "Failed to create avatar." });
+      res.status(500).json({ error: "Failed to create avatar. Please try again." });
     }
   });
 
@@ -979,9 +986,12 @@ async function startServer() {
                  const originalImageBase64 = await fetchUrlAsBase64(originalImageUrl);
                  const glbBase64 = await fetchUrlAsBase64(glbUrl);
                 
-                const petAnalysis = await analyzePetImage(originalImageBase64);
-                
-                const buildState = await runBuildPipeline(
+                 let petAnalysis = await analyzePetImage(originalImageBase64);
+                 if (avatar.avatar_type === 'human') {
+                    petAnalysis = { ...petAnalysis, species: 'human', bodyType: 'biped', legCount: 2, hasTail: false };
+                 }
+
+                 const buildState = await runBuildPipeline(
                    petAnalysis,
                    glbBase64,
                    async (step, pct, detail) => {
@@ -1419,7 +1429,7 @@ async function startServer() {
           "Content-Type": "application/json",
           "x-worker-secret": process.env.WORKER_SHARED_SECRET || "",
         },
-        body: JSON.stringify({ glb_url: rig.glbUrl }),
+        body: JSON.stringify({ glb_url: rig.glbUrl, avatar_type: avatar?.avatar_type }),
       });
       const bakeJson: any = await bakeRes.json().catch(() => ({}));
       if (!bakeRes.ok || !bakeJson.glb_base64) {
@@ -1442,6 +1452,10 @@ async function startServer() {
           `[pets/rig] pet ${petId}: low retarget confidence / missing leg chains — ` +
           `recommend Tripo preset animations. stats=${JSON.stringify(stats)}`
         );
+        if (avatar?.avatar_type === 'human') {
+          console.error(`[pets/rig] humanoid retarget below confidence for pet ${petId}`);
+          return res.status(422).json({ error: "humanoid retarget below confidence" });
+        }
       }
 
       res.json({ success: true, riggedGlbUrl, lodGlbUrl, stats, budget, retargetFallbackRecommended });
@@ -2560,19 +2574,25 @@ async function startServer() {
         }
       }
 
-      // Deduct credits upfront (Admin bypass: skip deduction).
-      if (!isAdmin) {
-        await deductCredits(userPhone, MODEL_COST);
-      }
-
-      // Start Meshy generation. On failure, refund the reserved credits.
+      // Start Tripo/Meshy generation first.
       let handle: string;
       try {
         handle = await startImageTo3D({ imageUrl: publicImageUrl });
       } catch (genErr: any) {
-        if (!isAdmin) await refundCredits(userPhone, MODEL_COST);
-        console.error("Meshy start error:", genErr);
-        return res.status(502).json({ success: false, error: genErr.message || "Failed to start 3D model generation." });
+        console.error("Tripo/Meshy start error:", genErr);
+        if (isTripoInsufficientCredit(genErr)) {
+          return res.status(503).json({
+            success: false,
+            error: "3D generation is temporarily unavailable. Please try again later.",
+            code: "GENERATION_SERVICE_UNAVAILABLE"
+          });
+        }
+        return res.status(502).json({ success: false, error: "Failed to start 3D model generation. Please try again later." });
+      }
+
+      // Deduct credits after successful submission.
+      if (!isAdmin) {
+        await deductCredits(userPhone, MODEL_COST);
       }
 
       // Create job in DB (kind 'model', handle stored with meshy: prefix).

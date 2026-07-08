@@ -10,6 +10,7 @@ import { fileURLToPath } from "url";
 import Jimp from "jimp";
 import * as templates from "./animation-templates.js";
 import { buildSkeletalClipScript, SKELETAL_CLIP_MANIFEST } from "./skeletal-clips.js";
+import { buildSkeletalClipScript as buildSkeletalClipScriptHuman, SKELETAL_CLIP_MANIFEST as SKELETAL_CLIP_MANIFEST_HUMAN } from "./skeletal-clips-human.js";
 
 const execPromise = promisify(exec);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -415,7 +416,7 @@ const DEFAULT_BONEMAP_PATH = path.join(__dirname, "bonemap.json");
 
 app.post("/bake-lod", async (req, res) => {
   try {
-    let { glb_base64, glb_url, bonemap } = req.body || {};
+    let { glb_base64, glb_url, bonemap, avatar_type } = req.body || {};
 
     if (!glb_base64 && glb_url) {
       const r = await fetch(glb_url);
@@ -430,7 +431,11 @@ app.post("/bake-lod", async (req, res) => {
       glb_base64 = glb_base64.split(",")[1] || glb_base64;
     }
     if (!bonemap) {
-      bonemap = JSON.parse(fs.readFileSync(DEFAULT_BONEMAP_PATH, "utf8"));
+      const isHuman = avatar_type === "human";
+      const bonemapPath = isHuman
+        ? path.join(__dirname, "bonemap.human.json")
+        : DEFAULT_BONEMAP_PATH;
+      bonemap = JSON.parse(fs.readFileSync(bonemapPath, "utf8"));
     }
 
     const tempGlbPath = `/tmp/bake_input_${crypto.randomUUID()}.glb`;
@@ -900,12 +905,16 @@ app.post("/bake-clips", async (req, res) => {
   const tempDir = path.join(os.tmpdir(), `clips_${jobId}`);
 
   try {
-    const { rigged_glb_base64 } = req.body;
+    const { rigged_glb_base64, avatar_type } = req.body;
     if (!rigged_glb_base64) {
       return res.status(400).json({ error: "Missing rigged_glb_base64" });
     }
 
-    console.log(`[Clips ${jobId}] Starting skeletal clip bake...`);
+    const isHuman = avatar_type === "human";
+    const clipScriptBuilder = isHuman ? buildSkeletalClipScriptHuman : buildSkeletalClipScript;
+    const clipManifest = isHuman ? SKELETAL_CLIP_MANIFEST_HUMAN : SKELETAL_CLIP_MANIFEST;
+
+    console.log(`[Clips ${jobId}] Starting skeletal clip bake (avatarType=${avatar_type || 'dog'})...`);
     fs.mkdirSync(tempDir, { recursive: true });
 
     const inputGlbPath = path.join(tempDir, "rigged_input.glb");
@@ -917,9 +926,9 @@ app.post("/bake-clips", async (req, res) => {
       rawGlb = rawGlb.split(",")[1] || rawGlb;
     }
     fs.writeFileSync(inputGlbPath, Buffer.from(rawGlb, "base64"));
-    fs.writeFileSync(scriptPath, buildSkeletalClipScript(inputGlbPath, outputGlbPath), "utf8");
+    fs.writeFileSync(scriptPath, clipScriptBuilder(inputGlbPath, outputGlbPath), "utf8");
 
-    jobs.set(jobId, { type: "bake-clips", status: "processing", createdAt: Date.now(), tempDir });
+    jobs.set(jobId, { type: "bake-clips", status: "processing", createdAt: Date.now(), tempDir, clipManifest });
 
     res.status(202).json({ jobId, status: "processing" });
 
@@ -949,7 +958,7 @@ app.post("/bake-clips", async (req, res) => {
         job.result = {
           success: true,
           rigged_glb_base64: buffer.toString("base64"),
-          clips: SKELETAL_CLIP_MANIFEST,
+          clips: job.clipManifest || SKELETAL_CLIP_MANIFEST,
         };
         try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
       }

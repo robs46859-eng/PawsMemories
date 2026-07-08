@@ -40,6 +40,21 @@ async function parseError(res: Response, fallback: string): Promise<string> {
   }
 }
 
+export class ApiError extends Error {
+  constructor(public status: number, public code: string | null, message: string) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+async function throwApiError(res: Response, fallback: string): Promise<never> {
+  let body: any = {};
+  try {
+    body = await res.json();
+  } catch {}
+  throw new ApiError(res.status, body?.code ?? null, body?.error || fallback);
+}
+
 // --- Auth flow -------------------------------------------------------------
 
 /** Step 1: create an account with email + password. Stores the session token. */
@@ -306,7 +321,7 @@ export async function create3DModel(creationId: number): Promise<{ jobId: number
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ creationId }),
   });
-  if (!res.ok) throw new Error(await parseError(res, "Failed to start 3D model generation."));
+  if (!res.ok) await throwApiError(res, "Failed to start 3D model generation.");
   return await res.json();
 }
 
@@ -347,7 +362,7 @@ export async function generate3DAvatar(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ photos, name, palette: palette || undefined, avatar_type: avatarType }),
   });
-  if (!res.ok) throw new Error(await parseError(res, "Failed to create avatar."));
+  if (!res.ok) await throwApiError(res, "Failed to create avatar.");
   return await res.json();
 }
 

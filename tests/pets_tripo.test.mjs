@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test, beforeEach, afterEach } from "node:test";
 
 process.env.TRIPO_API_KEY = "test-key";
-const { startRig, startRetarget, pollTripoTask } = await import("../tripo.ts");
+const { startRig, startRetarget, pollTripoTask, isTripoInsufficientCredit, TripoError } = await import("../tripo.ts");
 
 let captured;
 const realFetch = global.fetch;
@@ -65,4 +65,15 @@ test("pollTripoTask reports failure status", async () => {
   const r = await pollTripoTask("tripo:rig123");
   assert.equal(r.done, true);
   assert.ok(r.error);
+});
+
+test("isTripoInsufficientCredit detects Tripo 403 / 2010 error", () => {
+  const creditErr = new TripoError(403, 2010, "insufficient balance", "Tripo task failed (403): insufficient balance");
+  assert.equal(isTripoInsufficientCredit(creditErr), true);
+
+  const genericErr = new Error("Some other error message");
+  assert.equal(isTripoInsufficientCredit(genericErr), false);
+
+  const fallbackErr = new Error("You don't have enough credit...");
+  assert.equal(isTripoInsufficientCredit(fallbackErr), true);
 });

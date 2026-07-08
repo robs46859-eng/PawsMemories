@@ -1,0 +1,31 @@
+{
+  "_comment": "retarget map for humanoid bake-lod. Renames Tripo/Mixamo humanoid bones to biped canonical names.",
+  "confidenceThreshold": 0.85,
+  "canonical": {
+    "hips": ["mixamorig:hips", "hips", "pelvis", "root"],
+    "spine": ["mixamorig:spine", "spine"],
+    "chest": ["mixamorig:spine2", "mixamorig:spine1", "mixamorig:chest", "chest", "spine1", "spine2"],
+    "neck": ["mixamorig:neck", "neck"],
+    "head": ["mixamorig:head", "head"],
+    "shoulder.L": ["mixamorig:leftshoulder", "leftshoulder", "shoulder.l", "shoulder_l"],
+    "shoulder.R": ["mixamorig:rightshoulder", "rightshoulder", "shoulder.r", "shoulder_r"],
+    "upperarm.L": ["mixamorig:leftarm", "leftarm", "upperarm.l", "upperarm_l", "leftupperarm"],
+    "upperarm.R": ["mixamorig:rightarm", "rightarm", "upperarm.r", "upperarm_r", "rightupperarm"],
+    "forearm.L": ["mixamorig:leftforearm", "leftforearm", "forearm.l", "forearm_l", "leftlowerarm", "leftarm_lower"],
+    "forearm.R": ["mixamorig:rightforearm", "rightforearm", "forearm.r", "forearm_r", "rightlowerarm", "rightarm_lower"],
+    "hand.L": ["mixamorig:lefthand", "lefthand", "hand.l", "hand_l"],
+    "hand.R": ["mixamorig:righthand", "righthand", "hand.r", "hand_r"],
+    "thigh.L": ["mixamorig:leftupleg", "leftupleg", "thigh.l", "thigh_l", "leftupperleg"],
+    "thigh.R": ["mixamorig:rightupleg", "rightupleg", "thigh.r", "thigh_r", "rightupperleg"],
+    "shin.L": ["mixamorig:leftleg", "leftleg", "shin.l", "shin_l", "leftlowerleg"],
+    "shin.R": ["mixamorig:rightleg", "rightleg", "shin.r", "shin_r", "rightlowerleg"],
+    "foot.L": ["mixamorig:leftfoot", "leftfoot", "foot.l", "foot_l"],
+    "foot.R": ["mixamorig:rightfoot", "rightfoot", "foot.r", "foot_r"]
+  },
+  "legChains": [
+    ["thigh.L", "shin.L", "foot.L"],
+    ["thigh.R", "shin.R", "foot.R"],
+    ["upperarm.L", "forearm.L", "hand.L"],
+    ["upperarm.R", "forearm.R", "hand.R"]
+  ]
+}
