@@ -568,3 +568,29 @@ export async function deletePlacedObject(avatarId: number, objectId: string): Pr
     return false;
   }
 }
+
+// --- Image-to-3D utility (generic, not pet-specific) -----------------------
+
+export interface ImageTo3DMultiview {
+  left?: string;
+  back?: string;
+  right?: string;
+}
+
+/**
+ * Submit any arbitrary image for 3D GLB generation via Tripo.
+ * Optionally supply multiview turnaround shots for higher quality.
+ * Returns a jobId that can be polled via the existing `pollJob()`.
+ */
+export async function submitImageTo3D(
+  image: string,
+  multiview?: ImageTo3DMultiview
+): Promise<{ jobId: number; status: string }> {
+  const res = await authedFetch("/api/image-to-3d", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ image, multiview }),
+  });
+  if (!res.ok) await throwApiError(res, "Failed to start 3D generation.");
+  return await res.json();
+}

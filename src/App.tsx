@@ -12,12 +12,13 @@ import RandyChat from "./components/RandyChat";
 import AlbumView from "./components/AlbumView";
 import AlbumsPage from "./components/AlbumsPage";
 import { fetchMe, fetchCreations, fetchAlbums, createAlbum, clearToken, claimAchievement, claimDailyStreak, claimShareReward, confirmCreditsSession } from "./api";
-import { Sparkles, User, History, FolderOpen, Sun, Moon, LogOut, RefreshCw, Zap, Dog, ClipboardList, Bell, ShoppingBag, Users, Home } from "lucide-react";
+import { Sparkles, User, History, FolderOpen, Sun, Moon, LogOut, RefreshCw, Zap, Dog, ClipboardList, Bell, ShoppingBag, Users, Home, Layers } from "lucide-react";
 import CreditStore from "./components/CreditStore";
 import AvatarDashboard from "./components/AvatarDashboard";
 import Store from "./components/Store";
 import ProfileScreen from "./components/ProfileScreen";
 import Community from "./components/Community";
+import ImageTo3DPanel from "./components/ImageTo3DPanel";
 
 const EMPTY_PROFILE: UserProfile = { fullName: "", email: "", credits: 0, treats: 0, isAdmin: false, city: "", ageVerified: false };
 
@@ -49,6 +50,11 @@ const getBackgroundImage = (screen: Screen) => {
       return {
         url: "/MAIN.jpg",
         className: "opacity-55"
+      };
+    case Screen.IMAGE_TO_3D:
+      return {
+        url: "/MAIN2.jpg",
+        className: "opacity-40 blur-[2px]"
       };
     case Screen.DASHBOARD:
     default:
@@ -364,6 +370,7 @@ export default function App() {
             <button onClick={() => setCurrentScreen(Screen.AVATAR_DASHBOARD)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.AVATAR_DASHBOARD ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Avatars</button>
             <button onClick={() => setCurrentScreen(Screen.STORE)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.STORE ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Store</button>
             <button onClick={() => setCurrentScreen(Screen.COMMUNITY)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.COMMUNITY ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Community</button>
+            <button onClick={() => setCurrentScreen(Screen.IMAGE_TO_3D)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.IMAGE_TO_3D ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>3D Studio</button>
           </div>
 
           <div className="flex items-center gap-2 md:gap-4">
@@ -635,6 +642,14 @@ export default function App() {
               <Community userProfile={userProfile} />
             )}
 
+            {currentScreen === Screen.IMAGE_TO_3D && (
+              <ImageTo3DPanel
+                credits={userProfile.credits}
+                isAdmin={userProfile.isAdmin}
+                onCreditsSpent={handleDeductCredits}
+              />
+            )}
+
             {/* Safety net: if somehow on SIGN_UP while authed, send to dashboard */}
             {currentScreen === Screen.SIGN_UP && (
               <Dashboard
@@ -664,7 +679,7 @@ export default function App() {
       </main>
 
       {/* Floating Bottom Navigator (only when signed in and past onboarding) */}
-      {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.AVATAR_DASHBOARD, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY].includes(currentScreen) && (
+      {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.AVATAR_DASHBOARD, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.IMAGE_TO_3D].includes(currentScreen) && (
         <div className="fixed md:hidden bottom-0 left-0 right-0 bg-surface-container-lowest/90 dark:bg-surface-dim/90 backdrop-blur-xl border-t border-outline-variant/30 py-2 px-4 flex justify-around items-center z-40 rounded-t-2xl shadow-[0_-8px_32px_0_rgba(68,42,34,0.08)]">
           <button
             onClick={() => setCurrentScreen(Screen.DASHBOARD)}
@@ -704,6 +719,16 @@ export default function App() {
           >
             <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.AVATAR_DASHBOARD ? "'FILL' 1" : "'FILL' 0" }}>pets</span>
             <span className="text-[10px] font-bold">Avatars</span>
+          </button>
+
+          <button
+            onClick={() => setCurrentScreen(Screen.IMAGE_TO_3D)}
+            className={`flex flex-col items-center justify-center gap-1 py-2 px-3 rounded-xl transition-all duration-300 ${
+              currentScreen === Screen.IMAGE_TO_3D ? "bg-primary text-on-primary scale-105" : "text-on-surface-variant hover:bg-surface-variant/50"
+            }`}
+          >
+            <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.IMAGE_TO_3D ? "'FILL' 1" : "'FILL' 0" }}>view_in_ar</span>
+            <span className="text-[10px] font-bold">3D</span>
           </button>
 
           <button

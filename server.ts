@@ -2634,7 +2634,136 @@ async function startServer() {
     }
   });
 
+  // ---------------------------------------------------------------------------
+  // Generic Image-to-3D utility: any arbitrary image → GLB download.
+  // Bypasses all pet-specific AI (no generatePetReferenceImage, no turnaround
+  // generation). Users supply their own image + optional multiview shots.
+  // Reuses the same credit/cap guards as create-3d-model.
+  // ---------------------------------------------------------------------------
+
+  app.post("/api/image-to-3d", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { image, multiview } = req.body || {};
+      if (!image || typeof image !== "string") {
+        return res.status(400).json({ success: false, error: "An image (base64 data URL or public URL) is required." });
+      }
+
+      const userPhone = req.user!.phone;
+      const isAdmin = await isUserAdmin(userPhone);
+
+      // Credit/cap guards — same as create-3d-model
+      if (!isAdmin) {
+        const dailyCount = await getDailyVideoCount(userPhone);
+        if (dailyCount >= MAX_DAILY_VIDEOS) {
+          return res.status(429).json({ success: false, error: `Daily generation limit reached (${MAX_DAILY_VIDEOS}/day). Please try again tomorrow.` });
+        }
+        const balance = await getCreditBalance(userPhone);
+        if (balance < MODEL_COST) {
+          return res.status(402).json({ success: false, error: `Insufficient credits. You need ${MODEL_COST} credits.` });
+        }
+      }
+
+      // Ensure we have a public URL for Tripo
+      let publicImageUrl = image;
+      if (publicImageUrl.startsWith("data:image")) {
+        try {
+          publicImageUrl = await uploadBase64Image(publicImageUrl);
+        } catch (upErr: any) {
+          return res.status(502).json({ success: false, error: "Could not prepare image for 3D conversion." });
+        }
+      }
+
+      // Process optional multiview images (user-supplied left/back/right)
+      let views: { left?: string; back?: string; right?: string } | undefined;
+      if (multiview && typeof multiview === "object") {
+        const uploaded: { left?: string; back?: string; right?: string } = {};
+        for (const key of ["left", "back", "right"] as const) {
+          const v = multiview[key];
+          if (v && typeof v === "string") {
+            uploaded[key] = v.startsWith("data:image") ? await uploadBase64Image(v) : v;
+          }
+        }
+        if (Object.keys(uploaded).length > 0) views = uploaded;
+      }
+
+      // Start Tripo generation directly — no pet AI reference image step
+      let handle: string;
+      try {
+        handle = await startImageTo3D({ imageUrl: publicImageUrl, views });
+      } catch (genErr: any) {
+        console.error("[image-to-3d] Tripo start error:", genErr);
+        if (isTripoInsufficientCredit(genErr)) {
+          return res.status(503).json({
+            success: false,
+            error: "3D generation is temporarily unavailable. Please try again later.",
+            code: "GENERATION_SERVICE_UNAVAILABLE"
+          });
+        }
+        return res.status(502).json({ success: false, error: "Failed to start 3D generation. Please try again later." });
+      }
+
+      // Deduct credits after successful submission
+      if (!isAdmin) {
+        await deductCredits(userPhone, MODEL_COST);
+      }
+
+      // Create job in DB (kind 'model', reuse the same jobs table)
+      const jobId = await createJob({
+        user_phone: userPhone,
+        creation_id: null as any, // no creation for arbitrary images
+        kind: "model",
+        credits_reserved: MODEL_COST,
+        operation_name: handle,
+      });
+
+      console.log(`[image-to-3d] Job ${jobId} started for user ${userPhone} (handle: ${handle})`);
+      res.status(202).json({ success: true, jobId, status: "queued" });
+    } catch (err: any) {
+      console.error("[image-to-3d] Error:", err);
+      res.status(500).json({ success: false, error: err.message || "Failed to start 3D generation." });
+    }
+  });
+
+  // Status alias — delegates to the existing /api/jobs/:id poller which already
+  // handles Tripo handles. This gives the image-to-3d UI a clean URL.
+  app.get("/api/image-to-3d/:jobId/status", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const jobId = parseInt(req.params.jobId, 10);
+      const job = await getJob(jobId, req.user!.phone);
+      if (!job) return res.status(404).json({ success: false, error: "Job not found" });
+
+      if ((job.status === "running" || job.status === "queued") && job.operation_name && isTripoHandle(job.operation_name)) {
+        try {
+          const poll = await pollTripoTask(job.operation_name);
+          if (poll.done && !poll.error) {
+            await updateJobStatus(jobId, "done");
+            // Store the GLB URL on the job as model_url
+            if (poll.glbUrl) {
+              await setCreationModelUrl(job.creation_id!, req.user!.phone, poll.glbUrl).catch(() => {
+                // creation_id may be null for arbitrary images — that's fine
+              });
+            }
+            return res.json({ status: "done", model_url: poll.glbUrl, progress: 100 });
+          } else if (poll.done && poll.error) {
+            await updateJobStatus(jobId, "failed");
+            return res.json({ status: "failed", error: poll.error });
+          } else {
+            return res.json({ status: "running", progress: poll.progress || 0 });
+          }
+        } catch (pollErr: any) {
+          return res.json({ status: "running", progress: 0 });
+        }
+      }
+
+      // Terminal states
+      res.json({ status: job.status, model_url: (job as any).model_url || null });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: "Failed to check job status." });
+    }
+  });
+
   app.get("/api/jobs/:id", requireAuth, async (req: AuthedRequest, res) => {
+
     try {
       const jobId = parseInt(req.params.id, 10);
       const job = await getJob(jobId, req.user!.phone);
