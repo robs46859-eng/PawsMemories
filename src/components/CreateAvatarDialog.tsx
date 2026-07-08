@@ -3,7 +3,7 @@ import { Camera, X, Check, Upload, Sparkles, Plus } from "lucide-react";
 
 interface CreateAvatarDialogProps {
   onClose: () => void;
-  onSubmit: (name: string, photos: string[], palette: string | null) => void;
+  onSubmit: (name: string, photos: string[], palette: string | null, avatarType: 'dog' | 'human') => void;
   isDarkMode: boolean;
 }
 
@@ -47,6 +47,7 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
   const [name, setName] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
   const [palette, setPalette] = useState<string>("auto");
+  const [avatarType, setAvatarType] = useState<'dog' | 'human'>("dog");
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -100,10 +101,10 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
       return;
     }
     if (photos.length === 0) {
-      alert("Please upload at least one photo of your pet.");
+      alert(`Please upload at least one photo of your ${avatarType === "dog" ? "pet" : "person"}.`);
       return;
     }
-    onSubmit(name.trim(), photos, palette === "auto" ? null : palette);
+    onSubmit(name.trim(), photos, palette === "auto" ? null : palette, avatarType);
   };
 
   return (
@@ -120,15 +121,49 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
           </button>
         </div>
 
+        {/* Avatar Type Segmented Control */}
+        <div className="flex bg-surface border border-outline-variant/30 rounded-2xl p-1 mb-6">
+          <button
+            type="button"
+            onClick={() => {
+              setAvatarType("dog");
+              setPhotos([]);
+            }}
+            className={`flex-1 py-2.5 text-sm font-bold rounded-xl transition-all ${
+              avatarType === "dog"
+                ? "bg-primary text-white shadow-md"
+                : "text-on-surface-variant hover:text-on-surface hover:bg-outline-variant/10"
+            }`}
+          >
+            🐕 Dog Avatar
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setAvatarType("human");
+              setPhotos([]);
+            }}
+            className={`flex-1 py-2.5 text-sm font-bold rounded-xl transition-all ${
+              avatarType === "human"
+                ? "bg-primary text-white shadow-md"
+                : "text-on-surface-variant hover:text-on-surface hover:bg-outline-variant/10"
+            }`}
+          >
+            🧑 Human Avatar
+          </button>
+        </div>
+
         {/* Info Banner */}
         <div className="bg-primary/10 border border-primary/20 text-on-surface rounded-xl p-4 text-sm flex gap-3 items-start mb-6">
           <Camera size={18} className="shrink-0 mt-0.5 text-primary" />
           <div>
             <p className="font-bold mb-1">AI-Powered 3D Generation</p>
             <p className="opacity-70 text-xs">
-              Upload up to {MAX_PHOTOS} clear photos of your pet from different angles. Our AI fuses them
-              into one hyper-realistic reference image (standing, facing forward), then builds the 3D
-              model, rigs it, and creates animations — all automatically!
+              {avatarType === "dog" ? (
+                <>Upload up to {MAX_PHOTOS} clear photos of your pet from different angles. Our AI fuses them into one hyper-realistic reference image (standing, facing forward), then builds the 3D model, rigs it, and creates animations — all automatically!</>
+              ) : (
+                <>Upload up to {MAX_PHOTOS} clear photos of the person from different angles. Our AI fuses them into one hyper-realistic reference image (bipedal A-pose, standing, facing forward), then builds the 3D model, rigs it, and creates animations — all automatically!</>
+              )}
             </p>
           </div>
         </div>
@@ -142,7 +177,7 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Buddy, Luna, Max..."
+            placeholder={avatarType === "dog" ? "e.g. Buddy, Luna, Max..." : "e.g. Robert, Alice, John..."}
             className="w-full bg-surface border border-outline-variant/30 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all text-on-surface"
           />
         </div>
@@ -150,14 +185,14 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
         {/* Photo Upload Area */}
         <div className="mb-6">
           <label className="block text-xs font-bold mb-1.5 opacity-60 uppercase tracking-wider text-on-surface-variant">
-            Pet Photos ({photos.length}/{MAX_PHOTOS})
+            {avatarType === "dog" ? "Pet Photos" : "Photos of Person"} ({photos.length}/{MAX_PHOTOS})
           </label>
 
           {photos.length > 0 && (
             <div className="grid grid-cols-3 gap-2 mb-2">
               {photos.map((p, i) => (
                 <div key={i} className="relative rounded-xl overflow-hidden border border-outline-variant/30 bg-surface aspect-square group">
-                  <img src={p} alt={`Pet photo ${i + 1}`} className="w-full h-full object-cover" />
+                  <img src={p} alt={`Photo ${i + 1}`} className="w-full h-full object-cover" />
                   <button
                     onClick={() => removePhoto(i)}
                     className="absolute top-1.5 right-1.5 bg-black/60 backdrop-blur-sm text-white w-6 h-6 rounded-full flex items-center justify-center hover:bg-red-500 transition-colors"
@@ -206,7 +241,7 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
                 <Upload size={28} className={isDragging ? "text-primary" : "text-on-surface-variant"} />
               </div>
               <p className="text-sm font-bold text-on-surface mb-1">
-                {isDragging ? "Drop your photos here!" : "Upload pet photos"}
+                {isDragging ? "Drop your photos here!" : avatarType === "dog" ? "Upload pet photos" : "Upload photos of the person"}
               </p>
               <p className="text-xs text-on-surface-variant opacity-60">
                 Drag & drop or click to browse • Up to {MAX_PHOTOS} photos • JPG, PNG, WebP • Max 10MB each
@@ -259,7 +294,9 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
             ))}
           </div>
           <p className="text-[10px] text-on-surface-variant opacity-60 mt-1.5">
-            Coordinates the render's lighting &amp; accent tones. Your pet's real fur &amp; eye colors are always kept true.
+            {avatarType === "dog"
+              ? "Coordinates the render's lighting & accent tones. Your pet's real fur & eye colors are always kept true."
+              : "Coordinates the render's lighting & accent tones. The person's clothing, hair & skin colors are always kept true."}
           </p>
         </div>
 

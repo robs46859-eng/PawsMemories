@@ -104,10 +104,10 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode 
     });
   }, [avatars]);
 
-  const handleCreateAvatar = async (name: string, photos: string[], palette: string | null) => {
+  const handleCreateAvatar = async (name: string, photos: string[], palette: string | null, avatarType: 'dog' | 'human') => {
     setCreating(true);
     try {
-      const result = await generate3DAvatar(name, photos, palette);
+      const result = await generate3DAvatar(name, photos, palette, avatarType);
       setShowCreate(false);
       // Reload to get the new avatar with 'pending' status
       await loadAvatars();

@@ -100,7 +100,7 @@ export default function LivingAvatarView({ avatar }: LivingAvatarViewProps) {
             >
               <Scan size={14} /> {arMode ? "3D view" : "AR"}
             </button>
-            {!arMode && (
+            {!arMode && avatar.avatar_type !== "human" && (
               <button
                 onClick={() => setShowObjects((v) => !v)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/50 backdrop-blur-sm text-white text-xs font-bold hover:bg-black/70 active:scale-95"
@@ -112,7 +112,7 @@ export default function LivingAvatarView({ avatar }: LivingAvatarViewProps) {
         )}
       </div>
       <div className="p-4 border-t border-outline-variant/20 flex flex-col gap-3">
-        {showObjects && (
+        {showObjects && avatar.avatar_type !== "human" && (
           <div className="flex flex-col gap-1.5">
             <p className="text-[10px] uppercase tracking-wider font-bold opacity-50 text-center">
               Tap to add • tap an object in the scene to remove
@@ -120,7 +120,7 @@ export default function LivingAvatarView({ avatar }: LivingAvatarViewProps) {
             <ObjectPalette onAdd={handleAdd} />
           </div>
         )}
-        <CommandBar avatarId={avatar.id} petName={avatar.name} />
+        <CommandBar avatarId={avatar.id} petName={avatar.name} avatarType={avatar.avatar_type} />
       </div>
     </div>
   );

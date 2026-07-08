@@ -229,11 +229,12 @@ export class BlenderClient {
    */
   async bakeClipsAndWait(
     riggedGlbBase64: string,
-    opts: { timeoutMs?: number; intervalMs?: number } = {}
+    opts: { timeoutMs?: number; intervalMs?: number; avatarType?: 'dog' | 'human' } = {}
   ): Promise<{ riggedGlbBase64: string; clips: ClipManifestEntry[] }> {
-    const { timeoutMs = 300000, intervalMs = 3000 } = opts;
+    const { timeoutMs = 300000, intervalMs = 3000, avatarType = 'dog' } = opts;
     const start = await this.send<{ jobId?: string }>("/bake-clips", "POST", {
       rigged_glb_base64: riggedGlbBase64,
+      avatar_type: avatarType,
     });
     const jobId = start.jobId;
     if (!jobId) throw new Error("bake-clips did not return a jobId");

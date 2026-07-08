@@ -252,6 +252,7 @@ export async function initDb(): Promise<void> {
         breed VARCHAR(120) NULL,
         generation_status ENUM('pending','generating_mesh','rigging','baking_sprites','done','failed') NOT NULL DEFAULT 'done',
         generation_error TEXT NULL,
+        avatar_type VARCHAR(16) NOT NULL DEFAULT 'dog',
         food_level INT NOT NULL DEFAULT 100,
         water_level INT NOT NULL DEFAULT 100,
         last_fed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -324,6 +325,7 @@ export async function initDb(): Promise<void> {
       // Multiview turnaround view URLs ({left,back,right}) so retry/resume can
       // re-run Tripo multiview without regenerating the images.
       { name: "multiview_json",     ddl: "ADD COLUMN multiview_json JSON NULL" },
+      { name: "avatar_type",        ddl: "ADD COLUMN avatar_type VARCHAR(16) NOT NULL DEFAULT 'dog'" },
     ];
     for (const col of requiredAvatarColumns) {
       if (!avatarColumnNames.includes(col.name)) {
@@ -1157,6 +1159,7 @@ export interface AvatarRow {
   breed: string | null;
   generation_status: 'pending' | 'generating_mesh' | 'rigging' | 'retargeting' | 'baking_clips' | 'baking_sprites' | 'done' | 'failed';
   generation_error: string | null;
+  avatar_type: 'dog' | 'human';
   food_level: number;
   water_level: number;
   last_fed: string;
@@ -1173,11 +1176,21 @@ export async function createAvatar(
     animal_type?: string;
     breed?: string;
     generation_status?: string;
+    avatar_type?: string;
   }
 ): Promise<number> {
   const [result] = await getPool().query(
-    `INSERT INTO avatars (user_phone, name, image_url, meshy_handle, animal_type, breed, generation_status) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [phone, name, image_url, meshy_handle, opts?.animal_type || null, opts?.breed || null, opts?.generation_status || 'pending']
+    `INSERT INTO avatars (user_phone, name, image_url, meshy_handle, animal_type, breed, generation_status, avatar_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      phone,
+      name,
+      image_url,
+      meshy_handle,
+      opts?.animal_type || null,
+      opts?.breed || null,
+      opts?.generation_status || 'pending',
+      opts?.avatar_type || 'dog'
+    ]
   ) as any;
   return result.insertId;
 }

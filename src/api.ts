@@ -339,12 +339,13 @@ export async function fetchAvatars(): Promise<Avatar[]> {
 export async function generate3DAvatar(
   name: string,
   photos: string[],
-  palette?: string | null
+  palette?: string | null,
+  avatarType?: 'dog' | 'human'
 ): Promise<{ avatarId: number; status: string; referenceImageUrl?: string; usedReferenceImage?: boolean }> {
   const res = await authedFetch("/api/avatars", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ photos, name, palette: palette || undefined }),
+    body: JSON.stringify({ photos, name, palette: palette || undefined, avatar_type: avatarType }),
   });
   if (!res.ok) throw new Error(await parseError(res, "Failed to create avatar."));
   return await res.json();

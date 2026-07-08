@@ -62,7 +62,7 @@ export function useAvatarBrain(avatar: Avatar, opts?: { enabled?: boolean }) {
     const playNow = (action: BehaviorAction) => {
       const s = useAvatarScene.getState();
       s.setAction(action);
-      s.say(speechFor(action));
+      s.say(speechFor(action, avatar.avatar_type));
       actionTimer = durationFor(action);
       wanderCooldown = 3 + Math.random() * 4;
     };
@@ -103,9 +103,22 @@ export function useAvatarBrain(avatar: Avatar, opts?: { enabled?: boolean }) {
       const s = useAvatarScene.getState();
 
       // 1. needs
-      const decayed = applyDecay(s.needs, s.action, dt / 3600);
-      decayed.lastSeen = new Date().toISOString();
-      s.replaceNeeds(decayed);
+      if (avatar.avatar_type === "human") {
+        const fullNeeds: AvatarNeeds = {
+          food: 100,
+          water: 100,
+          energy: 100,
+          bladder: 0,
+          bowel: 0,
+          happiness: 100,
+          lastSeen: new Date().toISOString(),
+        };
+        s.replaceNeeds(fullNeeds);
+      } else {
+        const decayed = applyDecay(s.needs, s.action, dt / 3600);
+        decayed.lastSeen = new Date().toISOString();
+        s.replaceNeeds(decayed);
+      }
 
       actionTimer -= dt;
       wanderCooldown -= dt;
@@ -137,15 +150,11 @@ export function useAvatarBrain(avatar: Avatar, opts?: { enabled?: boolean }) {
       if (s.speech) s.say(null);
 
       // 4. decide next behavior
-      const critical = criticalOverride(decayed, s.action);
-      if (critical) {
-        begin(critical);
-      } else {
+      if (avatar.avatar_type === "human") {
         const cmd = s.commandQueue[0];
         if (cmd) {
           s.dequeueCommand();
           if (cmd.action === "walking") {
-            // "Come" → walk to the user/center.
             s.setTarget({ x: 0, z: 0 });
             s.setAction("walking");
             pendingRef.current = null;
@@ -153,10 +162,41 @@ export function useAvatarBrain(avatar: Avatar, opts?: { enabled?: boolean }) {
             begin(cmd.action);
           }
         } else {
-          const auto = chooseAutonomous(decayed, s.placedObjects);
-          if (auto) begin(auto);
-          else if (wanderCooldown <= 0) startWander();
-          else if (s.action !== "walking") s.setAction("idle");
+          // Human-specific auto behaviors: wander, wave, speaking, idle
+          if (wanderCooldown <= 0) {
+            startWander();
+          } else if (s.action !== "walking" && s.action === "idle") {
+            // Occasional idle gesture or speaking
+            const rand = Math.random();
+            if (rand < 0.05) {
+              playNow("interacting"); // wave
+            } else if (rand < 0.08) {
+              playNow("speaking"); // talk
+            }
+          }
+        }
+      } else {
+        const critical = criticalOverride(s.needs, s.action);
+        if (critical) {
+          begin(critical);
+        } else {
+          const cmd = s.commandQueue[0];
+          if (cmd) {
+            s.dequeueCommand();
+            if (cmd.action === "walking") {
+              // "Come" → walk to the user/center.
+              s.setTarget({ x: 0, z: 0 });
+              s.setAction("walking");
+              pendingRef.current = null;
+            } else {
+              begin(cmd.action);
+            }
+          } else {
+            const auto = chooseAutonomous(s.needs, s.placedObjects);
+            if (auto) begin(auto);
+            else if (wanderCooldown <= 0) startWander();
+            else if (s.action !== "walking") s.setAction("idle");
+          }
         }
       }
 

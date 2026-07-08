@@ -44,9 +44,14 @@ function Ground() {
 export default function PetScene({ avatar, modelUrl, onRemoveObject, className = "" }: PetSceneProps) {
   // Prefer a rigged skeletal model (Phase 5) so real clips play; fall back to the plain mesh.
   const url = modelUrl || avatar.rigged_model_url || avatar.model_url || "";
+  const isHuman = avatar.avatar_type === "human";
+  const cameraPos: [number, number, number] = isHuman ? [3.0, 2.5, 3.5] : [2.2, 1.6, 2.6];
+  const controlsTarget: [number, number, number] = isHuman ? [0, 0.9, 0] : [0, 0.4, 0];
+  const cameraFov = isHuman ? 45 : 42;
+
   return (
     <div className={className} style={{ width: "100%", height: "100%" }}>
-      <Canvas shadows camera={{ position: [2.2, 1.6, 2.6], fov: 42 }} dpr={[1, 2]}>
+      <Canvas shadows camera={{ position: cameraPos, fov: cameraFov }} dpr={[1, 2]}>
         <color attach="background" args={["#dfeee0"]} />
         <hemisphereLight intensity={0.7} groundColor={"#8fbf7f"} />
         <directionalLight
@@ -56,7 +61,7 @@ export default function PetScene({ avatar, modelUrl, onRemoveObject, className =
           shadow-mapSize={[1024, 1024]}
         />
         <Suspense fallback={null}>
-          {url ? <AvatarModel url={url} /> : null}
+          {url ? <AvatarModel url={url} avatarType={avatar.avatar_type} /> : null}
           <PlacedObjects onRemoveObject={onRemoveObject} />
           <Ground />
           <ContactShadows position={[0, 0.01, 0]} opacity={0.35} scale={12} blur={2.4} far={4} />
@@ -64,9 +69,9 @@ export default function PetScene({ avatar, modelUrl, onRemoveObject, className =
         <OrbitControls
           enablePan={false}
           minDistance={1.5}
-          maxDistance={6}
+          maxDistance={isHuman ? 8 : 6}
           maxPolarAngle={Math.PI / 2.05}
-          target={[0, 0.4, 0]}
+          target={controlsTarget}
         />
       </Canvas>
     </div>

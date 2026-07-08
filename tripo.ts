@@ -173,16 +173,17 @@ export async function startImageTo3D(input: TripoJobInput): Promise<string> {
  */
 export async function startRig(
   originalModelTaskId: string,
-  opts?: { modelVersion?: string }
+  opts?: { modelVersion?: string; avatarType?: 'dog' | 'human' }
 ): Promise<string> {
   const original = originalModelTaskId.startsWith(TRIPO_PREFIX)
     ? tripoTaskId(originalModelTaskId)
     : originalModelTaskId;
+  const spec = opts?.avatarType === "human" ? "humanoid" : "tripo";
   return submitTask({
     type: "animate_rig",
     original_model_task_id: original,
     out_format: "glb",
-    spec: "tripo",
+    spec,
     // Pin a rig model version for reproducibility; override via env if Tripo bumps it.
     model_version: opts?.modelVersion || process.env.TRIPO_RIG_MODEL_VERSION || "v2.0-20250506",
   });

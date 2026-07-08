@@ -25,14 +25,27 @@ const CLIP_CANDIDATES: Record<BehaviorAction, string[]> = {
   digging: ["dig_hole", "dig"],
 };
 
+const HUMAN_CLIP_CANDIDATES: Partial<Record<BehaviorAction, string[]>> = {
+  idle: ["idle", "breath", "stand"],
+  walking: ["walk"],
+  running: ["run", "jog"],
+  sitting: ["sit"],
+  sleeping: ["sleep", "lie", "rest"],
+  speaking: ["talk", "speak", "lip", "gesture"],
+  interacting: ["wave", "greet", "nod", "interact"],
+  stretching: ["stretch"],
+};
+
 /** Resolve the best-matching clip name in `available` for `action`, or null. */
 export function resolveClipName(
   action: BehaviorAction,
-  available: string[]
+  available: string[],
+  avatarType?: 'dog' | 'human'
 ): string | null {
   if (!available.length) return null;
   const lower = available.map((n) => ({ raw: n, low: n.toLowerCase() }));
-  for (const frag of CLIP_CANDIDATES[action] || []) {
+  const candidates = avatarType === "human" ? HUMAN_CLIP_CANDIDATES : CLIP_CANDIDATES;
+  for (const frag of candidates[action] || []) {
     const hit = lower.find((c) => c.low.includes(frag));
     if (hit) return hit.raw;
   }

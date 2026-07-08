@@ -13,6 +13,8 @@
  */
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
+import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import { PlacedObject } from "../../types";
 import { OBJECT_CATALOG } from "../objects/catalog";
 import { resolveClipName } from "../clipMap";
@@ -54,6 +56,8 @@ export interface StartOptions {
   objects: PlacedObject[];
   /** current behavior action name, read each frame from the shared store */
   getAction: () => string;
+  /** Surfaced when the pet GLB fails to load (otherwise the failure is silent). */
+  onError?: (message: string) => void;
 }
 
 /**
@@ -76,7 +80,16 @@ export async function startEighthWallAR(
   // pipeline module is registered below.
   (window as any).THREE = (window as any).THREE || THREE;
 
+  // The pet/object GLBs are commonly Draco- and/or Meshopt-compressed (Tripo +
+  // the bake-LOD step). drei's useGLTF wires these decoders automatically for
+  // the in-app 3D view, but this standalone 8th Wall path uses a bare
+  // GLTFLoader — without the decoders a compressed mesh fails to parse and the
+  // pet silently never appears. Configure them to match the 3D view.
   const loader = new GLTFLoader();
+  const dracoLoader = new DRACOLoader();
+  dracoLoader.setDecoderPath("https://www.gstatic.com/draco/versioned/decoders/1.5.7/");
+  loader.setDRACOLoader(dracoLoader);
+  loader.setMeshoptDecoder(MeshoptDecoder);
   const clock = new THREE.Clock();
 
   let mixer: THREE.AnimationMixer | null = null;
@@ -193,6 +206,12 @@ export async function startEighthWallAR(
           clips = gltf.animations;
           playClip(opts.getAction());
         }
+      }, undefined, (err: unknown) => {
+        // Previously silent: a failed/compressed-mesh load left the pet invisible
+        // with no feedback. Log + surface so the UI can show a message.
+        const msg = (err as any)?.message || "Could not load the pet model in AR.";
+        console.error("[8thwall] pet model failed to load:", err);
+        opts.onError?.(msg);
       });
 
       // Load placed objects now, and keep them in sync with the store live.

@@ -56,7 +56,6 @@ export const DEFAULT_BREED_MODIFIERS: BreedModifiers = {
   scale: 1,
 };
 
-/** Canonical action ids. These map to the 15 GLB clips downstream (AR5). */
 export type ActionId =
   | "idle"
   | "eat"
@@ -68,6 +67,8 @@ export type ActionId =
   | "roll"
   | "sniff"
   | "bark";
+
+export type HumanActionId = "idle" | "walk" | "wave" | "gesture" | "talk";
 
 /** A single consideration: read a value from context, shape it to [0,1] via `curve`,
  *  raised to `exponent` in the utility product (§4.1). */

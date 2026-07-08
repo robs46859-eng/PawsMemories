@@ -33,6 +33,7 @@ export default function EighthWallARView({ avatar, onExit }: { avatar: Avatar; o
       modelUrl: url,
       objects: useAvatarScene.getState().placedObjects,
       getAction: () => useAvatarScene.getState().action,
+      onError: (msg) => { if (!cancelled) setError(msg); },
     })
       .then((h) => {
         if (cancelled) h.stop();

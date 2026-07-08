@@ -176,7 +176,21 @@ export function durationFor(action: BehaviorAction): number {
 }
 
 /** Optional speech-bubble text for flavor. */
-export function speechFor(action: BehaviorAction): string | null {
+export function speechFor(action: BehaviorAction, avatarType?: 'dog' | 'human'): string | null {
+  if (avatarType === "human") {
+    switch (action) {
+      case "speaking":
+        return "Hello!";
+      case "interacting":
+        return "👋 Hello!";
+      case "sleeping":
+        return "💤";
+      case "walking":
+        return "🚶";
+      default:
+        return null;
+    }
+  }
   switch (action) {
     case "peeing":
       return "💦";

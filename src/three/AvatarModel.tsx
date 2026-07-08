@@ -61,12 +61,51 @@ export function applyProcedural(g: THREE.Group, action: BehaviorAction, t: numbe
   g.rotation.z = roll;
 }
 
+export function applyHumanProcedural(g: THREE.Group, action: BehaviorAction, t: number): void {
+  let y = 0;
+  let tilt = 0;
+  let roll = 0;
+  let sway = 0;
+  switch (action) {
+    case "walking":
+      y = Math.abs(Math.sin(t * 5)) * 0.03;
+      sway = Math.sin(t * 5) * 0.05;
+      break;
+    case "running":
+      y = Math.abs(Math.sin(t * 8)) * 0.06;
+      sway = Math.sin(t * 8) * 0.08;
+      break;
+    case "playing":
+    case "interacting":
+      sway = Math.sin(t * 6) * 0.08;
+      tilt = Math.sin(t * 3) * 0.04;
+      break;
+    case "sleeping":
+      roll = Math.PI / 2.1;
+      y = -0.6;
+      break;
+    case "sitting":
+      y = -0.3;
+      tilt = -0.1;
+      break;
+    case "speaking":
+      tilt = Math.sin(t * 10) * 0.05;
+      break;
+    default:
+      y = Math.sin(t * 1.5) * 0.01;
+      sway = Math.cos(t * 1.5) * 0.02;
+  }
+  g.position.y = y;
+  g.rotation.x = tilt;
+  g.rotation.z = roll + sway;
+}
+
 /**
  * The avatar's GLB, normalized to the ground, driven by the shared store's
  * `action`/`target`. Plays skeletal clips when the model has them, otherwise
  * animates procedurally. Used by both the in-app scene and the AR scene.
  */
-export default function AvatarModel({ url }: { url: string }) {
+export default function AvatarModel({ url, avatarType = "dog" }: { url: string; avatarType?: "dog" | "human" }) {
   const group = useRef<THREE.Group>(null);
   const { scene, animations } = useGLTF(url);
 
@@ -119,7 +158,8 @@ export default function AvatarModel({ url }: { url: string }) {
     cloned.position.z -= cog.z;
     cloned.position.y -= minY;
 
-    const scale = TARGET_HEIGHT / (size.y || Math.max(size.x, size.z) || 1);
+    const targetHeight = avatarType === "human" ? 1.7 : 0.7;
+    const scale = targetHeight / (size.y || Math.max(size.x, size.z) || 1);
     cloned.traverse((o) => {
       const m = o as THREE.Mesh;
       if (m.isMesh) {
@@ -128,7 +168,7 @@ export default function AvatarModel({ url }: { url: string }) {
       }
     });
     return { model: cloned, fitScale: scale };
-  }, [scene]);
+  }, [scene, avatarType]);
 
   const { actions, names } = useAnimations(animations, group);
   const action = useAvatarScene((s) => s.action);
@@ -136,7 +176,7 @@ export default function AvatarModel({ url }: { url: string }) {
   const procPhase = useRef(0);
 
   React.useEffect(() => {
-    const clip = resolveClipName(action, names);
+    const clip = resolveClipName(action, names, avatarType);
     if (!clip || !actions[clip]) {
       currentClipRef.current = null;
       return;
@@ -149,7 +189,7 @@ export default function AvatarModel({ url }: { url: string }) {
     next.clampWhenFinished = !LOOPING[action];
     if (prev && prev !== next) prev.fadeOut(0.25);
     currentClipRef.current = clip;
-  }, [action, actions, names]);
+  }, [action, actions, names, avatarType]);
 
   useFrame((_, dt) => {
     const g = group.current;
@@ -171,7 +211,11 @@ export default function AvatarModel({ url }: { url: string }) {
     }
     if (currentClipRef.current === null) {
       procPhase.current += dt;
-      applyProcedural(g, action, procPhase.current);
+      if (avatarType === "human") {
+        applyHumanProcedural(g, action, procPhase.current);
+      } else {
+        applyProcedural(g, action, procPhase.current);
+      }
       if (moving) g.rotation.y = Math.atan2(dx, dz);
     }
     useAvatarScene.getState().setPosition({ x: g.position.x, z: g.position.z });

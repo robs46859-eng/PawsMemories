@@ -153,6 +153,7 @@ export interface Avatar {
   animation_data?: AnimationMetadata | null;
   animal_type?: string | null;
   breed?: string | null;
+  avatar_type?: 'dog' | 'human';
   generation_status: 'pending' | 'generating_mesh' | 'rigging' | 'retargeting' | 'baking_clips' | 'baking_sprites' | 'done' | 'failed';
   generation_error?: string | null;
   food_level: number;
