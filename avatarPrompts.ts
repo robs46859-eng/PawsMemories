@@ -15,7 +15,7 @@ export const REFERENCE_STYLE_HUMAN =
   `feature film. ` +
   `Faithfully preserve the person's exact skin tone, hair color and style, facial structure, and clothing colors and patterns ` +
   `as seen across ALL reference photos. ` +
-  `The person is standing squarely on two legs in a neutral bipedal A-pose stance, arms slightly out to the sides, ` +
+  `The person is standing squarely on two legs in a neutral bipedal A-pose stance, arms slightly out to the sides, clearly separated from the torso, ` +
   `legs clearly separated, front-facing. ` +
   `Full body visible with generous margin on all sides. Sharp focus, even soft studio lighting, plain neutral ` +
   `light-gray seamless background, no shadow on walls, no props, no other people, no text, no watermark.`;

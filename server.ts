@@ -833,21 +833,23 @@ async function startServer() {
       // left/back/right views so Tripo can run multiview_to_model. Best-effort:
       // any failure degrades to single-image generation.
       let viewSet: { left?: string; back?: string; right?: string } | undefined;
-      try {
-        const palette = usedReferenceImage && sourceImage.startsWith("data:image")
-          ? await extractPalette(sourceImage, avatarType)
-          : null;
-        if (sourceImage.startsWith("data:image")) {
-          const rawViews = await generateTurnaroundViews(sourceImage, palette, avatarType);
-          const uploaded: { left?: string; back?: string; right?: string } = {};
-          for (const key of ["left", "back", "right"] as const) {
-            const v = rawViews[key];
-            if (v) uploaded[key] = v.startsWith("data:image") ? await uploadBase64Image(v) : v;
+      if (avatarType === 'dog') {
+        try {
+          const palette = usedReferenceImage && sourceImage.startsWith("data:image")
+            ? await extractPalette(sourceImage, avatarType)
+            : null;
+          if (sourceImage.startsWith("data:image")) {
+            const rawViews = await generateTurnaroundViews(sourceImage, palette, avatarType);
+            const uploaded: { left?: string; back?: string; right?: string } = {};
+            for (const key of ["left", "back", "right"] as const) {
+              const v = rawViews[key];
+              if (v) uploaded[key] = v.startsWith("data:image") ? await uploadBase64Image(v) : v;
+            }
+            if (Object.keys(uploaded).length) viewSet = uploaded;
           }
-          if (Object.keys(uploaded).length) viewSet = uploaded;
+        } catch (e: any) {
+          console.warn("[POST /api/avatars] Turnaround/multiview generation skipped:", e?.message || e);
         }
-      } catch (e: any) {
-        console.warn("[POST /api/avatars] Turnaround/multiview generation skipped:", e?.message || e);
       }
 
       let finalImageUrl = sourceImage;
@@ -907,7 +909,7 @@ async function startServer() {
     let rows: any[] = [];
     try {
       const [result]: any = await getPool().query(
-        `SELECT id, image_url, multiview_json FROM avatars
+        `SELECT id, image_url, multiview_json, avatar_type FROM avatars
           WHERE generation_status IN ('rigging','retargeting','baking_clips','baking_sprites')
             AND (meshy_handle IS NULL OR meshy_handle = '')
             AND model_url IS NULL
@@ -930,7 +932,10 @@ async function startServer() {
           imageUrl = await uploadBase64Image(imageUrl);
           await getPool().query(`UPDATE avatars SET image_url = ? WHERE id = ?`, [imageUrl, avatarId]);
         }
-        const views = parseMultiview(row.multiview_json) || undefined;
+        let views = parseMultiview(row.multiview_json) || undefined;
+        if (row.avatar_type === 'human') {
+          views = undefined;
+        }
         const handle = await startImageTo3D({ imageUrl, views });
         await getPool().query(
           `UPDATE avatars SET meshy_handle = ?, generation_status = 'pending', generation_error = NULL WHERE id = ?`,
@@ -1087,7 +1092,10 @@ async function startServer() {
            // Also update the avatar image_url in DB if it was base64
            await getPool().query(`UPDATE avatars SET image_url = ? WHERE id = ?`, [finalImageUrl, avatarId]);
         }
-        const views = parseMultiview((avatar as any).multiview_json) || undefined;
+        let views = parseMultiview((avatar as any).multiview_json) || undefined;
+        if (avatar.avatar_type === 'human') {
+          views = undefined;
+        }
         const handle = await startImageTo3D({ imageUrl: finalImageUrl, views });
         await getPool().query(`UPDATE avatars SET meshy_handle = ? WHERE id = ?`, [handle, avatarId]);
       } else {
