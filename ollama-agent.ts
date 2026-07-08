@@ -11,6 +11,7 @@
  */
 
 import { GoogleGenAI } from "@google/genai";
+import { SKELETON_CONTRACTS } from "./skeletonContract";
 
 // =============================================================================
 // Types
@@ -221,6 +222,24 @@ Return ONLY the JSON object.`;
 export async function generateRiggingScript(analysis: PetAnalysis): Promise<string> {
   console.log(`[AI Agent] Generating rigging script for ${analysis.species} (${analysis.breed}) using Gemini...`);
 
+  const bodyType = (analysis.bodyType === 'biped' || analysis.bodyType === 'winged' || analysis.bodyType === 'quadruped')
+    ? analysis.bodyType
+    : 'quadruped';
+  const contract = SKELETON_CONTRACTS[bodyType];
+
+  let exactBonesBlock = `- ROOT bone at the center of mass\n`;
+  exactBonesBlock += `- Spine chain: ${contract.chains.spine.map(b => `"${b}"`).join(" → ")}\n`;
+  exactBonesBlock += `- Neck: ${contract.chains.neckHead.map(b => `"${b}"`).join(" → ")}\n`;
+  for (const limb of contract.chains.limbs) {
+    exactBonesBlock += `- ${limb.name}: ${limb.bones.map(b => `"${b}"`).join(" → ")}\n`;
+  }
+  if (analysis.hasTail && contract.chains.tail) {
+    exactBonesBlock += `- Tail chain: ${contract.chains.tail.map(b => `"${b}"`).join(" → ")}`;
+  } else {
+    // strip trailing newline if no tail
+    exactBonesBlock = exactBonesBlock.trimEnd();
+  }
+
   const prompt = `You are an expert Blender 5.1 Python (bpy) scripter specializing in 3D character rigging.
 
 Generate a complete Blender Python script that:
@@ -231,14 +250,7 @@ Generate a complete Blender Python script that:
 5. Has tail: ${analysis.hasTail}
 
 The armature MUST include these bone chains (using these EXACT bone names):
-- ROOT bone at the center of mass
-- Spine chain: "hips" → "spine" → "chest"
-- Neck: "neck" → "head"
-- Front left leg: "front_leg_upper.L" → "front_leg_lower.L" → "front_paw.L"
-- Front right leg: "front_leg_upper.R" → "front_leg_lower.R" → "front_paw.R"
-- Back left leg: "back_leg_upper.L" → "back_leg_lower.L" → "back_paw.L"
-- Back right leg: "back_leg_upper.R" → "back_leg_lower.R" → "back_paw.R"
-${analysis.hasTail ? '- Tail chain: "tail_01" → "tail_02" → "tail_03"' : ""}
+${exactBonesBlock}
 
 The script must:
 - Create the armature in edit mode
@@ -392,6 +404,23 @@ function sanitizeBlenderScript(script: string): string {
 export async function generateSpriteAnimationScript(analysis: PetAnalysis): Promise<string> {
   console.log(`[AI Agent] Generating sprite animation script for ${analysis.species} using Gemini...`);
 
+  const bodyType = (analysis.bodyType === 'biped' || analysis.bodyType === 'winged' || analysis.bodyType === 'quadruped')
+    ? analysis.bodyType
+    : 'quadruped';
+  const contract = SKELETON_CONTRACTS[bodyType];
+
+  let boneNamesList = "hips, spine, chest, neck, head";
+  if (bodyType === 'quadruped') {
+    boneNamesList += ", front_leg_upper.L/R, front_leg_lower.L/R, front_paw.L/R, back_leg_upper.L/R, back_leg_lower.L/R, back_paw.L/R";
+    if (analysis.hasTail) {
+      boneNamesList += ", tail_01, tail_02, tail_03";
+    }
+  } else if (bodyType === 'biped') {
+    boneNamesList += ", shoulder.L/R, upperarm.L/R, forearm.L/R, hand.L/R, thigh.L/R, shin.L/R, foot.L/R";
+  } else {
+    boneNamesList += ", " + contract.allBones.filter(b => !["hips", "spine", "chest", "neck", "head"].includes(b)).join(", ");
+  }
+
   const prompt = `You are an expert Blender 5.1 Python (bpy) scripter specializing in character animation and sprite sheet rendering for a headless server environment.
 
 TARGET: Blender 5.1.2 running headless (blender --background). No GPU, no UI context. All APIs must be compatible with Blender 5.1.x.
@@ -404,7 +433,7 @@ SECTION 1: INPUT ASSUMPTIONS
 
 - The active object is an ARMATURE (the rigged ${analysis.species}).
 - The mesh is the armature's child.
-- Bone names: hips, spine, chest, neck, head, front_leg_upper.L/R, front_leg_lower.L/R, front_paw.L/R, back_leg_upper.L/R, back_leg_lower.L/R, back_paw.L/R${analysis.hasTail ? ", tail_01, tail_02, tail_03" : ""}
+- Bone names: ${boneNamesList}
 - An "output_path" variable is already defined and points to the PNG output location.
 
 ═══════════════════════════════════════════════════════════
@@ -443,8 +472,7 @@ IK/FK LIMITS: Keep rotation values within anatomically plausible ranges:
   - Leg joints: max ±45° per axis
   - Spine/neck: max ±30° per axis
   - Head: max ±40° per axis
-  - Tail: max ±25° per segment
-
+${analysis.hasTail ? "  - Tail: max ±25° per segment\n" : ""}
 ═══════════════════════════════════════════════════════════
 SECTION 4: ANIMATION REQUIREMENTS
 ═══════════════════════════════════════════════════════════

@@ -23,6 +23,7 @@ import { getBlenderClient } from "./agent/tools/blender_client";
 import { startTalkingVideo, pollTalkingVideo, fetchMp4AsDataUrl, isHeyGenHandle } from "./heygen";
 import { startImageTo3D, pollImageTo3D, isTripoHandle, startRig, pollTripoTask, isTripoInsufficientCredit } from "./tripo";
 import { checkBudget, needsRetargetFallback, type BakeStats } from "./server/rigBudget";
+import { SKELETON_CONTRACTS } from "./skeletonContract";
 import { buildReferencePrompt, turnaroundViewsForType, paletteLockClause, extractPaletteInstruction } from "./avatarPrompts";
 import {
   signToken,
@@ -1446,7 +1447,17 @@ async function startServer() {
         lod_glb_url: lodGlbUrl,
       });
       const budget = checkBudget(stats);
-      const retargetFallbackRecommended = needsRetargetFallback(stats);
+      const threshold = avatar?.avatar_type === 'human' ? 0.85 : 0.7;
+      let retargetFallbackRecommended = needsRetargetFallback(stats, threshold);
+
+      const bodyType = avatar?.avatar_type === 'human' ? 'biped' : 'quadruped';
+      const contract = SKELETON_CONTRACTS[bodyType];
+      const missingContractBones = (stats.missing_bones || []).filter(b => contract.allBones.includes(b));
+      if (missingContractBones.length > 0) {
+        console.warn(`[pets/rig] Rig is missing contract bones for bodyType ${bodyType}:`, missingContractBones);
+        retargetFallbackRecommended = true;
+      }
+
       if (retargetFallbackRecommended) {
         console.warn(
           `[pets/rig] pet ${petId}: low retarget confidence / missing leg chains — ` +
@@ -1454,6 +1465,10 @@ async function startServer() {
         );
         if (avatar?.avatar_type === 'human') {
           console.error(`[pets/rig] humanoid retarget below confidence for pet ${petId}`);
+          await getPool().query(
+            `UPDATE avatars SET generation_status = 'failed', generation_error = ? WHERE id = ?`,
+            ["humanoid retarget below confidence", pet.avatar_id]
+          );
           return res.status(422).json({ error: "humanoid retarget below confidence" });
         }
       }
