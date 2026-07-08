@@ -133,3 +133,179 @@ export function extractPaletteInstruction(type: 'dog' | 'human'): string {
     );
   }
 }
+
+// ===========================================================================
+// TEXT-TO-3D prompt builder
+// ---------------------------------------------------------------------------
+// Assembles a reference-image prompt from structured dropdown choices, then
+// that image feeds the SAME Tripo image_to_model pipeline used everywhere else.
+//
+// These option lists are 3D-SAFE: every choice is tuned to produce a clean,
+// single-subject, evenly-lit reference that reconstructs into a good mesh.
+// Fields that fight reconstruction (camera *movement*, arbitrary view angles,
+// dramatic shadow-baking light) are deliberately excluded or constrained.
+//
+// The `id` values are the contract with the frontend dropdowns — keep in sync.
+// ===========================================================================
+
+export interface TextOption {
+  id: string;
+  label: string;
+  /** Short helper shown under the dropdown; also used for "recommended" hints. */
+  hint?: string;
+  recommended?: boolean;
+}
+
+/** Visual style of the generated character. */
+export const TEXT_STYLE_OPTIONS: TextOption[] = [
+  { id: "pixar",      label: "Pixar / animated feature", recommended: true },
+  { id: "realistic",  label: "Photorealistic" },
+  { id: "claymation", label: "Claymation / clay" },
+  { id: "plush",      label: "Plush / stuffed toy" },
+  { id: "vinyl",      label: "Vinyl / designer figure" },
+  { id: "lowpoly",    label: "Low-poly / retro" },
+  { id: "celshaded",  label: "Cel-shaded / anime" },
+  { id: "voxel",      label: "Voxel / blocky" },
+  { id: "papercraft", label: "Papercraft / origami" },
+  { id: "wood",       label: "Carved wood toy" },
+  { id: "chibi",      label: "Chibi / super-deformed" },
+];
+
+/** Body framing (replaces the invalid "camera movement" field). */
+export const TEXT_FRAMING_OPTIONS: TextOption[] = [
+  { id: "fullbody_apose", label: "Full body — A-pose standing", recommended: true, hint: "Best for a complete, riggable mesh" },
+  { id: "fullbody_sit",   label: "Full body — sitting" },
+  { id: "fullbody_lie",   label: "Full body — lying down" },
+  { id: "bust",           label: "Head & shoulders bust", hint: "No legs/body — portrait busts only" },
+];
+
+/** View angle. Single-image reconstruction wants a clean front. */
+export const TEXT_ANGLE_OPTIONS: TextOption[] = [
+  { id: "front",         label: "Front view", recommended: true, hint: "Required for best single-image reconstruction" },
+  { id: "three_quarter", label: "Slight 3/4 front", hint: "Slightly turned — acceptable, marginally lower fidelity" },
+];
+
+/**
+ * Lighting. The first group is texture-safe (even light → clean bakes). The
+ * "dramatic" group bakes real shadows/highlights into the texture — great for a
+ * stylised look, but reduces reconstruction fidelity, so each carries a hint.
+ */
+export const TEXT_LIGHTING_OPTIONS: TextOption[] = [
+  { id: "studio_even",  label: "Even soft studio", recommended: true, hint: "Cleanest textures for 3D" },
+  { id: "flat_ambient", label: "Flat ambient" },
+  { id: "softbox",      label: "Softbox key + fill" },
+  { id: "warm_golden",  label: "Warm golden" },
+  { id: "cool_blue",    label: "Cool blue" },
+  { id: "high_key",     label: "High-key bright" },
+  { id: "dramatic_rim", label: "Dramatic rim light", hint: "Bakes shadows — stylised, lower 3D fidelity" },
+  { id: "rembrandt",    label: "Rembrandt / moody", hint: "Bakes shadows — stylised, lower 3D fidelity" },
+  { id: "low_key",      label: "Low-key / dark", hint: "Bakes shadows — stylised, lower 3D fidelity" },
+  { id: "neon",         label: "Neon / cyberpunk", hint: "Bakes coloured light — stylised, lower 3D fidelity" },
+  { id: "backlit",      label: "Backlit / silhouette", hint: "Strong shadows — stylised, lowest 3D fidelity" },
+];
+
+/** Geometry detail → Tripo face_limit. */
+export const GEOMETRY_DETAIL_OPTIONS: TextOption[] = [
+  { id: "draft",    label: "Draft (~10k faces)" },
+  { id: "standard", label: "Standard (~25k faces)" },
+  { id: "high",     label: "High (~40k faces)", recommended: true },
+  { id: "ultra",    label: "Ultra (~60k faces)", hint: "Slower, larger file" },
+];
+
+/** Geometry texturing → Tripo texture/pbr flags. */
+export const GEOMETRY_TEXTURE_OPTIONS: TextOption[] = [
+  { id: "pbr_detailed", label: "PBR detailed", recommended: true },
+  { id: "basic",        label: "Basic texture" },
+  { id: "none",         label: "Untextured mesh" },
+];
+
+const STYLE_CLAUSES: Record<string, string> = {
+  pixar:      `a premium Pixar-style stylized 3D character — soft appealing proportions, slightly enlarged expressive eyes, subsurface-scattered skin, richly textured surfaces, like a frame from a modern animated feature film`,
+  realistic:  `a photorealistic, highly detailed 3D render with physically accurate materials, natural proportions and lifelike surface detail`,
+  claymation: `a claymation / stop-motion clay figure with soft matte modeling-clay surfaces, gentle fingerprints and hand-sculpted charm`,
+  plush:      `a soft plush stuffed toy with visible fabric texture, stitched seams, button-style eyes and rounded cuddly proportions`,
+  vinyl:      `a glossy vinyl designer collectible figure with smooth clean surfaces, bold simplified forms and a subtle sheen`,
+  lowpoly:    `a stylized low-poly model with clean flat-shaded faceted surfaces and bold simplified geometry`,
+  celshaded:  `a cel-shaded anime-style character with clean flat colours, crisp ink outlines and simple hard-edged shading`,
+  voxel:      `a blocky voxel-art character built from cubic blocks, like a high-resolution 3D pixel sculpture`,
+  papercraft: `a papercraft / low-poly origami figure made of folded flat paper panels with visible fold creases`,
+  wood:       `a hand-carved wooden toy figure with visible wood grain, smooth rounded whittled forms and a warm matte finish`,
+  chibi:      `a chibi / super-deformed character with an oversized head, tiny body, big eyes and adorable exaggerated proportions`,
+};
+
+const FRAMING_CLAUSES: Record<string, string> = {
+  fullbody_apose: `The full body is visible head-to-toe, standing squarely in a neutral A-pose with limbs clearly separated from the torso and from each other, generous margin on all sides.`,
+  fullbody_sit:   `The full body is visible, sitting upright in a calm neutral pose, all limbs clearly readable, generous margin on all sides.`,
+  fullbody_lie:   `The full body is visible, lying down relaxed with limbs clearly separated and readable, generous margin on all sides.`,
+  bust:           `Show only a head-and-shoulders bust, centered, with generous margin around the head.`,
+};
+
+const ANGLE_CLAUSES: Record<string, string> = {
+  front:         `seen DIRECTLY FROM THE FRONT, facing straight toward the camera`,
+  three_quarter: `seen from a slight three-quarter front angle, turned only slightly so both the front and one side are visible`,
+};
+
+const LIGHTING_CLAUSES: Record<string, string> = {
+  studio_even:  `even soft studio lighting with no harsh shadows`,
+  flat_ambient: `flat even ambient lighting with minimal shadowing`,
+  softbox:      `soft diffused softbox key light with gentle fill and no hard shadows`,
+  warm_golden:  `soft warm golden lighting, evenly diffused with no hard shadows`,
+  cool_blue:    `soft cool blue-toned lighting, evenly diffused with no hard shadows`,
+  high_key:     `bright high-key lighting, clean and evenly lit with no hard shadows`,
+  dramatic_rim: `dramatic rim lighting with a bright edge glow separating the subject from the background and deep contrast`,
+  rembrandt:    `moody Rembrandt-style directional side lighting with a soft shadow falloff across the subject`,
+  low_key:      `low-key, high-contrast dark lighting with the subject emerging from shadow`,
+  neon:         `vibrant neon / cyberpunk lighting with saturated magenta and cyan coloured accents`,
+  backlit:      `strong backlighting that rims the subject's silhouette with a glowing outline`,
+};
+
+function pick<T extends TextOption>(opts: T[], id: string | undefined): T {
+  return opts.find((o) => o.id === id) || opts.find((o) => o.recommended) || opts[0];
+}
+
+export interface TextPromptFields {
+  subject: string;
+  style?: string;
+  framing?: string;
+  angle?: string;
+  lighting?: string;
+}
+
+/**
+ * Build a Gemini text→image prompt that yields a clean, reconstruction-friendly
+ * reference image for the Tripo pipeline. The subject is free text; everything
+ * else is constrained to the 3D-safe option ids above.
+ */
+export function buildTextPrompt(fields: TextPromptFields): string {
+  const subject = (fields.subject || "").trim();
+  const style = pick(TEXT_STYLE_OPTIONS, fields.style).id;
+  const framing = pick(TEXT_FRAMING_OPTIONS, fields.framing).id;
+  const angle = pick(TEXT_ANGLE_OPTIONS, fields.angle).id;
+  const lighting = pick(TEXT_LIGHTING_OPTIONS, fields.lighting).id;
+
+  return (
+    `Generate ONE image of ${subject}, rendered as ${STYLE_CLAUSES[style]}. ` +
+    `The subject is ${ANGLE_CLAUSES[angle]}. ` +
+    `${FRAMING_CLAUSES[framing]} ` +
+    `Use ${LIGHTING_CLAUSES[lighting]}. ` +
+    `A single subject only, centered, on a plain neutral light-gray seamless background — ` +
+    `no other objects, no people, no props, no ground shadow on walls, no text, no watermark. ` +
+    `Sharp focus, full subject clearly visible. Respond with only the generated image.`
+  );
+}
+
+/** Map geometry dropdown ids to Tripo task parameters. */
+export function geometryToTripo(
+  detailId?: string,
+  textureId?: string
+): { faceLimit: number; texture: boolean; pbr: boolean } {
+  const faceLimit =
+    detailId === "draft" ? 10000 :
+    detailId === "standard" ? 25000 :
+    detailId === "ultra" ? 60000 :
+    40000; // high (default)
+
+  if (textureId === "none") return { faceLimit, texture: false, pbr: false };
+  if (textureId === "basic") return { faceLimit, texture: true, pbr: false };
+  return { faceLimit, texture: true, pbr: true }; // pbr_detailed (default)
+}

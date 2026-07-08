@@ -49,11 +49,22 @@ export interface TripoViewSet {
   right?: string;
 }
 
+export interface TripoGeometry {
+  /** Target triangle budget → Tripo `face_limit`. */
+  faceLimit?: number;
+  /** Whether to bake a texture at all. */
+  texture?: boolean;
+  /** Whether the texture should be PBR. */
+  pbr?: boolean;
+}
+
 export interface TripoJobInput {
   /** Front / primary reference image (public URL or data URL). Always required. */
   imageUrl: string;
   /** Optional turnaround views. Presence of any one triggers multiview mode. */
   views?: TripoViewSet;
+  /** Optional geometry overrides (detail/texture). Defaults preserve prior behaviour. */
+  geometry?: TripoGeometry;
 }
 
 interface UploadedImage {
@@ -157,14 +168,22 @@ export async function startImageTo3D(input: TripoJobInput): Promise<string> {
   const right = input.views?.right;
   const hasMultiview = !!(left || back || right);
 
-  // Shared high-fidelity flags.
-  const common = {
-    texture: true,
-    pbr: true,
-    texture_quality: "detailed",
-    texture_alignment: "original_image",
-    face_limit: 40000,
+  // Shared high-fidelity flags. Geometry overrides (from the text-to-3D UI or
+  // any caller) tune the triangle budget and texturing; defaults preserve the
+  // original behaviour (40k faces, detailed PBR aligned to the reference image).
+  const g = input.geometry || {};
+  const texture = g.texture !== undefined ? g.texture : true;
+  const pbr = g.pbr !== undefined ? g.pbr : true;
+  const common: Record<string, unknown> = {
+    texture,
+    pbr,
+    face_limit: g.faceLimit && g.faceLimit > 0 ? g.faceLimit : 40000,
   };
+  // Texture-quality/alignment only matter when a texture is actually baked.
+  if (texture) {
+    common.texture_quality = "detailed";
+    common.texture_alignment = "original_image";
+  }
 
   if (!hasMultiview) {
     const front = await uploadToTripo(input.imageUrl);

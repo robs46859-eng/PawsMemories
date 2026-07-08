@@ -577,20 +577,55 @@ export interface ImageTo3DMultiview {
   right?: string;
 }
 
+/** Geometry overrides for 3D generation (ids match the backend dropdowns). */
+export interface ImageTo3DGeometry {
+  /** "draft" | "standard" | "high" | "ultra" */
+  detail?: string;
+  /** "pbr_detailed" | "basic" | "none" */
+  texture?: string;
+}
+
 /**
  * Submit any arbitrary image for 3D GLB generation via Tripo.
- * Optionally supply multiview turnaround shots for higher quality.
+ * Optionally supply multiview turnaround shots and/or geometry overrides.
  * Returns a jobId that can be polled via the existing `pollJob()`.
  */
 export async function submitImageTo3D(
   image: string,
-  multiview?: ImageTo3DMultiview
+  multiview?: ImageTo3DMultiview,
+  geometry?: ImageTo3DGeometry
 ): Promise<{ jobId: number; status: string }> {
   const res = await authedFetch("/api/image-to-3d", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ image, multiview }),
+    body: JSON.stringify({ image, multiview, geometry }),
   });
   if (!res.ok) await throwApiError(res, "Failed to start 3D generation.");
+  return await res.json();
+}
+
+/** Structured text-prompt fields for generating a reference image. */
+export interface TextReferenceFields {
+  subject: string;
+  style?: string;
+  framing?: string;
+  angle?: string;
+  lighting?: string;
+}
+
+/**
+ * Turn a structured text prompt into a single reference image (data URL) via
+ * the backend Gemini step. Cheap preview — the returned image is then passed to
+ * `submitImageTo3D()` to actually build the mesh.
+ */
+export async function generateTextReference(
+  fields: TextReferenceFields
+): Promise<{ image: string; prompt: string }> {
+  const res = await authedFetch("/api/text-to-reference", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(fields),
+  });
+  if (!res.ok) await throwApiError(res, "Failed to generate reference image.");
   return await res.json();
 }

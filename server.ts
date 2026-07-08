@@ -24,7 +24,7 @@ import { startTalkingVideo, pollTalkingVideo, fetchMp4AsDataUrl, isHeyGenHandle 
 import { startImageTo3D, pollImageTo3D, isTripoHandle, startRig, pollTripoTask, isTripoInsufficientCredit } from "./tripo";
 import { checkBudget, needsRetargetFallback, type BakeStats } from "./server/rigBudget";
 import { SKELETON_CONTRACTS } from "./skeletonContract";
-import { buildReferencePrompt, turnaroundViewsForType, paletteLockClause, extractPaletteInstruction } from "./avatarPrompts";
+import { buildReferencePrompt, turnaroundViewsForType, paletteLockClause, extractPaletteInstruction, buildTextPrompt, geometryToTripo, type TextPromptFields } from "./avatarPrompts";
 import {
   signToken,
   requireAuth,
@@ -2641,12 +2641,50 @@ async function startServer() {
   // Reuses the same credit/cap guards as create-3d-model.
   // ---------------------------------------------------------------------------
 
+  // ---------------------------------------------------------------------------
+  // POST /api/text-to-reference
+  // Turns a structured text prompt (subject + 3D-safe style/framing/angle/
+  // lighting dropdowns) into a single clean reference IMAGE via Gemini. That
+  // image is returned to the client, previewed, then fed into the UNCHANGED
+  // /api/image-to-3d pipeline. This step only spends image-gen budget, so the
+  // user can preview before committing the 400-credit mesh generation.
+  // ---------------------------------------------------------------------------
+  app.post("/api/text-to-reference", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { subject, style, framing, angle, lighting } = req.body || {};
+      if (!subject || typeof subject !== "string" || subject.trim().length < 2) {
+        return res.status(400).json({ success: false, error: "Describe what to make (a short subject phrase)." });
+      }
+      if (subject.length > 600) {
+        return res.status(400).json({ success: false, error: "Subject description is too long (max 600 characters)." });
+      }
+
+      const fields: TextPromptFields = { subject, style, framing, angle, lighting };
+      const prompt = buildTextPrompt(fields);
+
+      const image = await generateImageWithFallback([{ text: prompt }], "text-to-reference");
+      if (!image) {
+        return res.status(502).json({ success: false, error: "Could not generate a reference image. Try rephrasing the subject." });
+      }
+
+      // Return the data URL for preview; the client sends it to /api/image-to-3d next.
+      res.json({ success: true, image, prompt });
+    } catch (err: any) {
+      console.error("[text-to-reference] Error:", err);
+      res.status(500).json({ success: false, error: err?.message || "Failed to generate reference image." });
+    }
+  });
+
   app.post("/api/image-to-3d", requireAuth, async (req: AuthedRequest, res) => {
     try {
-      const { image, multiview } = req.body || {};
+      const { image, multiview, geometry } = req.body || {};
       if (!image || typeof image !== "string") {
         return res.status(400).json({ success: false, error: "An image (base64 data URL or public URL) is required." });
       }
+      // Optional geometry overrides from the text-to-3D UI: { detail, texture }.
+      const geo = geometry && typeof geometry === "object"
+        ? geometryToTripo(geometry.detail, geometry.texture)
+        : undefined;
 
       const userPhone = req.user!.phone;
       const isAdmin = await isUserAdmin(userPhone);
@@ -2689,7 +2727,7 @@ async function startServer() {
       // Start Tripo generation directly — no pet AI reference image step
       let handle: string;
       try {
-        handle = await startImageTo3D({ imageUrl: publicImageUrl, views });
+        handle = await startImageTo3D({ imageUrl: publicImageUrl, views, geometry: geo });
       } catch (genErr: any) {
         console.error("[image-to-3d] Tripo start error:", genErr);
         if (isTripoInsufficientCredit(genErr)) {
