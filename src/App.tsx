@@ -18,7 +18,6 @@ import AvatarDashboard from "./components/AvatarDashboard";
 import Store from "./components/Store";
 import ProfileScreen from "./components/ProfileScreen";
 import Community from "./components/Community";
-import ImageTo3DPanel from "./components/ImageTo3DPanel";
 
 const EMPTY_PROFILE: UserProfile = { fullName: "", email: "", credits: 0, treats: 0, isAdmin: false, city: "", ageVerified: false };
 
@@ -35,7 +34,7 @@ const getBackgroundImage = (screen: Screen) => {
         url: "/MAIN.jpg",
         className: "opacity-35 grayscale brightness-110"
       };
-    case Screen.AVATAR_DASHBOARD:
+    case Screen.MODELS:
     case Screen.STORE:
       return {
         url: "/MAIN2.jpg",
@@ -50,11 +49,6 @@ const getBackgroundImage = (screen: Screen) => {
       return {
         url: "/MAIN.jpg",
         className: "opacity-55"
-      };
-    case Screen.IMAGE_TO_3D:
-      return {
-        url: "/MAIN2.jpg",
-        className: "opacity-40 blur-[2px]"
       };
     case Screen.DASHBOARD:
     default:
@@ -367,10 +361,9 @@ export default function App() {
 
           <div className="hidden md:flex items-center gap-8">
             <button onClick={() => setCurrentScreen(Screen.DASHBOARD)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.DASHBOARD ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Home</button>
-            <button onClick={() => setCurrentScreen(Screen.AVATAR_DASHBOARD)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.AVATAR_DASHBOARD ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Avatars</button>
+            <button onClick={() => setCurrentScreen(Screen.MODELS)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.MODELS ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Models</button>
             <button onClick={() => setCurrentScreen(Screen.STORE)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.STORE ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Store</button>
             <button onClick={() => setCurrentScreen(Screen.COMMUNITY)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.COMMUNITY ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Community</button>
-            <button onClick={() => setCurrentScreen(Screen.IMAGE_TO_3D)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.IMAGE_TO_3D ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>3D Studio</button>
           </div>
 
           <div className="flex items-center gap-2 md:gap-4">
@@ -433,7 +426,7 @@ export default function App() {
 
       <div className="flex-grow flex w-full relative">
         {/* Desktop Sidebar */}
-        {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.AVATAR_DASHBOARD, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY].includes(currentScreen) && (
+        {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY].includes(currentScreen) && (
           <aside className="fixed left-0 top-0 h-full z-40 hidden md:flex flex-col py-8 w-64 bg-surface/80 dark:bg-surface-dim/80 backdrop-blur-xl shadow-xl border-r border-outline-variant/20 pt-24">
             <div className="px-6 mb-8">
               <button
@@ -459,9 +452,9 @@ export default function App() {
                 <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.DASHBOARD ? "'FILL' 1" : "'FILL' 0" }}>home</span>
                 <span className="font-medium">Home</span>
               </button>
-              <button onClick={() => setCurrentScreen(Screen.AVATAR_DASHBOARD)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${currentScreen === Screen.AVATAR_DASHBOARD ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
-                <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.AVATAR_DASHBOARD ? "'FILL' 1" : "'FILL' 0" }}>pets</span>
-                <span className="font-medium">Avatars</span>
+              <button onClick={() => setCurrentScreen(Screen.MODELS)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${currentScreen === Screen.MODELS ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
+                <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.MODELS ? "'FILL' 1" : "'FILL' 0" }}>pets</span>
+                <span className="font-medium">Models</span>
               </button>
               <button onClick={() => setCurrentScreen(Screen.STORE)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${currentScreen === Screen.STORE ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
                 <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.STORE ? "'FILL' 1" : "'FILL' 0" }}>storefront</span>
@@ -471,7 +464,7 @@ export default function App() {
                 <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.COMMUNITY ? "'FILL' 1" : "'FILL' 0" }}>groups</span>
                 <span className="font-medium">Community</span>
               </button>
-              <button onClick={() => setCurrentScreen(Screen.AVATAR_DASHBOARD)} className="w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30">
+              <button onClick={() => setCurrentScreen(Screen.MODELS)} className="w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30">
                 <span className="material-symbols-outlined font-sans">view_in_ar</span>
                 <span className="font-medium">AR Mode</span>
               </button>
@@ -482,8 +475,8 @@ export default function App() {
             </nav>
             
             <div className="px-4 py-6 mt-auto border-t border-outline-variant/20 mx-4">
-              <button onClick={() => setCurrentScreen(Screen.AVATAR_DASHBOARD)} className="w-full bg-primary text-on-primary py-3 rounded-lg font-bold hover:scale-[1.02] transition-transform active:scale-95 shadow-lg shadow-primary/20">
-                Generate Avatar
+              <button onClick={() => setCurrentScreen(Screen.MODELS)} className="w-full bg-primary text-on-primary py-3 rounded-lg font-bold hover:scale-[1.02] transition-transform active:scale-95 shadow-lg shadow-primary/20">
+                Generate Model
               </button>
               <div className="mt-6 space-y-2">
                 <button className="w-full flex items-center gap-4 text-on-surface-variant hover:bg-secondary-container/30 rounded-lg px-4 py-2 transition-all">
@@ -522,7 +515,7 @@ export default function App() {
                 albums={albums}
                 creations={creations}
                 onAddMemory={() => setCurrentScreen(userProfile.isAdmin ? Screen.EDIT_MEMORY : Screen.REQUEST_MEMORY)}
-                onCreate={() => setCurrentScreen(Screen.AVATAR_DASHBOARD)}
+                onCreate={() => setCurrentScreen(Screen.MODELS)}
                 onClaimDailyBonus={handleClaimDailyBonus}
                 onShareCompleted={handleShareCompleted}
                 onSelectCreation={handleSelectCreation}
@@ -599,7 +592,7 @@ export default function App() {
               />
             )}
 
-            {currentScreen === Screen.AVATAR_DASHBOARD && (
+            {currentScreen === Screen.MODELS && (
               <AvatarDashboard
                 userProfile={userProfile}
                 onUpdateUser={(updatedUser) => {
@@ -614,7 +607,7 @@ export default function App() {
               <Store
                 userProfile={userProfile}
                 onOpenCreditStore={() => setShowCreditStore(true)}
-                onGoToAvatars={() => setCurrentScreen(Screen.AVATAR_DASHBOARD)}
+                onGoToAvatars={() => setCurrentScreen(Screen.MODELS)}
                 albums={albums}
                 creations={creations}
                 onSelectCreation={handleSelectCreation}
@@ -642,13 +635,7 @@ export default function App() {
               <Community userProfile={userProfile} />
             )}
 
-            {currentScreen === Screen.IMAGE_TO_3D && (
-              <ImageTo3DPanel
-                credits={userProfile.credits}
-                isAdmin={userProfile.isAdmin}
-                onCreditsSpent={handleDeductCredits}
-              />
-            )}
+            {/* Removed ImageTo3DPanel since it's merged into Models */}
 
             {/* Safety net: if somehow on SIGN_UP while authed, send to dashboard */}
             {currentScreen === Screen.SIGN_UP && (
@@ -657,7 +644,7 @@ export default function App() {
                 albums={albums}
                 creations={creations}
                 onAddMemory={() => setCurrentScreen(userProfile.isAdmin ? Screen.EDIT_MEMORY : Screen.REQUEST_MEMORY)}
-                onCreate={() => setCurrentScreen(Screen.AVATAR_DASHBOARD)}
+                onCreate={() => setCurrentScreen(Screen.MODELS)}
                 onClaimDailyBonus={handleClaimDailyBonus}
                 onShareCompleted={handleShareCompleted}
                 onSelectCreation={handleSelectCreation}
@@ -679,7 +666,7 @@ export default function App() {
       </main>
 
       {/* Floating Bottom Navigator (only when signed in and past onboarding) */}
-      {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.AVATAR_DASHBOARD, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.IMAGE_TO_3D].includes(currentScreen) && (
+      {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY].includes(currentScreen) && (
         <div className="fixed md:hidden bottom-0 left-0 right-0 bg-surface-container-lowest/90 dark:bg-surface-dim/90 backdrop-blur-xl border-t border-outline-variant/30 py-2 px-4 flex justify-around items-center z-40 rounded-t-2xl shadow-[0_-8px_32px_0_rgba(68,42,34,0.08)]">
           <button
             onClick={() => setCurrentScreen(Screen.DASHBOARD)}
@@ -712,23 +699,13 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => setCurrentScreen(Screen.AVATAR_DASHBOARD)}
+            onClick={() => setCurrentScreen(Screen.MODELS)}
             className={`flex flex-col items-center justify-center gap-1 py-2 px-4 rounded-xl transition-all duration-300 ${
-              currentScreen === Screen.AVATAR_DASHBOARD ? "bg-primary text-on-primary scale-105" : "text-on-surface-variant hover:bg-surface-variant/50"
+              currentScreen === Screen.MODELS ? "bg-primary text-on-primary scale-105" : "text-on-surface-variant hover:bg-surface-variant/50"
             }`}
           >
-            <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.AVATAR_DASHBOARD ? "'FILL' 1" : "'FILL' 0" }}>pets</span>
-            <span className="text-[10px] font-bold">Avatars</span>
-          </button>
-
-          <button
-            onClick={() => setCurrentScreen(Screen.IMAGE_TO_3D)}
-            className={`flex flex-col items-center justify-center gap-1 py-2 px-3 rounded-xl transition-all duration-300 ${
-              currentScreen === Screen.IMAGE_TO_3D ? "bg-primary text-on-primary scale-105" : "text-on-surface-variant hover:bg-surface-variant/50"
-            }`}
-          >
-            <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.IMAGE_TO_3D ? "'FILL' 1" : "'FILL' 0" }}>view_in_ar</span>
-            <span className="text-[10px] font-bold">3D</span>
+            <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.MODELS ? "'FILL' 1" : "'FILL' 0" }}>pets</span>
+            <span className="text-[10px] font-bold">Models</span>
           </button>
 
           <button
@@ -754,7 +731,7 @@ export default function App() {
           isDarkMode={isDarkMode}
           onNavigate={setCurrentScreen}
           onOpenCreditStore={() => setShowCreditStore(true)}
-          onLaunchAR={() => setCurrentScreen(Screen.AVATAR_DASHBOARD)}
+          onLaunchAR={() => setCurrentScreen(Screen.MODELS)}
         />
       )}
 

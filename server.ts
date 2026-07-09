@@ -815,8 +815,8 @@ async function startServer() {
 
   app.post("/api/avatars", requireAuth, async (req: AuthedRequest, res) => {
     try {
-      const { name, photo, photos, palette, avatar_type, face_photo } = req.body;
-      const avatarType: 'dog' | 'human' = avatar_type === 'human' ? 'human' : 'dog';
+      const { name, photo, photos, palette, avatar_type, face_photo, input_mode, subject, detail, texture, style, lighting } = req.body;
+      const avatarType = avatar_type || 'dog';
       // Accept new multi-photo payload; keep backward compat with single `photo`.
       const photoList: string[] = Array.isArray(photos) && photos.length > 0
         ? photos.filter((p: unknown) => typeof p === "string" && p.length > 0)
@@ -826,73 +826,109 @@ async function startServer() {
       // Dedicated face photo from the face upload slot
       const hasFacePhoto: boolean = typeof face_photo === "string" && face_photo.length > 0;
 
-      if (!name || photoList.length === 0) {
-        return res.status(400).json({ error: "Name and at least one photo required." });
-      }
-      if (photoList.length > 6) {
-        return res.status(400).json({ error: "Maximum 6 photos per avatar (1 face + 5 body)." });
+      if (!name) {
+        return res.status(400).json({ error: "Name is required." });
       }
 
-      // Layer 1: generate a single hyper-realistic reference image from all photos.
-      let sourceImage = await generatePetReferenceImage(photoList, accent, avatarType, hasFacePhoto);
-      let usedReferenceImage = true;
-      if (!sourceImage) {
-        console.warn("[POST /api/avatars] Reference image generation failed; falling back to first uploaded photo.");
-        sourceImage = photoList[0];
-        usedReferenceImage = false;
-      }
-
-      // Layer 1.5: COLOR-COORDINATION LOCK + multiview turnaround. Extract the
-      // pet's palette from the approved front image, then generate colour-matched
-      // left/back/right views so Tripo can run multiview_to_model. Best-effort:
-      // any failure degrades to single-image generation.
-      let viewSet: { left?: string; back?: string; right?: string } | undefined;
-      if (avatarType === 'dog') {
-        try {
-          const palette = usedReferenceImage && sourceImage.startsWith("data:image")
-            ? await extractPalette(sourceImage, avatarType)
-            : null;
-          if (sourceImage.startsWith("data:image")) {
-            const rawViews = await generateTurnaroundViews(sourceImage, palette, avatarType);
-            const uploaded: { left?: string; back?: string; right?: string } = {};
-            for (const key of ["left", "back", "right"] as const) {
-              const v = rawViews[key];
-              if (v) uploaded[key] = v.startsWith("data:image") ? await uploadBase64Image(v) : v;
-            }
-            if (Object.keys(uploaded).length) viewSet = uploaded;
-          }
-        } catch (e: any) {
-          console.warn("[POST /api/avatars] Turnaround/multiview generation skipped:", e?.message || e);
+      const isAdmin = await isUserAdmin(req.user!.phone);
+      if (!isAdmin) {
+        const balance = await getCreditBalance(req.user!.phone);
+        if (balance < 400) {
+          return res.status(402).json({ error: "Insufficient credits. You need 400 credits." });
         }
       }
 
-      let finalImageUrl = sourceImage;
-      if (sourceImage.startsWith("data:image")) {
-        finalImageUrl = await uploadBase64Image(sourceImage);
+      let finalImageUrl = "";
+      let viewSet: { left?: string; back?: string; right?: string } | undefined;
+      let usedReferenceImage = false;
+
+      if (input_mode === "text") {
+        if (!subject || typeof subject !== "string" || subject.trim().length < 2) {
+          return res.status(400).json({ error: "Describe what to make (a short subject phrase)." });
+        }
+        if (subject.length > 600) {
+          return res.status(400).json({ error: "Subject description is too long (max 600 characters)." });
+        }
+        const fields: TextPromptFields = { subject, style, lighting };
+        const prompt = buildTextPrompt(fields);
+        const image = await generateImageWithFallback([{ text: prompt }], "text-to-reference");
+        if (!image) {
+          return res.status(502).json({ error: "Could not generate a reference image. Try rephrasing the subject." });
+        }
+        finalImageUrl = await uploadBase64Image(image);
+        usedReferenceImage = true;
+      } else {
+        if (photoList.length === 0) {
+          return res.status(400).json({ error: "At least one photo required." });
+        }
+        if (photoList.length > 6) {
+          return res.status(400).json({ error: "Maximum 6 photos per avatar (1 face + 5 body)." });
+        }
+
+        // Layer 1: generate a single hyper-realistic reference image from all photos.
+        let sourceImage = await generatePetReferenceImage(photoList, accent, avatarType as any, hasFacePhoto);
+        usedReferenceImage = true;
+        if (!sourceImage) {
+          console.warn("[POST /api/avatars] Reference image generation failed; falling back to first uploaded photo.");
+          sourceImage = photoList[0];
+          usedReferenceImage = false;
+        }
+
+        // Layer 1.5: COLOR-COORDINATION LOCK + multiview turnaround.
+        if (avatarType === 'dog') {
+          try {
+            const paletteStr = usedReferenceImage && sourceImage.startsWith("data:image")
+              ? await extractPalette(sourceImage, avatarType)
+              : null;
+            if (sourceImage.startsWith("data:image")) {
+              const rawViews = await generateTurnaroundViews(sourceImage, paletteStr, avatarType);
+              const uploaded: { left?: string; back?: string; right?: string } = {};
+              for (const key of ["left", "back", "right"] as const) {
+                const v = rawViews[key];
+                if (v) uploaded[key] = v.startsWith("data:image") ? await uploadBase64Image(v) : v;
+              }
+              if (Object.keys(uploaded).length) viewSet = uploaded;
+            }
+          } catch (e: any) {
+            console.warn("[POST /api/avatars] Turnaround/multiview generation skipped:", e?.message || e);
+          }
+        }
+
+        finalImageUrl = sourceImage;
+        if (sourceImage.startsWith("data:image")) {
+          finalImageUrl = await uploadBase64Image(sourceImage);
+        }
+
+        // Connection: persist the photos uploaded in the avatar builder into the
+        // user's photo library so they show up (and are manageable) on the Profile
+        // page. Fire-and-forget so it never delays avatar creation.
+        const phoneForPhotos = req.user!.phone;
+        (async () => {
+          for (const p of photoList) {
+            try {
+              const purl = p.startsWith("data:image") ? await uploadBase64Image(p) : p;
+              await addUserPhoto(phoneForPhotos, purl, "avatar_builder");
+            } catch (e: any) {
+              console.warn("[avatar photos] could not persist an uploaded photo:", e?.message || e);
+            }
+          }
+        })();
+      }
+
+      const geo = (detail || texture) ? geometryToTripo(detail, texture) : undefined;
+
+      // Deduct credits before starting generation
+      if (!isAdmin) {
+        await deductCredits(req.user!.phone, 400);
       }
 
       // Layer 2: start Tripo3D generation (multiview when turnaround views exist).
-      const handle = await startImageTo3D({ imageUrl: finalImageUrl, views: viewSet });
+      const handle = await startImageTo3D({ imageUrl: finalImageUrl, views: viewSet, geometry: geo });
       const avatarId = await createAvatar(req.user!.phone, name, finalImageUrl, handle, { avatar_type: avatarType });
       if (viewSet) {
         try { await updateAvatarMultiview(avatarId, viewSet); }
         catch (e: any) { console.warn("[POST /api/avatars] could not persist multiview views:", e?.message || e); }
       }
-
-      // Connection: persist the photos uploaded in the avatar builder into the
-      // user's photo library so they show up (and are manageable) on the Profile
-      // page. Fire-and-forget so it never delays avatar creation.
-      const phoneForPhotos = req.user!.phone;
-      (async () => {
-        for (const p of photoList) {
-          try {
-            const purl = p.startsWith("data:image") ? await uploadBase64Image(p) : p;
-            await addUserPhoto(phoneForPhotos, purl, "avatar_builder");
-          } catch (e: any) {
-            console.warn("[avatar photos] could not persist an uploaded photo:", e?.message || e);
-          }
-        }
-      })();
 
       res.json({ avatarId, status: "pending", referenceImageUrl: finalImageUrl, usedReferenceImage });
     } catch (err: any) {

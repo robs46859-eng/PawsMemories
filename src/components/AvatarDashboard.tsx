@@ -108,23 +108,27 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
     });
   }, [avatars]);
 
-  const handleCreateAvatar = async (name: string, photos: string[], palette: string | null, avatarType: 'dog' | 'human', facePhoto?: string | null) => {
+  const handleCreateAvatar = async (options: any) => {
+    if (userProfile.credits < 400) {
+      alert("You need 400 credits to create a model.");
+      return;
+    }
     setCreating(true);
     try {
-      const result = await generate3DAvatar(name, photos, palette, avatarType, facePhoto);
+      const result = await generate3DAvatar(options);
+      
+      // Optimistically deduct 400 credits
+      const updatedUser = { ...userProfile, credits: userProfile.credits - 400 };
+      onUpdateUser(updatedUser);
+      
       setShowCreate(false);
       // Reload to get the new avatar with 'pending' status
       await loadAvatars();
     } catch (err: any) {
-      if (err?.code === "GENERATION_SERVICE_UNAVAILABLE") {
-        alert("3D generation is temporarily unavailable. Please try again later.");
-      } else if (err?.status === 402) {
-        onOpenCreditStore ? onOpenCreditStore() : alert("You don't have enough credits.");
-      } else {
-        alert(err?.message || "Failed to create avatar.");
-      }
+      alert(err.message || "Failed to create model.");
+    } finally {
+      setCreating(false);
     }
-    setCreating(false);
   };
 
   // Trigger an action animation
@@ -158,7 +162,7 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
       // Reload avatar data to get updated food/water levels
       await loadAvatars();
     },
-    [],
+    [loadAvatars],
   );
 
   // Retry a failed avatar generation
@@ -170,7 +174,7 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
     } catch (err: any) {
       alert(err.message || "Failed to retry generation.");
     }
-  }, []);
+  }, [loadAvatars]);
 
   const calculateDecay = (timestamp: string, currentLevel: number) => {
     const lastTime = new Date(timestamp).getTime();
@@ -192,9 +196,11 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
       {/* Header */}
       <div className="w-full flex justify-between items-end mb-8">
         <div>
-          <h2 className="text-3xl font-headline-xl font-black tracking-tight text-on-surface">3D Avatars</h2>
-          <p className="text-sm text-on-surface-variant font-medium mt-1 font-body-md">
-            Upload a pet photo to generate animated 3D avatars!
+          <h1 className="text-3xl font-extrabold text-on-surface mb-1 flex items-center gap-2 font-headline-xl">
+            <Sparkles className="text-primary" size={26} /> My Models
+          </h1>
+          <p className="text-sm text-on-surface-variant max-w-md font-sans">
+            Your generated 3D models and avatars.
           </p>
         </div>
         <div className="flex flex-col items-end gap-2">
@@ -210,23 +216,25 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
             onClick={() => setShowCreate(true)}
             className="flex items-center gap-2 bg-primary text-on-primary px-5 py-2.5 rounded-full text-xs font-black uppercase tracking-wider shadow-md hover:bg-primary/90 transition-all tactile-button"
           >
-            <Plus size={14} /> New 3D Avatar
+            <Plus size={16} /> Create Model
           </button>
         </div>
       </div>
 
       {avatars.length === 0 ? (
-        <div className="w-full flex flex-col items-center justify-center p-12 glass-panel rounded-3xl border border-dashed border-outline-variant/50">
-          <span className="text-6xl mb-4 opacity-50 dog-float">🐾</span>
-          <h3 className="text-lg font-bold text-on-surface mb-2 font-headline-lg-mobile">No Avatars Yet</h3>
-          <p className="text-sm text-on-surface-variant text-center max-w-sm mb-6 font-body-md">
-            Upload a photo of your pet and our AI will create a fully animated 3D avatar!
+        <div className="flex flex-col items-center justify-center p-12 bg-surface-container/60 rounded-3xl border border-outline-variant/30 backdrop-blur-xl animate-fade-in text-center max-w-2xl mx-auto shadow-sm">
+          <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+            <Sparkles size={32} className="text-primary" />
+          </div>
+          <h3 className="text-xl font-bold text-on-surface mb-2 font-headline-lg">No Models Yet</h3>
+          <p className="text-sm text-on-surface-variant mb-6 max-w-sm font-sans">
+            Generate your first 3D model! You can create fully animated humans and dogs, or generic objects.
           </p>
           <button
             onClick={() => setShowCreate(true)}
-            className="bg-primary text-on-primary px-6 py-3 rounded-xl font-bold hover:shadow-lg transition-all tactile-button"
+            className="bg-primary text-white px-6 py-3 rounded-full text-sm font-black uppercase tracking-wider shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all tactile-button"
           >
-            Create 3D Avatar
+            Create Your First Model
           </button>
         </div>
       ) : (
