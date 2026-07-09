@@ -1,3 +1,39 @@
+/**
+ * Canonical subject class used across the generator pipeline. 'dog' is the
+ * animal value kept on the wire for backward-compat (DB default, existing rows);
+ * treat it as "animal" everywhere. 'object' is a static, non-living subject that
+ * is NOT rigged or animated.
+ */
+export type SubjectClass = 'dog' | 'human' | 'object';
+
+/**
+ * Positive/negative definitions of each class. Shared by the auto-detection +
+ * qualification triage call so it can reliably tell a live subject (rig it) from
+ * an inanimate thing shaped like one (keep it static). Single source of truth.
+ */
+export const CLASS_DEFINITIONS =
+  `Definitions:\n` +
+  `- "human": a real living person or clearly human character — one head, two arms, two legs, hands, a human face, skin and hair. ` +
+  `NOT a doll, mannequin, action figure, statue, or costume of a person, and NOT an animal.\n` +
+  `- "dog": a living (or lifelike) animal with animal anatomy — a body on legs (usually four), a head with a muzzle/snout or beak, fur/feathers/scales, usually a tail. Dogs, cats, birds, rabbits, etc. ` +
+  `NOT a plush toy, figurine, statue or drawing of an animal, and NOT a human.\n` +
+  `- "object": anything that is NOT a live human or animal — props, furniture, vehicles, toys, food, plants, gadgets — INCLUDING toys, figurines and statues that merely depict a human or animal. ` +
+  `The test is: is this a living subject we should rig and animate, or an inanimate thing? If inanimate, it is "object" even if it is shaped like a dog or person.`;
+
+/**
+ * REFERENCE STYLE for a static OBJECT. Deliberately anti-anthropomorphic: no
+ * invented face/limbs/tail, true materials and colours, clean even lighting for
+ * a good single-image (or multiview) reconstruction.
+ */
+export const REFERENCE_STYLE_OBJECT =
+  `Render this single object as a clean, well-lit, 3D-reconstruction-friendly image. ` +
+  `Faithfully preserve the object's exact real colours, materials, surface finish and proportions as seen across ALL reference photos. ` +
+  `The WHOLE object is visible, centered, upright in its natural resting orientation, with generous margin on all sides. ` +
+  `Do NOT anthropomorphise: add no face, eyes, mouth, limbs, tail or expression, and invent no parts that are not on the real object. ` +
+  `If a detail is unclear, err toward the most neutral plausible interpretation rather than inventing something. ` +
+  `Even soft studio lighting with no harsh shadows or baked highlights, plain neutral light-gray seamless background, ` +
+  `no other objects, no hands, no people, no props, no text, no watermark.`;
+
 export const REFERENCE_STYLE_DOG =
   `Render the pet as a premium Pixar-style stylized 3D character: soft appealing proportions, slightly enlarged ` +
   `expressive eyes, subsurface-scattered skin/nose, and RICHLY TEXTURED groomed fur with visible individual strand ` +
@@ -50,8 +86,19 @@ export const ACCENT_PROMPTS: Record<string, string> = {
     `neutral accent if present — WITHOUT altering the pet or person's natural fur, skin, nose or eye colours.`,
 };
 
-export function buildReferencePrompt(type: 'dog' | 'human', accent?: string | null, hasFacePhoto?: boolean, photoCount?: number): string {
+export function buildReferencePrompt(type: SubjectClass, accent?: string | null, hasFacePhoto?: boolean, photoCount?: number): string {
   const accentClause = (accent && ACCENT_PROMPTS[accent]) || "";
+
+  if (type === 'object') {
+    const multi = (photoCount && photoCount > 1)
+      ? `Cross-reference ALL ${photoCount} provided photos to resolve ambiguity about shape, colour and proportions. `
+      : ``;
+    return (
+      `You are given one or more reference photos, all of the SAME object. ` + multi +
+      `Generate ONE image of this exact object seen from a clear, natural front-facing three-quarter angle that reads its overall shape. ` +
+      REFERENCE_STYLE_OBJECT + ` Respond with only the generated image.`
+    );
+  }
 
   // Face-photo labeling clause
   const faceClause = hasFacePhoto
@@ -83,7 +130,32 @@ export function buildReferencePrompt(type: 'dog' | 'human', accent?: string | nu
   }
 }
 
-export function turnaroundViewsForType(type: 'dog' | 'human'): { view: "left" | "back" | "right"; prompt: string }[] {
+export function turnaroundViewsForType(type: SubjectClass): { view: "left" | "back" | "right"; prompt: string }[] {
+  if (type === 'object') {
+    return [
+      {
+        view: "left",
+        prompt:
+          `This image is the front view of a stylized 3D object. Generate the EXACT SAME object, same style, same ` +
+          `lighting and background, but seen in a PERFECT LEFT SIDE PROFILE (rotated 90° to its left). Preserve all ` +
+          `real materials and colours; invent no new detail — if a side is plain, keep it plausibly plain.`,
+      },
+      {
+        view: "back",
+        prompt:
+          `This image is the front view of a stylized 3D object. Generate the EXACT SAME object, same style, same ` +
+          `lighting and background, but seen DIRECTLY FROM BEHIND (rotated 180°). Preserve all real materials and ` +
+          `colours; do NOT invent rear detail — if the back is featureless, keep it plausibly plain.`,
+      },
+      {
+        view: "right",
+        prompt:
+          `This image is the front view of a stylized 3D object. Generate the EXACT SAME object, same style, same ` +
+          `lighting and background, but seen in a PERFECT RIGHT SIDE PROFILE (rotated 90° to its right). Preserve all ` +
+          `real materials and colours; invent no new detail — if a side is plain, keep it plausibly plain.`,
+      },
+    ];
+  }
   if (type === 'human') {
     return [
       {
@@ -135,9 +207,11 @@ export function turnaroundViewsForType(type: 'dog' | 'human'): { view: "left" | 
   }
 }
 
-export function paletteLockClause(type: 'dog' | 'human', palette: string | null): string {
-  const subject = type === 'human' ? 'human' : 'pet';
-  const detail = type === 'human' ? 'skin, hair, clothing colours' : 'fur colours, markings';
+export function paletteLockClause(type: SubjectClass, palette: string | null): string {
+  const subject = type === 'human' ? 'human' : type === 'object' ? 'object' : 'pet';
+  const detail = type === 'human' ? 'skin, hair, clothing colours'
+    : type === 'object' ? 'materials and colours'
+    : 'fur colours, markings';
   return (
     ` Character turnaround sheet consistency: IDENTICAL ${detail}, proportions and texture across every view.` +
     (palette
@@ -146,7 +220,14 @@ export function paletteLockClause(type: 'dog' | 'human', palette: string | null)
   );
 }
 
-export function extractPaletteInstruction(type: 'dog' | 'human'): string {
+export function extractPaletteInstruction(type: SubjectClass): string {
+  if (type === 'object') {
+    return (
+      `Describe this object's exact colours and materials as a short, comma-separated palette an artist could match precisely: ` +
+      `primary colour and material, secondary colour and material, and any distinct accents and where they are. ` +
+      `Reply with ONLY the palette phrase, no preamble, under 40 words.`
+    );
+  }
   if (type === 'human') {
     return (
       `Describe this person's exact colors as a short, comma-separated palette an artist could match precisely: ` +
@@ -305,6 +386,8 @@ export interface TextPromptFields {
   framing?: string;
   angle?: string;
   lighting?: string;
+  /** Optional corrective guidance appended on a qualification-driven regeneration. */
+  corrective?: string;
 }
 
 /**
@@ -319,6 +402,9 @@ export function buildTextPrompt(fields: TextPromptFields): string {
   const angle = pick(TEXT_ANGLE_OPTIONS, fields.angle).id;
   const lighting = pick(TEXT_LIGHTING_OPTIONS, fields.lighting).id;
 
+  const corrective = (fields.corrective || "").trim();
+  const correctiveClause = corrective ? ` IMPORTANT — fix these issues from the previous attempt: ${corrective}` : ``;
+
   return (
     `Generate ONE image of ${subject}, rendered as ${STYLE_CLAUSES[style]}. ` +
     `The subject is ${ANGLE_CLAUSES[angle]}. ` +
@@ -326,7 +412,8 @@ export function buildTextPrompt(fields: TextPromptFields): string {
     `Use ${LIGHTING_CLAUSES[lighting]}. ` +
     `A single subject only, centered, on a plain neutral light-gray seamless background — ` +
     `no other objects, no people, no props, no ground shadow on walls, no text, no watermark. ` +
-    `Sharp focus, full subject clearly visible. Respond with only the generated image.`
+    `Sharp focus, full subject clearly visible.` + correctiveClause +
+    ` Respond with only the generated image.`
   );
 }
 

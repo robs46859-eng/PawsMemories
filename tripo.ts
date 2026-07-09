@@ -225,7 +225,7 @@ export async function startImageTo3D(input: TripoJobInput): Promise<string> {
  */
 export async function startRig(
   originalModelTaskId: string,
-  opts?: { modelVersion?: string; avatarType?: 'dog' | 'human' }
+  opts?: { modelVersion?: string; avatarType?: 'dog' | 'human' | 'object' }
 ): Promise<string> {
   const original = originalModelTaskId.startsWith(TRIPO_PREFIX)
     ? tripoTaskId(originalModelTaskId)

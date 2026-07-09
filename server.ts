@@ -18,14 +18,15 @@ import { resolveBreedProfile } from "./server/breedProfiles";
 import { decayDrives, DEFAULT_DRIVES, DEFAULT_HORMONES, weightsFromTemperament } from "./src/brain";
 import { uploadBase64Image, uploadBinaryFromUrl, fetchUrlAsBase64, uploadBase64Binary } from "./storage";
 import { runBuildPipeline } from "./agent/graph/orchestrator";
-import { analyzePetImage } from "./ollama-agent";
+import { analyzePetImage, type PetAnalysis } from "./ollama-agent";
 import { getBlenderClient } from "./agent/tools/blender_client";
 import { startTalkingVideo, pollTalkingVideo, fetchMp4AsDataUrl, isHeyGenHandle } from "./heygen";
 import { startImageTo3D, pollImageTo3D, isTripoHandle, startRig, pollTripoTask, isTripoInsufficientCredit } from "./tripo";
 import { checkBudget, needsRetargetFallback, type BakeStats } from "./server/rigBudget";
 import { registerSnapgenRoutes } from "./server/snapgen";
 import { SKELETON_CONTRACTS } from "./skeletonContract";
-import { buildReferencePrompt, turnaroundViewsForType, paletteLockClause, extractPaletteInstruction, buildTextPrompt, geometryToTripo, type TextPromptFields } from "./avatarPrompts";
+import { buildReferencePrompt, turnaroundViewsForType, paletteLockClause, extractPaletteInstruction, buildTextPrompt, geometryToTripo, type TextPromptFields, type SubjectClass } from "./avatarPrompts";
+import { triageReferenceImage, triagePasses, correctiveFromTriage, friendlyQualifyError, isClassMismatch, classLabel, type TriageResult } from "./server/imageTriage";
 import {
   signToken,
   requireAuth,
@@ -692,7 +693,7 @@ async function startServer() {
    * so all four views share exactly the same colours. Colour drift between views
    * is the #1 failure mode of multiview-to-3D, producing muddy/striped textures.
    */
-  async function extractPalette(frontDataUrl: string, type: 'dog' | 'human'): Promise<string | null> {
+  async function extractPalette(frontDataUrl: string, type: SubjectClass): Promise<string | null> {
     const m = frontDataUrl.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
     if (!m) return null;
     const part = { inlineData: { data: m[2], mimeType: m[1] } };
@@ -746,7 +747,7 @@ async function startServer() {
   async function generateTurnaroundViews(
     frontDataUrl: string,
     palette: string | null,
-    type: 'dog' | 'human'
+    type: SubjectClass
   ): Promise<Partial<Record<"left" | "back" | "right", string>>> {
     const m = frontDataUrl.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
     if (!m) return {};
@@ -770,8 +771,9 @@ async function startServer() {
   async function generatePetReferenceImage(
     photos: string[],
     accent: string | null | undefined,
-    type: 'dog' | 'human',
-    hasFacePhoto?: boolean
+    type: SubjectClass,
+    hasFacePhoto?: boolean,
+    extra?: string
   ): Promise<string | null> {
     const imageParts: any[] = [];
     photos.forEach((p, idx) => {
@@ -790,7 +792,9 @@ async function startServer() {
 
     if (imageParts.length === 0) return null;
 
-    const referencePrompt = buildReferencePrompt(type, accent, hasFacePhoto, photos.length);
+    const corrective = (extra || "").trim();
+    const referencePrompt = buildReferencePrompt(type, accent, hasFacePhoto, photos.length)
+      + (corrective ? ` IMPORTANT — fix these issues from the previous attempt: ${corrective}.` : "");
     // Try the dedicated image model first, then fall back to the model already used elsewhere in this app.
     for (const model of ["gemini-2.5-flash-image", "gemini-2.0-flash-exp"]) {
       try {
@@ -816,7 +820,8 @@ async function startServer() {
   app.post("/api/avatars", requireAuth, async (req: AuthedRequest, res) => {
     try {
       const { name, photo, photos, palette, avatar_type, face_photo, input_mode, subject, detail, texture, style, lighting } = req.body;
-      const avatarType = avatar_type || 'dog';
+      // Normalize the UI type to a canonical SubjectClass ('dog' == animal).
+      let avatarType: SubjectClass = avatar_type === 'human' ? 'human' : avatar_type === 'object' ? 'object' : 'dog';
       // Accept new multi-photo payload; keep backward compat with single `photo`.
       const photoList: string[] = Array.isArray(photos) && photos.length > 0
         ? photos.filter((p: unknown) => typeof p === "string" && p.length > 0)
@@ -828,6 +833,23 @@ async function startServer() {
 
       if (!name) {
         return res.status(400).json({ error: "Name is required." });
+      }
+
+      // Input validation up-front (before any paid image generation).
+      if (input_mode === "text") {
+        if (!subject || typeof subject !== "string" || subject.trim().length < 2) {
+          return res.status(400).json({ error: "Describe what to make (a short subject phrase)." });
+        }
+        if (subject.length > 600) {
+          return res.status(400).json({ error: "Subject description is too long (max 600 characters)." });
+        }
+      } else {
+        if (photoList.length === 0) {
+          return res.status(400).json({ error: "At least one photo required." });
+        }
+        if (photoList.length > 6) {
+          return res.status(400).json({ error: "Maximum 6 photos per avatar (1 face + 5 body)." });
+        }
       }
 
       const isAdmin = await isUserAdmin(req.user!.phone);
@@ -842,66 +864,99 @@ async function startServer() {
       let viewSet: { left?: string; back?: string; right?: string } | undefined;
       let usedReferenceImage = false;
 
-      if (input_mode === "text") {
-        if (!subject || typeof subject !== "string" || subject.trim().length < 2) {
-          return res.status(400).json({ error: "Describe what to make (a short subject phrase)." });
-        }
-        if (subject.length > 600) {
-          return res.status(400).json({ error: "Subject description is too long (max 600 characters)." });
-        }
-        const fields: TextPromptFields = { subject, style, lighting };
-        const prompt = buildTextPrompt(fields);
-        const image = await generateImageWithFallback([{ text: prompt }], "text-to-reference");
-        if (!image) {
-          return res.status(502).json({ error: "Could not generate a reference image. Try rephrasing the subject." });
-        }
-        finalImageUrl = await uploadBase64Image(image);
-        usedReferenceImage = true;
-      } else {
-        if (photoList.length === 0) {
-          return res.status(400).json({ error: "At least one photo required." });
-        }
-        if (photoList.length > 6) {
-          return res.status(400).json({ error: "Maximum 6 photos per avatar (1 face + 5 body)." });
-        }
+      // ── Step 1–2: generate a reference image, then QUALIFY it. Up to 2
+      // regenerations (3 attempts total). Only a passing image proceeds to Tripo.
+      // Credits are deducted AFTER a pass, so a rejected image costs the user nothing.
+      const MAX_ATTEMPTS = 3;
+      let triage: TriageResult | null = null;
+      let chosenImage: string | null = null;   // data URL (generated) or raw photo fallback
+      let corrective = "";
 
-        // Layer 1: generate a single hyper-realistic reference image from all photos.
-        let sourceImage = await generatePetReferenceImage(photoList, accent, avatarType as any, hasFacePhoto);
-        usedReferenceImage = true;
-        if (!sourceImage) {
-          console.warn("[POST /api/avatars] Reference image generation failed; falling back to first uploaded photo.");
-          sourceImage = photoList[0];
-          usedReferenceImage = false;
-        }
-
-        // Layer 1.5: COLOR-COORDINATION LOCK + multiview turnaround.
-        if (avatarType === 'dog') {
-          try {
-            const paletteStr = usedReferenceImage && sourceImage.startsWith("data:image")
-              ? await extractPalette(sourceImage, avatarType)
-              : null;
-            if (sourceImage.startsWith("data:image")) {
-              const rawViews = await generateTurnaroundViews(sourceImage, paletteStr, avatarType);
-              const uploaded: { left?: string; back?: string; right?: string } = {};
-              for (const key of ["left", "back", "right"] as const) {
-                const v = rawViews[key];
-                if (v) uploaded[key] = v.startsWith("data:image") ? await uploadBase64Image(v) : v;
-              }
-              if (Object.keys(uploaded).length) viewSet = uploaded;
-            }
-          } catch (e: any) {
-            console.warn("[POST /api/avatars] Turnaround/multiview generation skipped:", e?.message || e);
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        // Produce a candidate front image.
+        let candidate: string | null = null;
+        let candidateGenerated = false;
+        if (input_mode === "text") {
+          const fields: TextPromptFields = { subject, style, lighting, corrective };
+          candidate = await generateImageWithFallback([{ text: buildTextPrompt(fields) }], "text-to-reference");
+          candidateGenerated = !!candidate;
+        } else {
+          candidate = await generatePetReferenceImage(photoList, accent, avatarType, hasFacePhoto, corrective);
+          candidateGenerated = !!candidate;
+          if (!candidate) {
+            // Only fall back to the raw photo as a last resort; it still must pass QA below.
+            candidate = photoList[0];
+            candidateGenerated = false;
           }
         }
-
-        finalImageUrl = sourceImage;
-        if (sourceImage.startsWith("data:image")) {
-          finalImageUrl = await uploadBase64Image(sourceImage);
+        if (!candidate) {
+          if (attempt < MAX_ATTEMPTS) continue;
+          return res.status(502).json({ error: "Could not generate a reference image. Try rephrasing the subject or using a clearer photo." });
         }
 
-        // Connection: persist the photos uploaded in the avatar builder into the
-        // user's photo library so they show up (and are manageable) on the Profile
-        // page. Fire-and-forget so it never delays avatar creation.
+        // Qualify + auto-detect in one vision call. If the QA call itself fails
+        // (LLM unavailable), don't block generation — accept the candidate.
+        try {
+          const { data, mimeType } = splitDataUrl(candidate);
+          triage = await triageReferenceImage(classifyGenerate, { imageBase64: data, mimeType, userType: avatarType });
+        } catch (e: any) {
+          console.warn("[POST /api/avatars] triage unavailable; accepting candidate:", e?.message || e);
+          triage = null;
+          chosenImage = candidate;
+          usedReferenceImage = candidateGenerated;
+          break;
+        }
+
+        if (triagePasses(triage)) {
+          chosenImage = candidate;
+          usedReferenceImage = candidateGenerated;
+          break;
+        }
+        // Failed QA → build corrective guidance and regenerate.
+        corrective = correctiveFromTriage(triage);
+        console.log(`[POST /api/avatars] QA attempt ${attempt} rejected (score ${triage.qualify.score}); corrective: ${corrective}`);
+      }
+
+      // Exhausted all attempts without passing QA → full refund (no credits deducted yet).
+      if (triage && !triagePasses(triage)) {
+        return res.status(422).json({ error: friendlyQualifyError(triage), code: "IMAGE_QUALITY_REJECTED" });
+      }
+      if (!chosenImage) {
+        return res.status(502).json({ error: "Could not generate a reference image. Try again with a clearer photo or description." });
+      }
+
+      // ── Auto-detection soft-switch: if the detected class disagrees with what
+      // the user picked (high confidence), switch and tell them.
+      let detectNotice: string | undefined;
+      if (triage && isClassMismatch(triage, avatarType)) {
+        const detected = triage.subjectClass;
+        detectNotice = `We detected a ${classLabel(detected)}, so we're generating a ${detected === 'object' ? 'static model' : classLabel(detected) + ' avatar'} instead of a ${classLabel(avatarType)}. You can change the type and regenerate if that's wrong.`;
+        console.log(`[POST /api/avatars] class mismatch: user=${avatarType} detected=${detected} (${triage.classConfidence}) — switching.`);
+        avatarType = detected;
+      }
+
+      // ── Layer 1.5: COLOR-COORDINATION LOCK + multiview turnaround. Animals only
+      // (dogs); humans stay single-image (intentional), objects default to single-image.
+      if (avatarType === 'dog' && chosenImage.startsWith("data:image")) {
+        try {
+          const paletteStr = usedReferenceImage ? await extractPalette(chosenImage, avatarType) : null;
+          const rawViews = await generateTurnaroundViews(chosenImage, paletteStr, avatarType);
+          const uploaded: { left?: string; back?: string; right?: string } = {};
+          for (const key of ["left", "back", "right"] as const) {
+            const v = rawViews[key];
+            if (v) uploaded[key] = v.startsWith("data:image") ? await uploadBase64Image(v) : v;
+          }
+          if (Object.keys(uploaded).length) viewSet = uploaded;
+        } catch (e: any) {
+          console.warn("[POST /api/avatars] Turnaround/multiview generation skipped:", e?.message || e);
+        }
+      }
+
+      // Upload the chosen front reference.
+      finalImageUrl = chosenImage.startsWith("data:image") ? await uploadBase64Image(chosenImage) : chosenImage;
+
+      // Persist uploaded photos to the user's library (image mode only). Fire-and-forget.
+      if (input_mode !== "text" && photoList.length) {
         const phoneForPhotos = req.user!.phone;
         (async () => {
           for (const p of photoList) {
@@ -917,20 +972,42 @@ async function startServer() {
 
       const geo = (detail || texture) ? geometryToTripo(detail, texture) : undefined;
 
-      // Deduct credits before starting generation
+      // Deduct credits ONLY now that we have a qualified image and are starting Tripo.
       if (!isAdmin) {
         await deductCredits(req.user!.phone, 400);
       }
 
+      // Compact analysis record persisted for the build/rig stage (§8 "memory").
+      const generationAnalysis = triage
+        ? {
+            subjectClass: avatarType,
+            detected: triage.subjectClass,
+            classConfidence: triage.classConfidence,
+            species: triage.species || (avatarType === 'human' ? 'human' : undefined),
+            breed: triage.breed || undefined,
+            breedConfidence: triage.breedConfidence,
+            bodyType: triage.bodyType,
+            legCount: triage.legCount,
+            hasTail: triage.hasTail,
+            coatColors: triage.coatColors,
+            coatPattern: triage.coatPattern,
+            qualify: triage.qualify,
+          }
+        : null;
+
       // Layer 2: start Tripo3D generation (multiview when turnaround views exist).
       const handle = await startImageTo3D({ imageUrl: finalImageUrl, views: viewSet, geometry: geo });
-      const avatarId = await createAvatar(req.user!.phone, name, finalImageUrl, handle, { avatar_type: avatarType });
+      const avatarId = await createAvatar(req.user!.phone, name, finalImageUrl, handle, {
+        avatar_type: avatarType,
+        breed: triage?.breed || undefined,
+        generation_analysis: generationAnalysis,
+      });
       if (viewSet) {
         try { await updateAvatarMultiview(avatarId, viewSet); }
         catch (e: any) { console.warn("[POST /api/avatars] could not persist multiview views:", e?.message || e); }
       }
 
-      res.json({ avatarId, status: "pending", referenceImageUrl: finalImageUrl, usedReferenceImage });
+      res.json({ avatarId, status: "pending", referenceImageUrl: finalImageUrl, usedReferenceImage, avatarType, notice: detectNotice });
     } catch (err: any) {
       if (isTripoInsufficientCredit(err)) {
         console.error("[Tripo] Platform account out of credits — top up TRIPO_API_KEY account");
@@ -1023,12 +1100,34 @@ async function startServer() {
           }
           avatarBuildLocks.add(avatarId);
           await getPool().query(`UPDATE avatars SET meshy_handle = NULL WHERE id = ?`, [avatarId]);
-          await updateAvatarGenerationStatus(avatarId, "rigging");
-          
+
           const avatarPhone = req.user!.phone;
           const originalImageUrl = avatar.image_url;
           const glbUrl = poll.glbUrl!;
-          
+
+          // ── STATIC OBJECT: no rig, no brain, no clips. Persist the raw GLB and
+          // mark done. (The UI promises "static GLB, no rigging" for objects.)
+          if (avatar.avatar_type === 'object') {
+            (async () => {
+              try {
+                let finalModelUrl = glbUrl;
+                try { finalModelUrl = await uploadBinaryFromUrl(glbUrl); }
+                catch (e: any) { console.warn(`[Avatar ${avatarId}] could not re-host object GLB, using Tripo URL:`, e?.message || e); }
+                await updateAvatarModel(avatarId, avatarPhone, finalModelUrl, "", {});
+                await updateAvatarGenerationStatus(avatarId, "done");
+                console.log(`[Avatar ${avatarId}] Static object stored (no rigging).`);
+              } catch (err: any) {
+                console.error(`[Avatar ${avatarId} Object Error]`, err);
+                await updateAvatarGenerationStatus(avatarId, "failed", err.message || "Failed to store static model");
+              } finally {
+                avatarBuildLocks.delete(avatarId);
+              }
+            })();
+            return res.json({ status: "rigging" });
+          }
+
+          await updateAvatarGenerationStatus(avatarId, "rigging");
+
           // Spawn background agent pipeline
           (async () => {
              try {
@@ -1041,8 +1140,30 @@ async function startServer() {
                  
                  const originalImageBase64 = await fetchUrlAsBase64(originalImageUrl);
                  const glbBase64 = await fetchUrlAsBase64(glbUrl);
-                
-                 let petAnalysis = await analyzePetImage(originalImageBase64);
+
+                 // §8 "memory": prefer the triage record captured at generation time
+                 // (detection + anatomy) so we don't pay for a second vision analysis.
+                 // Fall back to analyzePetImage only when no usable triage exists.
+                 const ga: any = avatar.generation_analysis
+                   ? (typeof avatar.generation_analysis === "string" ? JSON.parse(avatar.generation_analysis) : avatar.generation_analysis)
+                   : null;
+                 let petAnalysis: PetAnalysis;
+                 if (ga && (ga.bodyType || ga.species)) {
+                    petAnalysis = {
+                       species: ga.species || (avatar.avatar_type === 'human' ? 'human' : 'dog'),
+                       breed: ga.breed || avatar.breed || "Mixed",
+                       bodyType: ga.bodyType && ga.bodyType !== 'static' ? ga.bodyType : (avatar.avatar_type === 'human' ? 'biped' : 'quadruped'),
+                       estimatedPose: "standing",
+                       legCount: Number.isFinite(ga.legCount) && ga.legCount > 0 ? ga.legCount : (avatar.avatar_type === 'human' ? 2 : 4),
+                       hasTail: !!ga.hasTail && avatar.avatar_type !== 'human',
+                       hasWings: ga.bodyType === 'winged',
+                       bodyProportions: { headSize: "medium", legLength: "medium", bodyLength: "medium", neckLength: "medium" },
+                       coatColors: Array.isArray(ga.coatColors) && ga.coatColors.length ? ga.coatColors : ["#C0A080"],
+                       coatPattern: ga.coatPattern || "solid",
+                    };
+                 } else {
+                    petAnalysis = await analyzePetImage(originalImageBase64);
+                 }
                  if (avatar.avatar_type === 'human') {
                     petAnalysis = { ...petAnalysis, species: 'human', bodyType: 'biped', legCount: 2, hasTail: false };
                  }
