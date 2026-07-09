@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import { submitImageTo3D, generateTextReference, pollJob, type ImageTo3DGeometry } from "../api";
 import PetModelViewer from "./PetModelViewer";
-import { Upload, X, Download, RotateCw, ChevronDown, ChevronUp, Layers, Sparkles, AlertCircle, ImageIcon, Type, Wand2 } from "lucide-react";
+import { Upload, X, Download, RotateCw, ChevronDown, ChevronUp, Layers, Sparkles, AlertCircle, ImageIcon, Type, Wand2, Palette } from "lucide-react";
 import {
   TEXT_STYLE_OPTIONS,
   TEXT_FRAMING_OPTIONS,
@@ -53,10 +53,15 @@ export default function ImageTo3DPanel({ credits, isAdmin, onCreditsSpent }: Ima
   // Drag state
   const [isDragging, setIsDragging] = useState(false);
 
+  // Show styling options in image mode
+  const [showStyling, setShowStyling] = useState(false);
+
   // Input mode: upload an image, or describe it with a structured text prompt.
   const [mode, setMode] = useState<"image" | "text">("image");
 
-  // Text-prompt fields (ids match the backend 3D-safe dropdowns).
+  // Styling / prompt fields (shared between text and image modes).
+  // In text mode these drive the reference image generation.
+  // In image mode they're optional overrides for the 3D generation.
   const [subject, setSubject] = useState("");
   const [style, setStyle] = useState(TEXT_STYLE_OPTIONS.find((o) => o.recommended)?.id || TEXT_STYLE_OPTIONS[0].id);
   const [framing, setFraming] = useState(TEXT_FRAMING_OPTIONS.find((o) => o.recommended)?.id || TEXT_FRAMING_OPTIONS[0].id);
@@ -121,8 +126,8 @@ export default function ImageTo3DPanel({ credits, isAdmin, onCreditsSpent }: Ima
 
       setState("generating");
       setStatusText("Starting 3D generation…");
-      const geometry: ImageTo3DGeometry | undefined =
-        mode === "text" ? { detail: geoDetail, texture: geoTexture } : undefined;
+      // Always pass geometry overrides — both image and text mode
+      const geometry: ImageTo3DGeometry = { detail: geoDetail, texture: geoTexture };
       const result = await submitImageTo3D(image, multiview, geometry);
       setJobId(result.jobId);
       onCreditsSpent?.(MODEL_COST);
@@ -456,6 +461,34 @@ export default function ImageTo3DPanel({ credits, isAdmin, onCreditsSpent }: Ima
                     <MvSlot label="Left" value={mvLeft} onChange={setMvLeft} />
                     <MvSlot label="Back" value={mvBack} onChange={setMvBack} />
                     <MvSlot label="Right" value={mvRight} onChange={setMvRight} />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Styling options toggle (image mode only) */}
+            {mode === "image" && image && (state === "idle" || state === "failed") && (
+              <div>
+                <button
+                  onClick={() => setShowStyling(!showStyling)}
+                  className="flex items-center gap-2 text-xs font-bold text-on-surface-variant hover:text-primary transition-colors cursor-pointer"
+                >
+                  {showStyling ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  <Palette size={13} />
+                  Styling Options (optional — customise the 3D output)
+                </button>
+
+                {showStyling && (
+                  <div className="mt-3 p-4 bg-surface-container/50 rounded-2xl border border-outline-variant/15 flex flex-col gap-4 animate-fade-in">
+                    <p className="text-[10px] text-on-surface-variant/70 leading-relaxed">
+                      These are optional — &ldquo;Auto&rdquo; works great for any image. Pick specific styles only if you want a particular look.
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <PromptSelect label="Style" value={style} onChange={setStyle} options={TEXT_STYLE_OPTIONS} />
+                      <PromptSelect label="Lighting" value={lighting} onChange={setLighting} options={TEXT_LIGHTING_OPTIONS} />
+                      <PromptSelect label="Detail" value={geoDetail} onChange={setGeoDetail} options={GEOMETRY_DETAIL_OPTIONS} />
+                      <PromptSelect label="Texture" value={geoTexture} onChange={setGeoTexture} options={GEOMETRY_TEXTURE_OPTIONS} />
+                    </div>
                   </div>
                 )}
               </div>

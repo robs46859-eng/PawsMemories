@@ -23,6 +23,7 @@ import { getBlenderClient } from "./agent/tools/blender_client";
 import { startTalkingVideo, pollTalkingVideo, fetchMp4AsDataUrl, isHeyGenHandle } from "./heygen";
 import { startImageTo3D, pollImageTo3D, isTripoHandle, startRig, pollTripoTask, isTripoInsufficientCredit } from "./tripo";
 import { checkBudget, needsRetargetFallback, type BakeStats } from "./server/rigBudget";
+import { registerSnapgenRoutes } from "./server/snapgen";
 import { SKELETON_CONTRACTS } from "./skeletonContract";
 import { buildReferencePrompt, turnaroundViewsForType, paletteLockClause, extractPaletteInstruction, buildTextPrompt, geometryToTripo, type TextPromptFields } from "./avatarPrompts";
 import {
@@ -226,6 +227,9 @@ async function startServer() {
   app.use("/api/auth/login", authLimiter);
   app.use("/api/auth/signup", authLimiter);
   app.use("/api/create-video", authLimiter);
+
+  // SnapGen (pic-to-3D storefront) routes — see server/snapgen.ts
+  registerSnapgenRoutes(app);
 
   // Per-USER limiter (keyed by JWT subject, not IP) for the paid AR endpoints
   // (classify / rig / semantic-scan). Applied as route middleware AFTER

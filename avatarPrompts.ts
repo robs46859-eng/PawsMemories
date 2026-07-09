@@ -158,7 +158,8 @@ export interface TextOption {
 
 /** Visual style of the generated character. */
 export const TEXT_STYLE_OPTIONS: TextOption[] = [
-  { id: "pixar",      label: "Pixar / animated feature", recommended: true },
+  { id: "auto",       label: "Auto (let AI decide)", recommended: true, hint: "Best for arbitrary images — the generator picks the most fitting style" },
+  { id: "pixar",      label: "Pixar / animated feature" },
   { id: "realistic",  label: "Photorealistic" },
   { id: "claymation", label: "Claymation / clay" },
   { id: "plush",      label: "Plush / stuffed toy" },
@@ -173,7 +174,8 @@ export const TEXT_STYLE_OPTIONS: TextOption[] = [
 
 /** Body framing (replaces the invalid "camera movement" field). */
 export const TEXT_FRAMING_OPTIONS: TextOption[] = [
-  { id: "fullbody_apose", label: "Full body — A-pose standing", recommended: true, hint: "Best for a complete, riggable mesh" },
+  { id: "auto",           label: "Auto (let AI decide)", recommended: true, hint: "Best for arbitrary images" },
+  { id: "fullbody_apose", label: "Full body — A-pose standing", hint: "Best for a complete, riggable mesh" },
   { id: "fullbody_sit",   label: "Full body — sitting" },
   { id: "fullbody_lie",   label: "Full body — lying down" },
   { id: "bust",           label: "Head & shoulders bust", hint: "No legs/body — portrait busts only" },
@@ -181,7 +183,8 @@ export const TEXT_FRAMING_OPTIONS: TextOption[] = [
 
 /** View angle. Single-image reconstruction wants a clean front. */
 export const TEXT_ANGLE_OPTIONS: TextOption[] = [
-  { id: "front",         label: "Front view", recommended: true, hint: "Required for best single-image reconstruction" },
+  { id: "auto",          label: "Auto (let AI decide)", recommended: true, hint: "Best for arbitrary images" },
+  { id: "front",         label: "Front view", hint: "Required for best single-image reconstruction" },
   { id: "three_quarter", label: "Slight 3/4 front", hint: "Slightly turned — acceptable, marginally lower fidelity" },
 ];
 
@@ -191,7 +194,8 @@ export const TEXT_ANGLE_OPTIONS: TextOption[] = [
  * stylised look, but reduces reconstruction fidelity, so each carries a hint.
  */
 export const TEXT_LIGHTING_OPTIONS: TextOption[] = [
-  { id: "studio_even",  label: "Even soft studio", recommended: true, hint: "Cleanest textures for 3D" },
+  { id: "auto",         label: "Auto (let AI decide)", recommended: true, hint: "Best for arbitrary images" },
+  { id: "studio_even",  label: "Even soft studio", hint: "Cleanest textures for 3D" },
   { id: "flat_ambient", label: "Flat ambient" },
   { id: "softbox",      label: "Softbox key + fill" },
   { id: "warm_golden",  label: "Warm golden" },
@@ -220,6 +224,7 @@ export const GEOMETRY_TEXTURE_OPTIONS: TextOption[] = [
 ];
 
 const STYLE_CLAUSES: Record<string, string> = {
+  auto:       `a clean, well-lit 3D-reconstruction-friendly render with clear surface details and accurate proportions`,
   pixar:      `a premium Pixar-style stylized 3D character — soft appealing proportions, slightly enlarged expressive eyes, subsurface-scattered skin, richly textured surfaces, like a frame from a modern animated feature film`,
   realistic:  `a photorealistic, highly detailed 3D render with physically accurate materials, natural proportions and lifelike surface detail`,
   claymation: `a claymation / stop-motion clay figure with soft matte modeling-clay surfaces, gentle fingerprints and hand-sculpted charm`,
@@ -234,6 +239,7 @@ const STYLE_CLAUSES: Record<string, string> = {
 };
 
 const FRAMING_CLAUSES: Record<string, string> = {
+  auto:           `The full subject is visible, centered with generous margin on all sides.`,
   fullbody_apose: `The full body is visible head-to-toe, standing squarely in a neutral A-pose with limbs clearly separated from the torso and from each other, generous margin on all sides.`,
   fullbody_sit:   `The full body is visible, sitting upright in a calm neutral pose, all limbs clearly readable, generous margin on all sides.`,
   fullbody_lie:   `The full body is visible, lying down relaxed with limbs clearly separated and readable, generous margin on all sides.`,
@@ -241,11 +247,13 @@ const FRAMING_CLAUSES: Record<string, string> = {
 };
 
 const ANGLE_CLAUSES: Record<string, string> = {
+  auto:          `centered in the frame with a clear, reconstruction-friendly view`,
   front:         `seen DIRECTLY FROM THE FRONT, facing straight toward the camera`,
   three_quarter: `seen from a slight three-quarter front angle, turned only slightly so both the front and one side are visible`,
 };
 
 const LIGHTING_CLAUSES: Record<string, string> = {
+  auto:         `clean, even lighting optimised for 3D reconstruction with no harsh shadows`,
   studio_even:  `even soft studio lighting with no harsh shadows`,
   flat_ambient: `flat even ambient lighting with minimal shadowing`,
   softbox:      `soft diffused softbox key light with gentle fill and no hard shadows`,
