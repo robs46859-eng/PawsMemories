@@ -72,7 +72,8 @@ export function buildTriagePrompt(userType: SubjectClass): string {
     CLASS_DEFINITIONS +
     `\n\nThe user asked to create a "${userType}" (${classLabel(userType)}). Decide the TRUE class from the image using the definitions above — do not just echo the user's choice.\n\n` +
     `Also judge how suitable this image is for single-image/multiview 3D reconstruction. ` +
-    `A good image has exactly ONE subject, the WHOLE subject visible with margin, a clean plain background, even lighting with no baked-in shadows or harsh highlights, and no watermark or text. ` +
+    `A good image has exactly ONE subject, the WHOLE subject visible with margin, a clean plain background, and no watermark or text. ` +
+    `A soft contact shadow beneath the subject and gentle ambient occlusion are GOOD (this is a 3D render) — only set bakedShadowsOrHarshLight true for HARSH, hard-edged directional cast shadows or strong baked highlights that would corrupt the texture. ` +
     `For a living subject a neutral standing/A-pose is best; for an object, pose is not applicable (set poseOk true).\n\n` +
     `Return EXACTLY this JSON shape:\n` +
     `{\n` +

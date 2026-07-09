@@ -31,8 +31,10 @@ export const REFERENCE_STYLE_OBJECT =
   `The WHOLE object is visible, centered, upright in its natural resting orientation, with generous margin on all sides. ` +
   `Do NOT anthropomorphise: add no face, eyes, mouth, limbs, tail or expression, and invent no parts that are not on the real object. ` +
   `If a detail is unclear, err toward the most neutral plausible interpretation rather than inventing something. ` +
-  `Even soft studio lighting with no harsh shadows or baked highlights, plain neutral light-gray seamless background, ` +
-  `no other objects, no hands, no people, no props, no text, no watermark.`;
+  `Render as a high-quality 3D CGI product render with physically-based materials, soft even studio lighting, ` +
+  `subtle ambient occlusion and a gentle SOFT contact shadow on the floor directly beneath the object for ` +
+  `dimensional depth — but NO harsh or hard-edged directional cast shadows and no shadows on the background. ` +
+  `Plain neutral light-gray seamless studio background, no other objects, no hands, no people, no props, no text, no watermark.`;
 
 export const REFERENCE_STYLE_DOG =
   `Render the pet as a premium Pixar-style stylized 3D character: soft appealing proportions, slightly enlarged ` +
@@ -48,8 +50,11 @@ export const REFERENCE_STYLE_DOG =
   `the face and body should mirror each other for clean 3D reconstruction. ` +
   `Do NOT invent or add features not visible in the reference photos. If a detail is unclear, err on the side ` +
   `of the most common/neutral interpretation rather than adding something creative. ` +
-  `Full body visible with generous margin on all sides. Sharp focus, even soft studio lighting, plain neutral ` +
-  `light-gray seamless background, no shadow on walls, no props, no people, no text, no watermark.`;
+  `Full body visible with generous margin on all sides, seen DIRECTLY FROM THE FRONT. ` +
+  `Render as a high-quality 3D CGI character with physically-based materials, soft three-point studio lighting, ` +
+  `subtle ambient occlusion and a gentle SOFT contact shadow on the floor directly beneath the subject for ` +
+  `dimensional depth — but NO harsh or hard-edged directional cast shadows and no shadows on the background. ` +
+  `Sharp focus, plain neutral light-gray seamless studio background, no props, no people, no text, no watermark.`;
 
 export const REFERENCE_STYLE_HUMAN =
   `Render the person as a premium Pixar-style stylized 3D character: soft appealing proportions, slightly enlarged ` +
@@ -65,8 +70,11 @@ export const REFERENCE_STYLE_HUMAN =
   `the face and body should mirror each other for clean 3D reconstruction. ` +
   `Do NOT invent or add features not visible in the reference photos. If a detail is unclear, err on the side ` +
   `of the most common/neutral interpretation rather than adding something creative. ` +
-  `Full body visible with generous margin on all sides. Sharp focus, even soft studio lighting, plain neutral ` +
-  `light-gray seamless background, no shadow on walls, no props, no other people, no text, no watermark.`;
+  `Full body visible with generous margin on all sides, seen DIRECTLY FROM THE FRONT. ` +
+  `Render as a high-quality 3D CGI character with physically-based materials, soft three-point studio lighting, ` +
+  `subtle ambient occlusion and a gentle SOFT contact shadow on the floor directly beneath the subject for ` +
+  `dimensional depth — but NO harsh or hard-edged directional cast shadows and no shadows on the background. ` +
+  `Sharp focus, plain neutral light-gray seamless studio background, no props, no other people, no text, no watermark.`;
 
 export const ACCENT_PROMPTS: Record<string, string> = {
   warm:
@@ -95,7 +103,7 @@ export function buildReferencePrompt(type: SubjectClass, accent?: string | null,
       : ``;
     return (
       `You are given one or more reference photos, all of the SAME object. ` + multi +
-      `Generate ONE image of this exact object seen from a clear, natural front-facing three-quarter angle that reads its overall shape. ` +
+      `Generate ONE image of this exact object seen DIRECTLY FROM THE FRONT (standard front-facing view), showing its overall shape clearly. ` +
       REFERENCE_STYLE_OBJECT + ` Respond with only the generated image.`
     );
   }

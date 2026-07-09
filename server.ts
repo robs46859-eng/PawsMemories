@@ -713,6 +713,15 @@ async function startServer() {
     return null;
   }
 
+  // Best-first image model chain (Nano Banana family, per ai.google.dev/models).
+  //  - gemini-3-pro-image      = Nano Banana Pro  (state-of-the-art, studio 4K) → best quality
+  //  - gemini-3.1-flash-image  = Nano Banana 2    (fast, production-scale)
+  //  - gemini-2.5-flash-image  = Nano Banana      (older, known generateContent-compatible fallback)
+  // Override without a redeploy via GEMINI_IMAGE_MODELS (comma-separated).
+  const IMAGE_MODELS: string[] = (process.env.GEMINI_IMAGE_MODELS ||
+    "gemini-3-pro-image,gemini-3.1-flash-image,gemini-2.5-flash-image")
+    .split(",").map((s) => s.trim()).filter(Boolean);
+
   /**
    * Generate one image from parts with model fallback; returns a data URL or null.
    *
@@ -724,19 +733,20 @@ async function startServer() {
    */
   async function generateImageWithFallback(
     parts: any[],
-    label: string
+    label: string,
+    errRef?: { code?: number | string; message?: string; quota?: boolean }
   ): Promise<string | null> {
-    const IMAGE_MODELS = ["gemini-2.5-flash-image", "gemini-2.0-flash-exp"];
     for (const model of IMAGE_MODELS) {
       try {
-        const config: Record<string, unknown> = { responseModalities: ["IMAGE", "TEXT"] };
-        if (model === "gemini-2.5-flash-image") {
-          config.imageConfig = { aspectRatio: "1:1" };
-        }
         const response = await ai.models.generateContent({
           model,
           contents: [{ role: "user", parts }],
-          config,
+          // responseModalities MUST include IMAGE or the model returns text only.
+          // All current Nano Banana models honour imageConfig.aspectRatio.
+          config: {
+            responseModalities: ["IMAGE", "TEXT"],
+            imageConfig: { aspectRatio: "1:1" },
+          },
         });
         const cand: any = response.candidates?.[0];
         const outParts: any[] = cand?.content?.parts || [];
@@ -752,8 +762,13 @@ async function startServer() {
         let txt = "";
         try { txt = (response.text || "").slice(0, 160); } catch { /* no text accessor */ }
         console.warn(`[${label}] ${model} returned no image part (finishReason=${finish}${block ? ", block=" + block : ""}). text="${txt}"`);
+        if (errRef) errRef.message = `no image part from ${model} (finishReason=${finish}${block ? ", block=" + block : ""})`;
       } catch (err: any) {
-        console.warn(`[${label}] ${model} failed:`, err?.message || err);
+        const msg = err?.message || String(err);
+        const code = err?.status ?? err?.code;
+        const quota = /RESOURCE_EXHAUSTED|resource_?exhausted|depleted|quota|too_many_requests|\b429\b/i.test(msg) || code === 429;
+        if (errRef) { errRef.code = code; errRef.message = msg; errRef.quota = errRef.quota || quota; }
+        console.warn(`[${label}] ${model} failed:`, msg);
       }
     }
     console.error(`[${label}] all image models failed to return an image.`);
@@ -794,7 +809,8 @@ async function startServer() {
     accent: string | null | undefined,
     type: SubjectClass,
     hasFacePhoto?: boolean,
-    extra?: string
+    extra?: string,
+    errRef?: { code?: number | string; message?: string; quota?: boolean }
   ): Promise<string | null> {
     const imageParts: any[] = [];
     photos.forEach((p, idx) => {
@@ -818,7 +834,7 @@ async function startServer() {
       + (corrective ? ` IMPORTANT — fix these issues from the previous attempt: ${corrective}.` : "");
     // Route through the shared helper so the responseModalities fix + failure
     // logging apply identically to every image path in the pipeline.
-    return generateImageWithFallback([...imageParts, { text: referencePrompt }], "referenceImage");
+    return generateImageWithFallback([...imageParts, { text: referencePrompt }], "referenceImage", errRef);
   }
 
   app.post("/api/avatars", requireAuth, async (req: AuthedRequest, res) => {
@@ -868,38 +884,45 @@ async function startServer() {
       let viewSet: { left?: string; back?: string; right?: string } | undefined;
       let usedReferenceImage = false;
 
-      // ── Step 1–2: generate a reference image, then QUALIFY it. Up to 2
-      // regenerations (3 attempts total). Only a passing image proceeds to Tripo.
-      // Credits are deducted AFTER a pass, so a rejected image costs the user nothing.
+      // ── Step 1–3: generate an AI reference image → SAVE it to Backblaze →
+      // QUALIFY the saved image (score) → only a passing image proceeds to Tripo.
+      // Up to 2 regenerations (3 attempts total). We NEVER silently ship the raw
+      // uploaded photo: if the AI image can't be generated we stop with a clear
+      // error and no credits are deducted (they're only deducted after a pass).
       const MAX_ATTEMPTS = 3;
       let triage: TriageResult | null = null;
-      let chosenImage: string | null = null;   // data URL (generated) or raw photo fallback
+      let chosenImage: string | null = null;     // the passing AI-generated data URL
+      let chosenUrl: string | null = null;        // its Backblaze URL
       let corrective = "";
+      const imgErr: { code?: number | string; message?: string; quota?: boolean } = {};
 
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-        // Produce a candidate front image.
-        let candidate: string | null = null;
-        let candidateGenerated = false;
+        // Produce a candidate AI image (front-facing 3D render).
+        let candidate: string | null;
         if (input_mode === "text") {
           const fields: TextPromptFields = { subject, style, lighting, corrective };
-          candidate = await generateImageWithFallback([{ text: buildTextPrompt(fields) }], "text-to-reference");
-          candidateGenerated = !!candidate;
+          candidate = await generateImageWithFallback([{ text: buildTextPrompt(fields) }], "text-to-reference", imgErr);
         } else {
-          candidate = await generatePetReferenceImage(photoList, accent, avatarType, hasFacePhoto, corrective);
-          candidateGenerated = !!candidate;
-          if (!candidate) {
-            // Only fall back to the raw photo as a last resort; it still must pass QA below.
-            candidate = photoList[0];
-            candidateGenerated = false;
-          }
-        }
-        if (!candidate) {
-          if (attempt < MAX_ATTEMPTS) continue;
-          return res.status(502).json({ error: "Could not generate a reference image. Try rephrasing the subject or using a clearer photo." });
+          candidate = await generatePetReferenceImage(photoList, accent, avatarType, hasFacePhoto, corrective, imgErr);
         }
 
-        // Qualify + auto-detect in one vision call. If the QA call itself fails
-        // (LLM unavailable), don't block generation — accept the candidate.
+        if (!candidate) {
+          // AI generation failed. Quota/billing errors won't recover on retry — stop early.
+          if (imgErr.quota || attempt >= MAX_ATTEMPTS) break;
+          continue;
+        }
+
+        // SAVE the generated image to Backblaze FIRST, so every AI render is
+        // persisted (and inspectable) before we score it.
+        let uploadedUrl: string | null = null;
+        try {
+          uploadedUrl = candidate.startsWith("data:image") ? await uploadBase64Image(candidate) : candidate;
+        } catch (e: any) {
+          console.warn("[POST /api/avatars] could not upload candidate image:", e?.message || e);
+        }
+
+        // QUALIFY + auto-detect in one vision call. If the QA call itself fails
+        // (LLM unavailable), don't block generation — accept the saved candidate.
         try {
           const { data, mimeType } = splitDataUrl(candidate);
           triage = await triageReferenceImage(classifyGenerate, { imageBase64: data, mimeType, userType: avatarType });
@@ -907,13 +930,15 @@ async function startServer() {
           console.warn("[POST /api/avatars] triage unavailable; accepting candidate:", e?.message || e);
           triage = null;
           chosenImage = candidate;
-          usedReferenceImage = candidateGenerated;
+          chosenUrl = uploadedUrl;
+          usedReferenceImage = true;
           break;
         }
 
         if (triagePasses(triage)) {
           chosenImage = candidate;
-          usedReferenceImage = candidateGenerated;
+          chosenUrl = uploadedUrl;
+          usedReferenceImage = true;
           break;
         }
         // Failed QA → build corrective guidance and regenerate.
@@ -921,12 +946,25 @@ async function startServer() {
         console.log(`[POST /api/avatars] QA attempt ${attempt} rejected (score ${triage.qualify.score}); corrective: ${corrective}`);
       }
 
-      // Exhausted all attempts without passing QA → full refund (no credits deducted yet).
-      if (triage && !triagePasses(triage)) {
-        return res.status(422).json({ error: friendlyQualifyError(triage), code: "IMAGE_QUALITY_REJECTED" });
-      }
+      // No usable AI image was produced.
       if (!chosenImage) {
-        return res.status(502).json({ error: "Could not generate a reference image. Try again with a clearer photo or description." });
+        // (a) all attempts generated an image but failed QA → quality rejection.
+        if (triage && !triagePasses(triage)) {
+          return res.status(422).json({ error: friendlyQualifyError(triage), code: "IMAGE_QUALITY_REJECTED" });
+        }
+        // (b) the AI image model itself failed. Distinguish quota/billing so the
+        // operator sees the real cause (top up the Gemini API billing account).
+        if (imgErr.quota) {
+          console.error("[POST /api/avatars] Gemini image generation quota/billing exhausted:", imgErr.message);
+          return res.status(503).json({
+            error: "AI image generation is temporarily unavailable (image model quota/billing exhausted). Please try again later.",
+            code: "IMAGE_QUOTA_EXHAUSTED",
+          });
+        }
+        return res.status(502).json({
+          error: "Could not generate an AI image. Please try again with a clearer photo or a more descriptive prompt.",
+          code: "IMAGE_GENERATION_FAILED",
+        });
       }
 
       // ── Auto-detection soft-switch: if the detected class disagrees with what
@@ -956,8 +994,8 @@ async function startServer() {
         }
       }
 
-      // Upload the chosen front reference.
-      finalImageUrl = chosenImage.startsWith("data:image") ? await uploadBase64Image(chosenImage) : chosenImage;
+      // Reuse the Backblaze URL from the save-then-score step (upload once).
+      finalImageUrl = chosenUrl || (chosenImage.startsWith("data:image") ? await uploadBase64Image(chosenImage) : chosenImage);
 
       // Persist uploaded photos to the user's library (image mode only). Fire-and-forget.
       if (input_mode !== "text" && photoList.length) {

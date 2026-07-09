@@ -69,9 +69,10 @@ function extractJson<T>(text: string): T {
  * Wraps Gemini API calls with exponential backoff to handle 503 "High Demand" errors.
  * Strategy: retry up to 8 times on the primary model (gemini-2.5-flash) with exponential
  * backoff capped at 30s (~2 min total window). If all retries fail, falls back to
- * gemini-2.0-flash for one final attempt to avoid total pipeline failure.
+ * a current lightweight model for one final attempt to avoid total pipeline failure.
+ * (gemini-2.0-flash was shut down — using gemini-2.5-flash-lite; override via env.)
  */
-const FALLBACK_MODEL = 'gemini-2.0-flash';
+const FALLBACK_MODEL = process.env.GEMINI_TEXT_FALLBACK_MODEL || 'gemini-2.5-flash-lite';
 
 async function generateContentWithRetry(ai: any, request: any, maxRetries = 8) {
   let lastError: any;
