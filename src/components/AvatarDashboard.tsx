@@ -116,12 +116,17 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
     setCreating(true);
     try {
       const result = await generate3DAvatar(options);
-      
+
       // Optimistically deduct 400 credits
       const updatedUser = { ...userProfile, credits: userProfile.credits - 400 };
       onUpdateUser(updatedUser);
-      
+
       setShowCreate(false);
+      // Auto-detection: if the server detected a different subject class than the
+      // user picked, it soft-switched and returned a notice — let the user know.
+      if (result.notice) {
+        alert(result.notice);
+      }
       // Reload to get the new avatar with 'pending' status
       await loadAvatars();
     } catch (err: any) {
