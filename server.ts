@@ -713,29 +713,50 @@ async function startServer() {
     return null;
   }
 
-  /** Generate one image from parts with model fallback; returns data URL or null. */
+  /**
+   * Generate one image from parts with model fallback; returns a data URL or null.
+   *
+   * CRITICAL: image output from `generateContent` requires
+   * `config.responseModalities` to include "IMAGE" — without it the model returns
+   * TEXT only, no inlineData part, and the whole avatar pipeline silently produces
+   * nothing (and never uploads to Backblaze). Aspect-ratio control is only honoured
+   * by `gemini-2.5-flash-image`, so `imageConfig` is sent only to that model.
+   */
   async function generateImageWithFallback(
     parts: any[],
     label: string
   ): Promise<string | null> {
-    for (const model of ["gemini-2.5-flash-image", "gemini-2.0-flash-exp"]) {
+    const IMAGE_MODELS = ["gemini-2.5-flash-image", "gemini-2.0-flash-exp"];
+    for (const model of IMAGE_MODELS) {
       try {
+        const config: Record<string, unknown> = { responseModalities: ["IMAGE", "TEXT"] };
+        if (model === "gemini-2.5-flash-image") {
+          config.imageConfig = { aspectRatio: "1:1" };
+        }
         const response = await ai.models.generateContent({
           model,
-          contents: { parts },
-          config: { imageConfig: { aspectRatio: "1:1" } },
+          contents: [{ role: "user", parts }],
+          config,
         });
-        const outParts = response.candidates?.[0]?.content?.parts || [];
+        const cand: any = response.candidates?.[0];
+        const outParts: any[] = cand?.content?.parts || [];
         for (const part of outParts) {
           if (part.inlineData?.data) {
-            return `data:image/png;base64,${part.inlineData.data}`;
+            const mt = part.inlineData.mimeType || "image/png";
+            return `data:${mt};base64,${part.inlineData.data}`;
           }
         }
-        console.warn(`[${label}] ${model} returned no image part.`);
-      } catch (err) {
-        console.warn(`[${label}] ${model} failed:`, err);
+        // No image part — surface WHY so this never fails silently again.
+        const finish = cand?.finishReason || "unknown";
+        const block = (response as any)?.promptFeedback?.blockReason;
+        let txt = "";
+        try { txt = (response.text || "").slice(0, 160); } catch { /* no text accessor */ }
+        console.warn(`[${label}] ${model} returned no image part (finishReason=${finish}${block ? ", block=" + block : ""}). text="${txt}"`);
+      } catch (err: any) {
+        console.warn(`[${label}] ${model} failed:`, err?.message || err);
       }
     }
+    console.error(`[${label}] all image models failed to return an image.`);
     return null;
   }
 
@@ -795,26 +816,9 @@ async function startServer() {
     const corrective = (extra || "").trim();
     const referencePrompt = buildReferencePrompt(type, accent, hasFacePhoto, photos.length)
       + (corrective ? ` IMPORTANT — fix these issues from the previous attempt: ${corrective}.` : "");
-    // Try the dedicated image model first, then fall back to the model already used elsewhere in this app.
-    for (const model of ["gemini-2.5-flash-image", "gemini-2.0-flash-exp"]) {
-      try {
-        const response = await ai.models.generateContent({
-          model,
-          contents: { parts: [...imageParts, { text: referencePrompt }] },
-          config: { imageConfig: { aspectRatio: "1:1" } },
-        });
-        const parts = response.candidates?.[0]?.content?.parts || [];
-        for (const part of parts) {
-          if (part.inlineData?.data) {
-            return `data:image/png;base64,${part.inlineData.data}`;
-          }
-        }
-        console.warn(`[referenceImage] ${model} returned no image part.`);
-      } catch (err) {
-        console.warn(`[referenceImage] ${model} failed:`, err);
-      }
-    }
-    return null;
+    // Route through the shared helper so the responseModalities fix + failure
+    // logging apply identically to every image path in the pipeline.
+    return generateImageWithFallback([...imageParts, { text: referencePrompt }], "referenceImage");
   }
 
   app.post("/api/avatars", requireAuth, async (req: AuthedRequest, res) => {
@@ -2159,9 +2163,7 @@ async function startServer() {
               ],
             },
             config: {
-              imageConfig: {
-                aspectRatio: "1:1",
-              }
+              responseModalities: ["IMAGE", "TEXT"],
             }
           });
 
@@ -2267,9 +2269,7 @@ async function startServer() {
             parts: [{ text: `Generate a beautiful artistic image matching this prompt: ${promptText}` }]
           },
           config: {
-            imageConfig: {
-              aspectRatio: "1:1",
-            }
+            responseModalities: ["IMAGE", "TEXT"],
           }
         });
         
