@@ -341,13 +341,13 @@ export default function Avatar3DPlaypen({
           ) : hasSpriteSheet ? (
             <motion.div
               animate={{
-                y: activeAction ? [0, -8, 0] : [0, -3, 0],
+                y: activeAction ? [0, -8, 0] : 0,
                 scale: activeAction === "playing" ? [1, 1.1, 1] : 1,
               }}
               transition={{
                 y: {
-                  repeat: activeAction ? 0 : Infinity,
-                  duration: activeAction ? 0.3 : 2,
+                  repeat: 0,
+                  duration: activeAction ? 0.3 : 0,
                   ease: "easeInOut",
                 },
               }}

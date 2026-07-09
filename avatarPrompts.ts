@@ -4,8 +4,14 @@ export const REFERENCE_STYLE_DOG =
   `clumps, whiskers, and natural sheen — like a frame from a modern animated feature film. ` +
   `Faithfully preserve the pet's exact fur colors, markings, patterns, eye color, ear shape, and breed ` +
   `characteristics as seen across ALL reference photos. ` +
+  `Pay EXTREME attention to FACIAL FEATURES: eye shape and color, nose/snout shape and color, ear position, shape ` +
+  `and size, facial markings, whisker placement, and jaw structure. ` +
   `The pet is standing squarely on all four legs in a neutral A-pose stance, legs clearly separated, tail clearly ` +
   `visible and separated from the body, mouth slightly open in a gentle relaxed panting expression. ` +
+  `The generated image must be BILATERALLY SYMMETRIC from the viewer's perspective — the left and right sides of ` +
+  `the face and body should mirror each other for clean 3D reconstruction. ` +
+  `Do NOT invent or add features not visible in the reference photos. If a detail is unclear, err on the side ` +
+  `of the most common/neutral interpretation rather than adding something creative. ` +
   `Full body visible with generous margin on all sides. Sharp focus, even soft studio lighting, plain neutral ` +
   `light-gray seamless background, no shadow on walls, no props, no people, no text, no watermark.`;
 
@@ -15,8 +21,14 @@ export const REFERENCE_STYLE_HUMAN =
   `feature film. ` +
   `Faithfully preserve the person's exact skin tone, hair color and style, facial structure, and clothing colors and patterns ` +
   `as seen across ALL reference photos. ` +
+  `Pay EXTREME attention to FACIAL FEATURES: eye shape, color and spacing, nose shape and size, lip shape, ` +
+  `jawline, cheekbones, eyebrow shape, forehead size, and any facial hair, wrinkles or distinguishing marks. ` +
   `The person is standing squarely on two legs in a neutral bipedal A-pose stance, arms slightly out to the sides, clearly separated from the torso, ` +
   `legs clearly separated, front-facing. ` +
+  `The generated image must be BILATERALLY SYMMETRIC from the viewer's perspective — the left and right sides of ` +
+  `the face and body should mirror each other for clean 3D reconstruction. ` +
+  `Do NOT invent or add features not visible in the reference photos. If a detail is unclear, err on the side ` +
+  `of the most common/neutral interpretation rather than adding something creative. ` +
   `Full body visible with generous margin on all sides. Sharp focus, even soft studio lighting, plain neutral ` +
   `light-gray seamless background, no shadow on walls, no props, no other people, no text, no watermark.`;
 
@@ -38,17 +50,33 @@ export const ACCENT_PROMPTS: Record<string, string> = {
     `neutral accent if present — WITHOUT altering the pet or person's natural fur, skin, nose or eye colours.`,
 };
 
-export function buildReferencePrompt(type: 'dog' | 'human', accent?: string | null): string {
+export function buildReferencePrompt(type: 'dog' | 'human', accent?: string | null, hasFacePhoto?: boolean, photoCount?: number): string {
   const accentClause = (accent && ACCENT_PROMPTS[accent]) || "";
+
+  // Face-photo labeling clause
+  const faceClause = hasFacePhoto
+    ? `The FIRST image is a dedicated CLOSE-UP of the subject's face — use it as the PRIMARY reference ` +
+      `for all facial features, eye color, nose shape, skin tone, and expression. ` +
+      `The remaining images show the subject from other angles for body proportions, clothing, and overall shape. `
+    : ``;
+
+  // Multi-photo cross-referencing clause
+  const multiPhotoClause = (photoCount && photoCount > 1)
+    ? `Cross-reference ALL ${photoCount} provided photos to resolve ambiguity — if one photo shows an unclear ` +
+      `angle, use the others to confirm the correct shape, color, and proportions. `
+    : ``;
+
   if (type === 'human') {
     return (
       `You are given one or more reference photos, all of the SAME person. ` +
+      faceClause + multiPhotoClause +
       `Generate ONE image of this exact person seen DIRECTLY FROM THE FRONT (head and body facing straight toward the camera). ` +
       REFERENCE_STYLE_HUMAN + accentClause + ` Respond with only the generated image.`
     );
   } else {
     return (
       `You are given one or more reference photos, all of the SAME pet. ` +
+      faceClause + multiPhotoClause +
       `Generate ONE image of this exact pet seen DIRECTLY FROM THE FRONT (head and body facing straight toward the camera). ` +
       REFERENCE_STYLE_DOG + accentClause + ` Respond with only the generated image.`
     );

@@ -770,19 +770,27 @@ async function startServer() {
   async function generatePetReferenceImage(
     photos: string[],
     accent: string | null | undefined,
-    type: 'dog' | 'human'
+    type: 'dog' | 'human',
+    hasFacePhoto?: boolean
   ): Promise<string | null> {
-    const imageParts = photos
-      .map((p) => {
-        const matches = p.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
-        if (!matches || matches.length < 3) return null;
-        return { inlineData: { data: matches[2], mimeType: matches[1] } };
-      })
-      .filter((p): p is { inlineData: { data: string; mimeType: string } } => p !== null);
+    const imageParts: any[] = [];
+    photos.forEach((p, idx) => {
+      const matches = p.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
+      if (!matches || matches.length < 3) return;
+
+      // Label each image part so Gemini knows its role
+      if (hasFacePhoto && idx === 0) {
+        imageParts.push({ text: `[FACE CLOSE-UP]: Use this as the primary reference for facial features.` });
+      } else {
+        const photoNum = hasFacePhoto ? idx : idx + 1;
+        imageParts.push({ text: `[REFERENCE PHOTO ${photoNum}]: Additional angle for body, proportions, and details.` });
+      }
+      imageParts.push({ inlineData: { data: matches[2], mimeType: matches[1] } });
+    });
 
     if (imageParts.length === 0) return null;
 
-    const referencePrompt = buildReferencePrompt(type, accent);
+    const referencePrompt = buildReferencePrompt(type, accent, hasFacePhoto, photos.length);
     // Try the dedicated image model first, then fall back to the model already used elsewhere in this app.
     for (const model of ["gemini-2.5-flash-image", "gemini-2.0-flash-exp"]) {
       try {
@@ -807,7 +815,7 @@ async function startServer() {
 
   app.post("/api/avatars", requireAuth, async (req: AuthedRequest, res) => {
     try {
-      const { name, photo, photos, palette, avatar_type } = req.body;
+      const { name, photo, photos, palette, avatar_type, face_photo } = req.body;
       const avatarType: 'dog' | 'human' = avatar_type === 'human' ? 'human' : 'dog';
       // Accept new multi-photo payload; keep backward compat with single `photo`.
       const photoList: string[] = Array.isArray(photos) && photos.length > 0
@@ -815,16 +823,18 @@ async function startServer() {
         : (photo ? [photo] : []);
       // Optional UI-selected accent palette for colour coordination.
       const accent: string | null = typeof palette === "string" && palette ? palette : null;
+      // Dedicated face photo from the face upload slot
+      const hasFacePhoto: boolean = typeof face_photo === "string" && face_photo.length > 0;
 
       if (!name || photoList.length === 0) {
         return res.status(400).json({ error: "Name and at least one photo required." });
       }
-      if (photoList.length > 5) {
-        return res.status(400).json({ error: "Maximum 5 photos per avatar." });
+      if (photoList.length > 6) {
+        return res.status(400).json({ error: "Maximum 6 photos per avatar (1 face + 5 body)." });
       }
 
       // Layer 1: generate a single hyper-realistic reference image from all photos.
-      let sourceImage = await generatePetReferenceImage(photoList, accent, avatarType);
+      let sourceImage = await generatePetReferenceImage(photoList, accent, avatarType, hasFacePhoto);
       let usedReferenceImage = true;
       if (!sourceImage) {
         console.warn("[POST /api/avatars] Reference image generation failed; falling back to first uploaded photo.");

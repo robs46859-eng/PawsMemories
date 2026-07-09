@@ -54,7 +54,8 @@ export function applyProcedural(g: THREE.Group, action: BehaviorAction, t: numbe
       y = Math.abs(Math.sin(t * 14)) * 0.03;
       break;
     default:
-      y = Math.sin(t * 2) * 0.01; // idle breathing
+      // idle — completely still (no breathing motion)
+      break;
   }
   g.position.y = y;
   g.rotation.x = tilt;
@@ -92,8 +93,8 @@ export function applyHumanProcedural(g: THREE.Group, action: BehaviorAction, t: 
       tilt = Math.sin(t * 10) * 0.05;
       break;
     default:
-      y = Math.sin(t * 1.5) * 0.01;
-      sway = Math.cos(t * 1.5) * 0.02;
+      // idle — completely still (no breathing/sway motion)
+      break;
   }
   g.position.y = y;
   g.rotation.x = tilt;

@@ -34,7 +34,7 @@ const PetModelViewer: React.FC<PetModelViewerProps> = ({
       auto-rotate={autoRotate ? true : undefined}
       animation-name={animationName}
       animation-crossfade-duration={animationCrossfade !== undefined ? animationCrossfade : 300}
-      autoplay={true}
+      autoplay={false}
       ar
       ar-modes="webxr scene-viewer quick-look"
       shadow-intensity="1"

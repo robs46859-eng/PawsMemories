@@ -31,6 +31,9 @@ const ACTION_CONFIGS: {
   { action: "photo",    icon: <Camera size={16} />,    label: "Photo",   color: "text-purple-600", bgColor: "bg-purple-500/10 hover:bg-purple-500/20" },
 ];
 
+/** Feature flag — set to true to re-enable the Tamagotchi care system (food/water bars, action buttons, treats). */
+const TAMAGOTCHI_ENABLED = false;
+
 export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode, onOpenCreditStore }: AvatarDashboardProps) {
   const [avatars, setAvatars] = useState<Avatar[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -105,10 +108,10 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
     });
   }, [avatars]);
 
-  const handleCreateAvatar = async (name: string, photos: string[], palette: string | null, avatarType: 'dog' | 'human') => {
+  const handleCreateAvatar = async (name: string, photos: string[], palette: string | null, avatarType: 'dog' | 'human', facePhoto?: string | null) => {
     setCreating(true);
     try {
-      const result = await generate3DAvatar(name, photos, palette, avatarType);
+      const result = await generate3DAvatar(name, photos, palette, avatarType, facePhoto);
       setShowCreate(false);
       // Reload to get the new avatar with 'pending' status
       await loadAvatars();
@@ -195,12 +198,14 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
           </p>
         </div>
         <div className="flex flex-col items-end gap-2">
-          <div className="glass-panel py-1.5 px-4 rounded-full border border-outline-variant/30 flex items-center gap-2 shadow-sm">
-            <Bone size={14} className="text-amber-500" />
-            <span className="text-xs font-bold text-on-surface font-label-caps">
-              {userProfile.treats} Treats
-            </span>
-          </div>
+          {TAMAGOTCHI_ENABLED && (
+            <div className="glass-panel py-1.5 px-4 rounded-full border border-outline-variant/30 flex items-center gap-2 shadow-sm">
+              <Bone size={14} className="text-amber-500" />
+              <span className="text-xs font-bold text-on-surface font-label-caps">
+                {userProfile.treats} Treats
+              </span>
+            </div>
+          )}
           <button
             onClick={() => setShowCreate(true)}
             className="flex items-center gap-2 bg-primary text-on-primary px-5 py-2.5 rounded-full text-xs font-black uppercase tracking-wider shadow-md hover:bg-primary/90 transition-all tactile-button"
@@ -268,7 +273,7 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
                       {avatar.breed}
                     </span>
                   )}
-                  {(isHungry || isThirsty) && isReady && (
+                  {TAMAGOTCHI_ENABLED && (isHungry || isThirsty) && isReady && (
                     <div className="absolute top-4 right-4 bg-error text-white px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 shadow-lg animate-pulse z-20">
                       <Info size={12} /> Needs care!
                     </div>
@@ -276,7 +281,7 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
                 </div>
 
                 <div className="p-5 flex flex-col gap-4">
-                  {isReady && (
+                  {isReady && TAMAGOTCHI_ENABLED && (
                     <>
                       {/* Food Bar */}
                       <div className="flex flex-col gap-1">
