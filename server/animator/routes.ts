@@ -5,6 +5,8 @@ import { inspectAsset } from "./gltf.ts";
 import { enqueue, JobSpecSchema } from "./queue.ts";
 import { readManifest } from "./manifest.ts";
 import { resolveWithinWorkspace } from "./paths.ts";
+import { createProject, getProject, listProjects, updateProject, deleteProject } from "./projects.ts";
+import { uploadBase64Binary } from "../../storage.ts";
 
 export const animatorRouter = express.Router();
 
@@ -205,6 +207,59 @@ animatorRouter.get("/animator/outputs/:assetId", (req: any, res) => {
   }
 });
 
+animatorRouter.post("/animator/projects", (req: any, res) => {
+  try {
+    const userPhone = req.user!.phone;
+    const project = createProject(userPhone, req.body);
+    res.json(project);
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+animatorRouter.get("/animator/projects", (req: any, res) => {
+  try {
+    const userPhone = req.user!.phone;
+    const projects = listProjects(userPhone);
+    res.json(projects);
+  } catch (e: any) {
+    handleError(res, e);
+  }
+});
+
+animatorRouter.get("/animator/projects/:id", (req: any, res) => {
+  try {
+    const userPhone = req.user!.phone;
+    const project = getProject(req.params.id);
+    if (project.userPhone !== userPhone) return res.status(403).json({ error: "Forbidden" });
+    res.json(project);
+  } catch (e: any) {
+    res.status(404).json({ error: "Project not found" });
+  }
+});
+
+animatorRouter.put("/animator/projects/:id", (req: any, res) => {
+  try {
+    const userPhone = req.user!.phone;
+    const project = updateProject(req.params.id, userPhone, req.body);
+    res.json(project);
+  } catch (e: any) {
+    if (e.message === "Forbidden") return res.status(403).json({ error: "Forbidden" });
+    res.status(400).json({ error: e.message });
+  }
+});
+
+animatorRouter.delete("/animator/projects/:id", (req: any, res) => {
+  try {
+    const userPhone = req.user!.phone;
+    deleteProject(req.params.id, userPhone);
+    res.json({ success: true });
+  } catch (e: any) {
+    if (e.message === "Forbidden") return res.status(403).json({ error: "Forbidden" });
+    res.status(400).json({ error: e.message });
+  }
+});
+
 import multer from "multer";
 import path from "path";
 
@@ -226,8 +281,16 @@ animatorRouter.post("/animator/recordings", upload.single("video"), async (req: 
     
     fs.writeFileSync(absPath, req.file.buffer);
     
-    // In a real app we'd upload to a bucket. For Phase 3 local persistence is enough.
-    res.json({ url: `/animator-files/recordings/${filename}` });
+    let url = `/animator-files/recordings/${filename}`;
+    try {
+      const base64Str = req.file.buffer.toString("base64");
+      const bucketUrl = await uploadBase64Binary(base64Str, "video/webm");
+      if (bucketUrl) url = bucketUrl;
+    } catch (uploadErr) {
+      console.warn("Storage mirror failed, falling back to local URL", uploadErr);
+    }
+    
+    res.json({ url });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -246,7 +309,16 @@ animatorRouter.post("/animator/screenshots", upload.single("image"), async (req:
     
     fs.writeFileSync(absPath, req.file.buffer);
     
-    res.json({ url: `/animator-files/screenshots/${filename}` });
+    let url = `/animator-files/screenshots/${filename}`;
+    try {
+      const base64Str = req.file.buffer.toString("base64");
+      const bucketUrl = await uploadBase64Binary(base64Str, "image/png");
+      if (bucketUrl) url = bucketUrl;
+    } catch (uploadErr) {
+      console.warn("Storage mirror failed, falling back to local URL", uploadErr);
+    }
+    
+    res.json({ url });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
