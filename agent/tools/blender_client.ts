@@ -229,7 +229,7 @@ export class BlenderClient {
    */
   async bakeClipsAndWait(
     riggedGlbBase64: string,
-    opts: { timeoutMs?: number; intervalMs?: number; avatarType?: 'dog' | 'human' | 'object' } = {}
+    opts: { timeoutMs?: number; intervalMs?: number; avatarType?: 'dog' | 'human' } = {}
   ): Promise<{ riggedGlbBase64: string; clips: ClipManifestEntry[] }> {
     const { timeoutMs = 300000, intervalMs = 3000, avatarType = 'dog' } = opts;
     const start = await this.send<{ jobId?: string }>("/bake-clips", "POST", {

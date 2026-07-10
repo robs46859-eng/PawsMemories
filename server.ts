@@ -27,6 +27,7 @@ import { registerSnapgenRoutes } from "./server/snapgen";
 import { SKELETON_CONTRACTS } from "./skeletonContract";
 import { buildReferencePrompt, turnaroundViewsForType, paletteLockClause, extractPaletteInstruction, buildTextPrompt, geometryToTripo, type TextPromptFields, type SubjectClass } from "./avatarPrompts";
 import { triageReferenceImage, triagePasses, correctiveFromTriage, friendlyQualifyError, isClassMismatch, classLabel, type TriageResult } from "./server/imageTriage";
+import { objectBuildProfile, humanRigHints } from "./server/subjectProfiles";
 import {
   signToken,
   requireAuth,
@@ -1033,6 +1034,9 @@ async function startServer() {
             hasTail: triage.hasTail,
             coatColors: triage.coatColors,
             coatPattern: triage.coatPattern,
+            objectCategory: avatarType === 'object' ? triage.objectCategory : undefined,
+            objectCategoryConfidence: avatarType === 'object' ? triage.objectCategoryConfidence : undefined,
+            humanAnatomy: avatarType === 'human' ? triage.humanAnatomy : undefined,
             qualify: triage.qualify,
           }
         : null;
@@ -1149,15 +1153,33 @@ async function startServer() {
 
           // ── STATIC OBJECT: no rig, no brain, no clips. Persist the raw GLB and
           // mark done. (The UI promises "static GLB, no rigging" for objects.)
+          // The build now BRANCHES on the detected object sub-category: a
+          // blueprint is a 2D plan (not reconstructable) and is failed cleanly;
+          // every other kind stores a placement/orientation profile alongside
+          // the mesh so the AR/3D scene knows how to place it.
           if (avatar.avatar_type === 'object') {
             (async () => {
               try {
+                const gaObj: any = avatar.generation_analysis
+                  ? (typeof avatar.generation_analysis === "string" ? JSON.parse(avatar.generation_analysis) : avatar.generation_analysis)
+                  : null;
+                const profile = objectBuildProfile(gaObj?.objectCategory);
+
+                if (!profile.reconstructable) {
+                  console.log(`[Avatar ${avatarId}] Object rejected as non-reconstructable (${profile.category}).`);
+                  await updateAvatarGenerationStatus(avatarId, "failed", profile.reason || "This subject can't be built as a 3D object.");
+                  return;
+                }
+
                 let finalModelUrl = glbUrl;
                 try { finalModelUrl = await uploadBinaryFromUrl(glbUrl); }
                 catch (e: any) { console.warn(`[Avatar ${avatarId}] could not re-host object GLB, using Tripo URL:`, e?.message || e); }
-                await updateAvatarModel(avatarId, avatarPhone, finalModelUrl, "", {});
+                await updateAvatarModel(avatarId, avatarPhone, finalModelUrl, "", {
+                  subjectClass: "object",
+                  objectProfile: profile,
+                });
                 await updateAvatarGenerationStatus(avatarId, "done");
-                console.log(`[Avatar ${avatarId}] Static object stored (no rigging).`);
+                console.log(`[Avatar ${avatarId}] Static ${profile.label} stored (no rigging; placement=${profile.placement}, enterable=${profile.enterable}).`);
               } catch (err: any) {
                 console.error(`[Avatar ${avatarId} Object Error]`, err);
                 await updateAvatarGenerationStatus(avatarId, "failed", err.message || "Failed to store static model");
@@ -1206,8 +1228,17 @@ async function startServer() {
                  } else {
                     petAnalysis = await analyzePetImage(originalImageBase64);
                  }
+                 // Human anatomy audit → rig hints. Canonical figures are safe to
+                 // articulate (e.g. finger rigging); anomalies (a missing eye, a
+                 // six-fingered hand the generator slipped through) are logged and
+                 // carried into the build metadata so the rig stage can play safe.
+                 let humanRig: ReturnType<typeof humanRigHints> | null = null;
                  if (avatar.avatar_type === 'human') {
                     petAnalysis = { ...petAnalysis, species: 'human', bodyType: 'biped', legCount: 2, hasTail: false };
+                    humanRig = humanRigHints(ga?.humanAnatomy);
+                    if (!humanRig.canonical) {
+                       console.warn(`[Avatar ${avatarId}] Human anatomy anomalies: ${humanRig.anomalies.join("; ")} — fingerRig=${humanRig.fingerRig}`);
+                    }
                  }
 
                  const buildState = await runBuildPipeline(
@@ -1232,7 +1263,10 @@ async function startServer() {
                       finalSpriteSheetUrl = await uploadBase64Image(buildState.spriteSheetBase64);
                    }
                    
-                   await updateAvatarModel(avatarId, avatarPhone, finalModelUrl, finalSpriteSheetUrl, buildState.animationMetadata || {});
+                   const modelMetadata = humanRig
+                      ? { ...(buildState.animationMetadata || {}), humanRig }
+                      : (buildState.animationMetadata || {});
+                   await updateAvatarModel(avatarId, avatarPhone, finalModelUrl, finalSpriteSheetUrl, modelMetadata);
 
                    // Mark the avatar "done" as soon as its model + sprites are saved.
                    // The optional Phase 5 clip baking below is a best-effort UPGRADE and

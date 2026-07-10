@@ -38,6 +38,52 @@ test("parseAndValidateTriage parses clean JSON", () => {
   // Defaults applied for omitted anatomy fields.
   assert.equal(t.bodyType, "static");
   assert.deepEqual(t.coatColors, []);
+  // New classification fields default sensibly.
+  assert.equal(t.objectCategory, "none");
+  assert.equal(t.humanAnatomy.fingersPerHand, 5);
+  assert.deepEqual(t.humanAnatomy.anomalies, []);
+});
+
+test("parseAndValidateTriage accepts object subcategories", () => {
+  for (const cat of ["structure", "prop", "plant", "food", "part", "blueprint"]) {
+    const t = parseAndValidateTriage(
+      JSON.stringify(makeTriage({ subjectClass: "object", objectCategory: cat }))
+    );
+    assert.equal(t.objectCategory, cat);
+  }
+});
+
+test("parseAndValidateTriage rejects an out-of-vocab objectCategory", () => {
+  const bad = JSON.stringify(makeTriage({ subjectClass: "object", objectCategory: "spaceship" }));
+  assert.throws(() => parseAndValidateTriage(bad));
+});
+
+test("parseAndValidateTriage captures human anatomy anomalies", () => {
+  const t = parseAndValidateTriage(JSON.stringify(makeTriage({
+    subjectClass: "human",
+    humanAnatomy: { eyeCount: 1, earCount: 2, nostrilCount: 2, limbCount: 3, fingersPerHand: 6, anomalies: ["only one eye", "extra arm"] },
+  })));
+  assert.equal(t.humanAnatomy.eyeCount, 1);
+  assert.equal(t.humanAnatomy.fingersPerHand, 6);
+  assert.equal(t.humanAnatomy.anomalies.length, 2);
+});
+
+test("correctiveFromTriage fixes human anatomy anomalies", () => {
+  const t = parseAndValidateTriage(JSON.stringify(makeTriage({
+    subjectClass: "human",
+    humanAnatomy: { eyeCount: 1, earCount: 2, nostrilCount: 2, limbCount: 4, fingersPerHand: 5, anomalies: ["one eye"] },
+  })));
+  assert.match(correctiveFromTriage(t), /five clearly separated fingers|two eyes/);
+});
+
+test("correctiveFromTriage stays quiet for a canonical human", () => {
+  const t = parseAndValidateTriage(JSON.stringify(makeTriage({ subjectClass: "human" })));
+  assert.doesNotMatch(correctiveFromTriage(t), /canonical human anatomy/);
+});
+
+test("correctiveFromTriage rejects a blueprint object", () => {
+  const t = parseAndValidateTriage(JSON.stringify(makeTriage({ subjectClass: "object", objectCategory: "blueprint" })));
+  assert.match(correctiveFromTriage(t), /not a blueprint/);
 });
 
 test("parseAndValidateTriage strips markdown code fences", () => {

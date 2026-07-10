@@ -253,7 +253,6 @@ export async function initDb(): Promise<void> {
         generation_status ENUM('pending','generating_mesh','rigging','baking_sprites','done','failed') NOT NULL DEFAULT 'done',
         generation_error TEXT NULL,
         avatar_type VARCHAR(16) NOT NULL DEFAULT 'dog',
-        generation_analysis JSON NULL,
         food_level INT NOT NULL DEFAULT 100,
         water_level INT NOT NULL DEFAULT 100,
         last_fed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -327,9 +326,6 @@ export async function initDb(): Promise<void> {
       // re-run Tripo multiview without regenerating the images.
       { name: "multiview_json",     ddl: "ADD COLUMN multiview_json JSON NULL" },
       { name: "avatar_type",        ddl: "ADD COLUMN avatar_type VARCHAR(16) NOT NULL DEFAULT 'dog'" },
-      // Unified triage record (detection + qualification + anatomy) persisted at
-      // generation time so the build/rig stage never re-analyzes the image.
-      { name: "generation_analysis", ddl: "ADD COLUMN generation_analysis JSON NULL" },
     ];
     for (const col of requiredAvatarColumns) {
       if (!avatarColumnNames.includes(col.name)) {
@@ -1163,8 +1159,7 @@ export interface AvatarRow {
   breed: string | null;
   generation_status: 'pending' | 'generating_mesh' | 'rigging' | 'retargeting' | 'baking_clips' | 'baking_sprites' | 'done' | 'failed';
   generation_error: string | null;
-  avatar_type: 'dog' | 'human' | 'object';
-  generation_analysis: any | null;
+  avatar_type: 'dog' | 'human';
   food_level: number;
   water_level: number;
   last_fed: string;
@@ -1182,12 +1177,10 @@ export async function createAvatar(
     breed?: string;
     generation_status?: string;
     avatar_type?: string;
-    /** Unified triage record (detection + qualification + anatomy). */
-    generation_analysis?: unknown;
   }
 ): Promise<number> {
   const [result] = await getPool().query(
-    `INSERT INTO avatars (user_phone, name, image_url, meshy_handle, animal_type, breed, generation_status, avatar_type, generation_analysis) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO avatars (user_phone, name, image_url, meshy_handle, animal_type, breed, generation_status, avatar_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       phone,
       name,
@@ -1196,8 +1189,7 @@ export async function createAvatar(
       opts?.animal_type || null,
       opts?.breed || null,
       opts?.generation_status || 'pending',
-      opts?.avatar_type || 'dog',
-      opts?.generation_analysis != null ? JSON.stringify(opts.generation_analysis) : null
+      opts?.avatar_type || 'dog'
     ]
   ) as any;
   return result.insertId;

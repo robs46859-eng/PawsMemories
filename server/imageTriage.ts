@@ -30,6 +30,13 @@ export const TriageSchema = z.object({
   subjectClass: z.enum(["human", "dog", "object"]),
   classConfidence: unit,
   reason: z.string().default(""),
+  // Sub-classification for objects: what KIND of object is this? Lets the build
+  // stage treat a habitable structure differently from a usable prop, a plant
+  // from food, and a component from a 2D blueprint. "none" for human/dog.
+  objectCategory: z
+    .enum(["structure", "prop", "plant", "food", "part", "blueprint", "none"])
+    .default("none"),
+  objectCategoryConfidence: unit.default(0),
   // ── Qualification ───────────────────────────────────────────────────────
   qualify: z.object({
     score: unit,
@@ -50,6 +57,21 @@ export const TriageSchema = z.object({
   hasTail: bool.default(false),
   coatColors: z.array(z.string()).default([]),
   coatPattern: z.string().default(""),
+  // Best-effort human anatomy audit. For a human subject these should read the
+  // canonical counts (2/2/2/4/5); anything else is flagged in `anomalies` and
+  // corrected on regeneration so we never rig a one-eyed or six-fingered mesh.
+  humanAnatomy: z
+    .object({
+      eyeCount: z.coerce.number().default(2),
+      earCount: z.coerce.number().default(2),
+      nostrilCount: z.coerce.number().default(2),
+      limbCount: z.coerce.number().default(4),
+      fingersPerHand: z.coerce.number().default(5),
+      anomalies: z.array(z.string()).default([]),
+    })
+    // A whole-object default must list every field — `.default({})` would NOT
+    // run the inner field defaults, leaving the counts undefined.
+    .default({ eyeCount: 2, earCount: 2, nostrilCount: 2, limbCount: 4, fingersPerHand: 5, anomalies: [] }),
 });
 
 export type TriageResult = z.infer<typeof TriageSchema>;
@@ -80,6 +102,8 @@ export function buildTriagePrompt(userType: SubjectClass): string {
     `  "subjectClass": "human"|"dog"|"object",\n` +
     `  "classConfidence": number 0-1,\n` +
     `  "reason": string (one short sentence),\n` +
+    `  "objectCategory": "structure"|"prop"|"plant"|"food"|"part"|"blueprint"|"none" (per the definitions above; "none" if not an object),\n` +
+    `  "objectCategoryConfidence": number 0-1,\n` +
     `  "qualify": {\n` +
     `    "score": number 0-1 (overall reconstruction suitability),\n` +
     `    "subjectPresent": boolean,\n` +
@@ -97,7 +121,13 @@ export function buildTriagePrompt(userType: SubjectClass): string {
     `  "legCount": number,\n` +
     `  "hasTail": boolean,\n` +
     `  "coatColors": string[] (1-3 hex colours, e.g. ["#C0A080"]),\n` +
-    `  "coatPattern": string\n` +
+    `  "coatPattern": string,\n` +
+    `  "humanAnatomy": {  // ONLY meaningful when subjectClass is "human"; count what is actually visible\n` +
+    `    "eyeCount": number, "earCount": number, "nostrilCount": number,\n` +
+    `    "limbCount": number (arms + legs; a normal human is 4),\n` +
+    `    "fingersPerHand": number (a normal human is 5),\n` +
+    `    "anomalies": string[]  // list any deviation from canonical human counts, e.g. "only 4 fingers on left hand", "missing one ear"; empty if all normal\n` +
+    `  }\n` +
     `}`
   );
 }
@@ -133,6 +163,25 @@ export function correctiveFromTriage(t: TriageResult): string {
   if (!q.cleanBackground) fixes.push("use a plain neutral light-gray seamless background");
   if (q.bakedShadowsOrHarshLight) fixes.push("use even soft lighting with no harsh shadows or baked highlights");
   if (q.watermarkOrText) fixes.push("remove all text and watermarks");
+  // Human anatomy correction: if the detected counts drift from the canonical
+  // human figure, force a regeneration that renders exactly the right features.
+  if (t.subjectClass === "human") {
+    const a = t.humanAnatomy;
+    const anatomyOff =
+      (a?.anomalies?.length ?? 0) > 0 ||
+      a?.eyeCount !== 2 || a?.earCount !== 2 || a?.nostrilCount !== 2 ||
+      a?.limbCount !== 4 || a?.fingersPerHand !== 5;
+    if (anatomyOff) {
+      fixes.push(
+        "render canonical human anatomy exactly: two eyes, two ears, one nose with two nostrils, " +
+        "two arms and two legs, and two hands each with five clearly separated fingers"
+      );
+    }
+  }
+  // Blueprint safety: a 2D plan is not a reconstructable 3D subject.
+  if (t.subjectClass === "object" && t.objectCategory === "blueprint") {
+    fixes.push("provide a photo of the actual 3D object, not a blueprint, plan or drawing of it");
+  }
   return fixes.join("; ");
 }
 

@@ -13,12 +13,21 @@ export type SubjectClass = 'dog' | 'human' | 'object';
  */
 export const CLASS_DEFINITIONS =
   `Definitions:\n` +
-  `- "human": a real living person or clearly human character — one head, two arms, two legs, hands, a human face, skin and hair. ` +
+  `- "human": a real living person or clearly human character. Canonical human anatomy: exactly ONE head; TWO eyes; TWO ears; ONE nose with TWO nostrils; ONE mouth; TWO arms ending in TWO hands, each hand with FIVE fingers (four fingers + one thumb); TWO legs ending in TWO feet; a human face, skin and hair. ` +
+  `Missing, extra or duplicated features (e.g. one eye, three arms, six fingers, no nose) are ANATOMY ANOMALIES to be flagged, not new classes. ` +
   `NOT a doll, mannequin, action figure, statue, or costume of a person, and NOT an animal.\n` +
   `- "dog": a living (or lifelike) animal with animal anatomy — a body on legs (usually four), a head with a muzzle/snout or beak, fur/feathers/scales, usually a tail. Dogs, cats, birds, rabbits, etc. ` +
   `NOT a plush toy, figurine, statue or drawing of an animal, and NOT a human.\n` +
-  `- "object": anything that is NOT a live human or animal — props, furniture, vehicles, toys, food, plants, gadgets — INCLUDING toys, figurines and statues that merely depict a human or animal. ` +
-  `The test is: is this a living subject we should rig and animate, or an inanimate thing? If inanimate, it is "object" even if it is shaped like a dog or person.`;
+  `- "object": anything that is NOT a live human or animal — props, furniture, vehicles, toys, food, plants, gadgets, buildings — INCLUDING toys, figurines and statues that merely depict a human or animal. ` +
+  `The test is: is this a living subject we should rig and animate, or an inanimate thing? If inanimate, it is "object" even if it is shaped like a dog or person.\n\n` +
+  `When the subject is an "object", ALSO pick the single best objectCategory using these definitions:\n` +
+  `  - "structure": a HABITABLE or enterable built structure — something a character could go inside, occupy, or shelter in. It has interior volume and an opening (door/entrance). Examples: house, barn, tent, doghouse, castle, shed, cabin, birdhouse. Test: could a character fit INSIDE it? If yes → structure.\n` +
+  `  - "prop": a USABLE, discrete, self-contained item that is handled, carried, sat on, ridden or placed — but NOT entered. It has no habitable interior. Examples: ball, bowl, chair, toy, tool, lamp, book, vehicle, backpack. Test: is it used/held rather than inhabited? If yes → prop.\n` +
+  `  - "plant": LIVING flora grown rather than eaten as-is — trees, flowers, bushes, grass, potted houseplants, cactus. Roots/stems/leaves/branches. NOT harvested produce ready to eat.\n` +
+  `  - "food": an EDIBLE item or prepared dish meant to be consumed — fruit, vegetable, treat, meal, drink, baked good. Test: is the primary purpose to be eaten/drunk? If yes → food, even if it grew on a plant (a picked apple is food; an apple tree is a plant).\n` +
+  `  - "part": a COMPONENT, fragment or sub-assembly of a larger object, not a complete standalone item — a wheel, door, gear, table leg, engine block, handle, bracket. Test: is this a piece OF something rather than a whole thing? If yes → part.\n` +
+  `  - "blueprint": a 2D PLAN, schematic, diagram, blueprint, technical drawing or instruction sheet DESCRIBING how to build something — NOT a real 3D object itself. Flat, drawn/printed, with lines, measurements, or exploded views. A blueprint is never reconstructed as the thing it depicts; it is a drawing. Test: is this a drawing/plan OF an object rather than the object? If yes → blueprint.\n` +
+  `  - "none": use only when the subject is not an object (human or dog).`;
 
 /**
  * REFERENCE STYLE for a static OBJECT. Deliberately anti-anthropomorphic: no
@@ -56,12 +65,37 @@ export const REFERENCE_STYLE_DOG =
   `dimensional depth — but NO harsh or hard-edged directional cast shadows and no shadows on the background. ` +
   `Sharp focus, plain neutral light-gray seamless studio background, no props, no people, no text, no watermark.`;
 
+/**
+ * Canonical human anatomy the generator must render — exact counts so the model
+ * never produces a missing/extra eye, nostril, limb or finger. Shared by the
+ * human render style and available for anomaly-correction clauses.
+ */
+export const HUMAN_ANATOMY_SPEC =
+  `ANATOMY (render EXACTLY, no more and no fewer): ONE head; TWO forward-facing eyes; TWO ears (one per side); ` +
+  `ONE nose with TWO nostrils; ONE mouth; TWO arms; TWO hands, each with FIVE distinct fingers (four fingers plus one opposable thumb); ` +
+  `TWO legs; TWO feet. Never merge, omit or duplicate these features; hands must show five separated fingers, not mittens or fused shapes.`;
+
+/**
+ * Standard human proportion ranges expressed in HEAD-HEIGHTS (the artist's
+ * canon), lightly stylized for an appealing animated look. Keeps head/torso/
+ * leg/limb sizing inside a believable band so the reconstructed mesh is stable.
+ */
+export const HUMAN_PROPORTION_SPEC =
+  `PROPORTIONS (measured in head-heights, where 1 head = the height of the character's own head): ` +
+  `total standing height about 6.5 to 7.5 heads for an adult (use ~5 to 6 heads for a child or a more stylized look, keeping the head slightly larger). ` +
+  `Vertical breakdown: head = 1 head-height; neck-to-crotch torso span ≈ 2.5 to 3 head-heights; legs (hip to floor) ≈ 3.5 to 4 head-heights, ` +
+  `so legs are roughly half of total height. Shoulders ≈ 2 to 3 head-widths wide; hips slightly narrower than or equal to shoulders. ` +
+  `Arms hang so the fingertips reach about mid-thigh; each arm ≈ 3 to 3.5 head-heights long; a hand ≈ the size of the face; a foot ≈ 1 head-height long. ` +
+  `Keep all of these within the stated ranges — do not render stunted limbs, an oversized torso, or dwarfed/giant heads outside this band.`;
+
 export const REFERENCE_STYLE_HUMAN =
   `Render the person as a premium Pixar-style stylized 3D character: soft appealing proportions, slightly enlarged ` +
   `expressive eyes, subsurface-scattered skin, and beautifully textured hair — like a frame from a modern animated ` +
   `feature film. ` +
   `Faithfully preserve the person's exact skin tone, hair color and style, facial structure, and clothing colors and patterns ` +
   `as seen across ALL reference photos. ` +
+  HUMAN_ANATOMY_SPEC + ` ` +
+  HUMAN_PROPORTION_SPEC + ` ` +
   `Pay EXTREME attention to FACIAL FEATURES: eye shape, color and spacing, nose shape and size, lip shape, ` +
   `jawline, cheekbones, eyebrow shape, forehead size, and any facial hair, wrinkles or distinguishing marks. ` +
   `The person is standing squarely on two legs in a neutral bipedal A-pose stance, arms slightly out to the sides, clearly separated from the torso, ` +
