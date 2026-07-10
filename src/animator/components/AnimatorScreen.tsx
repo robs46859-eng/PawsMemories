@@ -1,20 +1,59 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useMemo } from "react";
 import * as THREE from "three";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Environment, ContactShadows } from "@react-three/drei";
-import { Play, Pause, FastForward, Video, Plus, X, List, Clapperboard, Download, Square } from "lucide-react";
+import { Play, Pause, FastForward, Video, Plus, X, List, Clapperboard, Download, Square, Sun, CloudRain, Volume2, VolumeX, Mic } from "lucide-react";
 import { useSceneController } from "../controller/useSceneController.ts";
 import { useCaptureSession } from "../capture/useCaptureSession.ts";
 import { ANIMATOR_DEFAULTS } from "../defaults.ts";
-import type { SceneActor } from "../types.ts";
+import { WeatherSystem, WeatherType } from "../scenes/weather/WeatherSystem.tsx";
+import { SoundSystem } from "../scenes/sound/SoundSystem.tsx";
+import { evaluateSequence, SceneSequence } from "../scenes/SceneSequence.ts";
+import { lightingFor } from "../scenes/lightingRig.ts";
 
 // The viewport rendering the SceneController's scene
-function Viewport({ sceneController }: { sceneController: ReturnType<typeof useSceneController> }) {
+function Viewport({ 
+  sceneController, 
+  environment, 
+  weather, 
+  cameraState,
+  soundMuted,
+}: { 
+  sceneController: ReturnType<typeof useSceneController>,
+  environment: any,
+  weather: WeatherType,
+  cameraState: { position: [number, number, number], fov: number },
+  soundMuted: boolean,
+}) {
   const scene = sceneController.getScene();
+  
+  const lighting = useMemo(() => {
+    if (environment) {
+      return lightingFor("afternoon", environment);
+    }
+    return null;
+  }, [environment]);
+
   return (
     <>
       <primitive object={scene} />
-      <Environment preset="city" />
+      
+      <WeatherSystem weather={weather} />
+      
+      {environment && (
+        <SoundSystem 
+          ambientUrl={environment.ambientSound} 
+          weather={weather} 
+          volume={soundMuted ? 0 : ANIMATOR_DEFAULTS.sound.volume} 
+        />
+      )}
+
+      {environment ? (
+        <Environment preset={environment.hdriBucketUrl ? undefined : "city"} files={environment.hdriBucketUrl} background={!!environment.hdriBucketUrl} />
+      ) : (
+        <Environment preset="city" />
+      )}
+      
       <ContactShadows 
         resolution={1024} 
         scale={10} 
@@ -22,13 +61,32 @@ function Viewport({ sceneController }: { sceneController: ReturnType<typeof useS
         opacity={ANIMATOR_DEFAULTS.shadows.contactShadowOpacity} 
         far={10} 
       />
+      
       <OrbitControls 
         makeDefault 
         target={ANIMATOR_DEFAULTS.camera.target}
         maxPolarAngle={Math.PI / 2 + 0.1}
       />
-      <ambientLight intensity={0.5} />
-      <directionalLight position={[5, 5, 5]} intensity={1} castShadow />
+      
+      {/* Dynamic Lighting from Profile */}
+      {lighting ? (
+        <>
+          <ambientLight intensity={lighting.ambientIntensity} />
+          <directionalLight 
+            position={lighting.sunPosition} 
+            intensity={lighting.sunIntensity} 
+            castShadow 
+          />
+          {lighting.fogDensity > 0 && (
+            <fogExp2 attach="fog" color={lighting.fogColor} density={lighting.fogDensity} />
+          )}
+        </>
+      ) : (
+        <>
+          <ambientLight intensity={0.5} />
+          <directionalLight position={[5, 5, 5]} intensity={1} castShadow />
+        </>
+      )}
     </>
   );
 }
@@ -44,8 +102,22 @@ export default function AnimatorScreen({
   const [isPlaying, setIsPlaying] = useState(true);
   const [speed, setSpeed] = useState(1.0);
   const [timeline, setTimeline] = useState(0); // 0 to 1
+  
+  const [mode, setMode] = useState<"cast" | "scene">("cast");
+  const [environments, setEnvironments] = useState<any[]>([]);
+  const [scripts, setScripts] = useState<any[]>([]);
+  
+  const [activeEnvId, setActiveEnvId] = useState<string>("");
+  const [weather, setWeather] = useState<WeatherType>("clear");
+  const [soundMuted, setSoundMuted] = useState(false);
+  const [activeSequenceId, setActiveSequenceId] = useState<string>("");
+  
+  const [voiceoverText, setVoiceoverText] = useState("");
+  const [isVoiceoverRunning, setIsVoiceoverRunning] = useState(false);
+  
   const [addingAssetId, setAddingAssetId] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
+  
   const rafRef = useRef<number>(0);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const captureSession = useCaptureSession(canvasRef);
@@ -56,17 +128,58 @@ export default function AnimatorScreen({
   
   const duration = activeController ? activeController.getDuration() : 10;
   
-  // Sync timeline progress
+  const activeEnv = environments.find(e => e.id === activeEnvId);
+  const activeSequence = ANIMATOR_DEFAULTS.sequences.find(s => s.id === activeSequenceId) as SceneSequence | undefined;
+  
+  const [cameraState, setCameraState] = useState({ 
+    position: ANIMATOR_DEFAULTS.camera.position as [number, number, number], 
+    fov: ANIMATOR_DEFAULTS.camera.fov 
+  });
+
+  // Fetch presets
+  useEffect(() => {
+    fetch("/api/scenes/environments", { headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` }})
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) setEnvironments(data);
+      })
+      .catch(console.error);
+      
+    fetch("/api/scenes/scripts", { headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` }})
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) setScripts(data);
+      })
+      .catch(console.error);
+  }, []);
+
+  // Sync timeline progress and evaluate sequences
   useEffect(() => {
     const updateTimeline = () => {
+      let currentTime = 0;
       if (activeController) {
-        setTimeline(activeController.getCurrentTime() / (activeController.getDuration() || 1));
+        currentTime = activeController.getCurrentTime();
+        setTimeline(currentTime / (activeController.getDuration() || 1));
       }
+      
+      if (activeSequence) {
+        const state = evaluateSequence(activeSequence, currentTime);
+        if (state.weatherTarget) {
+          setWeather(state.weatherTarget as WeatherType);
+        }
+        if (state.cameraTarget) {
+          setCameraState(state.cameraTarget);
+        }
+        if (state.clipTarget && activeController) {
+          activeController.selectClip(state.clipTarget);
+        }
+      }
+
       rafRef.current = requestAnimationFrame(updateTimeline);
     };
     rafRef.current = requestAnimationFrame(updateTimeline);
     return () => cancelAnimationFrame(rafRef.current!);
-  }, [activeController]);
+  }, [activeController, activeSequence]);
 
   // Load initial asset
   useEffect(() => {
@@ -76,11 +189,8 @@ export default function AnimatorScreen({
   }, [initialAssetId, sceneController]);
 
   const handlePlayPause = () => {
-    if (isPlaying) {
-      sceneController.pauseAll();
-    } else {
-      sceneController.playAll();
-    }
+    if (isPlaying) sceneController.pauseAll();
+    else sceneController.playAll();
     setIsPlaying(!isPlaying);
   };
 
@@ -102,15 +212,75 @@ export default function AnimatorScreen({
     setShowAddModal(false);
     setAddingAssetId("");
   };
+  
+  const [recordingId, setRecordingId] = useState<string | null>(null);
+
+  const handleGenerateVoiceover = async () => {
+    if (!voiceoverText) return;
+    setIsVoiceoverRunning(true);
+    try {
+      let currentRecordingId = recordingId;
+      if (!currentRecordingId) {
+        if (!captureSession.hasRecording) {
+          alert("Please record a video first!");
+          setIsVoiceoverRunning(false);
+          return;
+        }
+        const data = await captureSession.saveToBackend();
+        currentRecordingId = data.filename;
+        setRecordingId(currentRecordingId);
+      }
+
+      const res = await fetch("/api/scenes/voiceover", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${localStorage.getItem("token")}`
+        },
+        body: JSON.stringify({
+          recordingId: currentRecordingId,
+          text: voiceoverText
+        })
+      });
+      const data = await res.json();
+      if (!data.success) {
+        alert("Failed: " + data.error);
+      } else {
+        alert("Voiceover queued! Job ID: " + data.jobId);
+      }
+    } catch (err: any) {
+      alert("Error: " + err.message);
+    } finally {
+      setIsVoiceoverRunning(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-black text-white flex flex-col font-sans">
       {/* Top Bar */}
       <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center z-10 bg-gradient-to-b from-black/80 to-transparent">
-        <div className="flex items-center gap-2">
-          <Clapperboard className="text-primary" />
-          <h1 className="font-extrabold text-lg tracking-tight">Studio Animator</h1>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Clapperboard className="text-primary" />
+            <h1 className="font-extrabold text-lg tracking-tight">Studio Animator</h1>
+          </div>
+          
+          <div className="flex bg-white/10 rounded-full p-1 border border-white/10 ml-4">
+            <button 
+              onClick={() => setMode("cast")}
+              className={`px-4 py-1 rounded-full text-xs font-bold transition-colors ${mode === "cast" ? "bg-primary text-white shadow-lg" : "text-white/60 hover:text-white"}`}
+            >
+              Cast
+            </button>
+            <button 
+              onClick={() => setMode("scene")}
+              className={`px-4 py-1 rounded-full text-xs font-bold transition-colors ${mode === "scene" ? "bg-primary text-white shadow-lg" : "text-white/60 hover:text-white"}`}
+            >
+              Scene
+            </button>
+          </div>
         </div>
+        
         <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors">
           <X size={20} />
         </button>
@@ -121,8 +291,8 @@ export default function AnimatorScreen({
         <Canvas 
           ref={canvasRef}
           camera={{ 
-            position: ANIMATOR_DEFAULTS.camera.position, 
-            fov: ANIMATOR_DEFAULTS.camera.fov 
+            position: cameraState.position, 
+            fov: cameraState.fov 
           }}
           gl={{
             toneMapping: (React as any).useMemo(() => (THREE as any)[ANIMATOR_DEFAULTS.renderer.toneMapping], []),
@@ -131,70 +301,179 @@ export default function AnimatorScreen({
           dpr={[1, ANIMATOR_DEFAULTS.renderer.dprMax]}
           shadows={{ type: ANIMATOR_DEFAULTS.renderer.shadowMapType as any }}
         >
-          <Viewport sceneController={sceneController} />
+          <Viewport 
+            sceneController={sceneController} 
+            environment={activeEnv}
+            weather={weather}
+            cameraState={cameraState}
+            soundMuted={soundMuted}
+          />
         </Canvas>
       </div>
 
       {/* HUD Overlays */}
       <div className="absolute bottom-0 left-0 right-0 p-4 md:p-6 flex flex-col gap-4 pointer-events-none">
         
-        {/* Middle HUD: Left = Actors, Right = Clips */}
+        {/* Middle HUD */}
         <div className="flex justify-between items-end w-full max-w-7xl mx-auto">
           
-          {/* Actors Panel */}
-          <div className="bg-black/60 backdrop-blur-md rounded-2xl border border-white/10 p-4 flex flex-col gap-3 pointer-events-auto min-w-[200px]">
-            <div className="flex justify-between items-center mb-1">
-              <h3 className="text-xs font-bold text-white/60 uppercase tracking-wider flex items-center gap-1">
-                <List size={12} /> Cast
-              </h3>
-              <button onClick={() => setShowAddModal(true)} className="hover:text-primary transition-colors">
-                <Plus size={16} />
-              </button>
-            </div>
-            
-            <div className="flex flex-col gap-1 max-h-[30vh] overflow-y-auto">
-              {actors.length === 0 && <span className="text-xs text-white/40 italic">Empty Stage</span>}
-              {actors.map((actor) => (
-                <div 
-                  key={actor.actorId} 
-                  className={`flex justify-between items-center p-2 rounded-lg cursor-pointer transition-colors ${activeActorId === actor.actorId ? 'bg-primary/20 border border-primary/50' : 'hover:bg-white/5 border border-transparent'}`}
-                  onClick={() => sceneController.setActiveActor(actor.actorId)}
-                >
-                  <span className="text-sm font-medium truncate max-w-[120px]">{actor.label}</span>
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); sceneController.removeActor(actor.actorId); }}
-                    className="opacity-50 hover:opacity-100 hover:text-error"
-                  >
-                    <X size={14} />
+          {mode === "cast" && (
+            <>
+              {/* Actors Panel */}
+              <div className="bg-black/60 backdrop-blur-md rounded-2xl border border-white/10 p-4 flex flex-col gap-3 pointer-events-auto min-w-[200px]">
+                <div className="flex justify-between items-center mb-1">
+                  <h3 className="text-xs font-bold text-white/60 uppercase tracking-wider flex items-center gap-1">
+                    <List size={12} /> Cast
+                  </h3>
+                  <button onClick={() => setShowAddModal(true)} className="hover:text-primary transition-colors">
+                    <Plus size={16} />
                   </button>
                 </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Clips Panel (Active Actor) */}
-          {activeController && (
-            <div className="bg-black/60 backdrop-blur-md rounded-2xl border border-white/10 p-4 flex flex-col gap-3 pointer-events-auto max-w-[300px] max-h-[40vh] overflow-y-auto">
-              <h3 className="text-xs font-bold text-white/60 uppercase tracking-wider">Animations</h3>
-              <div className="flex flex-wrap gap-2">
-                {activeController.listClips().map((clip) => {
-                  // highlight the current clip if we tracked it in SceneActor...
-                  // For now, simple list.
-                  return (
-                    <button
-                      key={clip.name}
-                      onClick={() => activeController.selectClip(clip.name)}
-                      className="text-xs px-3 py-1.5 rounded-full bg-white/10 hover:bg-primary/40 border border-white/5 transition-all text-left truncate max-w-full"
-                      title={clip.name}
+                
+                <div className="flex flex-col gap-1 max-h-[30vh] overflow-y-auto">
+                  {actors.length === 0 && <span className="text-xs text-white/40 italic">Empty Stage</span>}
+                  {actors.map((actor) => (
+                    <div 
+                      key={actor.actorId} 
+                      className={`flex justify-between items-center p-2 rounded-lg cursor-pointer transition-colors ${activeActorId === actor.actorId ? 'bg-primary/20 border border-primary/50' : 'hover:bg-white/5 border border-transparent'}`}
+                      onClick={() => sceneController.setActiveActor(actor.actorId)}
                     >
-                      {clip.name}
+                      <span className="text-sm font-medium truncate max-w-[120px]">{actor.label}</span>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); sceneController.removeActor(actor.actorId); }}
+                        className="opacity-50 hover:opacity-100 hover:text-error"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Clips Panel */}
+              {activeController && (
+                <div className="bg-black/60 backdrop-blur-md rounded-2xl border border-white/10 p-4 flex flex-col gap-3 pointer-events-auto max-w-[300px] max-h-[40vh] overflow-y-auto">
+                  <h3 className="text-xs font-bold text-white/60 uppercase tracking-wider">Animations</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {activeController.listClips().map((clip) => (
+                      <button
+                        key={clip.name}
+                        onClick={() => { setActiveSequenceId(""); activeController.selectClip(clip.name); }}
+                        className="text-xs px-3 py-1.5 rounded-full bg-white/10 hover:bg-primary/40 border border-white/5 transition-all text-left truncate max-w-full"
+                        title={clip.name}
+                      >
+                        {clip.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {mode === "scene" && (
+            <div className="flex gap-4 items-end pointer-events-none">
+              {/* Environment & Weather Panel */}
+              <div className="bg-black/60 backdrop-blur-md rounded-2xl border border-white/10 p-4 flex flex-col gap-3 pointer-events-auto w-[250px]">
+                <h3 className="text-xs font-bold text-white/60 uppercase tracking-wider flex items-center gap-1">
+                  <Sun size={12} /> Environments
+                </h3>
+                <div className="grid grid-cols-2 gap-2 max-h-[20vh] overflow-y-auto">
+                  <button 
+                    onClick={() => setActiveEnvId("")}
+                    className={`text-xs p-2 rounded-xl text-center border transition-all ${activeEnvId === "" ? 'bg-primary/30 border-primary' : 'bg-white/5 border-transparent hover:bg-white/10'}`}
+                  >
+                    Default
+                  </button>
+                  {environments.map(env => (
+                    <button 
+                      key={env.id}
+                      onClick={() => setActiveEnvId(env.id)}
+                      className={`text-xs p-2 rounded-xl text-center border transition-all truncate ${activeEnvId === env.id ? 'bg-primary/30 border-primary' : 'bg-white/5 border-transparent hover:bg-white/10'}`}
+                    >
+                      {env.name}
                     </button>
-                  );
-                })}
+                  ))}
+                </div>
+                
+                <h3 className="text-xs font-bold text-white/60 uppercase tracking-wider flex items-center gap-1 mt-2">
+                  <CloudRain size={12} /> Weather
+                </h3>
+                <select 
+                  value={weather}
+                  onChange={(e) => setWeather(e.target.value as WeatherType)}
+                  className="bg-black/50 border border-white/20 rounded-xl p-2 text-xs outline-none focus:border-primary w-full"
+                >
+                  <option value="clear">Clear</option>
+                  <option value="rain">Rain</option>
+                  <option value="snow">Snow</option>
+                  <option value="fog">Fog</option>
+                  <option value="overcast">Overcast</option>
+                </select>
+                
+                <button 
+                  onClick={() => setSoundMuted(!soundMuted)}
+                  className={`flex items-center gap-2 text-xs p-2 rounded-xl justify-center transition-colors border ${soundMuted ? 'bg-red-500/20 border-red-500 text-red-400' : 'bg-white/10 border-transparent hover:bg-white/20'}`}
+                >
+                  {soundMuted ? <VolumeX size={14} /> : <Volume2 size={14} />} 
+                  {soundMuted ? "Sound Muted" : "Sound Enabled"}
+                </button>
+              </div>
+
+              {/* Sequences & Voiceover Panel */}
+              <div className="bg-black/60 backdrop-blur-md rounded-2xl border border-white/10 p-4 flex flex-col gap-3 pointer-events-auto w-[300px]">
+                <h3 className="text-xs font-bold text-white/60 uppercase tracking-wider">Sequences</h3>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => setActiveSequenceId("")}
+                    className={`text-xs px-3 py-1.5 rounded-full border transition-all ${activeSequenceId === "" ? 'bg-primary/40 border-primary' : 'bg-white/10 border-white/5 hover:bg-white/20'}`}
+                  >
+                    Free Play
+                  </button>
+                  {ANIMATOR_DEFAULTS.sequences.map(seq => (
+                    <button
+                      key={seq.id}
+                      onClick={() => setActiveSequenceId(seq.id)}
+                      className={`text-xs px-3 py-1.5 rounded-full border transition-all ${activeSequenceId === seq.id ? 'bg-primary/40 border-primary' : 'bg-white/10 border-white/5 hover:bg-white/20'}`}
+                    >
+                      {seq.name}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="w-full h-px bg-white/10 my-1"></div>
+                
+                <h3 className="text-xs font-bold text-white/60 uppercase tracking-wider flex items-center gap-1">
+                  <Mic size={12} /> Voiceover
+                </h3>
+                <textarea 
+                  value={voiceoverText}
+                  onChange={(e) => setVoiceoverText(e.target.value)}
+                  placeholder="Enter script here..."
+                  className="bg-black/50 border border-white/20 rounded-xl p-2 text-xs outline-none focus:border-primary w-full h-16 resize-none"
+                />
+                <div className="flex justify-between items-center">
+                  <select 
+                    onChange={(e) => setVoiceoverText(e.target.value)}
+                    className="bg-transparent border-none text-xs text-white/60 outline-none w-24"
+                    value=""
+                  >
+                    <option value="" disabled>Presets...</option>
+                    {scripts.map(s => (
+                      <option key={s.id} value={s.text}>{s.title}</option>
+                    ))}
+                  </select>
+                  <button 
+                    onClick={handleGenerateVoiceover}
+                    disabled={isVoiceoverRunning || !voiceoverText}
+                    className="bg-primary text-on-primary text-xs font-bold px-3 py-1.5 rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {isVoiceoverRunning ? "Generating..." : "Generate Audio"}
+                  </button>
+                </div>
               </div>
             </div>
           )}
-
         </div>
 
         {/* Bottom Transport Controls */}

@@ -37,5 +37,35 @@ export const ANIMATOR_DEFAULTS = {
   sound: {
     volume: 0.5,
     ambientEnabled: true,
-  }
+  },
+  sequences: [
+    {
+      id: "hero-intro",
+      name: "Hero Intro",
+      steps: [
+        { timeSeconds: 0, action: 'cut_camera', target: { position: [0, 1, 3], fov: 45 } },
+        { timeSeconds: 0, action: 'play_clip', target: 'idle' },
+        { timeSeconds: 3, action: 'cut_camera', target: { position: [2, 1, 2], fov: 50 } },
+        { timeSeconds: 3, action: 'play_clip', target: 'run' }
+      ]
+    },
+    {
+      id: "playful",
+      name: "Playful",
+      steps: [
+        { timeSeconds: 0, action: 'cut_camera', target: { position: [0, 0.5, 4], fov: 60 } },
+        { timeSeconds: 0, action: 'play_clip', target: 'run' },
+        { timeSeconds: 5, action: 'play_clip', target: 'idle' }
+      ]
+    },
+    {
+      id: "sleepy",
+      name: "Sleepy",
+      steps: [
+        { timeSeconds: 0, action: 'cut_camera', target: { position: [0, 0.5, 2], fov: 40 } },
+        { timeSeconds: 0, action: 'set_weather', target: 'fog' },
+        { timeSeconds: 0, action: 'play_clip', target: 'idle' }
+      ]
+    }
+  ]
 };
