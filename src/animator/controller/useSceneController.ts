@@ -48,9 +48,23 @@ export function useSceneController() {
     }
   };
 
-  useFrame((_, delta) => {
-    wrappedController.update(delta);
-  });
-
   return wrappedController;
+}
+
+/**
+ * Drives the SceneController's per-frame update loop. `useFrame` may ONLY be
+ * called inside the <Canvas> render tree, so this must be rendered as a child
+ * of <Canvas> — NOT from the screen-level component that owns the UI. Rendering
+ * useSceneController's useFrame at screen level threw:
+ *   "R3F: Hooks can only be used within the Canvas component!"
+ */
+export function SceneTicker({
+  controller,
+}: {
+  controller: { update: (delta: number) => void };
+}) {
+  useFrame((_, delta) => {
+    controller.update(delta);
+  });
+  return null;
 }

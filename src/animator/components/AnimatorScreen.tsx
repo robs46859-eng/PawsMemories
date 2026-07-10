@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Environment, ContactShadows } from "@react-three/drei";
 import { Play, Pause, FastForward, Video, Plus, X, List, Clapperboard, Download, Square, Sun, CloudRain, Volume2, VolumeX, Mic } from "lucide-react";
-import { useSceneController } from "../controller/useSceneController.ts";
+import { useSceneController, SceneTicker } from "../controller/useSceneController.ts";
 import { useCaptureSession } from "../capture/useCaptureSession.ts";
 import { ANIMATOR_DEFAULTS } from "../defaults.ts";
 import { WeatherSystem, WeatherType } from "../scenes/weather/WeatherSystem.tsx";
@@ -36,8 +36,11 @@ function Viewport({
 
   return (
     <>
+      {/* Per-frame controller tick — must live inside <Canvas> */}
+      <SceneTicker controller={sceneController} />
+
       <primitive object={scene} />
-      
+
       <WeatherSystem weather={weather} />
       
       {environment && (

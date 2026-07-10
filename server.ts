@@ -237,8 +237,21 @@ async function startServer() {
 
   // Per-USER limiter (keyed by JWT subject, not IP) for the paid AR endpoints
   // (classify / rig / semantic-scan). Applied as route middleware AFTER
-  app.use("/api", requireAuth, animatorRouter);
-  
+  // Guard ONLY the animator + scenes namespaces so public routes
+  // (/api/auth/login, /api/auth/signup, etc.) stay reachable without a token.
+  // NOTE: mounting requireAuth on the bare "/api" prefix previously gated the
+  // whole API (including login) and caused spurious 401s.
+  app.use(
+    "/api",
+    (req, res, next) => {
+      if (req.path.startsWith("/animator") || req.path.startsWith("/scenes")) {
+        return requireAuth(req as AuthedRequest, res, next);
+      }
+      return next();
+    },
+    animatorRouter
+  );
+
   // Serve animator files statically
   app.use("/animator-files", express.static(path.join(process.cwd(), "data", "animator")));
   
@@ -3135,11 +3148,22 @@ async function startServer() {
           const poll = await pollTripoTask(job.operation_name);
           if (poll.done && !poll.error) {
             await updateJobStatus(jobId, "done");
-            // Store the GLB URL on the job as model_url
+            // Mirror the provider's (temporary) GLB URL into our own Backblaze
+            // bucket so the stored model_url stays valid after the provider link
+            // expires. Matches the /api/jobs poller and AR bake path, which both
+            // call uploadBinaryFromUrl. Storing the raw Tripo URL here caused
+            // models to 404 once the provider expired the link.
             if (poll.glbUrl) {
-              await setCreationModelUrl(job.creation_id!, req.user!.phone, poll.glbUrl).catch(() => {
+              let durableUrl = poll.glbUrl;
+              try {
+                durableUrl = await uploadBinaryFromUrl(poll.glbUrl, "model/gltf-binary");
+              } catch (mirrorErr) {
+                console.error(`[image-to-3d] Failed to mirror GLB to storage for job ${jobId}:`, mirrorErr);
+              }
+              await setCreationModelUrl(job.creation_id!, req.user!.phone, durableUrl).catch(() => {
                 // creation_id may be null for arbitrary images — that's fine
               });
+              return res.json({ status: "done", model_url: durableUrl, progress: 100 });
             }
             return res.json({ status: "done", model_url: poll.glbUrl, progress: 100 });
           } else if (poll.done && poll.error) {
