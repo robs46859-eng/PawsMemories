@@ -1,0 +1,16 @@
+{
+  "id": "generic-indoor-studio",
+  "tier": "generic",
+  "label": "Warm Studio",
+  "backdrop": {
+    "kind": "hdri",
+    "url": "/animator-files/environments/studio_small_08.jpg"
+  },
+  "allowedWeather": [
+    "clear"
+  ],
+  "defaultTimeOfDay": "afternoon",
+  "license": "CC0",
+  "source": "Poly Haven",
+  "sourceUrl": "https://polyhaven.com/a/studio_small_08"
+}

@@ -6,6 +6,7 @@ import { enqueue, JobSpecSchema } from "./queue.ts";
 import { readManifest } from "./manifest.ts";
 import { resolveWithinWorkspace } from "./paths.ts";
 import { createProject, getProject, listProjects, updateProject, deleteProject } from "./projects.ts";
+import { loadEnvironments } from "./environments.ts";
 import { uploadBase64Binary } from "../../storage.ts";
 
 export const animatorRouter = express.Router();
@@ -325,6 +326,18 @@ animatorRouter.post("/animator/screenshots", upload.single("image"), async (req:
     }
     
     res.json({ url });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+animatorRouter.get("/scenes/environments", (req: any, res) => {
+  try {
+    if (!req.user || !req.user.phone) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const presets = loadEnvironments();
+    res.json(presets);
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }

@@ -2,47 +2,59 @@
 
 **Status:** Ready for implementation
 **Owner:** coding agent
-**Builds on:** Phase 1 (`857deee`) + Phase 2 (`8d1ee27`) + Phase 2 fixes (`9006d36`) + Phase 3 (`fd8afda`).
+**Builds on:** Phase 1 (`857deee`) + Phase 2 (`8d1ee27`) + Phase 2 fixes (`9006d36`) + Phase 3 (`fd8afda`) +
+Phase 3.1 (`058e1d2`) + recording/container fix (`cedcec4`).
 **Parent spec:** `ANIMATOR_AND_SCENES_IMPLEMENTATION_PLAN.md` — §6.3–§6.7 (scenes/environments/sound/voiceover),
 §14 (defaults). This is Phase 4 of §10.
 
-Phase 3 delivered the interactive viewer + multi-model `SceneController` + real-viewport recording. Phase 4
-**dresses the scene**: environment presets, time-of-day lighting, weather, ambient/weather sound, pre-made
-voiceover, and a multi-step scene sequence with camera cuts. The hard rules from parent §0 still hold —
-**preserve originals, no fakery, honest fallbacks, CC0/owned-only assets.**
+Phase 3 + 3.1 delivered the interactive viewer, multi-model `SceneController`, real-viewport recording,
+**project persistence**, and the animator test suites. Phase 4 **dresses the scene**: environment presets,
+time-of-day lighting, weather, ambient/weather sound, pre-made voiceover, and a multi-step scene sequence with
+camera cuts. The hard rules from parent §0 still hold — **preserve originals, no fakery, honest fallbacks,
+CC0/owned-only assets.**
 
 ---
 
-## 0. CLOSE FIRST — Phase 3 gaps (do before new Phase 4 surface area)
+## Start here (first 3 steps — do in order)
 
-Phase 3 shipped the viewer but missed three items from its own DoD. Land these as the first Phase 4 commit
-("fix: Phase 3 projects, recording durability, missing tests"):
+1. **Verify, don't rebuild §0.** Run `npm run test` (must be green) and confirm `server/animator/projects.ts` +
+   `/api/animator/projects` endpoints and the recording bucket-mirror already exist (they shipped in Phase 3.1).
+   If green, do **not** touch them — go straight to environments.
+2. **Assets before code (the real gating work).** Build `scripts/import-environments.mjs` and run it to pull a
+   small curated set of **CC0** assets — HDRIs/materials from ambientCG (`/api/v2/full_json?type=HDRI`) + a few
+   hand-picked OpenHDRI files — plus any of your own `.blend` scenes (render → HDRI via the blender-worker).
+   Downscale, upload to the Backblaze bucket, and emit `server/animator/environments/*.json` presets with
+   `license`/`source`/`sourceUrl` filled in. **Hard rule:** if you cannot confirm an asset is CC0 (or owned),
+   do NOT ship it — flag it and skip. The environment test asserts a valid `license` on every bundled preset.
+   Ship 3–5 presets to start (1 basic, 2 generic, 1–2 captured-HDRI); more can follow.
+3. **Then build the runtime**, in this order: `GET /api/scenes/environments` loader → time-of-day
+   `lightingFor` (pure, tested) → weather effects → sound + ffmpeg audio-bed mux → voiceover (reuse `heygen.ts`,
+   8–10 s cap) → scene sequence/camera/templates. Land each as its own commit with its tests; keep
+   `npm run lint` (tsc) clean and all existing animator tests green throughout.
 
-### 0.1 Project persistence (was required in Phase 3 §7, not built)
-No `server/animator/projects.ts` and no project endpoints exist. Add them so users can save/reload animator work:
-- `ProjectRecord = { id, userPhone, name, actors: SceneActor[], activeActorId, camera?, recordSettings, createdAt, updatedAt }`,
-  persisted as `projects/<id>.json`, zod-validated, **owner-scoped** (mirror the `meta.userPhone` + 403 pattern
-  already used in `routes.ts`).
-- Endpoints (all `requireAuth`, 403 on cross-user): `POST/GET /api/animator/projects`,
-  `GET/PUT/DELETE /api/animator/projects/:id` (delete never touches originals/outputs).
-- Default name `"<AvatarName> — <date>"`; autosave draft on edit (defaults §14).
+> Honest-scope reminders (parent §0): no faked crossfades/volumetric weather/multi-brain AR; missing clips are
+> skipped, never invented; originals are never mutated. Defer AR cast (Phase 3b) and the lossy `optimize` preset
+> unless explicitly picked up (see §8/§12).
 
-### 0.2 Recording durability — mirror recordings/screenshots to the bucket
-Assets and conversion **outputs already mirror** to Backblaze (`importAsset` + `worker.ts` call
-`uploadBase64Binary` with a graceful "imported locally" fallback — verified in the test logs). The gap is only the
-**recordings/screenshots** endpoints (`routes.ts` ~216–249), which write to the local `/animator-files/...` dir
-and return a local URL — a Hostinger redeploy can wipe that. Make those two endpoints mirror each finalized
-upload to the bucket via `storage.ts` and return the **bucket URL** (keep the local copy as a cache only), matching
-the asset/output path.
+---
 
-### 0.3 Write the missing Phase 3 tests
-Author the four suites the Phase 3 doc required (pure logic, no browser):
-`tests/animator_controller.test.mjs`, `tests/animator_scene_controller.test.mjs`,
-`tests/animator_defaults.test.mjs`, `tests/animator_projects.test.mjs`. See Phase 3 doc §9 for the assertions.
-Run them with the project runner (`npm run test` → `tsx --test`), which is how the suite actually executes.
+## 0. Prior-phase status (DONE — verify, do not re-implement)
 
-> Note on the test toolchain: the repo runs tests via **`tsx`** (`npm run test`), not `node --test`. Write new
-> `.mjs` tests to pass under `tsx`. `npm run lint` = `tsc --noEmit` must stay clean.
+The three Phase-3 gaps that used to live here were **closed in Phase 3.1 (`058e1d2`) + `cedcec4`**. Confirm they're
+present, then move on — do NOT rebuild them:
+
+- ✅ **Project persistence** — `server/animator/projects.ts` + `POST/GET/PUT/DELETE /api/animator/projects`,
+  owner-scoped with 403; `tests/animator_projects.test.mjs` (multi-actor round-trip + Forbidden) passes.
+- ✅ **Recording/screenshot bucket mirror** — both endpoints call `uploadBase64Binary` and fall back to the local
+  `/animator-files/...` URL; the recording container is now derived from the uploaded mime (`.mp4` for WebCodecs,
+  `.webm` for the MediaRecorder fallback).
+- ✅ **Animator test suites** — `animator_controller`, `animator_scene_controller` (incl. `seekAll`),
+  `animator_defaults`, `animator_projects` all exist and pass (201 tests green as of `cedcec4`).
+
+> Test toolchain: the repo runs tests via **`tsx`** (`npm run test`), not `node --test`. Write new `.mjs` tests to
+> pass under `tsx`. `npm run lint` = `tsc --noEmit` must stay clean. Keep all existing animator tests green.
+
+**So Phase 4 starts directly at §3 (environments).** Nothing in this doc's §0 needs building.
 
 ---
 
@@ -155,8 +167,8 @@ puddles are **deferred, not faked**.
 | `POST` | `/api/scenes/backgrounds` | Prepare a custom backdrop (location/upload/prompt). |
 | `POST` | `/api/scenes` · `GET /api/scenes/:id` | Scene descriptor CRUD (multi-actor + environment). |
 | `POST` | `/api/scenes/voiceover` | HeyGen audio + ffmpeg audio-bed mux onto a recording (≤10 s). |
-| `POST/GET/PUT/DELETE` | `/api/animator/projects[/:id]` | **From §0.1** — project persistence. |
 
+(`/api/animator/projects[/:id]` already shipped in Phase 3.1 — reuse it; the scene descriptor references a project.)
 All `requireAuth`, owner-scoped, zod-validated.
 
 ## 10. Tests (tsx-runnable `.mjs`; `tsc --noEmit` clean)
@@ -168,13 +180,10 @@ All `requireAuth`, owner-scoped, zod-validated.
   rejects/trims over-length; every script `estimatedSeconds ≤ MAX_CLIP_SECONDS`.
 - `tests/scene_sequence.test.mjs` — hard-cut executor advances steps in order; steps with missing clips are
   skipped (not invented); camera bookmark applied per step.
-- Plus the **§0.3** controller/scene/defaults/projects suites.
-- Keep Phase 1–3 animator tests green.
+- Keep all existing animator tests green (controller/scene/defaults/projects already exist from Phase 3.1).
 
 ## 11. Definition of done (Phase 4)
 
-- [ ] §0 closed: project persistence + endpoints; recordings mirrored to bucket; the 4 missing Phase-3 test
-      suites written and passing under `tsx`.
 - [ ] `GET /api/scenes/environments` lists basic/generic/captured-HDRI presets (all CC0/owned, license recorded,
       imported via `scripts/import-environments.mjs`); `.blend`→HDRI default; `glb-scene` opt-in.
 - [ ] Time-of-day auto-adjusts lighting via `lightingFor`; weather renders real particle/fog within

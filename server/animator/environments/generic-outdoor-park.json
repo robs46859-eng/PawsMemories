@@ -1,0 +1,20 @@
+{
+  "id": "generic-outdoor-park",
+  "tier": "generic",
+  "label": "Sunny Park",
+  "backdrop": {
+    "kind": "hdri",
+    "url": "/animator-files/environments/kloppenheim_02.jpg"
+  },
+  "allowedWeather": [
+    "clear",
+    "rain",
+    "fog",
+    "overcast",
+    "snow"
+  ],
+  "defaultTimeOfDay": "afternoon",
+  "license": "CC0",
+  "source": "Poly Haven",
+  "sourceUrl": "https://polyhaven.com/a/kloppenheim_02"
+}

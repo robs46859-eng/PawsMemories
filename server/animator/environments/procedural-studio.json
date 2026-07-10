@@ -1,0 +1,14 @@
+{
+  "id": "procedural-studio",
+  "tier": "basic",
+  "label": "Clean Studio",
+  "backdrop": {
+    "kind": "procedural"
+  },
+  "allowedWeather": [
+    "clear"
+  ],
+  "defaultTimeOfDay": "afternoon",
+  "license": "generated",
+  "source": "PawsMemories Defaults"
+}

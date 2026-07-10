@@ -1,0 +1,18 @@
+{
+  "id": "captured-spruit-sunrise",
+  "tier": "hdri",
+  "label": "Golden Sunrise",
+  "backdrop": {
+    "kind": "hdri",
+    "url": "/animator-files/environments/spruit_sunrise.jpg"
+  },
+  "allowedWeather": [
+    "clear",
+    "fog",
+    "overcast"
+  ],
+  "defaultTimeOfDay": "morning",
+  "license": "CC0",
+  "source": "Poly Haven",
+  "sourceUrl": "https://polyhaven.com/a/spruit_sunrise"
+}
