@@ -235,11 +235,22 @@ export async function startEighthWallAR(
         );
         if (!hits || !hits[0]) return;
         const p = hits[0].position;
-        const pending = useAvatarScene.getState().pendingObjectKind;
+        const state = useAvatarScene.getState();
+        const pending = state.pendingObjectKind;
+        const pendingComp = state.pendingCompanion;
+        
+        if (pendingComp && anchor.visible) {
+          import("../objects/placement").then(m => {
+            m.addCompanionAtPosition(opts.avatarId, pendingComp, [p.x - anchor.position.x, 0, p.z - anchor.position.z]);
+            state.setPendingCompanion(null);
+          });
+          return;
+        }
+        
         if (pending && anchor.visible) {
           // Drop the armed object at the hit, in the anchor's local space.
           addObjectAtPosition(opts.avatarId, pending, [p.x - anchor.position.x, 0, p.z - anchor.position.z]);
-          useAvatarScene.getState().setPendingObjectKind(null);
+          state.setPendingObjectKind(null);
           return;
         }
         anchor.position.set(p.x, p.y, p.z);

@@ -374,6 +374,21 @@ export async function initDb(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
+    // --- AR multi-model cast (Phase 5) ---------
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS scene_actors (
+        id               VARCHAR(64) PRIMARY KEY,
+        owner_phone      VARCHAR(32) NOT NULL,
+        scene_avatar_id  INT NOT NULL,
+        source_avatar_id INT NOT NULL,
+        transform_json   JSON NOT NULL,
+        selected_clip    VARCHAR(100) NULL,
+        created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX (scene_avatar_id),
+        INDEX (owner_phone)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
     // --- AR virtual-pet simulator (AR_PET_SIM_SPEC §8, milestone AR2) ---------
     // pet_profiles extends an avatar with breed-aware gameplay + persisted brain state.
     await getPool().query(`
@@ -1414,6 +1429,70 @@ export async function addPlacedObject(
 export async function deletePlacedObject(id: string, phone: string): Promise<boolean> {
   const [result] = (await getPool().query(
     `DELETE FROM placed_objects WHERE id = ? AND user_phone = ?`,
+    [id, phone]
+  )) as any;
+  return result.affectedRows === 1;
+}
+
+export interface SceneActorRow {
+  id: string;
+  sourceAvatarId: number;
+  transform: any;
+  selectedClip: string | null;
+  createdAt: string;
+}
+
+export async function getSceneActors(sceneAvatarId: number, phone: string): Promise<SceneActorRow[]> {
+  const [rows] = await getPool().query(
+    `SELECT id, source_avatar_id, transform_json, selected_clip, created_at
+       FROM scene_actors WHERE scene_avatar_id = ? AND owner_phone = ? ORDER BY created_at ASC`,
+    [sceneAvatarId, phone]
+  );
+  return (rows as any[]).map((r) => ({
+    id: r.id,
+    sourceAvatarId: r.source_avatar_id,
+    transform: typeof r.transform_json === "string" ? JSON.parse(r.transform_json) : r.transform_json,
+    selectedClip: r.selected_clip,
+    createdAt: new Date(r.created_at).toISOString(),
+  }));
+}
+
+export async function addSceneActor(
+  sceneAvatarId: number,
+  phone: string,
+  actor: { id: string; sourceAvatarId: number; transform: any; selectedClip?: string }
+): Promise<boolean> {
+  const [result] = (await getPool().query(
+    `INSERT INTO scene_actors (id, owner_phone, scene_avatar_id, source_avatar_id, transform_json, selected_clip)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [
+      actor.id,
+      phone,
+      sceneAvatarId,
+      actor.sourceAvatarId,
+      JSON.stringify(actor.transform),
+      actor.selectedClip || null,
+    ]
+  )) as any;
+  return result.affectedRows === 1;
+}
+
+export async function updateSceneActor(
+  actorId: string,
+  phone: string,
+  transform: any,
+  selectedClip?: string
+): Promise<boolean> {
+  const [result] = (await getPool().query(
+    `UPDATE scene_actors SET transform_json = ?, selected_clip = ? WHERE id = ? AND owner_phone = ?`,
+    [JSON.stringify(transform), selectedClip || null, actorId, phone]
+  )) as any;
+  return result.affectedRows === 1;
+}
+
+export async function deleteSceneActor(id: string, phone: string): Promise<boolean> {
+  const [result] = (await getPool().query(
+    `DELETE FROM scene_actors WHERE id = ? AND owner_phone = ?`,
     [id, phone]
   )) as any;
   return result.affectedRows === 1;

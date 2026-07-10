@@ -60,6 +60,25 @@ function PlacedObjects() {
   );
 }
 
+function SceneActorsList() {
+  const actors = useAvatarScene((s) => s.sceneActors);
+  const [SceneActorModel, setSceneActorModel] = useState<any>(null);
+
+  useEffect(() => {
+    import("../objects/SceneActorModel").then((m) => setSceneActorModel(() => m.default));
+  }, []);
+
+  if (!SceneActorModel) return null;
+
+  return (
+    <>
+      {actors.map((a) => (
+        <SceneActorModel key={a.id} actor={a} />
+      ))}
+    </>
+  );
+}
+
 /**
  * Head-look-at IK: each frame, point the pet's `head` bone at the user camera.
  * Lazily builds the IK rig from the anchored group once the skinned mesh loads.
@@ -159,6 +178,28 @@ function PetStageContent({
     const onSelect = async () => {
       const grp = anchorRef.current;
       if (!grp) return;
+
+      const state = useAvatarScene.getState();
+      const pendingObj = state.pendingObjectKind;
+      const pendingComp = state.pendingCompanion;
+
+      if ((pendingObj || pendingComp) && placedRef.current) {
+        const inv = new THREE.Matrix4().copy(grp.matrixWorld).invert();
+        const local = hitPos.current.clone().applyMatrix4(inv);
+        if (pendingComp) {
+          import("../objects/placement").then(m => {
+            m.addCompanionAtPosition(avatar.id, pendingComp, [local.x, 0, local.z]);
+            state.setPendingCompanion(null);
+          });
+        } else if (pendingObj) {
+          import("../objects/placement").then(m => {
+            m.addObjectAtPosition(avatar.id, pendingObj, [local.x, 0, local.z]);
+            state.setPendingObjectKind(null);
+          });
+        }
+        return;
+      }
+
       const hit = latestHit.current as any;
       if (hit && typeof hit.createAnchor === "function") {
         try {
@@ -214,6 +255,7 @@ function PetStageContent({
         <primitive object={contactShadow} />
         {modelUrl ? <AvatarModel url={modelUrl} /> : null}
         <PlacedObjects />
+        <SceneActorsList />
       </group>
     </>
   );

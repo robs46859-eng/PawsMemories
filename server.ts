@@ -7,7 +7,7 @@ import Stripe from "stripe";
 import fs from "fs";
 import twilio from "twilio";
 import rateLimit from "express-rate-limit";
-import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage } from "./db";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor } from "./db";
 import { isEndpointEnabled, dailyCapFor, withinDailyCap, type PaidEndpoint } from "./server/paidApiGuards";
 import { classifyPetImage, type GenerateFn } from "./server/petClassify";
 import { semanticScan as runSemanticScan } from "./server/semanticScan";
@@ -590,6 +590,53 @@ async function startServer() {
       res.status(500).json({ error: err.message || "Failed to share memory." });
     }
   });
+
+  // ---------------------------------------------------------------------------
+  // Scene Backgrounds (Phase 5)
+  // ---------------------------------------------------------------------------
+  app.post("/api/scenes/backgrounds", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { type, locationUrl, uploadDataUrl, prompt } = req.body;
+      let finalDataUrl: string | null = null;
+      
+      if (type === "location" && locationUrl) {
+        // e.g. from /api/landmarks
+        finalDataUrl = await fetchUrlAsBase64(locationUrl);
+      } else if (type === "upload" && uploadDataUrl) {
+        if (!uploadDataUrl.startsWith("data:image")) {
+          return res.status(400).json({ error: "Invalid image data url" });
+        }
+        finalDataUrl = uploadDataUrl;
+      } else if (type === "prompt" && prompt) {
+        finalDataUrl = await generateImageWithFallback([{ text: prompt }], "scene-background");
+      } else {
+        return res.status(400).json({ error: "Valid type (location|upload|prompt) and payload required" });
+      }
+
+      if (!finalDataUrl) {
+        return res.status(500).json({ error: "Failed to resolve background image" });
+      }
+
+      // Save to local scenes/backgrounds + mirror to B2 via uploadBase64Image
+      const imageUrl = await uploadBase64Image(finalDataUrl);
+      const bgId = require("uuid").v4();
+      
+      // We also store it in the workspace for consistency
+      const match = finalDataUrl.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
+      if (match) {
+        const { resolveWithinWorkspace } = require("./server/animator/paths.ts");
+        const fs = require("fs");
+        const ext = match[1].includes("png") ? ".png" : ".jpg";
+        const localPath = resolveWithinWorkspace(`scenes/backgrounds/${bgId}${ext}`);
+        fs.writeFileSync(localPath, Buffer.from(match[2], "base64"));
+      }
+
+      res.json({ success: true, bgId, imageUrl });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Failed to prepare background" });
+    }
+  });
+
 
   // ---------------------------------------------------------------------------
   // User photo library: profile thumbnail + add/remove gallery.
@@ -1476,6 +1523,59 @@ async function startServer() {
       res.json({ success: ok });
     } catch (err: any) {
       res.status(500).json({ error: "Failed to remove object." });
+    }
+  });
+
+  // --- AR Cast / Companions (Phase 5) -------------------------------------------
+
+  app.get("/api/ar/:avatarId/cast", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const actors = await getSceneActors(Number(req.params.avatarId), req.user!.phone);
+      res.json({ actors });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to load cast." });
+    }
+  });
+
+  app.post("/api/ar/:avatarId/cast", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { id, sourceAvatarId, transform, selectedClip } = req.body || {};
+      if (!id || !sourceAvatarId || !transform) {
+        return res.status(400).json({ error: "id, sourceAvatarId and transform required." });
+      }
+      const ok = await addSceneActor(Number(req.params.avatarId), req.user!.phone, {
+        id: String(id),
+        sourceAvatarId: Number(sourceAvatarId),
+        transform,
+        selectedClip: selectedClip ? String(selectedClip) : undefined,
+      });
+      res.json({ success: ok });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to add cast member." });
+    }
+  });
+
+  app.put("/api/ar/:avatarId/cast/:actorId", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { transform, selectedClip } = req.body || {};
+      const ok = await updateSceneActor(
+        req.params.actorId,
+        req.user!.phone,
+        transform,
+        selectedClip ? String(selectedClip) : undefined
+      );
+      res.json({ success: ok });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to update cast member." });
+    }
+  });
+
+  app.delete("/api/ar/:avatarId/cast/:actorId", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const ok = await deleteSceneActor(req.params.actorId, req.user!.phone);
+      res.json({ success: ok });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to remove cast member." });
     }
   });
 

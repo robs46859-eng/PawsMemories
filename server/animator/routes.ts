@@ -6,6 +6,7 @@ import { enqueue, JobSpecSchema } from "./queue.ts";
 import { readManifest } from "./manifest.ts";
 import { resolveWithinWorkspace } from "./paths.ts";
 import { createProject, getProject, listProjects, updateProject, deleteProject } from "./projects.ts";
+import { createScene, getScene } from "./scenes.ts";
 import { loadEnvironments } from "./environments.ts";
 import { loadScripts, estimateSpeechSeconds } from "./scripts.ts";
 import { uploadBase64Binary } from "../../storage.ts";
@@ -355,6 +356,55 @@ animatorRouter.get("/scenes/scripts", (req: any, res) => {
     res.json(scripts);
   } catch (e: any) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+animatorRouter.post("/scenes", (req: any, res) => {
+  try {
+    const userPhone = req.user!.phone;
+    const scene = createScene(userPhone, req.body);
+    res.json(scene);
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+animatorRouter.get("/scenes/templates", (req: any, res) => {
+  try {
+    const userPhone = req.user!.phone;
+    if (!userPhone) return res.status(401).json({ error: "Unauthorized" });
+    
+    // Serve JSON templates from server/animator/templates directory if it exists
+    const templatesDir = require("path").join(process.cwd(), "server", "animator", "templates");
+    const fs = require("fs");
+    if (!fs.existsSync(templatesDir)) {
+      return res.json([]);
+    }
+    const files = fs.readdirSync(templatesDir).filter((f: string) => f.endsWith(".json"));
+    const templates = files.map((f: string) => {
+      try {
+        return JSON.parse(fs.readFileSync(require("path").join(templatesDir, f), "utf8"));
+      } catch {
+        return null;
+      }
+    }).filter(Boolean);
+    
+    res.json(templates);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+animatorRouter.get("/scenes/:id", (req: any, res) => {
+  try {
+    const userPhone = req.user!.phone;
+    const scene = getScene(req.params.id);
+    if (scene.userPhone && scene.userPhone !== userPhone) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    res.json(scene);
+  } catch (e: any) {
+    res.status(404).json({ error: "Scene not found" });
   }
 });
 

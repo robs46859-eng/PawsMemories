@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { AvatarNeeds, BehaviorAction, PlacedObject, AvatarCommand, PetObjectKind } from "../types";
+import { AvatarNeeds, BehaviorAction, PlacedObject, AvatarCommand, PetObjectKind, Avatar } from "../types";
 
 export interface Vec2 {
   x: number;
@@ -24,6 +24,10 @@ interface AvatarSceneState {
   placedObjects: PlacedObject[];
   /** When set, the next AR surface tap places this object kind (tap-to-place). */
   pendingObjectKind: PetObjectKind | null;
+  /** When set, the next AR surface tap places this companion model. */
+  pendingCompanion: Avatar | null;
+  /** The cast of AR actors placed in the scene */
+  sceneActors: any[];
   /** Transient speech/emote bubble text, or null. */
   speech: string | null;
   /** Whether GPU depth occlusion is enabled (Phase 4). Users can toggle off for perf. */
@@ -42,6 +46,10 @@ interface AvatarSceneState {
   addPlacedObject: (o: PlacedObject) => void;
   removePlacedObject: (id: string) => void;
   setPendingObjectKind: (k: PetObjectKind | null) => void;
+  setPendingCompanion: (a: Avatar | null) => void;
+  setSceneActors: (actors: any[]) => void;
+  addSceneActor: (actor: any) => void;
+  removeSceneActor: (id: string) => void;
   say: (msg: string | null) => void;
   setDepthOcclusionEnabled: (on: boolean) => void;
 }
@@ -65,6 +73,8 @@ export const useAvatarScene = create<AvatarSceneState>((set, get) => ({
   commandQueue: [],
   placedObjects: [],
   pendingObjectKind: null,
+  pendingCompanion: null,
+  sceneActors: [],
   speech: null,
   depthOcclusionEnabled: true,
 
@@ -88,6 +98,10 @@ export const useAvatarScene = create<AvatarSceneState>((set, get) => ({
   removePlacedObject: (id) =>
     set((s) => ({ placedObjects: s.placedObjects.filter((p) => p.id !== id) })),
   setPendingObjectKind: (k) => set({ pendingObjectKind: k }),
+  setPendingCompanion: (a) => set({ pendingCompanion: a }),
+  setSceneActors: (actors) => set({ sceneActors: actors }),
+  addSceneActor: (actor) => set((s) => ({ sceneActors: [...s.sceneActors, actor] })),
+  removeSceneActor: (id) => set((s) => ({ sceneActors: s.sceneActors.filter((a) => a.id !== id) })),
   say: (msg) => set({ speech: msg }),
   setDepthOcclusionEnabled: (on) => set({ depthOcclusionEnabled: on }),
 }));

@@ -1,7 +1,7 @@
-import { PetObjectKind, PlacedObject } from "../../types";
+import { PetObjectKind, PlacedObject, Avatar } from "../../types";
 import { useAvatarScene } from "../store";
 import { OBJECT_CATALOG } from "./catalog";
-import { createPlacedObject, deletePlacedObject } from "../../api";
+import { createPlacedObject, deletePlacedObject, addSceneActor, removeSceneActor } from "../../api";
 
 function newObjectId(): string {
   try {
@@ -55,8 +55,33 @@ export function addObjectAtPosition(
   return obj;
 }
 
-/** Remove a placed object everywhere (store + server). */
 export function removeObjectForAvatar(avatarId: number, id: string): void {
   useAvatarScene.getState().removePlacedObject(id); // optimistic
   deletePlacedObject(avatarId, id).catch(() => {});
+}
+
+// --- AR Cast (Phase 5) ---
+
+export function addCompanionAtPosition(
+  sceneAvatarId: number,
+  companion: Avatar,
+  position: [number, number, number]
+): void {
+  const actor = {
+    id: newObjectId(),
+    sourceAvatarId: companion.id,
+    transform: {
+      position,
+      rotation: [0, Math.random() * Math.PI * 2, 0],
+      scale: 1,
+    },
+    // The companion itself can be loaded via fetchAvatars by the AR cast renderer.
+  };
+  useAvatarScene.getState().addSceneActor(actor); // optimistic
+  addSceneActor(sceneAvatarId, actor).catch(() => {});
+}
+
+export function removeCompanionForAvatar(sceneAvatarId: number, id: string): void {
+  useAvatarScene.getState().removeSceneActor(id); // optimistic
+  removeSceneActor(sceneAvatarId, id).catch(() => {});
 }

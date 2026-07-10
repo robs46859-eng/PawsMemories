@@ -8,7 +8,8 @@ import ObjectPalette from "./ObjectPalette";
 import { useAvatarBrain } from "../three/useAvatarBrain";
 import { useAvatarScene } from "../three/store";
 import { addObjectForAvatar, removeObjectForAvatar } from "../three/objects/placement";
-import { fetchPlacedObjects } from "../api";
+import { fetchPlacedObjects, authedFetch, fetchSceneActors } from "../api";
+import AvatarPicker from "./AvatarPicker";
 
 /** Local scene guard — falls back to a poster instead of the app-wide error page. */
 class SceneBoundary extends Component<
@@ -58,23 +59,39 @@ export default function LivingAvatarView({ avatar }: LivingAvatarViewProps) {
   useAvatarBrain(avatar, { enabled: ready });
 
   const setPlacedObjects = useAvatarScene((s) => s.setPlacedObjects);
+  const setSceneActors = useAvatarScene((s) => s.setSceneActors);
   const [showObjects, setShowObjects] = useState(false);
   const [arMode, setArMode] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
 
   // Load persisted objects for this avatar; clear on unmount / avatar change.
   useEffect(() => {
     let cancelled = false;
-    fetchPlacedObjects(avatar.id).then((objs) => {
-      if (!cancelled) setPlacedObjects(objs);
+    Promise.all([
+      fetchPlacedObjects(avatar.id),
+      fetchSceneActors(avatar.id)
+    ]).then(([objs, actors]) => {
+      if (!cancelled) {
+        setPlacedObjects(objs);
+        setSceneActors(actors);
+      }
     });
     return () => {
       cancelled = true;
       setPlacedObjects([]);
+      setSceneActors([]);
     };
-  }, [avatar.id, setPlacedObjects]);
+  }, [avatar.id, setPlacedObjects, setSceneActors]);
 
   const handleAdd = (kind: PetObjectKind) => addObjectForAvatar(avatar.id, kind);
   const handleRemove = (id: string) => removeObjectForAvatar(avatar.id, id);
+
+  const handleSelectCompanion = async (companion: Avatar) => {
+    setShowPicker(false);
+    // Tell the AR store we have a pending companion to place.
+    // The AR backend (eighthWallAR or ARPetStage) will consume this state and drop it on next tap.
+    useAvatarScene.getState().setPendingCompanion(companion);
+  };
 
   return (
     <div className="w-full h-full flex flex-col">
@@ -100,7 +117,14 @@ export default function LivingAvatarView({ avatar }: LivingAvatarViewProps) {
             >
               <Scan size={14} /> {arMode ? "3D view" : "AR"}
             </button>
-            {!arMode && avatar.avatar_type !== "human" && (
+            {arMode ? (
+              <button
+                onClick={() => setShowPicker(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/50 backdrop-blur-sm text-white text-xs font-bold hover:bg-black/70 active:scale-95"
+              >
+                + Add model
+              </button>
+            ) : avatar.avatar_type !== "human" && (
               <button
                 onClick={() => setShowObjects((v) => !v)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/50 backdrop-blur-sm text-white text-xs font-bold hover:bg-black/70 active:scale-95"
@@ -122,6 +146,13 @@ export default function LivingAvatarView({ avatar }: LivingAvatarViewProps) {
         )}
         <CommandBar avatarId={avatar.id} petName={avatar.name} avatarType={avatar.avatar_type} />
       </div>
+      {showPicker && (
+        <AvatarPicker
+          excludeId={avatar.id}
+          onClose={() => setShowPicker(false)}
+          onSelect={handleSelectCompanion}
+        />
+      )}
     </div>
   );
 }

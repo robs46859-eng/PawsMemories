@@ -564,6 +564,56 @@ export async function deletePlacedObject(avatarId: number, objectId: string): Pr
   }
 }
 
+// --- AR Cast (Phase 5) ----------------------------------------------------
+
+export async function fetchSceneActors(avatarId: number): Promise<any[]> {
+  try {
+    const res = await authedFetch(`/api/ar/${avatarId}/cast`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data?.actors || [];
+  } catch {
+    return [];
+  }
+}
+
+export async function addSceneActor(avatarId: number, actor: any): Promise<boolean> {
+  try {
+    const res = await authedFetch(`/api/ar/${avatarId}/cast`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(actor),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function updateSceneActor(avatarId: number, actorId: string, transform: any, selectedClip?: string): Promise<boolean> {
+  try {
+    const res = await authedFetch(`/api/ar/${avatarId}/cast/${actorId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ transform, selectedClip }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function removeSceneActor(avatarId: number, actorId: string): Promise<boolean> {
+  try {
+    const res = await authedFetch(`/api/ar/${avatarId}/cast/${actorId}`, {
+      method: "DELETE",
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 // --- Image-to-3D utility (generic, not pet-specific) -----------------------
 
 export interface ImageTo3DMultiview {
