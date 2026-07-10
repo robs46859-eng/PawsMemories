@@ -286,7 +286,7 @@ async function startServer() {
   // Step 1: create an account with email + password (profile still incomplete).
   app.post("/api/auth/signup", async (req, res) => {
     try {
-      const email = String(req.body?.email || "").trim();
+      const email = String(req.body?.email || "").trim().toLowerCase();
       const password = String(req.body?.password || "");
       const confirmPassword = String(req.body?.confirmPassword || "");
 
@@ -355,11 +355,12 @@ async function startServer() {
 
   app.post("/api/auth/login", async (req, res) => {
     try {
-      const email = String(req.body?.email || "").trim();
+      const email = String(req.body?.email || "").trim().toLowerCase();
       const password = String(req.body?.password || "");
       if (!email || !password) return res.status(400).json({ error: "Email and password are required." });
-      
-      const [rows] = await getPool().query("SELECT * FROM users WHERE email = ? LIMIT 1", [email]) as any;
+
+      // ORDER BY id makes the lookup deterministic even if legacy duplicate-email rows still exist.
+      const [rows] = await getPool().query("SELECT * FROM users WHERE email = ? ORDER BY id LIMIT 1", [email]) as any;
       if (!rows || rows.length === 0) {
         return res.status(401).json({ error: "Invalid email or password." });
       }

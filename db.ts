@@ -565,8 +565,29 @@ export async function initDb(): Promise<void> {
 
     console.log("✅ Users, creations, generation_jobs, pets, avatars, and photo_requests tables ready.");
 
+    // Email hygiene (guarded — must never abort init): normalize to lower-case,
+    // then best-effort enforce uniqueness. The UNIQUE index only applies once any
+    // legacy duplicate-email rows have been removed; until then it is skipped.
+    try {
+      await getPool().query("UPDATE users SET email = LOWER(email) WHERE email IS NOT NULL AND email <> LOWER(email)");
+    } catch (e) { /* non-fatal */ }
+    try {
+      await getPool().query("ALTER TABLE users ADD UNIQUE INDEX uniq_users_email (email)");
+      console.log("✅ users.email is now UNIQUE.");
+    } catch (e: any) {
+      if (e?.code === "ER_DUP_KEYNAME") {
+        // index already present — fine
+      } else if (e?.code === "ER_DUP_ENTRY") {
+        console.warn("⚠️ users.email UNIQUE not applied — duplicate emails still exist. Remove duplicates, then redeploy.");
+      } else {
+        console.warn("⚠️ Could not add users.email UNIQUE index:", e?.message || e);
+      }
+    }
+
     // Seed admin account from environment variables — no hardcoded credentials.
-    // Admins log in through the normal email + password login screen.
+    // Upsert keyed on EMAIL (not phone): if an account with this email already
+    // exists (under ANY phone key), update it in place instead of inserting a
+    // second row. This is what prevents the duplicate-admin / can't-login bug.
     try {
       const adminKey = ADMIN_KEY;
       const adminEmail = process.env.ADMIN_EMAIL;
@@ -574,18 +595,28 @@ export async function initDb(): Promise<void> {
 
       if (adminKey && adminEmail && adminPassword) {
         const { hashPassword } = await import("./auth");
+        const email = String(adminEmail).trim().toLowerCase();
         const passwordHash = hashPassword(adminPassword);
-        await getPool().query(
-          `INSERT INTO users (phone, email, password_hash, is_admin, profile_complete, credits, full_name)
-           VALUES (?, ?, ?, 1, 1, 9999, 'Admin')
-           ON DUPLICATE KEY UPDATE
-             email = VALUES(email),
-             password_hash = VALUES(password_hash),
-             is_admin = 1,
-             profile_complete = 1`,
-          [adminKey, adminEmail, passwordHash]
+
+        const [existingRows]: any = await getPool().query(
+          "SELECT phone FROM users WHERE LOWER(email) = ? ORDER BY id LIMIT 1",
+          [email]
         );
-        console.log("✅ Admin account upserted from env vars.");
+        if (existingRows && existingRows.length) {
+          await getPool().query(
+            "UPDATE users SET email = ?, password_hash = ?, is_admin = 1, profile_complete = 1 WHERE phone = ?",
+            [email, passwordHash, existingRows[0].phone]
+          );
+          console.log("✅ Admin account synced (existing row updated).");
+        } else {
+          await getPool().query(
+            `INSERT INTO users (phone, email, password_hash, is_admin, profile_complete, credits, full_name)
+             VALUES (?, ?, ?, 1, 1, 9999, 'Admin')
+             ON DUPLICATE KEY UPDATE email = VALUES(email), password_hash = VALUES(password_hash), is_admin = 1, profile_complete = 1`,
+            [adminKey, email, passwordHash]
+          );
+          console.log("✅ Admin account seeded (new row).");
+        }
       }
     } catch (seedErr) {
       console.warn("⚠️ Admin seed skipped:", seedErr);
@@ -602,9 +633,10 @@ export async function findUserByPhone(phone: string): Promise<UserRow | null> {
   return arr.length ? arr[0] : null;
 }
 
-/** Look up a user by email (the login gate). Email is stored lower-cased. */
+/** Look up a user by email (the login gate). Email is stored lower-cased.
+ *  ORDER BY id keeps the result deterministic if legacy duplicate-email rows exist. */
 export async function findUserByEmail(email: string): Promise<UserRow | null> {
-  const [rows] = await getPool().query("SELECT * FROM users WHERE email = ? LIMIT 1", [email]);
+  const [rows] = await getPool().query("SELECT * FROM users WHERE email = ? ORDER BY id LIMIT 1", [String(email).trim().toLowerCase()]);
   const arr = rows as unknown as UserRow[];
   return arr.length ? arr[0] : null;
 }
