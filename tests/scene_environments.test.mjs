@@ -4,6 +4,7 @@ import fs from "fs";
 import path from "path";
 import { EnvironmentPresetSchema } from "../server/animator/environments.ts";
 import { lightingFor } from "../src/animator/scenes/lightingRig.ts";
+import { normalizeWeather } from "../src/animator/scenes/weather/normalize.ts";
 
 test("Scene Environments - JSON validation and license constraints", () => {
   const envDir = path.join(process.cwd(), "server", "animator", "environments");
@@ -42,4 +43,12 @@ test("Time of Day - lightingFor produces distinct sane profiles", () => {
   
   // High sun for afternoon
   assert.ok(afternoon.sunPosition[1] >= 5);
+});
+
+test("Weather - normalizeWeather falls back to clear", () => {
+  const allowed = ["clear", "rain"];
+  assert.strictEqual(normalizeWeather("rain", allowed), "rain");
+  assert.strictEqual(normalizeWeather("clear", allowed), "clear");
+  assert.strictEqual(normalizeWeather("snow", allowed), "clear");
+  assert.strictEqual(normalizeWeather("fog", allowed), "clear");
 });

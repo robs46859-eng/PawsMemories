@@ -29,5 +29,9 @@ export const ANIMATOR_DEFAULTS = {
     bitrate: 16_000_000,
     maxDurationSeconds: 10,
     defaultDurationSeconds: 8,
+  },
+  weather: {
+    maxParticles: 5000, // Mobile-capped bounded count
+    speed: 1.0,
   }
 };
