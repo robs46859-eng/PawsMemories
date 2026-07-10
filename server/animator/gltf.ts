@@ -1,12 +1,29 @@
 import { NodeIO } from "@gltf-transform/core";
 import { ALL_EXTENSIONS } from "@gltf-transform/extensions";
-import { dedup, prune, getBounds } from "@gltf-transform/functions";
 import type { AssetMetadata, AnimationClipInfo } from "../../src/animator/types.ts";
 import fs from "fs";
+
+let isAvailable: boolean | null = null;
+let functionsModule: any = null;
+
+export async function checkAnimatorAvailable(): Promise<boolean> {
+  if (isAvailable !== null) return isAvailable;
+  try {
+    functionsModule = await import("@gltf-transform/functions");
+    isAvailable = true;
+  } catch (e) {
+    isAvailable = false;
+  }
+  return isAvailable;
+}
 
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS);
 
 export async function inspectAsset(absPath: string, originalFilename: string): Promise<AssetMetadata> {
+  if (!(await checkAnimatorAvailable())) {
+    throw new Error("ANIMATOR_UNAVAILABLE");
+  }
+  
   const doc = await io.read(absPath);
   const root = doc.getRoot();
   
@@ -33,7 +50,7 @@ export async function inspectAsset(absPath: string, originalFilename: string): P
       }
       
       const targetPath = channel.getTargetPath();
-      if (targetPath === 'weights') {
+      if (targetPath === 'weights' || targetPath.endsWith('.morphTargetInfluences')) {
         tracksMorph = true;
       }
     }
@@ -57,7 +74,7 @@ export async function inspectAsset(absPath: string, originalFilename: string): P
 
   const format = absPath.toLowerCase().endsWith(".gltf") ? "gltf" : "glb";
   const scene = root.getDefaultScene() || root.listScenes()[0];
-  const bbox = scene ? getBounds(scene) : undefined;
+  const bbox = scene && functionsModule ? functionsModule.getBounds(scene) : undefined;
   
   let sizeBytes = 0;
   if (fs.existsSync(absPath)) {
@@ -84,6 +101,9 @@ export async function inspectAsset(absPath: string, originalFilename: string): P
 export type SafeOp = "inspect" | "pack" | "unpack" | "dedup" | "prune";
 
 export async function runSafe(op: SafeOp, inAbs: string, outAbs: string): Promise<string[]> {
+  if (!(await checkAnimatorAvailable())) {
+    throw new Error("ANIMATOR_UNAVAILABLE");
+  }
   if (!["inspect", "pack", "unpack", "dedup", "prune"].includes(op)) {
     throw new Error(`Invalid safe operation: ${op}`);
   }
@@ -93,11 +113,11 @@ export async function runSafe(op: SafeOp, inAbs: string, outAbs: string): Promis
   
   switch (op) {
     case "dedup":
-      await doc.transform(dedup());
+      await doc.transform(functionsModule.dedup());
       opsApplied.push("dedup");
       break;
     case "prune":
-      await doc.transform(prune());
+      await doc.transform(functionsModule.prune());
       opsApplied.push("prune");
       break;
     case "pack":

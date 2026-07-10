@@ -61,6 +61,7 @@ export async function importAsset(args: {
   try {
     metadata = await inspectAsset(absPath, args.originalFilename);
     metadata.id = assetId;
+    metadata.userPhone = args.userPhone;
   } catch (e: any) {
     // Clean up if inspection fails (e.g. malformed gltf)
     fs.unlinkSync(absPath);

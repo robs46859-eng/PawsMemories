@@ -8,6 +8,14 @@ import { resolveWithinWorkspace } from "./paths.ts";
 
 export const animatorRouter = express.Router();
 
+function handleError(res: express.Response, e: any) {
+  if (e.message === "ANIMATOR_UNAVAILABLE") {
+    res.status(503).json({ code: "ANIMATOR_UNAVAILABLE", error: "Animator dependencies missing on server" });
+  } else {
+    res.status(500).json({ error: e.message });
+  }
+}
+
 animatorRouter.post("/animator/assets", async (req: any, res) => {
   try {
     const userPhone = req.user!.phone;
@@ -27,17 +35,14 @@ animatorRouter.post("/animator/assets", async (req: any, res) => {
     
     res.json(metadata);
   } catch (e: any) {
+    if (e.message === "ANIMATOR_UNAVAILABLE") return handleError(res, e);
     res.status(400).json({ error: e.message });
   }
 });
 
 animatorRouter.get("/animator/assets", (req: any, res) => {
   try {
-    // List caller's assets
-    // Since we don't have a DB yet, we can scan originals/ and read metadata.json
-    // and filter by userPhone if we stored it in metadata. Wait, we didn't store userPhone in metadata.
-    // For Phase 2, we just return all or empty if we can't filter.
-    // Let's just return a placeholder or scan all metadata.
+    const userPhone = req.user!.phone;
     const originalsDir = resolveWithinWorkspace("originals");
     if (!fs.existsSync(originalsDir)) {
       return res.json([]);
@@ -48,40 +53,47 @@ animatorRouter.get("/animator/assets", (req: any, res) => {
       const metaPath = resolveWithinWorkspace(`originals/${dir}/metadata.json`);
       if (fs.existsSync(metaPath)) {
         const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
-        assets.push(meta);
+        if (meta.userPhone === userPhone) {
+          assets.push(meta);
+        }
       }
     }
     res.json(assets);
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    handleError(res, e);
   }
 });
 
 animatorRouter.get("/animator/assets/:id", (req: any, res) => {
   try {
+    const userPhone = req.user!.phone;
     const metaPath = resolveWithinWorkspace(`originals/${req.params.id}/metadata.json`);
     if (!fs.existsSync(metaPath)) return res.status(404).json({ error: "Asset not found" });
     const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+    if (meta.userPhone && meta.userPhone !== userPhone) return res.status(403).json({ error: "Forbidden" });
     res.json(meta);
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    handleError(res, e);
   }
 });
 
 animatorRouter.get("/animator/assets/:id/inspect", async (req: any, res) => {
   try {
+    const userPhone = req.user!.phone;
     const metaPath = resolveWithinWorkspace(`originals/${req.params.id}/metadata.json`);
     if (!fs.existsSync(metaPath)) return res.status(404).json({ error: "Asset not found" });
     const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+    if (meta.userPhone && meta.userPhone !== userPhone) return res.status(403).json({ error: "Forbidden" });
     
     const safeOriginal = meta.originalFilename.replace(/[^a-zA-Z0-9_\-\.]/g, "");
     const absPath = resolveWithinWorkspace(`originals/${req.params.id}/${safeOriginal}`);
     
     const freshMeta = await inspectAsset(absPath, meta.originalFilename);
     freshMeta.id = req.params.id;
+    freshMeta.userPhone = meta.userPhone;
     res.json(freshMeta);
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    handleError(res, e);
   }
 });
 
@@ -92,7 +104,6 @@ animatorRouter.post("/animator/jobs", (req: any, res) => {
       return res.status(400).json({ error: "optimize preset not available yet" });
     }
     
-    // Create a mock spec for validation without id/createdAt
     const rawSpec = {
       ...req.body,
       id: "00000000-0000-0000-0000-000000000000",
@@ -100,8 +111,14 @@ animatorRouter.post("/animator/jobs", (req: any, res) => {
       createdAt: new Date().toISOString()
     };
     
-    // Will throw if invalid
     JobSpecSchema.parse(rawSpec);
+    
+    // Check if asset belongs to user
+    const metaPath = resolveWithinWorkspace(`originals/${req.body.assetId}/metadata.json`);
+    if (fs.existsSync(metaPath)) {
+      const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+      if (meta.userPhone && meta.userPhone !== userPhone) return res.status(403).json({ error: "Forbidden" });
+    }
     
     const job = enqueue({
       userPhone,
@@ -119,29 +136,47 @@ animatorRouter.post("/animator/jobs", (req: any, res) => {
 
 animatorRouter.get("/animator/jobs/:id", (req: any, res) => {
   try {
+    const userPhone = req.user!.phone;
     const dirs = ["pending", "running", "done", "failed"];
     for (const dir of dirs) {
       try {
         const p = resolveWithinWorkspace(`jobs/${dir}/${req.params.id}.json`);
         if (fs.existsSync(p)) {
           const content = fs.readFileSync(p, "utf8");
-          return res.json(JSON.parse(content));
+          const job = JSON.parse(content);
+          if (job.userPhone && job.userPhone !== userPhone) return res.status(403).json({ error: "Forbidden" });
+          return res.json(job);
         }
-      } catch (err) {} // ignore traversal errors if any
+      } catch (err) {}
     }
     res.status(404).json({ error: "Job not found" });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    handleError(res, e);
   }
 });
 
 animatorRouter.get("/animator/jobs", (req: any, res) => {
-  // Mock listing for now
   res.json([]);
 });
 
 animatorRouter.get("/animator/jobs/:id/manifest", (req: any, res) => {
   try {
+    const userPhone = req.user!.phone;
+    // verify job ownership first
+    let job: any;
+    const dirs = ["pending", "running", "done", "failed"];
+    for (const dir of dirs) {
+      try {
+        const p = resolveWithinWorkspace(`jobs/${dir}/${req.params.id}.json`);
+        if (fs.existsSync(p)) {
+          job = JSON.parse(fs.readFileSync(p, "utf8"));
+          break;
+        }
+      } catch (err) {}
+    }
+    if (!job) return res.status(404).json({ error: "Job not found" });
+    if (job.userPhone && job.userPhone !== userPhone) return res.status(403).json({ error: "Forbidden" });
+    
     const manifest = readManifest(req.params.id);
     res.json(manifest);
   } catch (e: any) {
@@ -151,15 +186,21 @@ animatorRouter.get("/animator/jobs/:id/manifest", (req: any, res) => {
 
 animatorRouter.get("/animator/outputs/:assetId", (req: any, res) => {
   try {
+    const userPhone = req.user!.phone;
+    const metaPath = resolveWithinWorkspace(`originals/${req.params.assetId}/metadata.json`);
+    if (fs.existsSync(metaPath)) {
+      const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+      if (meta.userPhone && meta.userPhone !== userPhone) return res.status(403).json({ error: "Forbidden" });
+    }
+    
     const outDir = resolveWithinWorkspace(`outputs/${req.params.assetId}`);
     if (!fs.existsSync(outDir)) return res.json([]);
     const files = fs.readdirSync(outDir);
-    // return files
     res.json(files.map(f => ({
       path: `outputs/${req.params.assetId}/${f}`,
       url: `/animator-files/outputs/${req.params.assetId}/${f}`
     })));
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    handleError(res, e);
   }
 });

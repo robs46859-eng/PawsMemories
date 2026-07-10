@@ -4,6 +4,7 @@ export type ProjectId = string;
 
 export interface AssetMetadata {
   id: AssetId;
+  userPhone?: string;
   originalFilename: string;
   format: "glb" | "gltf";
   sizeBytes: number;

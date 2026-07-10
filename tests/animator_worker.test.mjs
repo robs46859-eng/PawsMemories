@@ -32,6 +32,7 @@ test("animator_worker end-to-end", async (t) => {
     });
     
     assert.ok(meta.id, "Asset imported successfully");
+    console.log("META ID:", meta.id);
     
     // Store original hash
     const inAbs = resolveWithinWorkspace(`originals/${meta.id}/fixture.glb`);
