@@ -596,7 +596,7 @@ export default function App() {
               <AvatarDashboard
                 userProfile={userProfile}
                 onUpdateUser={(updatedUser) => {
-                  applyUser(updatedUser);
+                  setUserProfile(updatedUser);
                 }}
                 isDarkMode={isDarkMode}
                 onOpenCreditStore={() => setShowCreditStore(true)}

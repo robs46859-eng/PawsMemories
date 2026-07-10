@@ -11,7 +11,7 @@ import {
 
 interface AvatarDashboardProps {
   userProfile: UserProfile;
-  onUpdateUser: (user: PublicUser) => void;
+  onUpdateUser: (user: UserProfile) => void;
   isDarkMode: boolean;
   onOpenCreditStore?: () => void;
 }

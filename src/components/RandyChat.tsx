@@ -26,7 +26,7 @@ function resolveScreen(screen?: string): Screen | null {
   if (!screen) return null;
   const map: Record<string, Screen> = {
     DASHBOARD: Screen.DASHBOARD,
-    AVATAR_DASHBOARD: Screen.AVATAR_DASHBOARD,
+    AVATAR_DASHBOARD: Screen.MODELS,
     STORE: Screen.STORE,
     COMMUNITY: Screen.COMMUNITY,
     PROFILE: Screen.PROFILE,
