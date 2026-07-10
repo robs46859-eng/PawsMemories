@@ -4,7 +4,7 @@ import fs from "fs";
 
 export const ANIMATOR_DATA_DIR = process.env.ANIMATOR_DATA_DIR || path.join(process.cwd(), "data", "animator");
 
-const ALLOWED_EXTENSIONS = [".glb", ".gltf", ".mp4", ".png", ".json"];
+const ALLOWED_EXTENSIONS = [".glb", ".gltf", ".mp4", ".webm", ".png", ".json"];
 
 export function resolveWithinWorkspace(candidate: string, workspaceRoot: string = ANIMATOR_DATA_DIR): string {
   const resolvedRoot = path.resolve(workspaceRoot);

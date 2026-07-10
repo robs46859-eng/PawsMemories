@@ -40,3 +40,27 @@ test("SceneController - addActor assigns unique actorIds and non-overlapping pla
     GLTFLoader.prototype.loadAsync = originalLoadAsync;
   }
 });
+
+test("SceneController - seekAll fans out to every actor without throwing", async () => {
+  const originalLoadAsync = GLTFLoader.prototype.loadAsync;
+  GLTFLoader.prototype.loadAsync = async () => ({
+    scene: new THREE.Scene(),
+    scenes: [new THREE.Scene()],
+    animations: [],
+    cameras: [],
+    asset: {}
+  });
+
+  try {
+    const ctrl = createSceneController();
+    const id1 = await ctrl.addActor("asset1");
+    const id2 = await ctrl.addActor("asset2");
+
+    // seekAll must reach every actor's controller and not throw (clamped per-actor).
+    assert.doesNotThrow(() => ctrl.seekAll(1.5));
+    assert.ok(ctrl.getActorController(id1));
+    assert.ok(ctrl.getActorController(id2));
+  } finally {
+    GLTFLoader.prototype.loadAsync = originalLoadAsync;
+  }
+});

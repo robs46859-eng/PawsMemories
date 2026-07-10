@@ -276,15 +276,21 @@ animatorRouter.post("/animator/recordings", upload.single("video"), async (req: 
     const outDir = resolveWithinWorkspace("recordings");
     if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
     
-    const filename = `recording_${Date.now()}_${userPhone.replace(/[^a-zA-Z0-9]/g, "")}.webm`;
+    // Derive the container from the uploaded blob's mime so a WebCodecs MP4
+    // recording is stored as .mp4 and only the MediaRecorder fallback is .webm.
+    const mime = (req.file.mimetype && req.file.mimetype.startsWith("video/"))
+      ? req.file.mimetype
+      : "video/mp4";
+    const ext = mime.includes("webm") ? "webm" : "mp4";
+    const filename = `recording_${Date.now()}_${userPhone.replace(/[^a-zA-Z0-9]/g, "")}.${ext}`;
     const absPath = path.join(outDir, filename);
-    
+
     fs.writeFileSync(absPath, req.file.buffer);
-    
+
     let url = `/animator-files/recordings/${filename}`;
     try {
       const base64Str = req.file.buffer.toString("base64");
-      const bucketUrl = await uploadBase64Binary(base64Str, "video/webm");
+      const bucketUrl = await uploadBase64Binary(base64Str, mime);
       if (bucketUrl) url = bucketUrl;
     } catch (uploadErr) {
       console.warn("Storage mirror failed, falling back to local URL", uploadErr);
