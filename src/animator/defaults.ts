@@ -33,5 +33,9 @@ export const ANIMATOR_DEFAULTS = {
   weather: {
     maxParticles: 5000, // Mobile-capped bounded count
     speed: 1.0,
+  },
+  sound: {
+    volume: 0.5,
+    ambientEnabled: true,
   }
 };
