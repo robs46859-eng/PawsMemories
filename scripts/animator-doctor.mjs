@@ -41,6 +41,14 @@ async function run() {
     await import("@gltf-transform/functions");
   })) && allPass;
 
+  // 3.5 Optional Dependencies
+  try {
+    await import("sharp");
+    console.log(`- sharp is available... ${GREEN}✓${RESET}`);
+  } catch (e) {
+    console.log(`- sharp is available... ${RED}✗ (Warning: sharp is missing, image operations might be slower)${RESET}`);
+  }
+
   // 4. Workspace
   const dataDir = process.env.ANIMATOR_DATA_DIR || path.join(process.cwd(), "data", "animator");
   allPass = (await check(`ANIMATOR_DATA_DIR (${dataDir}) exists & writable`, () => {

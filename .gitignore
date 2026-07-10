@@ -8,3 +8,5 @@ coverage/
 test_output.txt
 .env*
 !.env.example
+
+data/

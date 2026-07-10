@@ -11,7 +11,7 @@ export const JobSpecSchema = z.object({
   assetId: z.string().uuid(),
   type: z.enum(["inspect", "convert", "optimize"]),
   preset: z.enum(["safe", "optimize"]),
-  params: z.record(z.unknown()),
+  params: z.record(z.string(), z.unknown()),
   createdAt: z.string(),
 });
 
@@ -42,6 +42,8 @@ export function enqueue(
     createdAt: new Date().toISOString(),
     state: "pending",
   };
+  
+  JobRecordSchema.parse(jobRecord);
 
   const pendingPath = resolveWithinWorkspace(`jobs/pending/${jobId}.json`, workspaceRoot);
   const tmpPath = resolveWithinWorkspace(`tmp/${jobId}.json`, workspaceRoot);

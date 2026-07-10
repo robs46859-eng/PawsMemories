@@ -11,6 +11,8 @@ import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTaken
 import { isEndpointEnabled, dailyCapFor, withinDailyCap, type PaidEndpoint } from "./server/paidApiGuards";
 import { classifyPetImage, type GenerateFn } from "./server/petClassify";
 import { semanticScan as runSemanticScan } from "./server/semanticScan";
+import { animatorRouter } from "./server/animator/routes.ts";
+import { startWorker as startAnimatorWorker } from "./server/animator/worker.ts";
 import { phraseKey } from "./src/three/ar/voice";
 import { decayCompliance, pointsForTrial, creditsFromPoints, type TrialType } from "./src/brain";
 import { createHash } from "crypto";
@@ -235,6 +237,12 @@ async function startServer() {
 
   // Per-USER limiter (keyed by JWT subject, not IP) for the paid AR endpoints
   // (classify / rig / semantic-scan). Applied as route middleware AFTER
+  app.use("/api", requireAuth, animatorRouter);
+  
+  if (process.env.ANIMATOR_WORKER_ENABLED !== "false") {
+    startAnimatorWorker();
+  }
+
   // requireAuth so req.user is populated for the key. (H2)
   const paidLimiter = rateLimit({
     windowMs: 60 * 1000,
