@@ -811,7 +811,8 @@ async function startServer() {
     type: SubjectClass,
     hasFacePhoto?: boolean,
     extra?: string,
-    errRef?: { code?: number | string; message?: string; quota?: boolean }
+    errRef?: { code?: number | string; message?: string; quota?: boolean },
+    style?: string | null,
   ): Promise<string | null> {
     const imageParts: any[] = [];
     photos.forEach((p, idx) => {
@@ -831,7 +832,7 @@ async function startServer() {
     if (imageParts.length === 0) return null;
 
     const corrective = (extra || "").trim();
-    const referencePrompt = buildReferencePrompt(type, accent, hasFacePhoto, photos.length)
+    const referencePrompt = buildReferencePrompt(type, accent, hasFacePhoto, photos.length, style)
       + (corrective ? ` IMPORTANT — fix these issues from the previous attempt: ${corrective}.` : "");
     // Route through the shared helper so the responseModalities fix + failure
     // logging apply identically to every image path in the pipeline.
@@ -904,7 +905,7 @@ async function startServer() {
           const fields: TextPromptFields = { subject, style, lighting, corrective };
           candidate = await generateImageWithFallback([{ text: buildTextPrompt(fields) }], "text-to-reference", imgErr);
         } else {
-          candidate = await generatePetReferenceImage(photoList, accent, avatarType, hasFacePhoto, corrective, imgErr);
+          candidate = await generatePetReferenceImage(photoList, accent, avatarType, hasFacePhoto, corrective, imgErr, style);
         }
 
         if (!candidate) {

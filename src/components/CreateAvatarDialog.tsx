@@ -375,7 +375,12 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
               )}
               
               <div className="grid grid-cols-2 gap-3">
-                <PromptSelect label="Style" value={style} onChange={setStyle} options={TEXT_STYLE_OPTIONS} />
+                <div className="flex flex-col gap-0.5">
+                  <PromptSelect label="Style" value={style} onChange={setStyle} options={TEXT_STYLE_OPTIONS} />
+                  {inputMode === 'image' && avatarType === 'human' && (
+                    <span className="text-[10px] text-on-surface-variant/70 pl-1">Humans always render as a full standing figure — pick the finish.</span>
+                  )}
+                </div>
                 <PromptSelect label="Lighting" value={lighting} onChange={setLighting} options={TEXT_LIGHTING_OPTIONS} />
                 <PromptSelect label="Detail" value={geoDetail} onChange={setGeoDetail} options={GEOMETRY_DETAIL_OPTIONS} />
                 <PromptSelect label="Texture" value={geoTexture} onChange={setGeoTexture} options={GEOMETRY_TEXTURE_OPTIONS} />

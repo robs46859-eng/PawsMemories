@@ -67,13 +67,14 @@ export const REFERENCE_STYLE_DOG =
 
 /**
  * Canonical human anatomy the generator must render — exact counts so the model
- * never produces a missing/extra eye, nostril, limb or finger. Shared by the
+ * never produces a missing/extra eye, nostril, limb, finger or toe. Shared by the
  * human render style and available for anomaly-correction clauses.
  */
 export const HUMAN_ANATOMY_SPEC =
   `ANATOMY (render EXACTLY, no more and no fewer): ONE head; TWO forward-facing eyes; TWO ears (one per side); ` +
-  `ONE nose with TWO nostrils; ONE mouth; TWO arms; TWO hands, each with FIVE distinct fingers (four fingers plus one opposable thumb); ` +
-  `TWO legs; TWO feet. Never merge, omit or duplicate these features; hands must show five separated fingers, not mittens or fused shapes.`;
+  `ONE nose with TWO nostrils; ONE mouth; ONE torso; TWO arms; TWO hands, each with FIVE distinct fingers (four fingers plus one opposable thumb); ` +
+  `TWO legs; TWO feet, each foot with FIVE distinct toes. ` +
+  `Never merge, omit or duplicate these features; hands must show five separated fingers (not mittens or fused shapes) and feet must show five toes.`;
 
 /**
  * Standard human proportion ranges expressed in HEAD-HEIGHTS (the artist's
@@ -88,27 +89,74 @@ export const HUMAN_PROPORTION_SPEC =
   `Arms hang so the fingertips reach about mid-thigh; each arm ≈ 3 to 3.5 head-heights long; a hand ≈ the size of the face; a foot ≈ 1 head-height long. ` +
   `Keep all of these within the stated ranges — do not render stunted limbs, an oversized torso, or dwarfed/giant heads outside this band.`;
 
-export const REFERENCE_STYLE_HUMAN =
-  `Render the person as a premium Pixar-style stylized 3D character: soft appealing proportions, slightly enlarged ` +
-  `expressive eyes, subsurface-scattered skin, and beautifully textured hair — like a frame from a modern animated ` +
-  `feature film. ` +
-  `Faithfully preserve the person's exact skin tone, hair color and style, facial structure, and clothing colors and patterns ` +
-  `as seen across ALL reference photos. ` +
-  HUMAN_ANATOMY_SPEC + ` ` +
-  HUMAN_PROPORTION_SPEC + ` ` +
-  `Pay EXTREME attention to FACIAL FEATURES: eye shape, color and spacing, nose shape and size, lip shape, ` +
-  `jawline, cheekbones, eyebrow shape, forehead size, and any facial hair, wrinkles or distinguishing marks. ` +
-  `The person is standing squarely on two legs in a neutral bipedal A-pose stance, arms slightly out to the sides, clearly separated from the torso, ` +
-  `legs clearly separated, front-facing. ` +
-  `The generated image must be BILATERALLY SYMMETRIC from the viewer's perspective — the left and right sides of ` +
-  `the face and body should mirror each other for clean 3D reconstruction. ` +
-  `Do NOT invent or add features not visible in the reference photos. If a detail is unclear, err on the side ` +
-  `of the most common/neutral interpretation rather than adding something creative. ` +
-  `Full body visible with generous margin on all sides, seen DIRECTLY FROM THE FRONT. ` +
-  `Render as a high-quality 3D CGI character with physically-based materials, soft three-point studio lighting, ` +
-  `subtle ambient occlusion and a gentle SOFT contact shadow on the floor directly beneath the subject for ` +
-  `dimensional depth — but NO harsh or hard-edged directional cast shadows and no shadows on the background. ` +
-  `Sharp focus, plain neutral light-gray seamless studio background, no props, no other people, no text, no watermark.`;
+/**
+ * Enforces a COMPLETE, FULL-LENGTH standing figure regardless of the chosen
+ * render style. Prevents cropped/bust/floating results — the whole body from the
+ * top of the head to the soles of both feet must be inside the frame.
+ */
+export const HUMAN_FULLBODY_SPEC =
+  `COMPLETE FULL-BODY FIGURE: render the ENTIRE person from the top of the head down to the soles of BOTH feet, ` +
+  `standing upright and grounded, with both feet flat on the floor and clearly visible. ` +
+  `This is NOT a bust, portrait, half-body or floating figure — head, torso, both arms, both hands, both legs and both feet ` +
+  `must all be fully inside the frame with generous margin above the head and below the feet. Nothing is cropped by the frame edge.`;
+
+const STYLE_CLAUSES: Record<string, string> = {
+  auto:            `a clean, well-lit 3D-reconstruction-friendly render with clear surface details and accurate proportions`,
+  hyperrealistic:  `a HYPER-REALISTIC, photoreal 3D human render — true-to-life skin with visible pores and subsurface scattering, realistic hair strands, accurate eye moisture and catchlights, physically-based clothing fabric, natural human proportions and lifelike micro-detail, indistinguishable from a high-end 3D scan`,
+  pixar:           `a premium Pixar-style stylized 3D character — soft appealing proportions, slightly enlarged expressive eyes, subsurface-scattered skin, richly textured surfaces, like a frame from a modern animated feature film`,
+  realistic:       `a photorealistic, highly detailed 3D render with physically accurate materials, natural human proportions and lifelike skin, hair and clothing detail`,
+  claymation:      `a claymation / stop-motion clay figure with soft matte modeling-clay surfaces, gentle fingerprints and hand-sculpted charm`,
+  plush:           `a soft plush stuffed toy with visible fabric texture, stitched seams, button-style eyes and rounded cuddly proportions`,
+  vinyl:           `a glossy vinyl designer collectible figure with smooth clean surfaces, bold simplified forms and a subtle sheen`,
+  lowpoly:         `a stylized low-poly model with clean flat-shaded faceted surfaces and bold simplified geometry`,
+  celshaded:       `a cel-shaded anime-style character with clean flat colours, crisp ink outlines and simple hard-edged shading`,
+  voxel:           `a blocky voxel-art character built from cubic blocks, like a high-resolution 3D pixel sculpture`,
+  papercraft:      `a papercraft / low-poly origami figure made of folded flat paper panels with visible fold creases`,
+  wood:            `a hand-carved wooden toy figure with visible wood grain, smooth rounded whittled forms and a warm matte finish`,
+  chibi:           `a chibi / super-deformed character with an oversized head, tiny body, big eyes and adorable exaggerated proportions`,
+};
+
+/**
+ * The style "look" clause for a HUMAN reference image. Defaults to hyper-realistic
+ * (auto or unknown id ⇒ hyperrealistic) but honours any TEXT_STYLE_OPTIONS id.
+ * Anatomy/proportions/full-body are applied separately and are NOT style-dependent.
+ */
+export function humanStyleClause(styleId?: string | null): string {
+  const id = (styleId && styleId !== "auto") ? styleId : "hyperrealistic";
+  return STYLE_CLAUSES[id] || STYLE_CLAUSES["hyperrealistic"];
+}
+
+/**
+ * Build the human REFERENCE-IMAGE style block for a given render style.
+ * The look/finish varies by style; anatomy, proportions and full-body framing
+ * are always enforced so every style yields a complete standing figure.
+ */
+export function buildHumanReferenceStyle(styleId?: string | null): string {
+  return (
+    `Render the person as ${humanStyleClause(styleId)}. ` +
+    `Faithfully preserve the person's exact skin tone, hair color and style, facial structure, and clothing colors and patterns ` +
+    `as seen across ALL reference photos. ` +
+    HUMAN_ANATOMY_SPEC + ` ` +
+    HUMAN_PROPORTION_SPEC + ` ` +
+    HUMAN_FULLBODY_SPEC + ` ` +
+    `Pay EXTREME attention to FACIAL FEATURES: eye shape, color and spacing, nose shape and size, lip shape, ` +
+    `jawline, cheekbones, eyebrow shape, forehead size, and any facial hair, wrinkles or distinguishing marks. ` +
+    `The person is standing squarely on two legs in a neutral bipedal A-pose stance, arms slightly out to the sides, clearly separated from the torso, ` +
+    `legs clearly separated, front-facing. ` +
+    `The generated image must be BILATERALLY SYMMETRIC from the viewer's perspective — the left and right sides of ` +
+    `the face and body should mirror each other for clean 3D reconstruction. ` +
+    `Do NOT invent or add features not visible in the reference photos. If a detail is unclear, err on the side ` +
+    `of the most common/neutral interpretation rather than adding something creative. ` +
+    `Full body visible with generous margin on all sides, seen DIRECTLY FROM THE FRONT. ` +
+    `Render with physically-based materials, soft three-point studio lighting, ` +
+    `subtle ambient occlusion and a gentle SOFT contact shadow on the floor directly beneath the subject for ` +
+    `dimensional depth — but NO harsh or hard-edged directional cast shadows and no shadows on the background. ` +
+    `Sharp focus, plain neutral light-gray seamless studio background, no props, no other people, no text, no watermark.`
+  );
+}
+
+/** Back-compat: the default human style block (hyper-realistic). */
+export const REFERENCE_STYLE_HUMAN = buildHumanReferenceStyle();
 
 export const ACCENT_PROMPTS: Record<string, string> = {
   warm:
@@ -128,7 +176,13 @@ export const ACCENT_PROMPTS: Record<string, string> = {
     `neutral accent if present — WITHOUT altering the pet or person's natural fur, skin, nose or eye colours.`,
 };
 
-export function buildReferencePrompt(type: SubjectClass, accent?: string | null, hasFacePhoto?: boolean, photoCount?: number): string {
+export function buildReferencePrompt(
+  type: SubjectClass,
+  accent?: string | null,
+  hasFacePhoto?: boolean,
+  photoCount?: number,
+  style?: string | null,
+): string {
   const accentClause = (accent && ACCENT_PROMPTS[accent]) || "";
 
   if (type === 'object') {
@@ -160,7 +214,7 @@ export function buildReferencePrompt(type: SubjectClass, accent?: string | null,
       `You are given one or more reference photos, all of the SAME person. ` +
       faceClause + multiPhotoClause +
       `Generate ONE image of this exact person seen DIRECTLY FROM THE FRONT (head and body facing straight toward the camera). ` +
-      REFERENCE_STYLE_HUMAN + accentClause + ` Respond with only the generated image.`
+      buildHumanReferenceStyle(style) + accentClause + ` Respond with only the generated image.`
     );
   } else {
     return (
@@ -309,18 +363,19 @@ export interface TextOption {
 
 /** Visual style of the generated character. */
 export const TEXT_STYLE_OPTIONS: TextOption[] = [
-  { id: "auto",       label: "Auto (let AI decide)", recommended: true, hint: "Best for arbitrary images — the generator picks the most fitting style" },
-  { id: "pixar",      label: "Pixar / animated feature" },
-  { id: "realistic",  label: "Photorealistic" },
-  { id: "claymation", label: "Claymation / clay" },
-  { id: "plush",      label: "Plush / stuffed toy" },
-  { id: "vinyl",      label: "Vinyl / designer figure" },
-  { id: "lowpoly",    label: "Low-poly / retro" },
-  { id: "celshaded",  label: "Cel-shaded / anime" },
-  { id: "voxel",      label: "Voxel / blocky" },
-  { id: "papercraft", label: "Papercraft / origami" },
-  { id: "wood",       label: "Carved wood toy" },
-  { id: "chibi",      label: "Chibi / super-deformed" },
+  { id: "auto",           label: "Auto (let AI decide)", recommended: true, hint: "Best for arbitrary images — the generator picks the most fitting style" },
+  { id: "hyperrealistic", label: "Hyper-realistic", hint: "Photoreal, scan-like detail — best for people" },
+  { id: "realistic",      label: "Photorealistic" },
+  { id: "pixar",          label: "Pixar / animated feature" },
+  { id: "claymation",     label: "Claymation / clay" },
+  { id: "plush",          label: "Plush / stuffed toy" },
+  { id: "vinyl",          label: "Vinyl / designer figure" },
+  { id: "lowpoly",        label: "Low-poly / retro" },
+  { id: "celshaded",      label: "Cel-shaded / anime" },
+  { id: "voxel",          label: "Voxel / blocky" },
+  { id: "papercraft",     label: "Papercraft / origami" },
+  { id: "wood",           label: "Carved wood toy" },
+  { id: "chibi",          label: "Chibi / super-deformed" },
 ];
 
 /** Body framing (replaces the invalid "camera movement" field). */
@@ -373,21 +428,6 @@ export const GEOMETRY_TEXTURE_OPTIONS: TextOption[] = [
   { id: "basic",        label: "Basic texture" },
   { id: "none",         label: "Untextured mesh" },
 ];
-
-const STYLE_CLAUSES: Record<string, string> = {
-  auto:       `a clean, well-lit 3D-reconstruction-friendly render with clear surface details and accurate proportions`,
-  pixar:      `a premium Pixar-style stylized 3D character — soft appealing proportions, slightly enlarged expressive eyes, subsurface-scattered skin, richly textured surfaces, like a frame from a modern animated feature film`,
-  realistic:  `a photorealistic, highly detailed 3D render with physically accurate materials, natural proportions and lifelike surface detail`,
-  claymation: `a claymation / stop-motion clay figure with soft matte modeling-clay surfaces, gentle fingerprints and hand-sculpted charm`,
-  plush:      `a soft plush stuffed toy with visible fabric texture, stitched seams, button-style eyes and rounded cuddly proportions`,
-  vinyl:      `a glossy vinyl designer collectible figure with smooth clean surfaces, bold simplified forms and a subtle sheen`,
-  lowpoly:    `a stylized low-poly model with clean flat-shaded faceted surfaces and bold simplified geometry`,
-  celshaded:  `a cel-shaded anime-style character with clean flat colours, crisp ink outlines and simple hard-edged shading`,
-  voxel:      `a blocky voxel-art character built from cubic blocks, like a high-resolution 3D pixel sculpture`,
-  papercraft: `a papercraft / low-poly origami figure made of folded flat paper panels with visible fold creases`,
-  wood:       `a hand-carved wooden toy figure with visible wood grain, smooth rounded whittled forms and a warm matte finish`,
-  chibi:      `a chibi / super-deformed character with an oversized head, tiny body, big eyes and adorable exaggerated proportions`,
-};
 
 const FRAMING_CLAUSES: Record<string, string> = {
   auto:           `The full subject is visible, centered with generous margin on all sides.`,
