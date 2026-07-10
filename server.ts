@@ -3071,7 +3071,9 @@ async function startServer() {
         // --- HeyGen talking-video branch ---
         if (job.operation_name && isHeyGenHandle(job.operation_name)) {
           try {
-            const result = await pollTalkingVideo(job.operation_name);
+            const handleParts = job.operation_name.split(":animator:");
+            const realHandle = handleParts[0];
+            const result = await pollTalkingVideo(realHandle);
             if (result.done) {
               if (result.videoUrl) {
                 const dataUrl = await fetchMp4AsDataUrl(result.videoUrl);
@@ -3217,25 +3219,54 @@ async function startServer() {
         // --- HeyGen talking-video branch ---
         if (isHeyGenHandle(job.operation_name)) {
           try {
-            const result = await pollTalkingVideo(job.operation_name);
+            const handleParts = job.operation_name.split(":animator:");
+            const realHandle = handleParts[0];
+            const recordingId = handleParts[1]; // Will be undefined for creation jobs
+            
+            const result = await pollTalkingVideo(realHandle);
             if (result.done) {
               if (result.videoUrl) {
-                const dataUrl = await fetchMp4AsDataUrl(result.videoUrl);
-                const videoUrl = await uploadBase64Image(dataUrl);
-                await updateJobStatus(job.id, "done");
-                if (job.creation_id) {
-                  await setCreationVideoUrl(job.creation_id, job.user_phone, videoUrl);
-                }
-                if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
-                  try {
-                    const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-                    await twilioClient.messages.create({
-                      body: `🐾 Paws & Memories: Your talking pet video is ready! View it at ${process.env.APP_URL || "your app"}.`,
-                      to: job.user_phone,
-                      from: process.env.TWILIO_PHONE_NUMBER
-                    });
-                  } catch (smsErr) {
-                    console.warn("Failed to send SMS notification (poller):", smsErr);
+                if (recordingId) {
+                  // This is an Animator Voiceover job
+                  const { muxAudioBed } = await import("./server/animator/audioMux.ts");
+                  const path = await import("path");
+                  const fs = await import("fs");
+                  
+                  // Extract and mux
+                  const videoPath = path.join(process.cwd(), "data", "animator", "recordings", recordingId);
+                  const tempVoiceoverPath = path.join(process.cwd(), "data", "animator", "recordings", `temp_vo_${job.id}.mp4`);
+                  const finalOutputPath = path.join(process.cwd(), "data", "animator", "recordings", `voiced_${recordingId}`);
+                  
+                  // Download HeyGen video temporarily
+                  const voRes = await fetch(result.videoUrl);
+                  fs.writeFileSync(tempVoiceoverPath, Buffer.from(await voRes.arrayBuffer()));
+                  
+                  // For now, no ambient/weather included since we don't have their state here.
+                  // Mux only the voiceover onto the video
+                  await muxAudioBed(videoPath, [{ urlOrPath: tempVoiceoverPath, volume: 1.0 }], finalOutputPath, 10);
+                  
+                  fs.unlinkSync(tempVoiceoverPath);
+                  
+                  await updateJobStatus(job.id, "done");
+                } else {
+                  // Standard create-video HeyGen flow
+                  const dataUrl = await fetchMp4AsDataUrl(result.videoUrl);
+                  const videoUrl = await uploadBase64Image(dataUrl);
+                  await updateJobStatus(job.id, "done");
+                  if (job.creation_id) {
+                    await setCreationVideoUrl(job.creation_id, job.user_phone, videoUrl);
+                  }
+                  if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
+                    try {
+                      const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+                      await twilioClient.messages.create({
+                        body: `🐾 Paws & Memories: Your talking pet video is ready! View it at ${process.env.APP_URL || "your app"}.`,
+                        to: job.user_phone,
+                        from: process.env.TWILIO_PHONE_NUMBER
+                      });
+                    } catch (smsErr) {
+                      console.warn("Failed to send SMS notification (poller):", smsErr);
+                    }
                   }
                 }
               } else {

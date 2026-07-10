@@ -7,7 +7,10 @@ import { readManifest } from "./manifest.ts";
 import { resolveWithinWorkspace } from "./paths.ts";
 import { createProject, getProject, listProjects, updateProject, deleteProject } from "./projects.ts";
 import { loadEnvironments } from "./environments.ts";
+import { loadScripts, estimateSpeechSeconds } from "./scripts.ts";
 import { uploadBase64Binary } from "../../storage.ts";
+import { getCreditBalance, deductCredits, createJob, isUserAdmin, getDailyVideoCount } from "../../db.ts";
+import { startTalkingVideo } from "../../heygen.ts";
 
 export const animatorRouter = express.Router();
 
@@ -338,6 +341,93 @@ animatorRouter.get("/scenes/environments", (req: any, res) => {
     }
     const presets = loadEnvironments();
     res.json(presets);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+animatorRouter.get("/scenes/scripts", (req: any, res) => {
+  try {
+    if (!req.user || !req.user.phone) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const scripts = loadScripts();
+    res.json(scripts);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+animatorRouter.post("/scenes/voiceover", async (req: any, res) => {
+  try {
+    const userPhone = req.user!.phone;
+    if (!userPhone) return res.status(401).json({ error: "Unauthorized" });
+    
+    const { recordingId, scriptId, text, voiceId } = req.body;
+    if (!recordingId) return res.status(400).json({ error: "recordingId is required" });
+    
+    let scriptText = text;
+    if (scriptId) {
+      const scripts = loadScripts();
+      const preset = scripts.find(s => s.id === scriptId);
+      if (preset) scriptText = preset.text;
+    }
+    if (!scriptText || !String(scriptText).trim()) {
+      return res.status(400).json({ error: "Text or valid scriptId required" });
+    }
+
+    const estSeconds = estimateSpeechSeconds(scriptText);
+    if (estSeconds > 10) {
+      return res.status(400).json({ error: "Script exceeds 10s cap" });
+    }
+
+    const isAdmin = await isUserAdmin(userPhone);
+    const VOICEOVER_COST = 250; // reuse VIDEO_COST
+    const MAX_DAILY_VIDEOS = 5; 
+
+    if (!isAdmin) {
+      const dailyCount = await getDailyVideoCount(userPhone);
+      if (dailyCount >= MAX_DAILY_VIDEOS) {
+        return res.status(429).json({ error: `Daily limit reached (${MAX_DAILY_VIDEOS}/day)` });
+      }
+      const balance = await getCreditBalance(userPhone);
+      if (balance < VOICEOVER_COST) {
+        return res.status(402).json({ error: `Insufficient credits. Need ${VOICEOVER_COST}` });
+      }
+      await deductCredits(userPhone, VOICEOVER_COST);
+    }
+
+    // Dummy 1x1 image for HeyGen talking photo
+    const dummyImageBuffer = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64");
+    
+    let handle: string;
+    try {
+      handle = await startTalkingVideo({
+        imageBuffer: dummyImageBuffer,
+        mimeType: "image/png",
+        script: String(scriptText),
+        voiceId: voiceId || undefined,
+      });
+    } catch (genErr: any) {
+      if (!isAdmin) {
+        const { refundCredits } = await import("../../db.ts");
+        await refundCredits(userPhone, VOICEOVER_COST);
+      }
+      return res.status(502).json({ error: genErr.message || "Failed to start Voiceover generation" });
+    }
+
+    // Attach recordingId to handle so poller knows which file to mux
+    const operationName = `${handle}:animator:${recordingId}`;
+
+    const jobId = await createJob({
+      user_phone: userPhone,
+      creation_id: null,
+      kind: "video",
+      credits_reserved: VOICEOVER_COST,
+      operation_name: operationName,
+    });
+
+    res.status(202).json({ success: true, jobId, status: "queued" });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
