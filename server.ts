@@ -239,6 +239,9 @@ async function startServer() {
   // (classify / rig / semantic-scan). Applied as route middleware AFTER
   app.use("/api", requireAuth, animatorRouter);
   
+  // Serve animator files statically
+  app.use("/animator-files", express.static(path.join(process.cwd(), "data", "animator")));
+  
   if (process.env.ANIMATOR_WORKER_ENABLED !== "false") {
     startAnimatorWorker();
   }

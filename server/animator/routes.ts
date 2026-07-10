@@ -204,3 +204,50 @@ animatorRouter.get("/animator/outputs/:assetId", (req: any, res) => {
     handleError(res, e);
   }
 });
+
+import multer from "multer";
+import path from "path";
+
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 100 * 1024 * 1024 } // 100MB limit for webm
+});
+
+animatorRouter.post("/animator/recordings", upload.single("video"), async (req: any, res) => {
+  try {
+    const userPhone = req.user!.phone;
+    if (!req.file) return res.status(400).json({ error: "No video file provided" });
+    
+    const outDir = resolveWithinWorkspace("recordings");
+    if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
+    
+    const filename = `recording_${Date.now()}_${userPhone.replace(/[^a-zA-Z0-9]/g, "")}.webm`;
+    const absPath = path.join(outDir, filename);
+    
+    fs.writeFileSync(absPath, req.file.buffer);
+    
+    // In a real app we'd upload to a bucket. For Phase 3 local persistence is enough.
+    res.json({ url: `/animator-files/recordings/${filename}` });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+animatorRouter.post("/animator/screenshots", upload.single("image"), async (req: any, res) => {
+  try {
+    const userPhone = req.user!.phone;
+    if (!req.file) return res.status(400).json({ error: "No image file provided" });
+    
+    const outDir = resolveWithinWorkspace("screenshots");
+    if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
+    
+    const filename = `screenshot_${Date.now()}_${userPhone.replace(/[^a-zA-Z0-9]/g, "")}.png`;
+    const absPath = path.join(outDir, filename);
+    
+    fs.writeFileSync(absPath, req.file.buffer);
+    
+    res.json({ url: `/animator-files/screenshots/${filename}` });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});

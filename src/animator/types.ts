@@ -109,6 +109,7 @@ export interface AnimationController {
   getCurrentTime(): number;
   getDuration(): number;
   resetToBindPose(): void;
+  update(delta: number): void;
   dispose(): void;
   crossFadeTo?(name: string, seconds: number): void;
   playSequence?(steps: SequenceStep[]): void;

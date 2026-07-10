@@ -6,7 +6,7 @@ import Avatar3DPlaypen from "./Avatar3DPlaypen";
 import LivingAvatarView from "./LivingAvatarView";
 import {
   Plus, Utensils, Droplets, Bone, RefreshCw, Info,
-  Play, Camera, Moon, Zap, X, Sparkles
+  Play, Camera, Moon, Zap, X, Sparkles, Clapperboard
 } from "lucide-react";
 
 interface AvatarDashboardProps {
@@ -14,6 +14,7 @@ interface AvatarDashboardProps {
   onUpdateUser: (user: UserProfile) => void;
   isDarkMode: boolean;
   onOpenCreditStore?: () => void;
+  onGoToAnimator?: (assetId: string) => void;
 }
 
 const ACTION_CONFIGS: {
@@ -34,7 +35,7 @@ const ACTION_CONFIGS: {
 /** Feature flag — set to true to re-enable the Tamagotchi care system (food/water bars, action buttons, treats). */
 const TAMAGOTCHI_ENABLED = false;
 
-export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode, onOpenCreditStore }: AvatarDashboardProps) {
+export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode, onOpenCreditStore, onGoToAnimator }: AvatarDashboardProps) {
   const [avatars, setAvatars] = useState<Avatar[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -284,12 +285,20 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
                   />
                   <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/70 to-transparent pointer-events-none z-10" />
                   {isReady && (
-                    <button
-                      onClick={() => setLivingAvatar(avatar)}
-                      className="absolute top-4 left-4 z-30 bg-primary text-on-primary px-3 py-1.5 rounded-full text-xs font-bold shadow-lg hover:bg-primary/90 flex items-center gap-1 tactile-button"
-                    >
-                      <Sparkles size={12} /> Live 3D
-                    </button>
+                    <>
+                      <button
+                        onClick={() => setLivingAvatar(avatar)}
+                        className="absolute top-4 left-4 z-30 bg-primary text-on-primary px-3 py-1.5 rounded-full text-xs font-bold shadow-lg hover:bg-primary/90 flex items-center gap-1 tactile-button"
+                      >
+                        <Sparkles size={12} /> Live 3D
+                      </button>
+                      <button
+                        onClick={() => onGoToAnimator?.(String(avatar.id))}
+                        className="absolute top-4 right-4 z-30 bg-secondary text-on-secondary px-3 py-1.5 rounded-full text-xs font-bold shadow-lg hover:bg-secondary/90 flex items-center gap-1 tactile-button"
+                      >
+                        <Clapperboard size={12} /> Studio
+                      </button>
+                    </>
                   )}
                   <h3 className="absolute bottom-4 left-4 text-white text-2xl font-black drop-shadow-md z-20 font-headline-lg-mobile">
                     {avatar.name}
@@ -300,7 +309,7 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
                     </span>
                   )}
                   {TAMAGOTCHI_ENABLED && (isHungry || isThirsty) && isReady && (
-                    <div className="absolute top-4 right-4 bg-error text-white px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 shadow-lg animate-pulse z-20">
+                    <div className="absolute top-14 right-4 bg-error text-white px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 shadow-lg animate-pulse z-20">
                       <Info size={12} /> Needs care!
                     </div>
                   )}

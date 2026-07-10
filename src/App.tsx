@@ -18,6 +18,7 @@ import AvatarDashboard from "./components/AvatarDashboard";
 import Store from "./components/Store";
 import ProfileScreen from "./components/ProfileScreen";
 import Community from "./components/Community";
+import AnimatorScreen from "./animator/components/AnimatorScreen";
 
 const EMPTY_PROFILE: UserProfile = { fullName: "", email: "", credits: 0, treats: 0, isAdmin: false, city: "", ageVerified: false };
 
@@ -65,6 +66,7 @@ export default function App() {
   const [authChecked, setAuthChecked] = useState(false);
 
   const [currentScreen, setCurrentScreen] = useState<Screen>(Screen.SIGN_UP);
+  const [animatorAssetId, setAnimatorAssetId] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile>(EMPTY_PROFILE);
 
   const [showOrderSuccessModal, setShowOrderSuccessModal] = useState(false);
@@ -426,7 +428,7 @@ export default function App() {
 
       <div className="flex-grow flex w-full relative">
         {/* Desktop Sidebar */}
-        {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY].includes(currentScreen) && (
+        {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR].includes(currentScreen) && (
           <aside className="fixed left-0 top-0 h-full z-40 hidden md:flex flex-col py-8 w-64 bg-surface/80 dark:bg-surface-dim/80 backdrop-blur-xl shadow-xl border-r border-outline-variant/20 pt-24">
             <div className="px-6 mb-8">
               <button
@@ -600,6 +602,10 @@ export default function App() {
                 }}
                 isDarkMode={isDarkMode}
                 onOpenCreditStore={() => setShowCreditStore(true)}
+                onGoToAnimator={(assetId) => {
+                  setAnimatorAssetId(assetId);
+                  setCurrentScreen(Screen.ANIMATOR);
+                }}
               />
             )}
 
@@ -635,7 +641,12 @@ export default function App() {
               <Community userProfile={userProfile} />
             )}
 
-            {/* Removed ImageTo3DPanel since it's merged into Models */}
+            {currentScreen === Screen.ANIMATOR && (
+              <AnimatorScreen 
+                initialAssetId={animatorAssetId} 
+                onClose={() => setCurrentScreen(Screen.MODELS)} 
+              />
+            )}
 
             {/* Safety net: if somehow on SIGN_UP while authed, send to dashboard */}
             {currentScreen === Screen.SIGN_UP && (
@@ -666,7 +677,7 @@ export default function App() {
       </main>
 
       {/* Floating Bottom Navigator (only when signed in and past onboarding) */}
-      {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY].includes(currentScreen) && (
+      {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR].includes(currentScreen) && (
         <div className="fixed md:hidden bottom-0 left-0 right-0 bg-surface-container-lowest/90 dark:bg-surface-dim/90 backdrop-blur-xl border-t border-outline-variant/30 py-2 px-4 flex justify-around items-center z-40 rounded-t-2xl shadow-[0_-8px_32px_0_rgba(68,42,34,0.08)]">
           <button
             onClick={() => setCurrentScreen(Screen.DASHBOARD)}
