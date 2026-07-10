@@ -13,10 +13,15 @@
     "test": "tsx --test tests/*.test.mjs",
     "test:brain": "tsx --test tests/brain_*.test.mjs",
     "test:pets": "tsx --test tests/pets_*.test.mjs",
-    "test:ar": "tsx --test tests/brain_*.test.mjs tests/pets_*.test.mjs tests/ar_*.test.mjs tests/paid_guards.test.mjs"
+    "test:ar": "tsx --test tests/brain_*.test.mjs tests/pets_*.test.mjs tests/ar_*.test.mjs tests/paid_guards.test.mjs",
+    "animator:doctor": "node scripts/animator-doctor.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1063.0",
+    "@gltf-transform/cli": "^4.4.1",
+    "@gltf-transform/core": "^4.4.1",
+    "@gltf-transform/extensions": "^4.4.1",
+    "@gltf-transform/functions": "^4.4.1",
     "@google/genai": "^2.4.0",
     "@gradio/client": "^2.3.0",
     "@react-google-maps/api": "^2.20.8",
@@ -34,6 +39,7 @@
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
+    "mp4-muxer": "^5.2.2",
     "mysql2": "^3.11.5",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
