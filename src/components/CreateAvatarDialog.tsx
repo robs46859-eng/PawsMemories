@@ -2,11 +2,6 @@ import React, { useState, useRef } from "react";
 import { Camera, X, Check, Upload, Sparkles, Plus, User, ImageIcon, Type, ChevronDown, ChevronUp, Palette } from "lucide-react";
 import {
   TEXT_STYLE_OPTIONS,
-  TEXT_FRAMING_OPTIONS,
-  TEXT_ANGLE_OPTIONS,
-  TEXT_LIGHTING_OPTIONS,
-  GEOMETRY_DETAIL_OPTIONS,
-  GEOMETRY_TEXTURE_OPTIONS,
 } from "../../avatarPrompts";
 
 export interface CreateModelOptions {
@@ -18,11 +13,6 @@ export interface CreateModelOptions {
   subject?: string;
   palette?: string | null;
   style?: string;
-  framing?: string;
-  angle?: string;
-  lighting?: string;
-  geoDetail?: string;
-  geoTexture?: string;
 }
 
 interface CreateAvatarDialogProps {
@@ -109,11 +99,6 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
   const [palette, setPalette] = useState<string>("auto");
   const [showStyling, setShowStyling] = useState(false);
   const [style, setStyle] = useState(TEXT_STYLE_OPTIONS.find((o) => o.recommended)?.id || TEXT_STYLE_OPTIONS[0].id);
-  const [framing, setFraming] = useState(TEXT_FRAMING_OPTIONS.find((o) => o.recommended)?.id || TEXT_FRAMING_OPTIONS[0].id);
-  const [angle, setAngle] = useState(TEXT_ANGLE_OPTIONS.find((o) => o.recommended)?.id || TEXT_ANGLE_OPTIONS[0].id);
-  const [lighting, setLighting] = useState(TEXT_LIGHTING_OPTIONS.find((o) => o.recommended)?.id || TEXT_LIGHTING_OPTIONS[0].id);
-  const [geoDetail, setGeoDetail] = useState(GEOMETRY_DETAIL_OPTIONS.find((o) => o.recommended)?.id || GEOMETRY_DETAIL_OPTIONS[0].id);
-  const [geoTexture, setGeoTexture] = useState(GEOMETRY_TEXTURE_OPTIONS.find((o) => o.recommended)?.id || GEOMETRY_TEXTURE_OPTIONS[0].id);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const faceInputRef = useRef<HTMLInputElement>(null);
@@ -178,7 +163,7 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
       facePhoto: inputMode === 'image' ? facePhoto : null,
       subject: inputMode === 'text' ? subject : undefined,
       palette: palette === "auto" ? null : palette,
-      style, framing, angle, lighting, geoDetail, geoTexture
+      style,
     });
   };
 
@@ -374,22 +359,13 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
                 </div>
               )}
               
-              <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-3">
                 <div className="flex flex-col gap-0.5">
                   <PromptSelect label="Style" value={style} onChange={setStyle} options={TEXT_STYLE_OPTIONS} />
                   {inputMode === 'image' && avatarType === 'human' && (
                     <span className="text-[10px] text-on-surface-variant/70 pl-1">Humans always render as a full standing figure — pick the finish.</span>
                   )}
                 </div>
-                <PromptSelect label="Lighting" value={lighting} onChange={setLighting} options={TEXT_LIGHTING_OPTIONS} />
-                <PromptSelect label="Detail" value={geoDetail} onChange={setGeoDetail} options={GEOMETRY_DETAIL_OPTIONS} />
-                <PromptSelect label="Texture" value={geoTexture} onChange={setGeoTexture} options={GEOMETRY_TEXTURE_OPTIONS} />
-                {inputMode === 'text' && (
-                  <>
-                    <PromptSelect label="Framing" value={framing} onChange={setFraming} options={TEXT_FRAMING_OPTIONS} />
-                    <PromptSelect label="Angle" value={angle} onChange={setAngle} options={TEXT_ANGLE_OPTIONS} />
-                  </>
-                )}
               </div>
             </div>
           )}

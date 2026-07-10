@@ -842,8 +842,12 @@ async function startServer() {
   app.post("/api/avatars", requireAuth, async (req: AuthedRequest, res) => {
     try {
       const { name, photo, photos, palette, avatar_type, face_photo, input_mode, subject, detail, texture, style, lighting } = req.body;
+      // Defensive: accept either camelCase or snake_case so a frontend mismatch can't silently break text mode.
+      const inputMode = input_mode ?? req.body.inputMode;
+      const avatarTypeRaw = avatar_type ?? req.body.avatarType;
+      const facePhotoRaw = face_photo ?? req.body.facePhoto;
       // Normalize the UI type to a canonical SubjectClass ('dog' == animal).
-      let avatarType: SubjectClass = avatar_type === 'human' ? 'human' : avatar_type === 'object' ? 'object' : 'dog';
+      let avatarType: SubjectClass = avatarTypeRaw === 'human' ? 'human' : avatarTypeRaw === 'object' ? 'object' : 'dog';
       // Accept new multi-photo payload; keep backward compat with single `photo`.
       const photoList: string[] = Array.isArray(photos) && photos.length > 0
         ? photos.filter((p: unknown) => typeof p === "string" && p.length > 0)
@@ -851,14 +855,14 @@ async function startServer() {
       // Optional UI-selected accent palette for colour coordination.
       const accent: string | null = typeof palette === "string" && palette ? palette : null;
       // Dedicated face photo from the face upload slot
-      const hasFacePhoto: boolean = typeof face_photo === "string" && face_photo.length > 0;
+      const hasFacePhoto: boolean = typeof facePhotoRaw === "string" && facePhotoRaw.length > 0;
 
       if (!name) {
         return res.status(400).json({ error: "Name is required." });
       }
 
       // Input validation up-front (before any paid image generation).
-      if (input_mode === "text") {
+      if (inputMode === "text") {
         if (!subject || typeof subject !== "string" || subject.trim().length < 2) {
           return res.status(400).json({ error: "Describe what to make (a short subject phrase)." });
         }
@@ -901,7 +905,7 @@ async function startServer() {
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         // Produce a candidate AI image (front-facing 3D render).
         let candidate: string | null;
-        if (input_mode === "text") {
+        if (inputMode === "text") {
           const fields: TextPromptFields = { subject, style, lighting, corrective };
           candidate = await generateImageWithFallback([{ text: buildTextPrompt(fields) }], "text-to-reference", imgErr);
         } else {
@@ -1000,7 +1004,7 @@ async function startServer() {
       finalImageUrl = chosenUrl || (chosenImage.startsWith("data:image") ? await uploadBase64Image(chosenImage) : chosenImage);
 
       // Persist uploaded photos to the user's library (image mode only). Fire-and-forget.
-      if (input_mode !== "text" && photoList.length) {
+      if (inputMode !== "text" && photoList.length) {
         const phoneForPhotos = req.user!.phone;
         (async () => {
           for (const p of photoList) {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Avatar, PublicUser, UserProfile, AvatarAction } from "../types";
 import { fetchAvatars, generate3DAvatar, retryAvatarGeneration, pollAvatarStatus, feedAvatarReq, waterAvatarReq, giveTreatReq } from "../api";
-import CreateAvatarDialog from "./CreateAvatarDialog";
+import CreateAvatarDialog, { type CreateModelOptions } from "./CreateAvatarDialog";
 import Avatar3DPlaypen from "./Avatar3DPlaypen";
 import LivingAvatarView from "./LivingAvatarView";
 import {
@@ -108,20 +108,38 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
     });
   }, [avatars]);
 
-  const handleCreateAvatar = async (options: any) => {
+  const handleCreateAvatar = async (options: CreateModelOptions) => {
     if (userProfile.credits < 400) {
       alert("You need 400 credits to create a model.");
       return;
     }
     setCreating(true);
     try {
-      const result = await generate3DAvatar(options);
-      
+      // Translate the dialog's camelCase options to the server's snake_case contract.
+      const payload = {
+        name: options.name,
+        avatar_type: options.avatarType,
+        input_mode: options.inputMode,
+        photos: options.photos,
+        face_photo: options.facePhoto ?? null,
+        subject: options.subject,
+        palette: options.palette ?? null,
+        style: options.style,
+        // NOTE: detail, texture, lighting intentionally omitted.
+        // The server falls back to its high-quality Tripo defaults.
+      };
+      const result = await generate3DAvatar(payload);
+
       // Optimistically deduct 400 credits
       const updatedUser = { ...userProfile, credits: userProfile.credits - 400 };
       onUpdateUser(updatedUser);
-      
+
       setShowCreate(false);
+      // Auto-detection: if the server detected a different subject class than the
+      // user picked, it soft-switched and returned a notice — let the user know.
+      if (result.notice) {
+        alert(result.notice);
+      }
       // Reload to get the new avatar with 'pending' status
       await loadAvatars();
     } catch (err: any) {
