@@ -1,0 +1,16 @@
+#!/bin/sh
+# Pre-commit gate: block commits that don't type-check.
+# This exists because broken builds (TS errors) were committed/pushed to main
+# multiple times. tsc is fast and catches the exact class of failure.
+#
+# Bypass in a genuine emergency with:  git commit --no-verify
+
+echo "pre-commit: type-checking (tsc --noEmit)…"
+if ! npx tsc --noEmit; then
+  echo ""
+  echo "❌ Commit blocked: TypeScript errors above."
+  echo "   Fix them, or bypass with 'git commit --no-verify' (not recommended)."
+  exit 1
+fi
+echo "✓ types clean — proceeding with commit"
+exit 0

@@ -10,6 +10,7 @@
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
+    "prepare": "git config core.hooksPath .githooks || true",
     "test": "tsx --test tests/*.test.mjs",
     "test:brain": "tsx --test tests/brain_*.test.mjs",
     "test:pets": "tsx --test tests/pets_*.test.mjs",
