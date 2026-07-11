@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, lazy, Suspense } from "react";
 import { Screen, UserProfile, Creation, Album, PublicUser } from "./types";
 import SignUp from "./components/SignUp";
 import Welcome from "./components/Welcome";
@@ -8,17 +8,20 @@ import EditMemory from "./components/EditMemory";
 import RequestMemory from "./components/RequestMemory";
 import AdminRequestPanel from "./components/AdminRequestPanel";
 import ShareMemory from "./components/ShareMemory";
-import RandyChat from "./components/RandyChat";
+// Lazy-loaded: these are the only screens/widgets that pull the three.js + R3F
+// runtime. Loading them on demand keeps three.js OUT of the initial bundle so the
+// landing/dashboard don't download the whole 3D stack.
+const RandyChat = lazy(() => import("./components/RandyChat"));
 import AlbumView from "./components/AlbumView";
 import AlbumsPage from "./components/AlbumsPage";
 import { fetchMe, fetchCreations, fetchAlbums, createAlbum, clearToken, claimAchievement, claimDailyStreak, claimShareReward, confirmCreditsSession } from "./api";
 import { Sparkles, User, History, FolderOpen, Sun, Moon, LogOut, RefreshCw, Zap, Dog, ClipboardList, Bell, ShoppingBag, Users, Home, Layers } from "lucide-react";
 import CreditStore from "./components/CreditStore";
-import AvatarDashboard from "./components/AvatarDashboard";
+const AvatarDashboard = lazy(() => import("./components/AvatarDashboard"));
 import Store from "./components/Store";
 import ProfileScreen from "./components/ProfileScreen";
 import Community from "./components/Community";
-import AnimatorScreen from "./animator/components/AnimatorScreen";
+const AnimatorScreen = lazy(() => import("./animator/components/AnimatorScreen"));
 
 const EMPTY_PROFILE: UserProfile = { fullName: "", email: "", credits: 0, treats: 0, isAdmin: false, city: "", ageVerified: false };
 
@@ -595,18 +598,20 @@ export default function App() {
             )}
 
             {currentScreen === Screen.MODELS && (
-              <AvatarDashboard
-                userProfile={userProfile}
-                onUpdateUser={(updatedUser) => {
-                  setUserProfile(updatedUser);
-                }}
-                isDarkMode={isDarkMode}
-                onOpenCreditStore={() => setShowCreditStore(true)}
-                onGoToAnimator={(assetId) => {
-                  setAnimatorAssetId(assetId);
-                  setCurrentScreen(Screen.ANIMATOR);
-                }}
-              />
+              <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
+                <AvatarDashboard
+                  userProfile={userProfile}
+                  onUpdateUser={(updatedUser) => {
+                    setUserProfile(updatedUser);
+                  }}
+                  isDarkMode={isDarkMode}
+                  onOpenCreditStore={() => setShowCreditStore(true)}
+                  onGoToAnimator={(assetId) => {
+                    setAnimatorAssetId(assetId);
+                    setCurrentScreen(Screen.ANIMATOR);
+                  }}
+                />
+              </Suspense>
             )}
 
             {currentScreen === Screen.STORE && (
@@ -642,10 +647,12 @@ export default function App() {
             )}
 
             {currentScreen === Screen.ANIMATOR && (
-              <AnimatorScreen 
-                initialAssetId={animatorAssetId} 
-                onClose={() => setCurrentScreen(Screen.MODELS)} 
-              />
+              <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
+                <AnimatorScreen
+                  initialAssetId={animatorAssetId}
+                  onClose={() => setCurrentScreen(Screen.MODELS)}
+                />
+              </Suspense>
             )}
 
             {/* Safety net: if somehow on SIGN_UP while authed, send to dashboard */}
@@ -737,13 +744,15 @@ export default function App() {
 
       {/* Randy AI-chat bubble companion (only for signed-in users) */}
       {isAuthed && (
-        <RandyChat
-          onUnlockAchievement={handleUnlockAchievement}
-          isDarkMode={isDarkMode}
-          onNavigate={setCurrentScreen}
-          onOpenCreditStore={() => setShowCreditStore(true)}
-          onLaunchAR={() => setCurrentScreen(Screen.MODELS)}
-        />
+        <Suspense fallback={null}>
+          <RandyChat
+            onUnlockAchievement={handleUnlockAchievement}
+            isDarkMode={isDarkMode}
+            onNavigate={setCurrentScreen}
+            onOpenCreditStore={() => setShowCreditStore(true)}
+            onLaunchAR={() => setCurrentScreen(Screen.MODELS)}
+          />
+        </Suspense>
       )}
 
       {/* Request success toast */}

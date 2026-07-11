@@ -18,6 +18,7 @@ import { chooseStageModelUrl } from "./stageModel";
 import { usePetBrain } from "./brainBridge";
 import { applyGestureToBrain, type PointerSample } from "./gestures";
 import { disposeObject3D } from "./dispose";
+import { addObjectAtPosition, addCompanionAtPosition } from "../objects/placement";
 import ARErrorBoundary from "./ARErrorBoundary";
 
 /**
@@ -187,15 +188,11 @@ function PetStageContent({
         const inv = new THREE.Matrix4().copy(grp.matrixWorld).invert();
         const local = hitPos.current.clone().applyMatrix4(inv);
         if (pendingComp) {
-          import("../objects/placement").then(m => {
-            m.addCompanionAtPosition(avatar.id, pendingComp, [local.x, 0, local.z]);
-            state.setPendingCompanion(null);
-          });
+          addCompanionAtPosition(avatar.id, pendingComp, [local.x, 0, local.z]);
+          state.setPendingCompanion(null);
         } else if (pendingObj) {
-          import("../objects/placement").then(m => {
-            m.addObjectAtPosition(avatar.id, pendingObj, [local.x, 0, local.z]);
-            state.setPendingObjectKind(null);
-          });
+          addObjectAtPosition(avatar.id, pendingObj, [local.x, 0, local.z]);
+          state.setPendingObjectKind(null);
         }
         return;
       }

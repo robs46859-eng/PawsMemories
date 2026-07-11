@@ -1,4 +1,5 @@
 import express from "express";
+import compression from "compression";
 import path from "path";
 // Vite is imported dynamically below — only in dev mode
 import { GoogleGenAI } from "@google/genai";
@@ -42,6 +43,9 @@ dotenv.config();
 
 async function startServer() {
   const app = express();
+  // Gzip/deflate every text response (JSON, JS, CSS, HTML). The main bundle is
+  // ~1.7MB raw → ~490KB on the wire. Must be mounted before route/static handlers.
+  app.use(compression());
   // Hostinger runs the app behind a reverse proxy (LiteSpeed) which sets
   // X-Forwarded-For. Without this, express-rate-limit throws
   // ERR_ERL_UNEXPECTED_X_FORWARDED_FOR and rate-limits by proxy IP.
@@ -3625,8 +3629,19 @@ CRITICAL RULES:
     app.use(vite.middlewares);
   } else {
     console.log(`[Production] Serving static files from ${distPath}`);
-    app.use(express.static(distPath));
+    app.use(express.static(distPath, {
+      setHeaders(res, filePath) {
+        // Vite fingerprints asset filenames, so hashed assets are safe to cache
+        // forever. index.html must stay uncached so new deploys are picked up.
+        if (filePath.endsWith("index.html")) {
+          res.setHeader("Cache-Control", "no-cache");
+        } else if (/\.(js|css|woff2?|png|jpe?g|webp|avif|glb|gltf|svg)$/i.test(filePath)) {
+          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        }
+      },
+    }));
     app.get('*', (req, res) => {
+      res.setHeader("Cache-Control", "no-cache");
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

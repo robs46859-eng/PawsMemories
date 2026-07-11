@@ -19,7 +19,7 @@ import { PlacedObject } from "../../types";
 import { OBJECT_CATALOG } from "../objects/catalog";
 import { resolveClipName } from "../clipMap";
 import { useAvatarScene } from "../store";
-import { addObjectAtPosition } from "../objects/placement";
+import { addObjectAtPosition, addCompanionAtPosition } from "../objects/placement";
 
 const XR8_SRC = "https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js";
 
@@ -240,10 +240,8 @@ export async function startEighthWallAR(
         const pendingComp = state.pendingCompanion;
         
         if (pendingComp && anchor.visible) {
-          import("../objects/placement").then(m => {
-            m.addCompanionAtPosition(opts.avatarId, pendingComp, [p.x - anchor.position.x, 0, p.z - anchor.position.z]);
-            state.setPendingCompanion(null);
-          });
+          addCompanionAtPosition(opts.avatarId, pendingComp, [p.x - anchor.position.x, 0, p.z - anchor.position.z]);
+          state.setPendingCompanion(null);
           return;
         }
         

@@ -27,6 +27,8 @@ export default defineConfig(() => {
       rollupOptions: {
         output: {
           manualChunks: {
+            three: ['three'],
+            r3f: ['@react-three/fiber', '@react-three/drei', '@react-three/xr'],
             maps: ['@react-google-maps/api'],
             animation: ['motion'],
             icons: ['lucide-react'],
