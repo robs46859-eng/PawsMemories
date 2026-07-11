@@ -10,6 +10,11 @@ import { WeatherSystem, WeatherType } from "../scenes/weather/WeatherSystem.tsx"
 import { SoundSystem } from "../scenes/sound/SoundSystem.tsx";
 import { evaluateSequence, SceneSequence } from "../scenes/SceneSequence.ts";
 import { lightingFor } from "../scenes/lightingRig.ts";
+import { AnimatorErrorBoundary } from "./AnimatorErrorBoundary.tsx";
+import { isMobile, hasWebGL2, hasWebCodecs } from "../utils/capabilities.ts";
+import { filterReadyAvatars, resolveAvatarGlbUrl } from "../utils/avatarUtils.ts";
+import { ALL_OBJECT_KINDS, OBJECT_CATALOG } from "../../three/objects/catalog.ts";
+import { runScript } from "../scenes/SceneSequence.ts";
 
 /**
  * Renders the scene backdrop based on the preset's `backdrop.kind`.
@@ -22,11 +27,12 @@ function SceneBackdrop({ backdrop }: { backdrop?: { kind?: string; url?: string 
   const { scene } = useThree();
   const kind = backdrop?.kind;
   const url = backdrop?.url;
+  const mobile = isMobile();
 
   // Flat image renders (kind: "image") can't be a drei <Environment>; set them as
   // scene.background so they fill the viewport no matter where the camera orbits.
   useEffect(() => {
-    if (kind !== "image" || !url) {
+    if (kind !== "image" || !url || mobile) {
       if (scene.background instanceof THREE.Texture) {
         scene.background.dispose();
       }
@@ -55,6 +61,10 @@ function SceneBackdrop({ backdrop }: { backdrop?: { kind?: string; url?: string 
     };
   }, [kind, url, scene]);
 
+  if (mobile) {
+    return <Environment preset="city" background />;
+  }
+  
   if (kind === "hdri" || kind === "dome360") {
     // 360° map: lights the pet AND shows as the visible background.
     return url ? <Environment files={url} background /> : <Environment preset="city" />;
@@ -161,6 +171,14 @@ export default function AnimatorScreen({
   const [mode, setMode] = useState<"cast" | "scene">("cast");
   const [environments, setEnvironments] = useState<any[]>([]);
   const [scripts, setScripts] = useState<any[]>([]);
+  const [directorScripts, setDirectorScripts] = useState<any[]>([]);
+  const [userAvatars, setUserAvatars] = useState<any[]>([]);
+  const [activeDirectorScript, setActiveDirectorScript] = useState<any>(null);
+  
+  const mobile = useMemo(() => isMobile(), []);
+  const webGL2 = useMemo(() => hasWebGL2(), []);
+  const webCodecs = useMemo(() => hasWebCodecs(), []);
+  const [contextLost, setContextLost] = useState(false);
   
   const [activeEnvId, setActiveEnvId] = useState<string>("");
   const [weather, setWeather] = useState<WeatherType>("clear");
@@ -239,6 +257,22 @@ export default function AnimatorScreen({
         if (Array.isArray(data)) setScripts(data);
       })
       .catch(console.error);
+      
+      fetch("/api/scenes/director-scripts", { headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` }})
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) setDirectorScripts(data);
+      })
+      .catch(console.error);
+
+    fetch("/api/avatars", { headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` }})
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setUserAvatars(filterReadyAvatars(data));
+        }
+      })
+      .catch(console.error);
   }, []);
 
   // Sync timeline progress and evaluate sequences
@@ -262,12 +296,30 @@ export default function AnimatorScreen({
           activeController.selectClip(state.clipTarget);
         }
       }
+      
+      if (activeDirectorScript) {
+        // Run director script
+        // Need to loop over all actors to find matching roleId, but since roleId isn't on actor yet...
+        // For simplicity, we just assume the first actor is the main actor.
+        const state = runScript(activeDirectorScript, currentTime);
+        if (state.cameraTarget) {
+          setCameraState(state.cameraTarget);
+        }
+        if (state.weatherTarget) {
+          setWeather(state.weatherTarget as WeatherType);
+        }
+        // Since we don't have role assignments in this simple MVP, we just apply the first clip to the active actor
+        if (activeController) {
+          const firstClip = Object.values(state.clipTargets)[0];
+          if (firstClip) activeController.selectClip(firstClip);
+        }
+      }
 
       rafRef.current = requestAnimationFrame(updateTimeline);
     };
     rafRef.current = requestAnimationFrame(updateTimeline);
     return () => cancelAnimationFrame(rafRef.current!);
-  }, [activeController, activeSequence]);
+  }, [activeController, activeSequence, activeDirectorScript]);
 
   // Load initial asset
   useEffect(() => {
@@ -296,6 +348,10 @@ export default function AnimatorScreen({
   const handleAddActor = (e: React.FormEvent) => {
     e.preventDefault();
     if (!addingAssetId) return;
+    if (mobile && actors.length >= 2) {
+      alert("Mobile devices are limited to 2 actors to preserve memory.");
+      return;
+    }
     sceneController.addActor(addingAssetId);
     setShowAddModal(false);
     setAddingAssetId("");
@@ -344,9 +400,10 @@ export default function AnimatorScreen({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black text-white flex flex-col font-sans">
-      {/* Top Bar */}
-      <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center z-10 bg-gradient-to-b from-black/80 to-transparent">
+    <AnimatorErrorBoundary hasWebGL2={webGL2} onClose={onClose}>
+      <div className="fixed inset-0 z-50 bg-black text-white flex flex-col font-sans">
+        {/* Top Bar */}
+        <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center z-10 bg-gradient-to-b from-black/80 to-transparent">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <Clapperboard className="text-primary" />
@@ -376,6 +433,15 @@ export default function AnimatorScreen({
 
       {/* 3D Viewport */}
       <div className="flex-1 w-full h-full relative">
+        {contextLost && (
+          <div className="absolute inset-0 z-40 bg-black/80 flex items-center justify-center text-white p-6 text-center" onClick={() => setContextLost(false)}>
+            <div>
+              <h2 className="text-xl font-bold mb-2">Graphics Context Lost</h2>
+              <p className="text-white/60 mb-4">The device ran out of graphics memory or the app went to the background.</p>
+              <p className="text-sm font-bold text-primary animate-pulse">Tap anywhere to resume</p>
+            </div>
+          </div>
+        )}
         <Canvas 
           ref={canvasRef}
           camera={{ 
@@ -385,10 +451,26 @@ export default function AnimatorScreen({
           gl={{
             toneMapping: (React as any).useMemo(() => (THREE as any)[ANIMATOR_DEFAULTS.renderer.toneMapping], []),
             outputColorSpace: ANIMATOR_DEFAULTS.renderer.outputColorSpace,
+            powerPreference: "high-performance",
+            failIfMajorPerformanceCaveat: false,
+            antialias: !mobile
           }}
-          dpr={[1, ANIMATOR_DEFAULTS.renderer.dprMax]}
+          dpr={mobile ? [1, 1.5] : [1, ANIMATOR_DEFAULTS.renderer.dprMax]}
           shadows={{ type: ANIMATOR_DEFAULTS.renderer.shadowMapType as any }}
-          onCreated={({ camera }) => { cameraRef.current = camera as THREE.PerspectiveCamera; }}
+          onCreated={({ camera, gl }) => { 
+            cameraRef.current = camera as THREE.PerspectiveCamera; 
+            gl.domElement.addEventListener("webglcontextlost", (e) => {
+              e.preventDefault();
+              setContextLost(true);
+              if (isPlaying) {
+                sceneController.pauseAll();
+                setIsPlaying(false);
+              }
+            });
+            gl.domElement.addEventListener("webglcontextrestored", () => {
+              setContextLost(false);
+            });
+          }}
         >
           <Viewport 
             sceneController={sceneController} 
@@ -437,12 +519,46 @@ export default function AnimatorScreen({
                     </div>
                   ))}
                 </div>
+                
+                <h3 className="text-xs font-bold text-white/60 uppercase tracking-wider mt-2 border-t border-white/10 pt-3">Objects</h3>
+                <div className="flex flex-wrap gap-2 max-h-[15vh] overflow-y-auto pb-1">
+                  {ALL_OBJECT_KINDS.map(kind => {
+                    const def = OBJECT_CATALOG[kind];
+                    return (
+                      <button 
+                        key={kind}
+                        onClick={() => {
+                          if (!def.glbUrl) return;
+                          if (mobile && actors.length >= 2) {
+                            alert("Mobile devices are limited to 2 actors to preserve memory.");
+                            return;
+                          }
+                          sceneController.addActor(def.glbUrl, { label: def.label });
+                        }}
+                        className="w-10 h-10 bg-white/5 hover:bg-white/20 rounded-lg flex items-center justify-center text-xl transition-colors border border-transparent hover:border-primary/50"
+                        title={def.label}
+                      >
+                        {def.emoji}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Clips Panel */}
               {activeController && (
                 <div className="bg-black/60 backdrop-blur-md rounded-2xl border border-white/10 p-4 flex flex-col gap-3 pointer-events-auto max-w-[300px] max-h-[40vh] overflow-y-auto">
-                  <h3 className="text-xs font-bold text-white/60 uppercase tracking-wider">Animations</h3>
+                  <div className="flex justify-between items-center mb-1">
+                    <h3 className="text-xs font-bold text-white/60 uppercase tracking-wider">Animations</h3>
+                    {false /* Hidden until retargeting pipeline is wired */ && (
+                      <button 
+                        className="text-[10px] bg-primary/20 text-primary px-2 py-1 rounded-md hover:bg-primary/40 transition-colors"
+                        title="Generate more animations (1 Credit)"
+                      >
+                        + More (1 🪙)
+                      </button>
+                    )}
+                  </div>
                   <div className="flex flex-wrap gap-2">
                     {activeController.listClips().map((clip) => (
                       <button
@@ -532,80 +648,106 @@ export default function AnimatorScreen({
                 </button>
               </div>
 
-              {/* Sequences & Voiceover Panel */}
-              <div className="bg-black/60 backdrop-blur-md rounded-2xl border border-white/10 p-4 flex flex-col gap-3 pointer-events-auto w-[300px]">
-                <h3 className="text-xs font-bold text-white/60 uppercase tracking-wider">Sequences</h3>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    onClick={() => setActiveSequenceId("")}
-                    className={`text-xs px-3 py-1.5 rounded-full border transition-all ${activeSequenceId === "" ? 'bg-primary/40 border-primary' : 'bg-white/10 border-white/5 hover:bg-white/20'}`}
-                  >
-                    Free Play
-                  </button>
-                  {ANIMATOR_DEFAULTS.sequences.map(seq => (
+                {/* Sequences & Voiceover Panel */}
+                <div className="bg-black/60 backdrop-blur-md rounded-2xl border border-white/10 p-4 flex flex-col gap-3 pointer-events-auto w-[300px]">
+                  <h3 className="text-xs font-bold text-white/60 uppercase tracking-wider">Sequences</h3>
+                  <div className="flex flex-wrap gap-2">
                     <button
-                      key={seq.id}
-                      onClick={() => setActiveSequenceId(seq.id)}
-                      className={`text-xs px-3 py-1.5 rounded-full border transition-all ${activeSequenceId === seq.id ? 'bg-primary/40 border-primary' : 'bg-white/10 border-white/5 hover:bg-white/20'}`}
+                      onClick={() => setActiveSequenceId("")}
+                      className={`text-xs px-3 py-1.5 rounded-full border transition-all ${activeSequenceId === "" ? 'bg-primary/40 border-primary' : 'bg-white/10 border-white/5 hover:bg-white/20'}`}
                     >
-                      {seq.name}
+                      Free Play
                     </button>
-                  ))}
-                </div>
-
-                <div className="w-full h-px bg-white/10 my-1"></div>
-                
-                <h3 className="text-xs font-bold text-white/60 uppercase tracking-wider flex items-center gap-1">
-                  <Mic size={12} /> Voiceover
-                </h3>
-                <textarea 
-                  value={voiceoverText}
-                  onChange={(e) => setVoiceoverText(e.target.value)}
-                  placeholder="Enter script here..."
-                  className="bg-black/50 border border-white/20 rounded-xl p-2 text-xs outline-none focus:border-primary w-full h-16 resize-none"
-                />
-                <div className="flex justify-between items-center">
-                  <select 
-                    onChange={(e) => setVoiceoverText(e.target.value)}
-                    className="bg-transparent border-none text-xs text-white/60 outline-none w-24"
-                    value=""
-                  >
-                    <option value="" disabled>Presets...</option>
-                    {scripts.map(s => (
-                      <option key={s.id} value={s.text}>{s.title}</option>
+                    {ANIMATOR_DEFAULTS.sequences.map(seq => (
+                      <button
+                        key={seq.id}
+                        onClick={() => setActiveSequenceId(seq.id)}
+                        className={`text-xs px-3 py-1.5 rounded-full border transition-all ${activeSequenceId === seq.id ? 'bg-primary/40 border-primary' : 'bg-white/10 border-white/5 hover:bg-white/20'}`}
+                      >
+                        {seq.name}
+                      </button>
                     ))}
-                  </select>
-                  <button 
-                    onClick={handleGenerateVoiceover}
-                    disabled={isVoiceoverRunning || !voiceoverText}
-                    className="bg-primary text-on-primary text-xs font-bold px-3 py-1.5 rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {isVoiceoverRunning ? "Generating..." : "Generate Audio"}
-                  </button>
-                </div>
+                  </div>
 
-                <div className="w-full h-px bg-white/10 my-1"></div>
-
-                <h3 className="text-xs font-bold text-white/60 uppercase tracking-wider flex items-center justify-between">
-                  <span>Camera Bookmarks</span>
-                  <button onClick={saveBookmark} className="hover:text-primary transition-colors text-white/60">
-                    <Plus size={14} />
-                  </button>
-                </h3>
-                <div className="flex flex-wrap gap-2">
-                  {bookmarks.length === 0 && <span className="text-[10px] text-white/40">No bookmarks saved</span>}
-                  {bookmarks.map((b, i) => (
-                    <button 
-                      key={b.id}
-                      onClick={() => setCameraState({ position: b.position, fov: b.fov })}
-                      className="text-xs px-2 py-1 bg-white/10 hover:bg-white/20 rounded border border-transparent"
+                  <div className="w-full h-px bg-white/10 my-1"></div>
+                  
+                  <h3 className="text-xs font-bold text-white/60 uppercase tracking-wider flex items-center gap-1">
+                    <Mic size={12} /> Voiceover
+                  </h3>
+                  <textarea 
+                    value={voiceoverText}
+                    onChange={(e) => setVoiceoverText(e.target.value)}
+                    placeholder="Enter script here..."
+                    className="bg-black/50 border border-white/20 rounded-xl p-2 text-xs outline-none focus:border-primary w-full h-16 resize-none"
+                  />
+                  <div className="flex justify-between items-center">
+                    <select 
+                      onChange={(e) => setVoiceoverText(e.target.value)}
+                      className="bg-transparent border-none text-xs text-white/60 outline-none w-24"
+                      value=""
                     >
-                      {b.name}
+                      <option value="" disabled>Presets...</option>
+                      {scripts.map(s => (
+                        <option key={s.id} value={s.text}>{s.title}</option>
+                      ))}
+                    </select>
+                    <button 
+                      onClick={handleGenerateVoiceover}
+                      disabled={isVoiceoverRunning || !voiceoverText}
+                      className="bg-primary text-on-primary text-xs font-bold px-3 py-1.5 rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {isVoiceoverRunning ? "Generating..." : "Generate Audio"}
                     </button>
-                  ))}
+                  </div>
+
+                  <div className="w-full h-px bg-white/10 my-1"></div>
+
+                  <h3 className="text-xs font-bold text-white/60 uppercase tracking-wider flex items-center justify-between">
+                    <span>Camera Bookmarks</span>
+                    <button onClick={saveBookmark} className="hover:text-primary transition-colors text-white/60">
+                      <Plus size={14} />
+                    </button>
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
+                    {bookmarks.length === 0 && <span className="text-[10px] text-white/40">No bookmarks saved</span>}
+                    {bookmarks.map((b, i) => (
+                      <button 
+                        key={b.id}
+                        onClick={() => setCameraState({ position: b.position, fov: b.fov })}
+                        className="text-xs px-2 py-1 bg-white/10 hover:bg-white/20 rounded border border-transparent"
+                      >
+                        {b.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                
+                {/* Director Scripts Panel */}
+                <div className="bg-black/60 backdrop-blur-md rounded-2xl border border-white/10 p-4 flex flex-col gap-3 pointer-events-auto min-w-[200px]">
+                  <h3 className="text-xs font-bold text-white/60 uppercase tracking-wider flex items-center gap-1">
+                    <Play size={12} /> Director Scripts
+                  </h3>
+                  <div className="flex flex-col gap-1 max-h-[30vh] overflow-y-auto">
+                    {directorScripts.length === 0 && <span className="text-xs text-white/40 italic">No scripts found.</span>}
+                    {directorScripts.map(script => (
+                      <div 
+                        key={script.id}
+                        onClick={() => {
+                          setActiveDirectorScript(script);
+                          setActiveSequenceId("");
+                          if (script.recommendedEnvironment) {
+                            const env = environments.find(e => e.id === script.recommendedEnvironment);
+                            if (env) setActiveEnvId(env.id);
+                          }
+                        }}
+                        className={`p-2 rounded-lg cursor-pointer text-sm font-medium transition-colors ${activeDirectorScript?.id === script.id ? 'bg-primary/20 text-primary border border-primary/50' : 'hover:bg-white/5 border border-transparent'}`}
+                      >
+                        {script.name}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
           )}
         </div>
 
@@ -647,38 +789,42 @@ export default function AnimatorScreen({
             </select>
           </div>
 
-          <div className="w-px h-8 bg-white/20 mx-2"></div>
+          {webCodecs && (
+            <>
+              <div className="w-px h-8 bg-white/20 mx-2"></div>
 
-          {captureSession.isRecording ? (
-            <button 
-              onClick={captureSession.stop}
-              className="flex items-center gap-2 px-4 py-2 bg-white text-red-600 rounded-full text-xs font-bold uppercase tracking-wider transition-all active:scale-95 shadow-lg shadow-white/20"
-            >
-              <Square size={16} className="fill-current" /> Stop
-            </button>
-          ) : captureSession.hasRecording ? (
-            <div className="flex items-center gap-2">
-              <button 
-                onClick={captureSession.download}
-                className="flex items-center gap-2 px-4 py-2 bg-secondary text-white rounded-full text-xs font-bold uppercase tracking-wider transition-all active:scale-95 shadow-lg shadow-secondary/20"
-              >
-                <Download size={16} /> Save
-              </button>
-              <button 
-                onClick={captureSession.start}
-                className="w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition-all text-white/80"
-                title="Record Again"
-              >
-                <Video size={16} />
-              </button>
-            </div>
-          ) : (
-            <button 
-              onClick={captureSession.start}
-              className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-full text-xs font-bold uppercase tracking-wider transition-all active:scale-95 shadow-lg shadow-red-600/20"
-            >
-              <Video size={16} /> Record
-            </button>
+              {captureSession.isRecording ? (
+                <button 
+                  onClick={captureSession.stop}
+                  className="flex items-center gap-2 px-4 py-2 bg-white text-red-600 rounded-full text-xs font-bold uppercase tracking-wider transition-all active:scale-95 shadow-lg shadow-white/20"
+                >
+                  <Square size={16} className="fill-current" /> Stop
+                </button>
+              ) : captureSession.hasRecording ? (
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={captureSession.download}
+                    className="flex items-center gap-2 px-4 py-2 bg-secondary text-white rounded-full text-xs font-bold uppercase tracking-wider transition-all active:scale-95 shadow-lg shadow-secondary/20"
+                  >
+                    <Download size={16} /> Save
+                  </button>
+                  <button 
+                    onClick={captureSession.start}
+                    className="w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition-all text-white/80"
+                    title="Record Again"
+                  >
+                    <Video size={16} />
+                  </button>
+                </div>
+              ) : (
+                <button 
+                  onClick={captureSession.start}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-full text-xs font-bold uppercase tracking-wider transition-all active:scale-95 shadow-lg shadow-red-600/20"
+                >
+                  <Video size={16} /> Record
+                </button>
+              )}
+            </>
           )}
 
         </div>
@@ -689,35 +835,73 @@ export default function AnimatorScreen({
         <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
           <form onSubmit={handleAddActor} className="bg-slate-900 rounded-3xl p-6 w-full max-w-sm border border-white/10 shadow-2xl">
             <h2 className="text-lg font-bold mb-4">Add Model to Stage</h2>
-            <p className="text-xs text-white/60 mb-4">
-              Enter an Asset ID, URL, or select from your dashboard. (Phase 3 currently supports pasting the Asset ID).
-            </p>
-            <input 
-              type="text" 
-              placeholder="Asset ID or URL..." 
-              value={addingAssetId}
-              onChange={(e) => setAddingAssetId(e.target.value)}
-              className="w-full bg-black/50 border border-white/20 rounded-xl p-3 text-sm mb-6 outline-none focus:border-primary transition-colors"
-              autoFocus
-            />
+            
+            <div className="flex flex-col gap-2 mb-6 max-h-[40vh] overflow-y-auto">
+              {userAvatars.length === 0 ? (
+                <div className="text-white/40 text-sm italic text-center p-4 bg-black/20 rounded-xl">No ready avatars found.</div>
+              ) : (
+                userAvatars.map(avatar => (
+                  <div 
+                    key={avatar.id}
+                    onClick={() => {
+                      const url = resolveAvatarGlbUrl(avatar);
+                      if (!url) return;
+                      if (mobile && actors.length >= 2) {
+                        alert("Mobile devices are limited to 2 actors to preserve memory.");
+                        return;
+                      }
+                      sceneController.addActor(url, { label: avatar.name });
+                      setShowAddModal(false);
+                      setAddingAssetId("");
+                    }}
+                    className="flex items-center gap-3 p-3 bg-black/40 hover:bg-black/60 rounded-xl cursor-pointer transition-colors border border-transparent hover:border-primary/50"
+                  >
+                    {avatar.imageUrl ? (
+                      <img src={avatar.imageUrl} alt="" className="w-10 h-10 rounded-lg object-cover bg-black" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center text-xs">No img</div>
+                    )}
+                    <span className="font-medium text-sm flex-1 truncate">{avatar.name}</span>
+                    <Plus size={16} className="text-white/40 group-hover:text-primary" />
+                  </div>
+                ))
+              )}
+            </div>
+
+            <details className="mb-6 group">
+              <summary className="text-xs text-white/40 hover:text-white cursor-pointer select-none mb-2 outline-none">
+                Advanced: Paste URL
+              </summary>
+              <div className="mt-2 flex flex-col gap-2">
+                <input 
+                  type="text" 
+                  placeholder="Asset ID or GLB URL..." 
+                  value={addingAssetId}
+                  onChange={(e) => setAddingAssetId(e.target.value)}
+                  className="w-full bg-black/50 border border-white/20 rounded-xl p-3 text-sm outline-none focus:border-primary transition-colors"
+                />
+                <button 
+                  type="submit"
+                  className="px-4 py-2 rounded-xl text-sm font-bold bg-white/10 text-white hover:bg-white/20 transition-colors self-end"
+                >
+                  Add Custom
+                </button>
+              </div>
+            </details>
+
             <div className="flex gap-3 justify-end">
               <button 
                 type="button" 
                 onClick={() => setShowAddModal(false)}
                 className="px-4 py-2 rounded-xl text-sm font-bold text-white/60 hover:text-white transition-colors"
               >
-                Cancel
-              </button>
-              <button 
-                type="submit"
-                className="px-4 py-2 rounded-xl text-sm font-bold bg-primary text-on-primary hover:brightness-110 transition-colors"
-              >
-                Add Actor
+                Close
               </button>
             </div>
           </form>
         </div>
       )}
-    </div>
+      </div>
+    </AnimatorErrorBoundary>
   );
 }

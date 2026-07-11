@@ -44,3 +44,34 @@ export function evaluateSequence(
     clipTarget: latestClip?.target,
   };
 }
+
+export function runScript(script: any, currentTime: number): {
+  cameraTarget?: any;
+  weatherTarget?: any;
+  clipTargets: Record<string, any>;
+  lightTarget?: any;
+  soundTarget?: any;
+} {
+  let latestCamera: any = null;
+  let latestLight: any = null;
+  let latestSound: any = null;
+  const clipTargets: Record<string, any> = {};
+
+  for (const event of script.events) {
+    if (event.time <= currentTime) {
+      if (event.type === 'camera') latestCamera = event.value;
+      if (event.type === 'light') latestLight = event.value;
+      if (event.type === 'sound') latestSound = event.value;
+      if (event.type === 'clip' && event.roleId) {
+        clipTargets[event.roleId] = event.value;
+      }
+    }
+  }
+
+  return {
+    cameraTarget: latestCamera,
+    lightTarget: latestLight,
+    soundTarget: latestSound,
+    clipTargets,
+  };
+}

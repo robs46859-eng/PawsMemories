@@ -9,6 +9,7 @@ import { createProject, getProject, listProjects, updateProject, deleteProject }
 import { createScene, getScene } from "./scenes.ts";
 import { loadEnvironments } from "./environments.ts";
 import { loadScripts, estimateSpeechSeconds } from "./scripts.ts";
+import { PRESET_SCRIPTS } from "./sceneScripts.ts";
 import { uploadBase64Binary } from "../../storage.ts";
 import { getCreditBalance, deductCredits, createJob, isUserAdmin, getDailyVideoCount } from "../../db.ts";
 import { startTalkingVideo } from "../../heygen.ts";
@@ -352,6 +353,17 @@ animatorRouter.get("/scenes/scripts", (req: any, res) => {
     }
     const scripts = loadScripts();
     res.json(scripts);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+animatorRouter.get("/scenes/director-scripts", (req: any, res) => {
+  try {
+    if (!req.user || !req.user.phone) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    res.json(PRESET_SCRIPTS);
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
