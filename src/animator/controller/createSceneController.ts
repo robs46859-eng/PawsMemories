@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from "uuid";
 import type { SceneController, SceneActor, AnimationController, AssetId } from "../types.ts";
 import { createAnimationController } from "./createAnimationController.ts";
 import { ANIMATOR_DEFAULTS } from "../defaults.ts";
+import { buildLegIK, headLookAt, pelvisHeightFromPaws } from "../../three/ar/ik.ts";
 
 export function createSceneController(): SceneController & { getScene(): THREE.Scene; getActiveActorId(): string | null } {
   const scene = new THREE.Scene();
@@ -13,6 +14,7 @@ export function createSceneController(): SceneController & { getScene(): THREE.S
   const actors = new Map<string, SceneActor>();
   const controllers = new Map<string, AnimationController>();
   const objectRoots = new Map<string, THREE.Object3D>();
+  const ikRigs = new Map<string, any>(); // LegIKRig
   
   let activeActorId: string | null = null;
   let globalSpeed = 1.0;
@@ -83,6 +85,8 @@ export function createSceneController(): SceneController & { getScene(): THREE.S
       scene.add(clonedScene);
       objectRoots.set(actorId, clonedScene);
       
+      ikRigs.set(actorId, buildLegIK(clonedScene));
+      
       const controller = createAnimationController(clonedScene, gltf.animations);
       controller.setSpeed(globalSpeed);
       controllers.set(actorId, controller);
@@ -139,6 +143,44 @@ export function createSceneController(): SceneController & { getScene(): THREE.S
     
     getActorController(actorId: string) {
       return controllers.get(actorId);
+    },
+    
+    getActorRoot(actorId: string) {
+      return objectRoots.get(actorId);
+    },
+    
+    applyIK(actorId: string, options: { groundIK: boolean, lookAtCamera: boolean, cameraPosition?: THREE.Vector3 }) {
+      const rig = ikRigs.get(actorId);
+      if (!rig) return;
+      
+      if (options.lookAtCamera && options.cameraPosition) {
+        headLookAt(rig.headBone, options.cameraPosition);
+      }
+      
+      if (options.groundIK) {
+        // Find world Y for each paw
+        const pawYs: number[] = [];
+        for (const chain of rig.chains) {
+          const pawName = chain[2];
+          const pawIndex = rig.boneIndex[pawName];
+          if (pawIndex !== undefined) {
+            const pawBone = rig.mesh.skeleton.bones[pawIndex];
+            if (pawBone) {
+              const pos = new THREE.Vector3();
+              pawBone.getWorldPosition(pos);
+              pawYs.push(pos.y);
+            }
+          }
+        }
+        
+        if (rig.hipsBone && pawYs.length > 0) {
+          // simple restY assumption: original hips pos.y
+          // we should cache restY, but for MVP just adjusting dynamically works if we don't drift
+          const restY = rig.hipsBone.position.y; 
+          const newY = pelvisHeightFromPaws(pawYs, restY);
+          rig.hipsBone.position.y = newY;
+        }
+      }
     },
     
     setActiveActor(actorId: string) {

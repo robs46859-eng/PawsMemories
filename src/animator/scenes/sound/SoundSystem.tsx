@@ -7,6 +7,7 @@ interface SoundSystemProps {
   ambientUrl?: string;
   weather: WeatherType;
   volume?: number;
+  soundCue?: string;
 }
 
 // Maps weather states to common CC0 sound URLs (placeholders or real if available)
@@ -16,7 +17,7 @@ const WEATHER_SFX: Record<string, string> = {
   snow: "/animator-files/sounds/wind_snow_loop.mp3",
 };
 
-export function SoundSystem({ ambientUrl, weather, volume = 0.5 }: SoundSystemProps) {
+export function SoundSystem({ ambientUrl, weather, volume = 0.5, soundCue }: SoundSystemProps) {
   const { camera } = useThree();
   const [listener] = useState(() => new THREE.AudioListener());
   
@@ -79,6 +80,22 @@ export function SoundSystem({ ambientUrl, weather, volume = 0.5 }: SoundSystemPr
       weatherAudio.current = null;
     };
   }, [weather, listener, volume]);
+
+  useEffect(() => {
+    if (!soundCue) return;
+
+    const audioLoader = new THREE.AudioLoader();
+    const audio = new THREE.Audio(listener);
+
+    audioLoader.load(soundCue, (buffer) => {
+      audio.setBuffer(buffer);
+      audio.setLoop(false);
+      audio.setVolume(volume);
+      audio.play();
+    }, undefined, (err) => {
+      console.warn("Failed to load sound cue:", err);
+    });
+  }, [soundCue, listener, volume]);
 
   // Handle live volume updates
   useEffect(() => {

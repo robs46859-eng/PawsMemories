@@ -15,6 +15,11 @@ import { isMobile, hasWebGL2, hasWebCodecs } from "../utils/capabilities.ts";
 import { filterReadyAvatars, resolveAvatarGlbUrl } from "../utils/avatarUtils.ts";
 import { ALL_OBJECT_KINDS, OBJECT_CATALOG } from "../../three/objects/catalog.ts";
 import { runScript } from "../scenes/SceneSequence.ts";
+import { retargetClip } from "../utils/retargetUtils.ts";
+import { findSkinnedMesh } from "../../three/ar/ik.ts";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { TheatreWrapper } from "./TheatreWrapper.tsx";
+import { editable } from "@theatre/r3f";
 
 /**
  * Renders the scene backdrop based on the preset's `backdrop.kind`.
@@ -86,26 +91,35 @@ function Viewport({
   soundMuted,
 }: { 
   sceneController: ReturnType<typeof useSceneController>,
-  environment: any,
   weather: WeatherType,
   cameraState: { position: [number, number, number], fov: number },
   soundMuted: boolean,
+  lightTarget: any,
+  soundCue: any,
+  ikOptions: any,
+  proMode?: boolean,
 }) {
   const scene = sceneController.getScene();
   
   const lighting = useMemo(() => {
     if (environment) {
-      return lightingFor(environment.defaultTimeOfDay || "afternoon", environment);
+      const baseTime = typeof lightTarget === 'string' ? lightTarget : (environment.defaultTimeOfDay || "afternoon");
+      const baseLighting = lightingFor(baseTime as any, environment);
+      return typeof lightTarget === 'object' ? { ...baseLighting, ...lightTarget } : baseLighting;
     }
     return null;
-  }, [environment]);
+  }, [environment, lightTarget]);
 
   return (
     <>
       {/* Per-frame controller tick — must live inside <Canvas> */}
-      <SceneTicker controller={sceneController} />
+      <SceneTicker controller={sceneController} ikOptions={ikOptions} />
 
       <primitive object={scene} />
+
+      {proMode && (
+        <editable.perspectiveCamera makeDefault theatreKey="Camera" position={[0, 2, 5]} fov={50} />
+      )}
 
       <WeatherSystem weather={weather} />
       
@@ -114,6 +128,7 @@ function Viewport({
           ambientUrl={environment.ambientSound} 
           weather={weather} 
           volume={soundMuted ? 0 : ANIMATOR_DEFAULTS.sound.volume} 
+          soundCue={soundCue}
         />
       )}
 
@@ -173,7 +188,12 @@ export default function AnimatorScreen({
   const [scripts, setScripts] = useState<any[]>([]);
   const [directorScripts, setDirectorScripts] = useState<any[]>([]);
   const [userAvatars, setUserAvatars] = useState<any[]>([]);
+  const [libraryClips, setLibraryClips] = useState<any[]>([]);
   const [activeDirectorScript, setActiveDirectorScript] = useState<any>(null);
+  const [castAssignments, setCastAssignments] = useState<Record<string, string>>({});
+  const [mappedRoles, setMappedRoles] = useState<Record<string, string>>({});
+  const [ikOptions, setIkOptions] = useState<Record<string, { groundIK: boolean, lookAtCamera: boolean }>>({});
+  const [proMode, setProMode] = useState(false);
   
   const mobile = useMemo(() => isMobile(), []);
   const webGL2 = useMemo(() => hasWebGL2(), []);
@@ -182,6 +202,8 @@ export default function AnimatorScreen({
   
   const [activeEnvId, setActiveEnvId] = useState<string>("");
   const [weather, setWeather] = useState<WeatherType>("clear");
+  const [lightTarget, setLightTarget] = useState<any>(null);
+  const [soundTarget, setSoundTarget] = useState<any>(null);
   const [soundMuted, setSoundMuted] = useState(false);
   const [activeSequenceId, setActiveSequenceId] = useState<string>("");
   
@@ -273,6 +295,13 @@ export default function AnimatorScreen({
         }
       })
       .catch(console.error);
+      
+    fetch("/api/scenes/clips", { headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` }})
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) setLibraryClips(data);
+      })
+      .catch(console.error);
   }, []);
 
   // Sync timeline progress and evaluate sequences
@@ -298,20 +327,25 @@ export default function AnimatorScreen({
       }
       
       if (activeDirectorScript) {
-        // Run director script
-        // Need to loop over all actors to find matching roleId, but since roleId isn't on actor yet...
-        // For simplicity, we just assume the first actor is the main actor.
         const state = runScript(activeDirectorScript, currentTime);
-        if (state.cameraTarget) {
-          setCameraState(state.cameraTarget);
-        }
-        if (state.weatherTarget) {
-          setWeather(state.weatherTarget as WeatherType);
-        }
-        // Since we don't have role assignments in this simple MVP, we just apply the first clip to the active actor
-        if (activeController) {
-          const firstClip = Object.values(state.clipTargets)[0];
-          if (firstClip) activeController.selectClip(firstClip);
+        if (state.cameraTarget) setCameraState(state.cameraTarget);
+        if (state.weatherTarget) setWeather(state.weatherTarget as WeatherType);
+        if (state.lightTarget) setLightTarget(state.lightTarget);
+        if (state.soundTarget) setSoundTarget(state.soundTarget);
+
+        for (const [roleId, clipTarget] of Object.entries(state.clipTargets)) {
+          const actorId = mappedRoles[roleId];
+          if (actorId) {
+            const controller = sceneController.getActorController(actorId);
+            if (controller) {
+              const blend = clipTarget.blend || 0;
+              if (blend > 0) {
+                controller.crossFadeTo(clipTarget.name, blend);
+              } else {
+                controller.selectClip(clipTarget.name, 0);
+              }
+            }
+          }
         }
       }
 
@@ -399,88 +433,137 @@ export default function AnimatorScreen({
     }
   };
 
+  const handleApplyCast = async () => {
+    if (!activeDirectorScript) return;
+    sceneController.dispose(); // clear existing actors
+    const newMappedRoles: Record<string, string> = {};
+    for (const role of activeDirectorScript.roles || []) {
+      const avatarId = castAssignments[role.id];
+      if (avatarId) {
+        const avatar = userAvatars.find(a => String(a.id) === avatarId);
+        if (avatar) {
+          const glbUrl = resolveAvatarGlbUrl(avatar);
+          const actorId = await sceneController.addActor(glbUrl, { label: avatar.name || role.name });
+          newMappedRoles[role.id] = actorId;
+        }
+      }
+    }
+    setMappedRoles(newMappedRoles);
+    setIsPlaying(true);
+  };
+
+  const handleApplyLibraryClip = async (clipData: any) => {
+    if (!activeController || !activeActorId) return;
+    try {
+      const loader = new GLTFLoader();
+      const gltf = await loader.loadAsync(clipData.url);
+      const srcClip = gltf.animations[0];
+      if (!srcClip) return;
+      
+      const srcMesh = findSkinnedMesh(gltf.scene);
+      const tgtRoot = sceneController.getActorRoot(activeActorId);
+      const tgtMesh = tgtRoot ? findSkinnedMesh(tgtRoot) : null;
+      
+      if (srcMesh && tgtMesh) {
+        const retargeted = retargetClip(tgtMesh, srcMesh, srcClip, clipData.skeleton);
+        retargeted.name = clipData.id;
+        activeController.addClip(retargeted);
+        activeController.crossFadeTo(retargeted.name, 0.5);
+      } else {
+        alert("Could not find required SkinnedMesh to retarget.");
+      }
+    } catch (e: any) {
+      alert("Failed to apply library animation: " + e.message);
+    }
+  };
+
   return (
     <AnimatorErrorBoundary hasWebGL2={webGL2} onClose={onClose}>
       <div className="fixed inset-0 z-50 bg-black text-white flex flex-col font-sans">
-        {/* Top Bar */}
-        <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center z-10 bg-gradient-to-b from-black/80 to-transparent">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <Clapperboard className="text-primary" />
-            <h1 className="font-extrabold text-lg tracking-tight">Studio Animator</h1>
-          </div>
-          
-          <div className="flex bg-white/10 rounded-full p-1 border border-white/10 ml-4">
-            <button 
-              onClick={() => setMode("cast")}
-              className={`px-4 py-1 rounded-full text-xs font-bold transition-colors ${mode === "cast" ? "bg-primary text-white shadow-lg" : "text-white/60 hover:text-white"}`}
-            >
-              Cast
-            </button>
-            <button 
-              onClick={() => setMode("scene")}
-              className={`px-4 py-1 rounded-full text-xs font-bold transition-colors ${mode === "scene" ? "bg-primary text-white shadow-lg" : "text-white/60 hover:text-white"}`}
-            >
-              Scene
-            </button>
-          </div>
-        </div>
-        
-        <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors">
-          <X size={20} />
-        </button>
-      </div>
-
-      {/* 3D Viewport */}
-      <div className="flex-1 w-full h-full relative">
-        {contextLost && (
-          <div className="absolute inset-0 z-40 bg-black/80 flex items-center justify-center text-white p-6 text-center" onClick={() => setContextLost(false)}>
-            <div>
-              <h2 className="text-xl font-bold mb-2">Graphics Context Lost</h2>
-              <p className="text-white/60 mb-4">The device ran out of graphics memory or the app went to the background.</p>
-              <p className="text-sm font-bold text-primary animate-pulse">Tap anywhere to resume</p>
+        <TheatreWrapper active={proMode} projectId="PawsMemories">
+          {/* Top Bar */}
+          <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center z-10 bg-gradient-to-b from-black/80 to-transparent">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Clapperboard className="text-primary" />
+                <h1 className="font-extrabold text-lg tracking-tight">Studio Animator</h1>
+              </div>
+              
+              <div className="flex bg-white/10 rounded-full p-1 border border-white/10 ml-4">
+                <button 
+                  onClick={() => setMode("cast")}
+                  className={`px-4 py-1 rounded-full text-xs font-bold transition-colors ${mode === "cast" ? "bg-primary text-white shadow-lg" : "text-white/60 hover:text-white"}`}
+                >
+                  Cast
+                </button>
+                <button 
+                  onClick={() => setMode("scene")}
+                  className={`px-4 py-1 rounded-full text-xs font-bold transition-colors ${mode === "scene" ? "bg-primary text-white shadow-lg" : "text-white/60 hover:text-white"}`}
+                >
+                  Scene
+                </button>
+              </div>
             </div>
+            
+            <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+              <X size={20} />
+            </button>
           </div>
-        )}
-        <Canvas 
-          ref={canvasRef}
-          camera={{ 
-            position: cameraState.position, 
-            fov: cameraState.fov 
-          }}
-          gl={{
-            toneMapping: (React as any).useMemo(() => (THREE as any)[ANIMATOR_DEFAULTS.renderer.toneMapping], []),
-            outputColorSpace: ANIMATOR_DEFAULTS.renderer.outputColorSpace,
-            powerPreference: "high-performance",
-            failIfMajorPerformanceCaveat: false,
-            antialias: !mobile
-          }}
-          dpr={mobile ? [1, 1.5] : [1, ANIMATOR_DEFAULTS.renderer.dprMax]}
-          shadows={{ type: ANIMATOR_DEFAULTS.renderer.shadowMapType as any }}
-          onCreated={({ camera, gl }) => { 
-            cameraRef.current = camera as THREE.PerspectiveCamera; 
-            gl.domElement.addEventListener("webglcontextlost", (e) => {
-              e.preventDefault();
-              setContextLost(true);
-              if (isPlaying) {
-                sceneController.pauseAll();
-                setIsPlaying(false);
-              }
-            });
-            gl.domElement.addEventListener("webglcontextrestored", () => {
-              setContextLost(false);
-            });
-          }}
-        >
-          <Viewport 
-            sceneController={sceneController} 
-            environment={activeEnv}
-            weather={weather}
-            cameraState={cameraState}
-            soundMuted={soundMuted}
-          />
-        </Canvas>
-      </div>
+
+          {/* 3D Viewport */}
+          <div className="flex-1 w-full h-full relative">
+            {contextLost && (
+              <div className="absolute inset-0 z-40 bg-black/80 flex items-center justify-center text-white p-6 text-center" onClick={() => setContextLost(false)}>
+                <div>
+                  <h2 className="text-xl font-bold mb-2">Graphics Context Lost</h2>
+                  <p className="text-white/60 mb-4">The device ran out of graphics memory or the app went to the background.</p>
+                  <p className="text-sm font-bold text-primary animate-pulse">Tap anywhere to resume</p>
+                </div>
+              </div>
+            )}
+            <Canvas 
+              ref={canvasRef}
+              camera={{ 
+                position: cameraState.position, 
+                fov: cameraState.fov 
+              }}
+              gl={{
+                toneMapping: (React as any).useMemo(() => (THREE as any)[ANIMATOR_DEFAULTS.renderer.toneMapping], []),
+                outputColorSpace: ANIMATOR_DEFAULTS.renderer.outputColorSpace,
+                powerPreference: "high-performance",
+                failIfMajorPerformanceCaveat: false,
+                antialias: !mobile
+              }}
+              dpr={mobile ? [1, 1.5] : [1, ANIMATOR_DEFAULTS.renderer.dprMax]}
+              shadows={{ type: ANIMATOR_DEFAULTS.renderer.shadowMapType as any }}
+              onCreated={({ camera, gl }) => { 
+                cameraRef.current = camera as THREE.PerspectiveCamera; 
+                gl.domElement.addEventListener("webglcontextlost", (e) => {
+                  e.preventDefault();
+                  setContextLost(true);
+                  if (isPlaying) {
+                    sceneController.pauseAll();
+                    setIsPlaying(false);
+                  }
+                });
+                gl.domElement.addEventListener("webglcontextrestored", () => {
+                  setContextLost(false);
+                });
+              }}
+            >
+              <Viewport 
+                sceneController={sceneController} 
+                environment={activeEnv}
+                weather={weather}
+                cameraState={cameraState}
+                soundMuted={soundMuted}
+                lightTarget={lightTarget}
+                soundCue={soundTarget}
+                ikOptions={ikOptions}
+                proMode={proMode}
+              />
+            </Canvas>
+          </div>
 
       {/* HUD Overlays */}
       <div className="absolute bottom-0 left-0 right-0 p-4 md:p-6 flex flex-col gap-4 pointer-events-none">
@@ -568,6 +651,58 @@ export default function AnimatorScreen({
                         title={clip.name}
                       >
                         {clip.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {/* IK Panel */}
+              {activeController && activeActorId && (
+                <div className="bg-black/60 backdrop-blur-md rounded-2xl border border-white/10 p-4 flex flex-col gap-3 pointer-events-auto w-[250px]">
+                  <h3 className="text-xs font-bold text-white/60 uppercase tracking-wider">IK Controls</h3>
+                  <div className="flex flex-col gap-2">
+                    <label className="flex justify-between text-xs items-center">
+                      <span className="text-white font-medium">Ground IK (Planted Feet)</span>
+                      <input 
+                        type="checkbox" 
+                        checked={ikOptions[activeActorId]?.groundIK || false}
+                        onChange={(e) => setIkOptions(prev => ({
+                          ...prev,
+                          [activeActorId]: { ...prev[activeActorId], groundIK: e.target.checked }
+                        }))}
+                        className="accent-primary"
+                      />
+                    </label>
+                    <label className="flex justify-between text-xs items-center">
+                      <span className="text-white font-medium">Look at Camera</span>
+                      <input 
+                        type="checkbox" 
+                        checked={ikOptions[activeActorId]?.lookAtCamera || false}
+                        onChange={(e) => setIkOptions(prev => ({
+                          ...prev,
+                          [activeActorId]: { ...prev[activeActorId], lookAtCamera: e.target.checked }
+                        }))}
+                        className="accent-primary"
+                      />
+                    </label>
+                  </div>
+                </div>
+              )}
+              
+              {/* Library Clips Panel */}
+              {activeController && libraryClips.length > 0 && (
+                <div className="bg-black/60 backdrop-blur-md rounded-2xl border border-white/10 p-4 flex flex-col gap-3 pointer-events-auto max-w-[300px] max-h-[30vh] overflow-y-auto">
+                  <h3 className="text-xs font-bold text-white/60 uppercase tracking-wider">Library Animations</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {libraryClips.map((clip) => (
+                      <button
+                        key={clip.id}
+                        onClick={() => handleApplyLibraryClip(clip)}
+                        className="text-xs px-3 py-1.5 rounded-full bg-primary/20 hover:bg-primary/40 text-primary border border-primary/20 transition-all text-left truncate max-w-full"
+                        title={clip.description}
+                      >
+                        + {clip.name}
                       </button>
                     ))}
                   </div>
@@ -734,11 +869,20 @@ export default function AnimatorScreen({
                         key={script.id}
                         onClick={() => {
                           setActiveDirectorScript(script);
+                          setActiveSequence(null);
                           setActiveSequenceId("");
                           if (script.recommendedEnvironment) {
                             const env = environments.find(e => e.id === script.recommendedEnvironment);
                             if (env) setActiveEnvId(env.id);
                           }
+                          // Pre-fill castAssignments if possible
+                          const initialCast: Record<string, string> = {};
+                          (script.roles || []).forEach((r: any, i: number) => {
+                             if (userAvatars[i]) {
+                               initialCast[r.id] = String(userAvatars[i].id);
+                             }
+                          });
+                          setCastAssignments(initialCast);
                         }}
                         className={`p-2 rounded-lg cursor-pointer text-sm font-medium transition-colors ${activeDirectorScript?.id === script.id ? 'bg-primary/20 text-primary border border-primary/50' : 'hover:bg-white/5 border border-transparent'}`}
                       >
@@ -746,6 +890,32 @@ export default function AnimatorScreen({
                       </div>
                     ))}
                   </div>
+                  {activeDirectorScript && activeDirectorScript.roles && activeDirectorScript.roles.length > 0 && (
+                    <div className="mt-2 p-3 bg-white/5 rounded-xl border border-white/10 flex flex-col gap-2">
+                      <h4 className="text-xs font-bold text-white/60 uppercase">Cast Assignments</h4>
+                      {activeDirectorScript.roles.map((role: any) => (
+                        <div key={role.id} className="flex justify-between items-center text-xs">
+                          <span className="text-white font-medium">{role.name}</span>
+                          <select 
+                            className="bg-black/50 border border-white/20 rounded p-1 text-white max-w-[120px]"
+                            value={castAssignments[role.id] || ""}
+                            onChange={(e) => setCastAssignments(prev => ({ ...prev, [role.id]: e.target.value }))}
+                          >
+                            <option value="">(Skip Role)</option>
+                            {userAvatars.map(a => (
+                              <option key={a.id} value={a.id}>{a.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      ))}
+                      <button 
+                        onClick={handleApplyCast}
+                        className="mt-2 w-full py-1.5 bg-primary text-on-primary font-bold rounded-lg text-xs"
+                      >
+                        Apply Cast & Play
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
           )}
@@ -889,7 +1059,11 @@ export default function AnimatorScreen({
               </div>
             </details>
 
-            <div className="flex gap-3 justify-end">
+            <div className="flex gap-3 justify-between items-center">
+              <label className="flex items-center gap-2 text-xs font-bold bg-black/60 px-3 py-1.5 rounded-full border border-white/10 pointer-events-auto">
+                <span className="text-white/60">PRO MODE</span>
+                <input type="checkbox" checked={proMode} onChange={e => setProMode(e.target.checked)} className="accent-primary" />
+              </label>
               <button 
                 type="button" 
                 onClick={() => setShowAddModal(false)}
@@ -901,6 +1075,7 @@ export default function AnimatorScreen({
           </form>
         </div>
       )}
+        </TheatreWrapper>
       </div>
     </AnimatorErrorBoundary>
   );

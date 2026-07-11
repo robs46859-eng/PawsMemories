@@ -55,6 +55,7 @@ export function runScript(script: any, currentTime: number): {
   let latestCamera: any = null;
   let latestLight: any = null;
   let latestSound: any = null;
+  let latestWeather: any = null;
   const clipTargets: Record<string, any> = {};
 
   for (const event of script.events) {
@@ -62,8 +63,9 @@ export function runScript(script: any, currentTime: number): {
       if (event.type === 'camera') latestCamera = event.value;
       if (event.type === 'light') latestLight = event.value;
       if (event.type === 'sound') latestSound = event.value;
+      if (event.type === 'weather') latestWeather = event.value;
       if (event.type === 'clip' && event.roleId) {
-        clipTargets[event.roleId] = event.value;
+        clipTargets[event.roleId] = { name: event.value, blend: event.blend || 0 };
       }
     }
   }
@@ -72,6 +74,7 @@ export function runScript(script: any, currentTime: number): {
     cameraTarget: latestCamera,
     lightTarget: latestLight,
     soundTarget: latestSound,
+    weatherTarget: latestWeather,
     clipTargets,
   };
 }

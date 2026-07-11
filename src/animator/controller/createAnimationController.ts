@@ -50,7 +50,17 @@ export function createAnimationController(
       });
     },
 
-    selectClip(name: string, crossFadeSeconds: number = 0.5) {
+    addClip(clip: THREE.AnimationClip) {
+      if (!actions.has(clip.name)) {
+        clips.push(clip);
+        const action = mixer.clipAction(clip);
+        action.clampWhenFinished = true;
+        action.loop = THREE.LoopRepeat;
+        actions.set(clip.name, action);
+      }
+    },
+
+    selectClip(name: string, crossFadeSeconds: number = 0) {
       const action = actions.get(name);
       if (!action) return;
 

@@ -10,6 +10,7 @@ import { createScene, getScene } from "./scenes.ts";
 import { loadEnvironments } from "./environments.ts";
 import { loadScripts, estimateSpeechSeconds } from "./scripts.ts";
 import { PRESET_SCRIPTS } from "./sceneScripts.ts";
+import { CC0_CLIPS } from "./clips.ts";
 import { uploadBase64Binary } from "../../storage.ts";
 import { getCreditBalance, deductCredits, createJob, isUserAdmin, getDailyVideoCount } from "../../db.ts";
 import { startTalkingVideo } from "../../heygen.ts";
@@ -366,6 +367,15 @@ animatorRouter.get("/scenes/director-scripts", (req: any, res) => {
     res.json(PRESET_SCRIPTS);
   } catch (e: any) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+animatorRouter.get("/scenes/clips", (req, res) => {
+  const skeleton = req.query.skeleton as string;
+  if (skeleton) {
+    res.json(CC0_CLIPS.filter(c => c.skeleton === skeleton));
+  } else {
+    res.json(CC0_CLIPS);
   }
 });
 

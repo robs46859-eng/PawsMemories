@@ -12,6 +12,7 @@ Live site: https://pawsome3d.com  (formerly mypets.cc)
 - **Community** — local info (nearby parks, weather, pet‑recall news), a live pet inspiration board (dog.ceo + dogapi.dog) with user‑uploaded memories, and a coming‑soon roadmap.
 - **Credits** — server‑backed ledger with earn/spend history, persisted daily bonus, per‑day‑capped share rewards, and Stripe credit‑pack purchases (webhook + redirect‑confirm double safety net).
 - **Profile** — avatar thumbnail uploader + a personal photo library; photos uploaded in the avatar builder persist here automatically.
+- **Animation Studio Tooling** — An advanced timeline sequence editor using `@theatre/js` (behind a "Pro Mode" flag) offering keyframing, easing, and scrubbing. Features include native Three.js crossfade blending, a CC0 library of retargetable animations, Director scripts for quick lighting/weather/sound cues, Cast assignment, and Studio IK (Ground planted feet and camera tracking).
 - **Randy AI** — Gemini‑powered pet guide (spec for a 3D talking head in `RANDY_AI_SPEC.md`).
 
 ## Tech stack

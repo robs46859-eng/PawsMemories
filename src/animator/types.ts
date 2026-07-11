@@ -87,6 +87,7 @@ export interface SceneController {
   addActor(assetId: AssetId, opts?: Partial<SceneActor>): Promise<string>;
   removeActor(actorId: string): void;
   getActorController(actorId: string): AnimationController | undefined;
+  getActorRoot(actorId: string): any; // THREE.Object3D
   setActiveActor(actorId: string): void;
   playAll(): void;
   pauseAll(): void;
@@ -100,6 +101,7 @@ export interface SceneController {
 export interface AnimationController {
   listClips(): AnimationClipInfo[];
   selectClip(name: string): void;
+  addClip(clip: any): void; // THREE.AnimationClip
   play(): void;
   pause(): void;
   stop(): void;

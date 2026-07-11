@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useFrame } from "@react-three/fiber";
+import { useFrame, useThree } from "@react-three/fiber";
 import { createSceneController } from "./createSceneController.ts";
 import type { SceneController, SceneActor } from "../types.ts";
 
@@ -60,11 +60,27 @@ export function useSceneController() {
  */
 export function SceneTicker({
   controller,
+  ikOptions = {}
 }: {
-  controller: { update: (delta: number) => void };
+  controller: any;
+  ikOptions?: Record<string, { groundIK: boolean, lookAtCamera: boolean }>;
 }) {
+  const { camera } = useThree();
+
   useFrame((_, delta) => {
     controller.update(delta);
+    if (controller.applyIK) {
+      for (const actor of controller.listActors()) {
+        const opts = ikOptions[actor.actorId];
+        if (opts && (opts.groundIK || opts.lookAtCamera)) {
+          controller.applyIK(actor.actorId, { 
+            groundIK: opts.groundIK, 
+            lookAtCamera: opts.lookAtCamera, 
+            cameraPosition: camera.position 
+          });
+        }
+      }
+    }
   });
   return null;
 }
