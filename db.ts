@@ -1345,6 +1345,20 @@ export async function getAvatars(phone: string): Promise<AvatarRow[]> {
   return rows as unknown as AvatarRow[];
 }
 
+/**
+ * Delete an avatar row (owner-scoped). Removes the DB record only — it does not
+ * touch the GLB in object storage. Used to clear a model from the user's roster
+ * (and to free a slot under the Phase 9 model cap, or clean up orphaned rows
+ * whose storage files were already deleted).
+ */
+export async function deleteAvatar(id: number, phone: string): Promise<boolean> {
+  const [result] = await getPool().query(
+    `DELETE FROM avatars WHERE id = ? AND user_phone = ?`,
+    [id, phone]
+  ) as any;
+  return result.affectedRows === 1;
+}
+
 export async function feedAvatar(id: number, phone: string): Promise<boolean> {
   const [result] = await getPool().query(
     `UPDATE avatars SET food_level = 100, last_fed = CURRENT_TIMESTAMP WHERE id = ? AND user_phone = ?`,

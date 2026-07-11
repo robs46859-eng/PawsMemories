@@ -8,7 +8,7 @@ import Stripe from "stripe";
 import fs from "fs";
 import twilio from "twilio";
 import rateLimit from "express-rate-limit";
-import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor } from "./db";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor } from "./db";
 import { isEndpointEnabled, dailyCapFor, withinDailyCap, type PaidEndpoint } from "./server/paidApiGuards";
 import { classifyPetImage, type GenerateFn } from "./server/petClassify";
 import { semanticScan as runSemanticScan } from "./server/semanticScan";
@@ -399,7 +399,28 @@ async function startServer() {
   // Public per-site config. `deployTarget` tells the frontend which experience
   // this deployment serves: "main" (pawsome3d.com) or "warehouse" (mypets.cc).
   app.get("/api/config", (_req, res) => {
-    res.json({ deployTarget: process.env.DEPLOY_TARGET || "main" });
+    res.json({
+      deployTarget: process.env.DEPLOY_TARGET || "main",
+      // Address the 3D-print request form emails to. Falls back to the admin email.
+      printEmail: process.env.PRINT_REQUEST_EMAIL || process.env.ADMIN_EMAIL || "",
+    });
+  });
+
+  // Upload a model file for a 3D-print request. Accepts a base64 data URL, mirrors
+  // it to object storage, and returns a durable URL to include in the request
+  // email. (GLB/OBJ/STL supported; the client caps size before sending.)
+  app.post("/api/print-uploads", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { fileBase64, mime } = req.body || {};
+      if (!fileBase64 || typeof fileBase64 !== "string") {
+        return res.status(400).json({ success: false, error: "No file provided." });
+      }
+      const url = await uploadBase64Binary(fileBase64, mime || "model/gltf-binary");
+      res.json({ success: true, url });
+    } catch (err: any) {
+      console.error("[POST /api/print-uploads] Error:", err?.message || err);
+      res.status(500).json({ success: false, error: "Upload failed." });
+    }
   });
 
   app.get("/api/me", requireAuth, async (req: AuthedRequest, res) => {
@@ -1466,6 +1487,20 @@ async function startServer() {
     } catch (err: any) {
       console.error("[POST /api/avatars/:id/retry] Error retrying avatar:", err);
       res.status(500).json({ error: err.message || "Failed to retry avatar generation." });
+    }
+  });
+
+  // Delete an avatar from the user's roster (owner-scoped). Removes the DB row;
+  // storage files are not touched. Frees a slot under the model cap and clears
+  // orphaned rows whose GLBs were already deleted from storage.
+  app.delete("/api/avatars/:id", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const success = await deleteAvatar(Number(req.params.id), req.user!.phone);
+      if (!success) return res.status(404).json({ success: false, error: "Avatar not found." });
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("[DELETE /api/avatars/:id] Error:", err?.message || err);
+      res.status(500).json({ success: false, error: "Failed to delete avatar." });
     }
   });
 

@@ -383,7 +383,7 @@ export default function App() {
           <div className="hidden md:flex items-center gap-8">
             <button onClick={() => setCurrentScreen(Screen.DASHBOARD)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.DASHBOARD ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Home</button>
             <button onClick={() => setCurrentScreen(Screen.MODELS)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.MODELS ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Models</button>
-            <button onClick={() => setCurrentScreen(Screen.STORE)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.STORE ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Store</button>
+            <button onClick={() => setCurrentScreen(Screen.STORE)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.STORE ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Avatars-R-Us</button>
             <button onClick={() => setCurrentScreen(Screen.COMMUNITY)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.COMMUNITY ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Community</button>
           </div>
 
@@ -479,7 +479,7 @@ export default function App() {
               </button>
               <button onClick={() => setCurrentScreen(Screen.STORE)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${currentScreen === Screen.STORE ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
                 <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.STORE ? "'FILL' 1" : "'FILL' 0" }}>storefront</span>
-                <span className="font-medium">Store</span>
+                <span className="font-medium">Avatars-R-Us</span>
               </button>
               <button onClick={() => setCurrentScreen(Screen.COMMUNITY)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${currentScreen === Screen.COMMUNITY ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
                 <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.COMMUNITY ? "'FILL' 1" : "'FILL' 0" }}>groups</span>
@@ -719,7 +719,7 @@ export default function App() {
             }`}
           >
             <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.STORE ? "'FILL' 1" : "'FILL' 0" }}>storefront</span>
-            <span className="text-[10px] font-bold">Store</span>
+            <span className="text-[10px] font-bold">Avatars-R-Us</span>
           </button>
 
           <button

@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Avatar, PublicUser, UserProfile, AvatarAction } from "../types";
-import { fetchAvatars, generate3DAvatar, retryAvatarGeneration, pollAvatarStatus, feedAvatarReq, waterAvatarReq, giveTreatReq } from "../api";
+import { fetchAvatars, generate3DAvatar, retryAvatarGeneration, pollAvatarStatus, feedAvatarReq, waterAvatarReq, giveTreatReq, deleteAvatar } from "../api";
 import CreateAvatarDialog, { type CreateModelOptions } from "./CreateAvatarDialog";
 import Avatar3DPlaypen from "./Avatar3DPlaypen";
 import LivingAvatarView from "./LivingAvatarView";
 import {
   Plus, Utensils, Droplets, Bone, RefreshCw, Info,
-  Play, Camera, Moon, Zap, X, Sparkles, Clapperboard
+  Play, Camera, Moon, Zap, X, Sparkles, Clapperboard, Trash2
 } from "lucide-react";
 
 interface AvatarDashboardProps {
@@ -108,6 +108,16 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
       }
     });
   }, [avatars]);
+
+  const handleDeleteAvatar = async (id: number, name: string) => {
+    if (!confirm(`Delete "${name}"? This removes it from your models. This can't be undone.`)) return;
+    try {
+      await deleteAvatar(id);
+      await loadAvatars();
+    } catch (err: any) {
+      alert(err?.message || "Failed to delete model.");
+    }
+  };
 
   const handleCreateAvatar = async (options: CreateModelOptions) => {
     if (userProfile.credits < 400) {
@@ -279,6 +289,14 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
               >
                 {/* 3D Playpen */}
                 <div className="relative aspect-square bg-slate-900/5 dark:bg-slate-100/5">
+                  <button
+                    onClick={() => handleDeleteAvatar(avatar.id, avatar.name)}
+                    className="absolute top-2 right-2 z-20 w-8 h-8 flex items-center justify-center rounded-full bg-black/40 hover:bg-error/80 text-white/80 hover:text-white backdrop-blur-sm transition-colors"
+                    title="Delete this model"
+                    aria-label={`Delete ${avatar.name}`}
+                  >
+                    <Trash2 size={15} />
+                  </button>
                   <Avatar3DPlaypen
                     avatar={avatar}
                     activeAction={activeActions[avatar.id] || null}

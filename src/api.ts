@@ -674,3 +674,28 @@ export async function generateTextReference(
   if (!res.ok) await throwApiError(res, "Failed to generate reference image.");
   return await res.json();
 }
+
+/** Delete an avatar/model from the user's roster (removes the DB row). */
+export async function deleteAvatar(id: number): Promise<void> {
+  const res = await authedFetch(`/api/avatars/${id}`, { method: "DELETE" });
+  if (!res.ok) await throwApiError(res, "Failed to delete model.");
+}
+
+/** Public per-site config (deployTarget + printEmail). No auth required. */
+export async function getAppConfig(): Promise<{ deployTarget: string; printEmail?: string }> {
+  const res = await fetch("/api/config");
+  if (!res.ok) return { deployTarget: "main" };
+  return await res.json();
+}
+
+/** Upload a model file (base64 data URL) for a 3D-print request → durable URL. */
+export async function uploadPrintFile(fileBase64: string, mime: string): Promise<string> {
+  const res = await authedFetch("/api/print-uploads", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fileBase64, mime }),
+  });
+  if (!res.ok) await throwApiError(res, "Upload failed.");
+  const data = await res.json();
+  return data.url as string;
+}
