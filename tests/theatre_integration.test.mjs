@@ -9,18 +9,21 @@ test("theatre_integration", async (t) => {
     
     // Create an object and set a value
     const obj = sheet.object("Camera", {
-      position: { x: 0, y: 0, z: 5 }
+      position: { x: 0, y: 0, z: 5 },
+      fov: 50
     });
     
-    // Simulate setting a keyframe or value (Theatre API is complex for keyframes in tests, 
-    // so we'll just check if the object exposes its current value correctly).
+    // Simulate setting a keyframe or value. In core without studio, we just read the initial value.
     const currentPos = obj.value.position;
     assert.strictEqual(currentPos.x, 0);
     assert.strictEqual(currentPos.z, 5);
+    assert.strictEqual(obj.value.fov, 50);
     
-    // Verify it generates state that could be saved/loaded
-    // Theatre internal state might just be accessed via the state getter.
-    // If we want to export, it's studio.createStudio().createExport() but in core we can just check if state exists.
-    assert.ok(project);
+    // Test that we can round-trip through JSON using standard serialization of the value
+    const savedValue = JSON.stringify(obj.value);
+    const parsedValue = JSON.parse(savedValue);
+    
+    assert.strictEqual(parsedValue.position.z, 5);
+    assert.strictEqual(parsedValue.fov, 50);
   });
 });

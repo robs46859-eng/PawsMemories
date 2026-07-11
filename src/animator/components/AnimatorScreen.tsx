@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useMemo } from "react";
 import * as THREE from "three";
-import { Canvas, useThree } from "@react-three/fiber";
+import { Canvas, useThree, useFrame } from "@react-three/fiber";
 import { OrbitControls, Environment, ContactShadows } from "@react-three/drei";
 import { Play, Pause, FastForward, Video, Plus, X, List, Clapperboard, Download, Square, Sun, CloudRain, Volume2, VolumeX, Mic } from "lucide-react";
 import { useSceneController, SceneTicker } from "../controller/useSceneController.ts";
@@ -18,8 +18,7 @@ import { runScript } from "../scenes/SceneSequence.ts";
 import { retargetClip } from "../utils/retargetUtils.ts";
 import { findSkinnedMesh } from "../../three/ar/ik.ts";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { TheatreWrapper } from "./TheatreWrapper.tsx";
-import { editable } from "@theatre/r3f";
+import { useTheatreSheet } from "./TheatreWrapper.tsx";
 
 /**
  * Renders the scene backdrop based on the preset's `backdrop.kind`.
@@ -82,7 +81,29 @@ function SceneBackdrop({ backdrop }: { backdrop?: { kind?: string; url?: string 
   return <Environment preset="city" background />;
 }
 
-// The viewport rendering the SceneController's scene
+/**
+ * Syncs the R3F camera with Theatre's imperative camera object state
+ */
+function TheatreCameraRig({ cameraObj }: { cameraObj: any }) {
+  const { camera } = useThree();
+  
+  useFrame(() => {
+    if (cameraObj) {
+      const v = cameraObj.value;
+      camera.position.set(v.position.x, v.position.y, v.position.z);
+      if ((camera as THREE.PerspectiveCamera).fov !== v.fov) {
+        (camera as THREE.PerspectiveCamera).fov = v.fov;
+        camera.updateProjectionMatrix();
+      }
+    }
+  });
+  
+  return null;
+}
+
+/**
+ * Inner viewport component that depends on `useThree` context.
+ */
 function Viewport({
   sceneController,
   environment,
@@ -93,6 +114,7 @@ function Viewport({
   soundCue,
   ikOptions,
   proMode,
+  cameraObj,
 }: {
   sceneController: ReturnType<typeof useSceneController>,
   environment: any,
@@ -103,6 +125,7 @@ function Viewport({
   soundCue: any,
   ikOptions: any,
   proMode?: boolean,
+  cameraObj?: any,
 }) {
   const scene = sceneController.getScene();
   
@@ -123,7 +146,7 @@ function Viewport({
       <primitive object={scene} />
 
       {proMode && (
-        <editable.perspectiveCamera makeDefault theatreKey="Camera" position={[0, 2, 5]} fov={50} />
+        <TheatreCameraRig cameraObj={cameraObj} />
       )}
 
       <WeatherSystem weather={weather} />
@@ -149,6 +172,7 @@ function Viewport({
       
       <OrbitControls 
         makeDefault 
+        enabled={!proMode}
         target={ANIMATOR_DEFAULTS.camera.target}
         maxPolarAngle={Math.PI / 2 + 0.1}
       />
@@ -199,6 +223,8 @@ export default function AnimatorScreen({
   const [mappedRoles, setMappedRoles] = useState<Record<string, string>>({});
   const [ikOptions, setIkOptions] = useState<Record<string, { groundIK: boolean, lookAtCamera: boolean }>>({});
   const [proMode, setProMode] = useState(false);
+  
+  const { cameraObj } = useTheatreSheet(proMode, "PawsMemories");
   
   const mobile = useMemo(() => isMobile(), []);
   const webGL2 = useMemo(() => hasWebGL2(), []);
@@ -485,7 +511,6 @@ export default function AnimatorScreen({
   return (
     <AnimatorErrorBoundary hasWebGL2={webGL2} onClose={onClose}>
       <div className="fixed inset-0 z-50 bg-black text-white flex flex-col font-sans">
-        <TheatreWrapper active={proMode} projectId="PawsMemories">
           {/* Top Bar */}
           <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center z-10 bg-gradient-to-b from-black/80 to-transparent">
             <div className="flex items-center gap-4">
@@ -566,6 +591,7 @@ export default function AnimatorScreen({
                 soundCue={soundTarget}
                 ikOptions={ikOptions}
                 proMode={proMode}
+                cameraObj={cameraObj}
               />
             </Canvas>
           </div>
@@ -1079,7 +1105,6 @@ export default function AnimatorScreen({
           </form>
         </div>
       )}
-        </TheatreWrapper>
       </div>
     </AnimatorErrorBoundary>
   );

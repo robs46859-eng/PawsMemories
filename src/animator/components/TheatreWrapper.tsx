@@ -1,34 +1,34 @@
-import React, { useState, useEffect, ReactNode } from "react";
-import { getProject } from "@theatre/core";
-import { SheetProvider } from "@theatre/r3f";
+import { useState, useEffect } from "react";
+import { getProject, types, ISheet, ISheetObject } from "@theatre/core";
 
 let studioInitialized = false;
 
-export function TheatreWrapper({ children, active, projectId }: { children: ReactNode, active: boolean, projectId: string }) {
-  const [ready, setReady] = useState(!active);
+export function useTheatreSheet(active: boolean, projectId: string) {
+  const [cameraObj, setCameraObj] = useState<ISheetObject<any> | null>(null);
+  const [sheet, setSheet] = useState<ISheet | null>(null);
   
   useEffect(() => {
-    if (active && !studioInitialized) {
-      import("@theatre/studio").then(studio => {
-        studio.default.initialize();
-        studioInitialized = true;
-        setReady(true);
-      }).catch(e => {
-        console.error("Failed to load theatre studio", e);
-        setReady(true); // fall back
+    if (active) {
+      const p = getProject(projectId || "PawsMemories");
+      const s = p.sheet("Scene");
+      setSheet(s);
+      
+      const obj = s.object("Camera", {
+        position: types.compound({ x: types.number(0), y: types.number(2), z: types.number(5) }),
+        fov: types.number(50, { range: [10, 120] }),
       });
-    } else if (active) {
-      setReady(true);
+      setCameraObj(obj);
+
+      if (!studioInitialized) {
+        import("@theatre/studio").then(studio => {
+          studio.default.initialize();
+          studioInitialized = true;
+        }).catch(e => {
+          console.error("Failed to load theatre studio", e);
+        });
+      }
     }
-  }, [active]);
+  }, [active, projectId]);
 
-  if (!ready) return null;
-
-  if (active) {
-    // Project ID should be unique to the user's project
-    const sheet = getProject(projectId || "PawsMemories").sheet("Scene");
-    return <SheetProvider sheet={sheet}>{children}</SheetProvider>;
-  }
-
-  return <>{children}</>;
+  return { cameraObj, sheet };
 }
