@@ -10,10 +10,9 @@ export function TheatreWrapper({ children, active, projectId }: { children: Reac
   useEffect(() => {
     if (active && !studioInitialized) {
       import("@theatre/studio").then(studio => {
-        studio.default.initialize().then(() => {
-          studioInitialized = true;
-          setReady(true);
-        });
+        studio.default.initialize();
+        studioInitialized = true;
+        setReady(true);
       }).catch(e => {
         console.error("Failed to load theatre studio", e);
         setReady(true); // fall back

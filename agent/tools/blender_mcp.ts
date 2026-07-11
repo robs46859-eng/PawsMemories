@@ -272,18 +272,16 @@ export function getToolSchemas() {
     function: {
       name: tool.name,
       description: tool.description,
-      parameters: {
-        type: "object",
-        properties: Object.fromEntries(
-          Object.entries(tool.parameters).map(([key, val]) => [
-            key,
-            { type: val.type, description: val.description },
-          ])
-        ),
-        required: Object.entries(tool.parameters)
-          .filter(([_, val]) => val.required)
-          .map(([key]) => key),
-      },
+      parameters: (() => {
+        const entries = Object.entries(tool.parameters) as Array<[string, { type: string; description: string; required?: boolean }]>;
+        return {
+          type: "object",
+          properties: Object.fromEntries(
+            entries.map(([key, val]) => [key, { type: val.type, description: val.description }])
+          ),
+          required: entries.filter(([, val]) => val.required).map(([key]) => key),
+        };
+      })(),
     },
   }));
 }

@@ -84,13 +84,18 @@ function SceneBackdrop({ backdrop }: { backdrop?: { kind?: string; url?: string 
 
 // The viewport rendering the SceneController's scene
 function Viewport({
-  sceneController, 
-  environment, 
-  weather, 
+  sceneController,
+  environment,
+  weather,
   cameraState,
   soundMuted,
-}: { 
+  lightTarget,
+  soundCue,
+  ikOptions,
+  proMode,
+}: {
   sceneController: ReturnType<typeof useSceneController>,
+  environment: any,
   weather: WeatherType,
   cameraState: { position: [number, number, number], fov: number },
   soundMuted: boolean,
@@ -869,7 +874,6 @@ export default function AnimatorScreen({
                         key={script.id}
                         onClick={() => {
                           setActiveDirectorScript(script);
-                          setActiveSequence(null);
                           setActiveSequenceId("");
                           if (script.recommendedEnvironment) {
                             const env = environments.find(e => e.id === script.recommendedEnvironment);

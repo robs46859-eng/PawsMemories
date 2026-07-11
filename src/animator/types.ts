@@ -88,6 +88,7 @@ export interface SceneController {
   removeActor(actorId: string): void;
   getActorController(actorId: string): AnimationController | undefined;
   getActorRoot(actorId: string): any; // THREE.Object3D
+  applyIK(actorId: string, options: { groundIK: boolean; lookAtCamera: boolean; cameraPosition?: any }): void;
   setActiveActor(actorId: string): void;
   playAll(): void;
   pauseAll(): void;
@@ -100,7 +101,7 @@ export interface SceneController {
 
 export interface AnimationController {
   listClips(): AnimationClipInfo[];
-  selectClip(name: string): void;
+  selectClip(name: string, crossFadeSeconds?: number): void;
   addClip(clip: any): void; // THREE.AnimationClip
   play(): void;
   pause(): void;
