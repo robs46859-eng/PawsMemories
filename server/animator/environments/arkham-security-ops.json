@@ -1,0 +1,16 @@
+{
+  "id": "arkham-security-ops",
+  "tier": "generic",
+  "label": "Security Ops Center",
+  "backdrop": {
+    "kind": "image",
+    "url": "/animator-files/environments/soc_arkham.jpg"
+  },
+  "ground": {
+    "color": "#3a3f42"
+  },
+  "allowedWeather": ["clear"],
+  "defaultTimeOfDay": "night",
+  "license": "owned",
+  "source": "Arkham Prison concept render (owned)"
+}

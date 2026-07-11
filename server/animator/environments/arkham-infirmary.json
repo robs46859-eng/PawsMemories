@@ -1,0 +1,16 @@
+{
+  "id": "arkham-infirmary",
+  "tier": "generic",
+  "label": "Abandoned Infirmary",
+  "backdrop": {
+    "kind": "image",
+    "url": "/animator-files/environments/infirmary_arkham.jpg"
+  },
+  "ground": {
+    "color": "#2f3a34"
+  },
+  "allowedWeather": ["clear", "fog"],
+  "defaultTimeOfDay": "night",
+  "license": "owned",
+  "source": "Arkham Prison concept render (owned)"
+}

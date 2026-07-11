@@ -1,0 +1,16 @@
+{
+  "id": "arkham-gymnasium",
+  "tier": "generic",
+  "label": "Prison Gymnasium",
+  "backdrop": {
+    "kind": "image",
+    "url": "/animator-files/environments/gym_arkham.jpg"
+  },
+  "ground": {
+    "color": "#4a5550"
+  },
+  "allowedWeather": ["clear"],
+  "defaultTimeOfDay": "afternoon",
+  "license": "owned",
+  "source": "Arkham Prison concept render (owned)"
+}

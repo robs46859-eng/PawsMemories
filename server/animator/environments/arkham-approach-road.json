@@ -1,0 +1,16 @@
+{
+  "id": "arkham-approach-road",
+  "tier": "generic",
+  "label": "Approach Road (Angel Island)",
+  "backdrop": {
+    "kind": "image",
+    "url": "/animator-files/environments/approach_road_arkham.jpg"
+  },
+  "ground": {
+    "color": "#4b4a45"
+  },
+  "allowedWeather": ["clear", "overcast", "fog", "rain"],
+  "defaultTimeOfDay": "evening",
+  "license": "owned",
+  "source": "Arkham Prison approach render — Angel Island, San Francisco Bay (owned)"
+}
