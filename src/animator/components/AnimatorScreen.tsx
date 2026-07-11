@@ -13,6 +13,7 @@ import { lightingFor } from "../scenes/lightingRig.ts";
 import { AnimatorErrorBoundary } from "./AnimatorErrorBoundary.tsx";
 import { isMobile, hasWebGL2, hasWebCodecs } from "../utils/capabilities.ts";
 import { filterReadyAvatars, resolveAvatarGlbUrl } from "../utils/avatarUtils.ts";
+import { getToken } from "../../api";
 import { ALL_OBJECT_KINDS, OBJECT_CATALOG } from "../../three/objects/catalog.ts";
 import { runScript } from "../scenes/SceneSequence.ts";
 import { retargetClip } from "../utils/retargetUtils.ts";
@@ -297,28 +298,28 @@ export default function AnimatorScreen({
 
   // Fetch presets
   useEffect(() => {
-    fetch("/api/scenes/environments", { headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` }})
+    fetch("/api/scenes/environments", { headers: { "Authorization": `Bearer ${getToken()}` }})
       .then(r => r.json())
       .then(data => {
         if (Array.isArray(data)) setEnvironments(data);
       })
       .catch(console.error);
       
-    fetch("/api/scenes/scripts", { headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` }})
+    fetch("/api/scenes/scripts", { headers: { "Authorization": `Bearer ${getToken()}` }})
       .then(r => r.json())
       .then(data => {
         if (Array.isArray(data)) setScripts(data);
       })
       .catch(console.error);
       
-      fetch("/api/scenes/director-scripts", { headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` }})
+      fetch("/api/scenes/director-scripts", { headers: { "Authorization": `Bearer ${getToken()}` }})
       .then(r => r.json())
       .then(data => {
         if (Array.isArray(data)) setDirectorScripts(data);
       })
       .catch(console.error);
 
-    fetch("/api/avatars", { headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` }})
+    fetch("/api/avatars", { headers: { "Authorization": `Bearer ${getToken()}` }})
       .then(r => r.json())
       .then(data => {
         if (Array.isArray(data)) {
@@ -327,7 +328,7 @@ export default function AnimatorScreen({
       })
       .catch(console.error);
       
-    fetch("/api/scenes/clips", { headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` }})
+    fetch("/api/scenes/clips", { headers: { "Authorization": `Bearer ${getToken()}` }})
       .then(r => r.json())
       .then(data => {
         if (Array.isArray(data)) setLibraryClips(data);
@@ -444,7 +445,7 @@ export default function AnimatorScreen({
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${localStorage.getItem("token")}`
+          "Authorization": `Bearer ${getToken()}`
         },
         body: JSON.stringify({
           recordingId: currentRecordingId,
