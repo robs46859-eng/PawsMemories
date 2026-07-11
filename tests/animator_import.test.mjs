@@ -9,6 +9,7 @@ import { enqueue } from "../server/animator/queue.ts";
 import { ANIMATOR_DATA_DIR, initializeWorkspace, resolveWithinWorkspace } from "../server/animator/paths.ts";
 
 test("animator_import", async (t) => {
+  let importedAssetId;
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "animator-import-"));
   process.env.ANIMATOR_DATA_DIR = tmpDir;
   initializeWorkspace();
@@ -35,6 +36,8 @@ test("animator_import", async (t) => {
     assert.ok(fs.existsSync(metaPath));
     const absPath = resolveWithinWorkspace(`originals/${meta.id}/fixture.glb`);
     assert.ok(fs.existsSync(absPath));
+    
+    importedAssetId = meta.id;
   });
 
   await t.test("invalid non-glTF yields typed error", async () => {
@@ -49,10 +52,10 @@ test("animator_import", async (t) => {
     );
   });
 
-  await t.test("job preset:optimize is rejected by worker", async () => {
+  await t.test("job preset:optimize is processed by worker", async () => {
     const job = enqueue({
       userPhone: "+123",
-      assetId: "123e4567-e89b-12d3-a456-426614174000",
+      assetId: importedAssetId,
       type: "optimize",
       preset: "optimize",
       params: {}
@@ -64,10 +67,16 @@ test("animator_import", async (t) => {
     await new Promise(r => setTimeout(r, 2500));
     stopWorker();
     
-    const failedPath = resolveWithinWorkspace(`jobs/failed/${job.id}.json`);
-    assert.ok(fs.existsSync(failedPath));
-    const record = JSON.parse(fs.readFileSync(failedPath, "utf8"));
-    assert.strictEqual(record.error, "optimize preset not available yet");
+    const donePath = resolveWithinWorkspace(`jobs/done/${job.id}.json`);
+    if (!fs.existsSync(donePath)) {
+      const failedPath = resolveWithinWorkspace(`jobs/failed/${job.id}.json`);
+      if (fs.existsSync(failedPath)) {
+        console.error("Worker failed job:", fs.readFileSync(failedPath, "utf8"));
+      }
+    }
+    assert.ok(fs.existsSync(donePath));
+    const record = JSON.parse(fs.readFileSync(donePath, "utf8"));
+    assert.strictEqual(record.state, "done");
   });
 
   fs.rmSync(tmpDir, { recursive: true, force: true });

@@ -115,6 +115,9 @@ export default function AnimatorScreen({
   const [soundMuted, setSoundMuted] = useState(false);
   const [activeSequenceId, setActiveSequenceId] = useState<string>("");
   
+  const [morphInfluences, setMorphInfluences] = useState<Record<string, number>>({});
+  const [bookmarks, setBookmarks] = useState<any[]>([]);
+  
   const [voiceoverText, setVoiceoverText] = useState("");
   const [isVoiceoverRunning, setIsVoiceoverRunning] = useState(false);
   
@@ -138,6 +141,36 @@ export default function AnimatorScreen({
     position: ANIMATOR_DEFAULTS.camera.position as [number, number, number], 
     fov: ANIMATOR_DEFAULTS.camera.fov 
   });
+  
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+
+  useEffect(() => {
+    if (activeController) {
+      const morphs = activeController.listMorphTargets();
+      const initial: Record<string, number> = {};
+      morphs.forEach(m => initial[m] = 0);
+      setMorphInfluences(initial);
+    }
+  }, [activeController]);
+
+  const handleMorphChange = (name: string, value: number) => {
+    setMorphInfluences(prev => ({ ...prev, [name]: value }));
+    if (activeController) {
+      activeController.setMorphInfluence(name, value);
+    }
+  };
+  
+  const saveBookmark = () => {
+    if (cameraRef.current) {
+      const pos = cameraRef.current.position;
+      setBookmarks(prev => [...prev, {
+        id: Date.now().toString(),
+        name: `Cam ${prev.length + 1}`,
+        position: [pos.x, pos.y, pos.z],
+        fov: cameraRef.current!.fov
+      }]);
+    }
+  };
 
   // Fetch presets
   useEffect(() => {
@@ -303,6 +336,7 @@ export default function AnimatorScreen({
           }}
           dpr={[1, ANIMATOR_DEFAULTS.renderer.dprMax]}
           shadows={{ type: ANIMATOR_DEFAULTS.renderer.shadowMapType as any }}
+          onCreated={({ camera }) => { cameraRef.current = camera as THREE.PerspectiveCamera; }}
         >
           <Viewport 
             sceneController={sceneController} 
@@ -367,6 +401,29 @@ export default function AnimatorScreen({
                       >
                         {clip.name}
                       </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {/* Morph Targets Panel */}
+              {activeController && Object.keys(morphInfluences).length > 0 && (
+                <div className="bg-black/60 backdrop-blur-md rounded-2xl border border-white/10 p-4 flex flex-col gap-3 pointer-events-auto w-[250px] max-h-[40vh] overflow-y-auto">
+                  <h3 className="text-xs font-bold text-white/60 uppercase tracking-wider">Morph Targets</h3>
+                  <div className="flex flex-col gap-2">
+                    {Object.keys(morphInfluences).map(morph => (
+                      <div key={morph} className="flex flex-col gap-1">
+                        <div className="flex justify-between text-xs">
+                          <span>{morph}</span>
+                          <span className="text-white/40">{morphInfluences[morph].toFixed(2)}</span>
+                        </div>
+                        <input 
+                          type="range" min="0" max="1" step="0.01" 
+                          value={morphInfluences[morph]} 
+                          onChange={(e) => handleMorphChange(morph, parseFloat(e.target.value))}
+                          className="accent-primary"
+                        />
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -473,6 +530,27 @@ export default function AnimatorScreen({
                   >
                     {isVoiceoverRunning ? "Generating..." : "Generate Audio"}
                   </button>
+                </div>
+
+                <div className="w-full h-px bg-white/10 my-1"></div>
+
+                <h3 className="text-xs font-bold text-white/60 uppercase tracking-wider flex items-center justify-between">
+                  <span>Camera Bookmarks</span>
+                  <button onClick={saveBookmark} className="hover:text-primary transition-colors text-white/60">
+                    <Plus size={14} />
+                  </button>
+                </h3>
+                <div className="flex flex-wrap gap-2">
+                  {bookmarks.length === 0 && <span className="text-[10px] text-white/40">No bookmarks saved</span>}
+                  {bookmarks.map((b, i) => (
+                    <button 
+                      key={b.id}
+                      onClick={() => setCameraState({ position: b.position, fov: b.fov })}
+                      className="text-xs px-2 py-1 bg-white/10 hover:bg-white/20 rounded border border-transparent"
+                    >
+                      {b.name}
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>

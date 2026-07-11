@@ -1051,3 +1051,4 @@ built purely from defaults is valid and renderable.
 - **Test:** `tests/animator_defaults.test.mjs` — a scene built solely from `defaults.ts` passes the scene zod
   schema, selects a clip, resolves a valid recording preset from a capable capability set, and stays within
   `MAX_CLIP_SECONDS`.
+if the animator conversion path ever returns ANIMATOR_UNAVAILABLE, run npm rebuild sharp on the host. No env var, just a build step.

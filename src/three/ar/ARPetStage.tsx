@@ -36,6 +36,9 @@ import ARErrorBoundary from "./ARErrorBoundary";
  */
 
 const store = createXRStore({
+  // §6.7 — disable the IWER WebXR emulator in production to avoid shipping
+  // ~4.7 MB of unused emulator + synthetic-room chunks to real users.
+  emulate: import.meta.env.DEV ? "metaQuest3" : false,
   domOverlay: true,
   hitTest: true,
   anchors: true,

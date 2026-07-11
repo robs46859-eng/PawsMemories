@@ -28,7 +28,7 @@ const s3Client = new S3Client({
 /**
  * Maps a MIME type to an appropriate file extension.
  */
-function getExtensionFromMime(mimeType: string): string {
+export function getExtensionFromMime(mimeType: string): string {
   const map: Record<string, string> = {
     "image/png": "png",
     "image/jpeg": "jpg",
@@ -39,16 +39,30 @@ function getExtensionFromMime(mimeType: string): string {
     "model/gltf-binary": "glb",
     "model/gltf+json": "gltf",
     "application/octet-stream": "glb",
+    "audio/webm": "webm",
+    "audio/mpeg": "mp3",
+    "audio/mp4": "m4a",
+    "audio/wav": "wav",
   };
-  return map[mimeType] || "bin";
+  if (map[mimeType]) return map[mimeType];
+  
+  if (mimeType.startsWith("image/")) return "png";
+  if (mimeType.startsWith("video/")) return "mp4";
+  if (mimeType.startsWith("model/")) return "glb";
+  if (mimeType.startsWith("audio/")) return "mp3";
+  
+  return "bin";
 }
 
 /**
- * Determines the subfolder based on whether the upload is an image or video.
+ * Determines the subfolder based on whether the upload is an image or video,
+ * unless overridden.
  */
-function getFolderFromMime(mimeType: string): string {
+export function getFolderFromMime(mimeType: string, folderOverride?: string): string {
+  if (folderOverride) return folderOverride;
   if (mimeType.startsWith("video/")) return "videos";
   if (mimeType.startsWith("model/")) return "models";
+  if (mimeType.startsWith("audio/")) return "sounds";
   return "creations";
 }
 
@@ -58,7 +72,7 @@ function getFolderFromMime(mimeType: string): string {
  * @param base64String The full data URL string (e.g., "data:image/jpeg;base64,..." or "data:video/mp4;base64,...")
  * @returns The public URL of the uploaded object.
  */
-export async function uploadBase64Image(base64String: string): Promise<string> {
+export async function uploadBase64Image(base64String: string, folderOverride?: string): Promise<string> {
   if (!bucketName || !bucketEndpoint) {
     throw new Error("Object storage is not configured. Please check MEDIA_BUCKET_* environment variables.");
   }
@@ -80,7 +94,7 @@ export async function uploadBase64Image(base64String: string): Promise<string> {
 
   // Determine file extension and folder from MIME type
   const extension = getExtensionFromMime(mimeType);
-  const folder = getFolderFromMime(mimeType);
+  const folder = getFolderFromMime(mimeType, folderOverride);
   const fileName = `${folder}/${Date.now()}-${uuidv4()}.${extension}`;
 
   try {
@@ -114,7 +128,8 @@ export async function uploadBase64Image(base64String: string): Promise<string> {
  */
 export async function uploadBase64Binary(
   base64: string,
-  mimeType: string = "model/gltf-binary"
+  mimeType: string = "model/gltf-binary",
+  folderOverride?: string
 ): Promise<string> {
   if (!bucketName || !bucketEndpoint) {
     throw new Error("Object storage is not configured. Please check MEDIA_BUCKET_* environment variables.");
@@ -123,7 +138,7 @@ export async function uploadBase64Binary(
   const buffer = Buffer.from(raw, "base64");
 
   const extension = getExtensionFromMime(mimeType);
-  const folder = getFolderFromMime(mimeType);
+  const folder = getFolderFromMime(mimeType, folderOverride);
   const fileName = `${folder}/${Date.now()}-${uuidv4()}.${extension}`;
 
   await s3Client.send(
@@ -149,7 +164,8 @@ export async function uploadBase64Binary(
  */
 export async function uploadBinaryFromUrl(
   sourceUrl: string,
-  mimeType: string = "model/gltf-binary"
+  mimeType: string = "model/gltf-binary",
+  folderOverride?: string
 ): Promise<string> {
   if (!bucketName || !bucketEndpoint) {
     throw new Error("Object storage is not configured. Please check MEDIA_BUCKET_* environment variables.");
@@ -162,7 +178,7 @@ export async function uploadBinaryFromUrl(
   const buffer = Buffer.from(await res.arrayBuffer());
 
   const extension = getExtensionFromMime(mimeType);
-  const folder = getFolderFromMime(mimeType);
+  const folder = getFolderFromMime(mimeType, folderOverride);
   const fileName = `${folder}/${Date.now()}-${uuidv4()}.${extension}`;
 
   try {

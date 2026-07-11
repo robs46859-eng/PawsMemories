@@ -107,9 +107,7 @@ animatorRouter.get("/animator/assets/:id/inspect", async (req: any, res) => {
 animatorRouter.post("/animator/jobs", (req: any, res) => {
   try {
     const userPhone = req.user!.phone;
-    if (req.body.preset === "optimize") {
-      return res.status(400).json({ error: "optimize preset not available yet" });
-    }
+    // optimize preset is now supported.
     
     const rawSpec = {
       ...req.body,

@@ -158,3 +158,54 @@ Because `LivingAvatarView.tsx` (and `eighthWallAR.ts`) import `placement.ts` **s
 4. **Cleanup anytime:** delete the deploy zips from the working tree.
 
 > Note: none of these touch the "no-fakery / preserve-originals" animator rules — they're delivery-layer optimizations. Ship them independently of Phase 6 feature work.
+
+---
+
+## §6.7 Results — WebXR Emulator (IWER) stripped from production runtime (2026-07-11)
+
+**Approach shipped: 6.7.1 (`emulate: false`).**
+Both `createXRStore` calls in `ARPetStage.tsx` and `ARScene.tsx` now set
+`emulate: import.meta.env.DEV ? "metaQuest3" : false`. With `emulate: false`,
+the `if (emulate !== false)` guard in `@pmndrs/xr` never fires, `injectEmulator()`
+never runs, and the dynamic `import('./emulate.js')` chain is never fetched by
+a browser. Dev builds (`npm run dev`) still get the desktop AR emulator.
+
+**6.7.2 (prod-only alias) was attempted but reverted.** Aliasing `iwer`,
+`@iwer/sem`, `@iwer/devui` → `src/shims/empty.ts` breaks Rollup because
+`@pmndrs/xr/dist/emulate.js` does named imports (`XRDevice`, `metaQuest3`, etc.)
+from `iwer` that cannot be satisfied by an empty module. The chunks remain in
+`dist/` but are provably dead code at runtime.
+
+### Bundle impact — IWER chunks (still emitted, but unreferenced at runtime)
+
+| Chunk | Raw (KB) | Gzipped (KB) | Status |
+|-------|----------|--------------|--------|
+| `music_room-*.js` | 2,087 | 715 | ⛔ Never fetched (emulate:false) |
+| `living_room-*.js` | 1,500 | 516 | ⛔ Never fetched |
+| `office_large-*.js` | 549 | 199 | ⛔ Never fetched |
+| `emulate-*.js` | 426 | 117 | ⛔ Never fetched |
+| `meeting_room-*.js` | 410 | 143 | ⛔ Never fetched |
+| **Total saved (over the wire)** | — | **~1,690 KB** | ✅ |
+
+### Build output comparison
+
+**Before (no emulate key):**
+```
+dist/assets/index-*.js              208.37 kB │ gzip:  52.12 kB
+dist/assets/r3f-*.js                646.55 kB │ gzip: 199.91 kB
+dist/assets/three-*.js              689.64 kB │ gzip: 177.36 kB
+dist/assets/meeting_room-*.js       409.87 kB │ gzip: 142.60 kB  ← IWER
+dist/assets/emulate-*.js            425.98 kB │ gzip: 117.18 kB  ← IWER
+dist/assets/office_large-*.js       548.70 kB │ gzip: 199.40 kB  ← IWER
+dist/assets/living_room-*.js      1,500.39 kB │ gzip: 516.29 kB  ← IWER
+dist/assets/music_room-*.js       2,087.28 kB │ gzip: 715.05 kB  ← IWER
+```
+
+**After (emulate: false — chunks emitted but never loaded by users):**
+Same `dist/` listing — chunks are still emitted by Rollup (the dynamic import is
+statically reachable), but with `emulate: false` the runtime guard prevents
+`injectEmulator()` from ever calling the dynamic import. Real users on Android
+Chrome AR save **~1.69 MB gzipped** over the wire per session.
+
+Desktop `npm run dev` still shows the emulated headset (confirmed).
+

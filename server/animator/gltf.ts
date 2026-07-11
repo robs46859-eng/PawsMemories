@@ -98,13 +98,13 @@ export async function inspectAsset(absPath: string, originalFilename: string): P
   };
 }
 
-export type SafeOp = "inspect" | "pack" | "unpack" | "dedup" | "prune";
+export type SafeOp = "inspect" | "pack" | "unpack" | "dedup" | "prune" | "optimize";
 
 export async function runSafe(op: SafeOp, inAbs: string, outAbs: string): Promise<string[]> {
   if (!(await checkAnimatorAvailable())) {
     throw new Error("ANIMATOR_UNAVAILABLE");
   }
-  if (!["inspect", "pack", "unpack", "dedup", "prune"].includes(op)) {
+  if (!["inspect", "pack", "unpack", "dedup", "prune", "optimize"].includes(op)) {
     throw new Error(`Invalid safe operation: ${op}`);
   }
   
@@ -119,6 +119,13 @@ export async function runSafe(op: SafeOp, inAbs: string, outAbs: string): Promis
     case "prune":
       await doc.transform(functionsModule.prune());
       opsApplied.push("prune");
+      break;
+    case "optimize":
+      await doc.transform(
+        functionsModule.resample(),
+        functionsModule.weld()
+      );
+      opsApplied.push("resample", "weld");
       break;
     case "pack":
       opsApplied.push("pack");

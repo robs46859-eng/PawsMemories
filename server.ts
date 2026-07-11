@@ -239,12 +239,14 @@ async function startServer() {
   // SnapGen (pic-to-3D storefront) routes — see server/snapgen.ts
   registerSnapgenRoutes(app);
 
-  // Per-USER limiter (keyed by JWT subject, not IP) for the paid AR endpoints
-  // (classify / rig / semantic-scan). Applied as route middleware AFTER
-  // Guard ONLY the animator + scenes namespaces so public routes
-  // (/api/auth/login, /api/auth/signup, etc.) stay reachable without a token.
-  // NOTE: mounting requireAuth on the bare "/api" prefix previously gated the
-  // whole API (including login) and caused spurious 401s.
+  // GUARD RULE (§6.1): Any authentication guard mounted on a shared prefix
+  // (like "/api") MUST be strictly path-scoped to the namespaces it intends to protect.
+  // Do NOT mount a blanket `requireAuth` on "/api" or you will inadvertently block
+  // public routes (like /api/auth/login and /api/auth/signup). Furthermore, ensure
+  // public routes are registered BEFORE any shared-prefix catch-all or guard to ensure
+  // they remain reachable regardless of registration order.
+  // 
+  // Here, we guard ONLY the animator + scenes namespaces so public routes stay reachable.
   app.use(
     "/api",
     (req, res, next) => {
@@ -1252,9 +1254,14 @@ async function startServer() {
                   return;
                 }
 
-                let finalModelUrl = glbUrl;
-                try { finalModelUrl = await uploadBinaryFromUrl(glbUrl); }
-                catch (e: any) { console.warn(`[Avatar ${avatarId}] could not re-host object GLB, using Tripo URL:`, e?.message || e); }
+                let finalModelUrl: string;
+                try {
+                  finalModelUrl = await uploadBinaryFromUrl(glbUrl, "model/gltf-binary");
+                } catch (e: any) {
+                  console.error(`[Avatar ${avatarId}] Failed to mirror object GLB:`, e?.message || e);
+                  await updateAvatarGenerationStatus(avatarId, "failed", "Failed to mirror model to durable storage (retryable).");
+                  return;
+                }
                 await updateAvatarModel(avatarId, avatarPhone, finalModelUrl, "", {
                   subjectClass: "object",
                   objectProfile: profile,
@@ -1335,10 +1342,12 @@ async function startServer() {
                 if (buildState.status === "failed") {
                    await updateAvatarGenerationStatus(avatarId, "failed", buildState.statusMessage);
                 } else if (buildState.status === "completed") {
-                   let finalModelUrl = glbUrl;
+                   let finalModelUrl: string;
                    let finalSpriteSheetUrl = "";
                    if (buildState.riggedGlbBase64) {
-                      finalModelUrl = await uploadBase64Image(buildState.riggedGlbBase64);
+                      finalModelUrl = await uploadBase64Binary(buildState.riggedGlbBase64, "model/gltf-binary");
+                   } else {
+                      finalModelUrl = await uploadBinaryFromUrl(glbUrl, "model/gltf-binary");
                    }
                    if (buildState.spriteSheetBase64) {
                       finalSpriteSheetUrl = await uploadBase64Image(buildState.spriteSheetBase64);
@@ -1364,7 +1373,7 @@ async function startServer() {
                       try {
                          const { riggedGlbBase64, clips } = await getBlenderClient()
                             .bakeClipsAndWait(buildState.riggedGlbBase64, { avatarType: avatar.avatar_type });
-                         const riggedUrl = await uploadBase64Image(riggedGlbBase64);
+                         const riggedUrl = await uploadBase64Binary(riggedGlbBase64, "model/gltf-binary");
                          await updateAvatarRiggedModel(avatarId, avatarPhone, riggedUrl, clips);
                          console.log(`[Avatar ${avatarId}] Baked ${clips.length} skeletal clips.`);
                       } catch (clipErr: any) {
@@ -3158,18 +3167,20 @@ async function startServer() {
             // call uploadBinaryFromUrl. Storing the raw Tripo URL here caused
             // models to 404 once the provider expired the link.
             if (poll.glbUrl) {
-              let durableUrl = poll.glbUrl;
+              let durableUrl: string;
               try {
                 durableUrl = await uploadBinaryFromUrl(poll.glbUrl, "model/gltf-binary");
               } catch (mirrorErr) {
-                console.error(`[image-to-3d] Failed to mirror GLB to storage for job ${jobId}:`, mirrorErr);
+                console.error(`[image-to-3d] Failed to mirror GLB for job ${jobId}:`, mirrorErr);
+                await updateJobStatus(jobId, "failed", "Failed to mirror model to durable storage (retryable).");
+                return res.json({ status: "failed", error: "Failed to mirror model — retryable" });
               }
               await setCreationModelUrl(job.creation_id!, req.user!.phone, durableUrl).catch(() => {
                 // creation_id may be null for arbitrary images — that's fine
               });
               return res.json({ status: "done", model_url: durableUrl, progress: 100 });
             }
-            return res.json({ status: "done", model_url: poll.glbUrl, progress: 100 });
+            return res.json({ status: "done", model_url: null, progress: 100 });
           } else if (poll.done && poll.error) {
             await updateJobStatus(jobId, "failed");
             return res.json({ status: "failed", error: poll.error });

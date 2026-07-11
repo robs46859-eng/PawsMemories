@@ -63,21 +63,13 @@ uncommitted/staged work is **excluded**. Always commit before building, or the z
 code. (Sanity check in the script confirms a few critical files exist.) The zip is **source
 only** — Hostinger runs `npm install && npm run build` on it.
 
----
+## 4. Stale `.git/*.lock` and Git unlink limitations in Sandbox
 
-## 4. Stale `.git/*.lock` in some build environments
+The Cowork/sandbox mount blocks git `unlink` calls. This causes commands that require locks or unlinks (like `git commit`, `git rebase`, or modifying `.git/index`) to fail with "Unable to create '.git/HEAD.lock': File exists" or "Device or resource busy".
 
-The Cowork/sandbox mount intermittently leaves an un-deletable `.git/index.lock` or
-`.git/HEAD.lock`, which blocks commits with "Unable to create '.git/HEAD.lock': File exists".
-On your Mac it clears instantly:
-
-```bash
-rm -f .git/*.lock
-```
-
-Then re-run the commit. (This is an environment quirk, not a repo corruption.)
-
----
+**Workaround**: 
+- **Commits**: Commits must be finalized locally on the Mac (or whatever host OS is mounting the sandbox). Avoid running mutating git commands inside the sandbox/Dev/CI environment. 
+- **Deploy Zip Fallback**: If you need to build the deploy zip inside a restricted sandbox environment where `git ls-files` fails due to lock issues, you can run the `scripts/build-deploy-zip.sh` script to output to a temporary non-mount directory, but it's best to run `bash scripts/build-deploy-zip.sh` on the host Mac after committing.
 
 ## 5. Environment variables
 
@@ -86,7 +78,7 @@ Set in the host env (see `.env.example` for the full list). Notable ones:
 - `GEMINI_API_KEY` — vision + text LLM (pet classify, semantic scan).
 - `TRIPO_API_KEY` — image→3D + auto-rig.
 - `BLENDER_WORKER_URL` + `WORKER_SHARED_SECRET` — must match the Render worker (`x-worker-secret`).
-- `MEDIA_BUCKET_*` — Backblaze B2 for GLB/audio uploads.
+- `MEDIA_BUCKET_*` — Backblaze B2 for GLB/audio uploads. **Retention policy**: B2 buckets have no lifecycle expiration rules set (objects live forever). Any 404s for `models/` are typically due to provider URL leakage (fixed in Phase 6), not bucket cleanup.
 - **AR pet sim (new):**
   - `PETSIM_RIG_ENABLED` — feature flag for `POST /api/pets/:id/rig` (**off by default**;
     avatars without a rig keep the current render path).

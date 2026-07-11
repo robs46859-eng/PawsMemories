@@ -54,9 +54,7 @@ async function processJob(jobId: string) {
   if (!job) return; // Claimed by someone else or doesn't exist
   
   try {
-    if (job.preset === "optimize") {
-      throw new Error("optimize preset not available yet");
-    }
+    // The optimize preset is now available.
 
     const metadataPath = resolveWithinWorkspace(`originals/${job.assetId}/metadata.json`);
     const metadata = JSON.parse(fs.readFileSync(metadataPath, "utf8"));
@@ -89,7 +87,8 @@ async function processJob(jobId: string) {
     // From instructions: "For each pending job... runSafe(op, inAbs, outAbs)"
     // I'll execute the requested safe op based on type
     const op = job.type === "convert" ? (metadata.format === "glb" ? "unpack" : "pack") :
-               job.type === "inspect" ? "inspect" : "dedup"; // mock mapping for optimization
+               job.type === "inspect" ? "inspect" : 
+               job.type === "optimize" ? "optimize" : "dedup";
                
     if (op !== "inspect") {
       const outName = buildOutputName(originalFilename, op, job.params, inputBytes);

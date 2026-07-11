@@ -111,7 +111,8 @@ export interface AnimationController {
   resetToBindPose(): void;
   update(delta: number): void;
   dispose(): void;
-  crossFadeTo?(name: string, seconds: number): void;
-  playSequence?(steps: SequenceStep[]): void;
-  setMorphInfluence?(meshName: string, targetIndex: number, weight: number): void;
+  listMorphTargets(): string[];
+  crossFadeTo(name: string, seconds: number): void;
+  playSequence(steps: SequenceStep[]): void;
+  setMorphInfluence(name: string, weight: number): void;
 }
