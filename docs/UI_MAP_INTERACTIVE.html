@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pawsome3D — Clickable UI Map</title>
+<style>
+  :root{
+    --primary:#4a6545; --primary-2:#6b8a63; --secondary:#964826; --secondary-2:#c56b41;
+    --surface:#fff8f3; --card:#ffffff; --ink:#26332a; --muted:#6a7a6c;
+    --line:#e4ddd3; --chip:#eef3ea; --shadow:0 8px 30px rgba(74,101,69,.12);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Plus Jakarta Sans',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    background:radial-gradient(1200px 600px at 70% -10%,#f3efe6 0,var(--surface) 60%);color:var(--ink)}
+  .wrap{max-width:1160px;margin:0 auto;padding:28px 20px 80px}
+  header h1{margin:0 0 4px;font-size:26px;letter-spacing:-.5px}
+  header p{margin:0;color:var(--muted);font-size:14px}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;margin:18px 0 8px;font-size:12px;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .dot{width:11px;height:11px;border-radius:3px;display:inline-block}
+  .tier-flow{background:var(--primary)} .tier-gen{background:var(--secondary)}
+  .tier-commerce{background:#c99a2e} .tier-global{background:#5a7d9a}
+  .hint{font-size:12px;color:var(--muted);margin-top:6px}
+  .section-title{font-size:12px;text-transform:uppercase;letter-spacing:1.4px;color:var(--muted);
+    margin:26px 0 10px;font-weight:800}
+  .flowbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--card);
+    border:1px solid var(--line);border-radius:16px;padding:14px;box-shadow:var(--shadow)}
+  .arrow{color:var(--muted);font-weight:700}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+  .node{cursor:pointer;background:var(--card);border:1px solid var(--line);border-left:5px solid var(--primary);
+    border-radius:14px;padding:13px 14px;transition:.16s;box-shadow:0 2px 8px rgba(0,0,0,.03)}
+  .node:hover{transform:translateY(-3px);box-shadow:var(--shadow);border-color:var(--primary-2)}
+  .node.gen{border-left-color:var(--secondary)} .node.commerce{border-left-color:#c99a2e}
+  .node.global{border-left-color:#5a7d9a}
+  .node .t{font-weight:800;font-size:15px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .node .s{font-size:12.5px;color:var(--muted);margin-top:4px;line-height:1.4}
+  .cost{font-size:10.5px;font-weight:800;color:var(--secondary);background:#fbeee6;border-radius:20px;
+    padding:2px 8px;white-space:nowrap}
+  .flowbar .node{flex:1;min-width:120px}
+  /* modal */
+  .overlay{position:fixed;inset:0;background:rgba(30,40,32,.5);backdrop-filter:blur(3px);
+    display:none;align-items:center;justify-content:center;padding:20px;z-index:50}
+  .overlay.on{display:flex}
+  .panel{background:var(--card);border-radius:20px;max-width:640px;width:100%;max-height:86vh;overflow:auto;
+    box-shadow:0 30px 80px rgba(0,0,0,.3);animation:pop .18s ease}
+  @keyframes pop{from{transform:scale(.96);opacity:0}to{transform:scale(1);opacity:1}}
+  .phead{padding:20px 22px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--card);z-index:2}
+  .phead h2{margin:0;font-size:20px}
+  .phead .enum{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;color:var(--muted);margin-top:3px}
+  .pbody{padding:18px 22px 26px}
+  .blk{margin-bottom:16px}
+  .blk h3{font-size:11px;letter-spacing:1.2px;text-transform:uppercase;color:var(--primary);margin:0 0 8px}
+  .blk ul{margin:0;padding-left:18px} .blk li{font-size:13.5px;margin:4px 0;line-height:1.45}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{background:var(--chip);border:1px solid var(--line);border-radius:20px;padding:4px 10px;font-size:12px;font-weight:600}
+  .api{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;background:#1d2620;color:#cfe6c6;
+    border-radius:8px;padding:8px 10px;margin:4px 0;overflow-x:auto;white-space:nowrap}
+  .close{position:absolute;top:16px;right:18px;border:none;background:var(--chip);width:32px;height:32px;
+    border-radius:50%;cursor:pointer;font-size:16px;color:var(--ink)}
+  .foot{margin-top:30px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🐾 Pawsome3D — Clickable UI Map</h1>
+    <p>pawsome3d.com · React 19 SPA (screen-enum nav) + Express · Blender worker on Render · Tripo3D + Gemini/Veo. <b>Click any screen</b> for tools, flows, API routes & credit costs.</p>
+  </header>
+
+  <div class="legend">
+    <span><i class="dot tier-flow"></i> Onboarding / flow</span>
+    <span><i class="dot tier-gen"></i> Generation / 3D / animation</span>
+    <span><i class="dot tier-commerce"></i> Commerce / credits</span>
+    <span><i class="dot tier-global"></i> Global / overlay</span>
+  </div>
+
+  <div class="section-title">Onboarding flow</div>
+  <div class="flowbar" id="flowbar"></div>
+  <div class="hint">Auth gate: valid JWT + complete profile → Dashboard; else → Sign Up. New users get 50 free credits at profile completion.</div>
+
+  <div class="section-title">Primary navigation (top bar + floating bottom nav)</div>
+  <div class="grid" id="primary"></div>
+
+  <div class="section-title">Generation, 3D & animation</div>
+  <div class="grid" id="gen"></div>
+
+  <div class="section-title">Commerce & credits</div>
+  <div class="grid" id="commerce"></div>
+
+  <div class="section-title">Global overlays & admin</div>
+  <div class="grid" id="global"></div>
+
+  <div class="foot">
+    Generated from the live repo (<code>src/App.tsx</code>, <code>src/types.ts</code>, <code>server.ts</code>, component tree). Credit costs read from code: image 40cr · video/animate 250cr · 3D model 400cr · album 800cr + $12.
+  </div>
+</div>
+
+<div class="overlay" id="overlay" onclick="if(event.target===this)close_()">
+  <div class="panel" id="panel"></div>
+</div>
+
+<script>
+const S = {
+  SIGN_UP:{cat:'flow',t:'Sign Up',enum:'SIGN_UP',comp:'SignUp.tsx',desc:'Email + password auth.',
+    tools:['Email + password (scrypt hash)','Returns 30-day JWT stored in localStorage','Blocks app until profile complete'],
+    flows:['New user → Welcome','Returning + profile complete → Dashboard','Returning + incomplete → Tutorial'],
+    api:['POST /api/auth/signup','POST /api/auth/login','POST /api/auth/complete-profile  (+50 credits)','GET /api/me']},
+  WELCOME:{cat:'flow',t:'Welcome',enum:'WELCOME',comp:'Welcome.tsx',desc:'Randy AI greeting for new users.',
+    tools:['Randy mascot portrait + AI Guide badge','Feature highlights (privacy, AI transforms)','soft-float animation'],flows:['→ Tutorial'],api:[]},
+  TUTORIAL:{cat:'flow',t:'Tutorial',enum:'TUTORIAL',comp:'Tutorial.tsx',desc:'One-time capability walkthrough.',
+    tools:['Cinematic hero showcase','Feature cards: transforms, backdrops, AI styles, Randy'],flows:['→ Dashboard'],api:[]},
+  DASHBOARD:{cat:'flow',t:'Dashboard',enum:'DASHBOARD',comp:'Dashboard.tsx',desc:'Main hub — largest surface.',
+    tools:['Daily login bonus + streak','New Memory / New Album CTAs','Social share rewards (capped/day)','Live pet inspiration board (dog.ceo + dogapi.dog)','Achievements panel','Albums + AI creations grids'],
+    flows:['New Memory → Edit (admin) / Request Memory (user)','Click creation → Animate modal','Logout → Sign Up'],
+    api:['GET /api/inspiration','POST /api/credits/claim-daily','GET /api/creations']},
+  MODELS:{cat:'gen',t:'Avatar / Models Studio',enum:'MODELS',comp:'AvatarDashboard.tsx',desc:'3D avatar studio + Tamagotchi pets.',cost:'3D model 400cr',
+    tools:['Create 3D Model dialog (CreateAvatarDialog)','Subject type: 🐕 Dog · 🧑 Human · 🧊 Object','Style/framing/angle/lighting/geo detail + palette lock','Tamagotchi: feed/water, food & water decay 5%/hr','Living avatar viewer + sprite-sheet playpen','Launch into AR / Animator'],
+    flows:['Photo OR text → reference image → QUALIFY → classify HUMAN/ANIMAL/STATIC → Tripo image-to-3D → rig+brain+clips (or static GLB)','Poll status until generation_status=done'],
+    api:['GET /api/avatars','POST /api/avatars  (400cr)','GET /api/avatars/:id/status','POST /api/avatars/:id/retry','POST /api/avatars/:id/feed · /water','POST /api/pets  (rig, flag-gated)']},
+  ANIMATOR:{cat:'gen',t:'Animator + Scenes',enum:'ANIMATOR',comp:'src/animator/',desc:'In-app glTF animator & scene builder.',
+    tools:['Timeline + transport + clip selector over three AnimationMixer','PNG capture of clean viewport (no UI chrome)','Client MP4 recording via WebCodecs H.264 (+ fallback)','gltf-transform: inspect / optimize / dedup / convert','Originals preserved in originals/ (never mutated)','Scene = avatar + background (location/upload/prompt) + camera cuts'],
+    flows:['Import GLB → animate → capture/record → upload output to B2','Server file-based job queue: pending→running→done/failed'],
+    api:['/api/animator/* (job queue, gltf-transform)','/api/scenes/*','POST /api/scenes/backgrounds']},
+  AR:{cat:'gen',t:'AR Virtual Pet',enum:'(Playpen → WebXR)',comp:'Avatar3DPlaypen.tsx · three/ar/',desc:'Place your pet on real surfaces.',cost:'AR endpoints day-capped',
+    tools:['Android Chrome / ARCore: WebXR plane + mesh detection','Drift-free XRAnchor + footprint COG grounding','iOS → 8th Wall fallback (self-hosted binary)','Behavior brain: drives/hormones/reinforcement','Voice-command training + gesture reinforcement','Semantic-scan navigation + navmesh zone-cost regions'],
+    flows:['Avatar → AR session → place → interact/train','@react-three/xr, three deduped to single copy'],
+    api:['GET/POST placed_objects','Paid AR endpoints (per-user/day cost cap)']},
+  EDIT_MEMORY:{cat:'gen',t:'Edit Memory (Admin)',enum:'EDIT_MEMORY',comp:'EditMemory.tsx',desc:'Direct AI photo/video generation — admin only.',cost:'img 40cr · video 250cr',
+    tools:['Photo upload + style selector','Street View location picker (Google Maps POV)','Gemini/Imagen image transform','Veo video generation (async)'],
+    flows:['Upload → style → backdrop → Transform → Share'],
+    api:['POST /api/generate-image  (40cr)','POST /api/create-video  (250cr)','GET /api/jobs/:id']},
+  REQUEST_MEMORY:{cat:'commerce',t:'Request a Memory',enum:'REQUEST_MEMORY',comp:'RequestMemory.tsx',desc:'User flow — pay cash, admin fulfills.',cost:'$2.99–$12.99',
+    tools:['Tiers: Std Photo $2.99 · Premium Photo $4.99 · Std Video $7.99 · Premium Video $12.99','Upload + instructions','Status: In Review / Ready / Rejected'],
+    flows:['Submit → Stripe Checkout → admin fulfills → Twilio SMS notify'],
+    api:['POST /api/create-checkout-session','(admin) fulfill → clones creation + SMS']},
+  STORE:{cat:'commerce',t:'Store',enum:'STORE',comp:'Store.tsx',desc:'Physical merch + Albums tab.',cost:'$12–$299',
+    tools:['Resin 3D print $89 · Plush $45 · Bowl $32','Dog house from $299 · Tag $18 · Tote $24 · Mug $15 · Stickers $12','Albums folded in as a tab'],
+    flows:['Configure item → checkout','→ Avatars / Models'],api:['POST /api/create-checkout-session','POST /api/stripe-webhook']},
+  CREDIT_STORE:{cat:'commerce',t:'Credit Store',enum:'(modal)',comp:'CreditStore.tsx',desc:'Buy credit packs (Stripe).',cost:'$5–$50',
+    tools:['Starter 100cr/$5 (5.00¢/cr)','Popular 220cr/$10 (4.55¢/cr)','Pro 600cr/$25 (4.17¢/cr)','Studio 1300cr/$50 (3.85¢/cr)'],
+    flows:['Opens when balance too low','Stripe redirect + webhook confirm'],
+    api:['POST /api/credits/purchase','GET /api/credits/balance','POST /api/stripe-webhook']},
+  ORDER_ALBUM:{cat:'commerce',t:'Order Album',enum:'(modal)',comp:'OrderAlbumModal.tsx',desc:'Physical printed album checkout.',cost:'800cr + $12',
+    tools:['Hybrid price: 800 credits + $12 cash','Affordability check','Shipping form → Stripe Checkout'],
+    flows:['Share → Order Album → Stripe → success modal'],api:['POST /api/create-checkout-session']},
+  COMMUNITY:{cat:'flow',t:'Community',enum:'COMMUNITY',comp:'Community.tsx',desc:'Local info + inspiration board.',
+    tools:['Nearby parks, weather, pet-recall news','Live inspiration board + user memories','Coming-soon roadmap'],flows:['Upload memory → community_memories'],api:['GET /api/inspiration','community_memories CRUD']},
+  PROFILE:{cat:'flow',t:'Profile',enum:'PROFILE',comp:'ProfileScreen.tsx',desc:'Avatar thumbnail + photo library + credit history.',
+    tools:['Profile photo uploader','Personal photo library (avatar-builder uploads persist here)','Credit earn/spend history'],
+    flows:['Builder uploads auto-land here'],api:['user_photos CRUD','GET /api/credits/balance (history)']},
+  ALBUMS:{cat:'flow',t:'Albums / Album View',enum:'ALBUMS · ALBUM_VIEW',comp:'AlbumsPage.tsx · AlbumView.tsx',desc:'Grouped creations.',
+    tools:['Album grid + item counts','Album detail view'],flows:['Dashboard → Albums → Album View'],api:['GET /api/creations']},
+  RANDY:{cat:'global',t:'Randy Chat',enum:'(floating)',comp:'RandyChat.tsx · RandyHead.tsx',desc:'AI pet guide, everywhere.',
+    tools:['Gemini-backed chat','Web Speech API voice in/out','Achievement triggers (voice_use)','3D talking-head spec (RandyHead)'],flows:['Floating button on all main screens'],api:['AI chat via authedFetch']},
+  SHELL:{cat:'global',t:'App Shell',enum:'App.tsx',comp:'App.tsx',desc:'Nav, theme, credits, gating.',
+    tools:['Top nav: Avatar · Store · Community · Profile','Floating bottom navigator (mobile)','Dark-mode toggle (localStorage)','Credit display → Credit Store','requireAuth + profile gate'],
+    flows:['Screen enum state machine — no router'],api:['GET /api/me','POST /api/logout']},
+  ADMIN:{cat:'global',t:'Admin Fulfillment',enum:'(admin panel)',comp:'AdminRequestPanel.tsx',desc:'Fulfill user memory requests.',
+    tools:['Pending request queue','Generate premium photo/video','Fulfill → clone to user gallery + SMS'],flows:['User request → admin generates → fulfill'],api:['admin request endpoints','Twilio SMS']},
+};
+
+const flowOrder=['SIGN_UP','WELCOME','TUTORIAL','DASHBOARD'];
+const primary=['DASHBOARD','MODELS','STORE','COMMUNITY','PROFILE'];
+const gen=['MODELS','ANIMATOR','AR','EDIT_MEMORY'];
+const commerce=['REQUEST_MEMORY','STORE','CREDIT_STORE','ORDER_ALBUM'];
+const global=['SHELL','RANDY','ADMIN','ALBUMS'];
+
+function nodeHTML(k){const n=S[k];const cost=n.cost?`<span class="cost">${n.cost}</span>`:'';
+  return `<div class="node ${n.cat}" onclick="open_('${k}')"><div class="t">${n.t}${cost}</div><div class="s">${n.desc}</div></div>`;}
+
+function fill(id,keys){document.getElementById(id).innerHTML=keys.map(nodeHTML).join('');}
+document.getElementById('flowbar').innerHTML=flowOrder.map((k,i)=>nodeHTML(k)+(i<flowOrder.length-1?'<span class="arrow">→</span>':'')).join('');
+fill('primary',primary);fill('gen',gen);fill('commerce',commerce);fill('global',global);
+
+function block(title,items,mono){if(!items||!items.length)return '';
+  const body=mono?items.map(x=>`<div class="api">${x}</div>`).join('')
+    :`<ul>${items.map(x=>`<li>${x}</li>`).join('')}</ul>`;
+  return `<div class="blk"><h3>${title}</h3>${body}</div>`;}
+
+function open_(k){const n=S[k];const cost=n.cost?`<span class="cost">${n.cost}</span>`:'';
+  document.getElementById('panel').innerHTML=`
+    <button class="close" onclick="close_()">✕</button>
+    <div class="phead"><h2>${n.t} ${cost}</h2><div class="enum">${n.enum} · ${n.comp}</div>
+      <div class="s" style="color:var(--muted);font-size:13px;margin-top:6px">${n.desc}</div></div>
+    <div class="pbody">
+      ${block('Tools & UI',n.tools)}
+      ${block('Flows',n.flows)}
+      ${block('API routes',n.api,true)}
+    </div>`;
+  document.getElementById('overlay').classList.add('on');}
+function close_(){document.getElementById('overlay').classList.remove('on');}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')close_();});
+</script>
+</body>
+</html>
