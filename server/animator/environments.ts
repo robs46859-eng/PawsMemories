@@ -31,34 +31,75 @@ export type EnvironmentPreset = z.infer<typeof EnvironmentPresetSchema>;
 
 let _cachedEnvironments: EnvironmentPreset[] | null = null;
 
+/**
+ * Guaranteed-safe fallback so the studio toolbar is NEVER empty, even if the
+ * preset directory can't be resolved at runtime (e.g. the Hostinger cwd differs
+ * from the source root). `procedural` needs no asset, so it always renders.
+ */
+const DEFAULT_ENVIRONMENTS: EnvironmentPreset[] = [
+  {
+    id: "procedural-studio",
+    tier: "basic",
+    label: "Clean Studio",
+    backdrop: { kind: "procedural" },
+    allowedWeather: ["clear"],
+    defaultTimeOfDay: "afternoon",
+    license: "generated",
+    source: "Built-in procedural fallback",
+  },
+];
+
+/**
+ * Candidate directories to search for the preset JSON. `process.cwd()` is the
+ * primary (matches how the app is normally launched), with module-relative
+ * fallbacks for deploys where the runtime cwd isn't the source root.
+ */
+function candidateEnvDirs(): string[] {
+  const dirs = [path.join(process.cwd(), "server", "animator", "environments")];
+  // `__dirname` exists in the esbuild CJS bundle; guard with typeof so the ESM
+  // (tsx) dev path doesn't throw a ReferenceError.
+  if (typeof __dirname !== "undefined") {
+    dirs.push(path.join(__dirname, "environments"));
+    dirs.push(path.join(__dirname, "server", "animator", "environments"));
+  }
+  return dirs;
+}
+
 export function loadEnvironments(): EnvironmentPreset[] {
   if (_cachedEnvironments) return _cachedEnvironments;
-  
-  const envDir = path.join(process.cwd(), "server", "animator", "environments");
-  if (!fs.existsSync(envDir)) {
-    fs.mkdirSync(envDir, { recursive: true });
-    return [];
+
+  const envDir = candidateEnvDirs().find(
+    (d) => fs.existsSync(d) && fs.readdirSync(d).some((f) => f.endsWith(".json"))
+  );
+
+  if (!envDir) {
+    console.warn(
+      "[environments] No preset directory found; serving built-in defaults. Looked in:",
+      candidateEnvDirs().join(", ")
+    );
+    _cachedEnvironments = DEFAULT_ENVIRONMENTS;
+    return _cachedEnvironments;
   }
-  
-  const files = fs.readdirSync(envDir).filter(f => f.endsWith(".json"));
+
+  const files = fs.readdirSync(envDir).filter((f) => f.endsWith(".json"));
   const presets: EnvironmentPreset[] = [];
-  
+
   for (const f of files) {
     const p = path.join(envDir, f);
-    const content = fs.readFileSync(p, "utf8");
     try {
-      const parsed = JSON.parse(content);
-      const preset = EnvironmentPresetSchema.parse(parsed);
-      presets.push(preset);
+      const parsed = JSON.parse(fs.readFileSync(p, "utf8"));
+      presets.push(EnvironmentPresetSchema.parse(parsed));
     } catch (err) {
       console.error(`Failed to parse environment preset ${f}:`, err);
     }
   }
-  
+
   // Sort: basic first, then generic, then hdri
   const tierOrder = { basic: 1, generic: 2, hdri: 3 };
   presets.sort((a, b) => tierOrder[a.tier] - tierOrder[b.tier]);
-  
-  _cachedEnvironments = presets;
-  return presets;
+
+  // If every file failed to parse, still return something usable.
+  _cachedEnvironments = presets.length > 0 ? presets : DEFAULT_ENVIRONMENTS;
+  console.log(`[environments] Loaded ${_cachedEnvironments.length} preset(s) from ${envDir}`);
+  return _cachedEnvironments;
 }

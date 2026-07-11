@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useMemo } from "react";
 import * as THREE from "three";
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useThree } from "@react-three/fiber";
 import { OrbitControls, Environment, ContactShadows } from "@react-three/drei";
 import { Play, Pause, FastForward, Video, Plus, X, List, Clapperboard, Download, Square, Sun, CloudRain, Volume2, VolumeX, Mic } from "lucide-react";
 import { useSceneController, SceneTicker } from "../controller/useSceneController.ts";
@@ -11,8 +11,64 @@ import { SoundSystem } from "../scenes/sound/SoundSystem.tsx";
 import { evaluateSequence, SceneSequence } from "../scenes/SceneSequence.ts";
 import { lightingFor } from "../scenes/lightingRig.ts";
 
+/**
+ * Renders the scene backdrop based on the preset's `backdrop.kind`.
+ * Previously the code read `environment.hdriBucketUrl` (which never existed on
+ * the preset schema), so HDRIs fell back to "city" and `image` backdrops — like
+ * the Arkham renders — displayed nothing at all. This switches on the real
+ * `backdrop: { kind, url }` shape returned by /api/scenes/environments.
+ */
+function SceneBackdrop({ backdrop }: { backdrop?: { kind?: string; url?: string } }) {
+  const { scene } = useThree();
+  const kind = backdrop?.kind;
+  const url = backdrop?.url;
+
+  // Flat image renders (kind: "image") can't be a drei <Environment>; set them as
+  // scene.background so they fill the viewport no matter where the camera orbits.
+  useEffect(() => {
+    if (kind !== "image" || !url) {
+      if (scene.background instanceof THREE.Texture) {
+        scene.background.dispose();
+      }
+      scene.background = null;
+      return;
+    }
+    let disposed = false;
+    const loader = new THREE.TextureLoader();
+    loader.setCrossOrigin("anonymous");
+    loader.load(
+      url,
+      (tex) => {
+        if (disposed) { tex.dispose(); return; }
+        tex.colorSpace = THREE.SRGBColorSpace;
+        scene.background = tex;
+      },
+      undefined,
+      (err) => console.warn("[Animator] backdrop image failed to load:", url, err)
+    );
+    return () => {
+      disposed = true;
+      if (scene.background instanceof THREE.Texture) {
+        scene.background.dispose();
+        scene.background = null;
+      }
+    };
+  }, [kind, url, scene]);
+
+  if (kind === "hdri" || kind === "dome360") {
+    // 360° map: lights the pet AND shows as the visible background.
+    return url ? <Environment files={url} background /> : <Environment preset="city" />;
+  }
+  if (kind === "image") {
+    // Image is the scene.background (above); light the pet with a neutral studio env.
+    return <Environment preset="apartment" />;
+  }
+  // procedural / glb-scene(unbuilt) / none → neutral visible environment.
+  return <Environment preset="city" background />;
+}
+
 // The viewport rendering the SceneController's scene
-function Viewport({ 
+function Viewport({
   sceneController, 
   environment, 
   weather, 
@@ -29,7 +85,7 @@ function Viewport({
   
   const lighting = useMemo(() => {
     if (environment) {
-      return lightingFor("afternoon", environment);
+      return lightingFor(environment.defaultTimeOfDay || "afternoon", environment);
     }
     return null;
   }, [environment]);
@@ -51,11 +107,7 @@ function Viewport({
         />
       )}
 
-      {environment ? (
-        <Environment preset={environment.hdriBucketUrl ? undefined : "city"} files={environment.hdriBucketUrl} background={!!environment.hdriBucketUrl} />
-      ) : (
-        <Environment preset="city" />
-      )}
+      <SceneBackdrop backdrop={environment?.backdrop} />
       
       <ContactShadows 
         resolution={1024} 
