@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, useMotionValue, useTransform, AnimatePresence } from "motion/react";
 import { Avatar, AvatarAction, AnimationMetadata } from "../types";
 import PetModelViewer from "./PetModelViewer";
+import { isMobile } from "../animator/utils/capabilities";
 
 interface Avatar3DPlaypenProps {
   avatar: Avatar;
@@ -44,6 +45,11 @@ export default function Avatar3DPlaypen({
   const spriteImgRef = useRef<HTMLImageElement | null>(null);
   const [spriteLoaded, setSpriteLoaded] = useState(false);
   const [spriteLoadFailed, setSpriteLoadFailed] = useState(false);
+  // Mobile: don't spin up a WebGL <model-viewer> per card on load (N cards =
+  // GPU overload/crash, esp. on admin profiles with many models). Show a static
+  // poster and load the live 3D only when the user taps that specific card.
+  const mobile = isMobile();
+  const [show3D, setShow3D] = useState(false);
   const [currentFrame, setCurrentFrame] = useState(0);
   const [emojis, setEmojis] = useState<FloatingEmoji[]>([]);
   const animFrameRef = useRef<number>(0);
@@ -331,13 +337,36 @@ export default function Avatar3DPlaypen({
         {/* Pet Avatar — GLB or Sprite fallback or Error state */}
         <div className="absolute inset-0 flex items-center justify-center">
           {hasModel ? (
-            <div className="absolute inset-0 pb-10">
-              <PetModelViewer
-                src={avatar.model_url}
-                animationName={activeAction || "photo"}
-                autoRotate={false}
-              />
-            </div>
+            mobile && !show3D ? (
+              // Static poster on mobile — tap to load the WebGL viewer for THIS
+              // card only, so we never mount many <model-viewer> contexts at once.
+              <button
+                onClick={() => setShow3D(true)}
+                className="absolute inset-0 flex flex-col items-center justify-center gap-2"
+                aria-label={`Load 3D model of ${avatar.name}`}
+              >
+                {avatar.image_url ? (
+                  <img
+                    src={avatar.image_url}
+                    alt={avatar.name}
+                    className="w-32 h-32 sm:w-40 sm:h-40 rounded-2xl object-cover drop-shadow-xl"
+                  />
+                ) : (
+                  <span className="text-4xl">🐾</span>
+                )}
+                <span className="text-[10px] font-bold text-white/90 bg-black/50 px-2.5 py-1 rounded-full backdrop-blur-sm">
+                  ▶ Tap to load 3D
+                </span>
+              </button>
+            ) : (
+              <div className="absolute inset-0 pb-10">
+                <PetModelViewer
+                  src={avatar.model_url}
+                  animationName={activeAction || "photo"}
+                  autoRotate={false}
+                />
+              </div>
+            )
           ) : hasSpriteSheet ? (
             <motion.div
               animate={{

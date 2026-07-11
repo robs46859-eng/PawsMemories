@@ -70,6 +70,8 @@ Set these in the Hostinger **Node.js app → Environment variables** panel (not 
 | `TWILIO_VERIFY_SERVICE_SID` | legacy SMS "from" fallback |
 | `DB_PORT` | `3306` |
 | `ADMIN_PHONE` | alias for `ADMIN_KEY` |
+| `MODEL_CAP` | Max models a non-admin user may keep. Default `5`. Admins are exempt. |
+| `DEPLOY_TARGET` | Per-site experience: `main` (pawsome3d.com, default) or `warehouse` (mypets.cc — future cold-storage viewer). Set `warehouse` in the mypets.cc Hostinger panel. |
 
 ---
 

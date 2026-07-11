@@ -396,6 +396,12 @@ async function startServer() {
     }
   });
 
+  // Public per-site config. `deployTarget` tells the frontend which experience
+  // this deployment serves: "main" (pawsome3d.com) or "warehouse" (mypets.cc).
+  app.get("/api/config", (_req, res) => {
+    res.json({ deployTarget: process.env.DEPLOY_TARGET || "main" });
+  });
+
   app.get("/api/me", requireAuth, async (req: AuthedRequest, res) => {
     try {
       const user = await findUserByPhone(req.user!.phone);
@@ -957,6 +963,23 @@ async function startServer() {
       }
 
       const isAdmin = await isUserAdmin(req.user!.phone);
+
+      // Phase 9 — hard model cap. Non-admin users may keep at most MODEL_CAP
+      // models on pawsome3d.com. (Cold-storage/warehouse offload to mypets.cc is
+      // a future phase; for now the limit is total models, checked before any
+      // credit charge or generation work so a capped user isn't billed.)
+      if (!isAdmin) {
+        const MODEL_CAP = Number(process.env.MODEL_CAP) || 5;
+        const existingAvatars = await getAvatars(req.user!.phone);
+        if (existingAvatars.length >= MODEL_CAP) {
+          return res.status(403).json({
+            success: false,
+            error: `You've reached your ${MODEL_CAP}-model limit. Delete a model before creating a new one.`,
+            code: "MODEL_CAP_REACHED",
+          });
+        }
+      }
+
       if (!isAdmin) {
         const balance = await getCreditBalance(req.user!.phone);
         if (balance < 400) {

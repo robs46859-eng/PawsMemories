@@ -144,7 +144,13 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
       // Reload to get the new avatar with 'pending' status
       await loadAvatars();
     } catch (err: any) {
-      alert(err.message || "Failed to create model.");
+      if (err?.code === "MODEL_CAP_REACHED") {
+        // Hard model-cap hit (Phase 9). Use the server's exact message (it has the
+        // current limit number) with a friendly fallback. No credits were charged.
+        alert(err.message || "You've reached your model limit. Delete a model to make room for a new one.");
+      } else {
+        alert(err.message || "Failed to create model.");
+      }
     } finally {
       setCreating(false);
     }

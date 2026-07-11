@@ -22,6 +22,7 @@ import Store from "./components/Store";
 import ProfileScreen from "./components/ProfileScreen";
 import Community from "./components/Community";
 const AnimatorScreen = lazy(() => import("./animator/components/AnimatorScreen"));
+import WarehouseMode from "./components/WarehouseMode";
 
 const EMPTY_PROFILE: UserProfile = { fullName: "", email: "", credits: 0, treats: 0, isAdmin: false, city: "", ageVerified: false };
 
@@ -124,6 +125,16 @@ export default function App() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // Per-site mode: "main" (pawsome3d.com) vs "warehouse" (mypets.cc). Read from
+  // the public /api/config endpoint (driven by the DEPLOY_TARGET env var).
+  const [deployTarget, setDeployTarget] = useState<string>("main");
+  React.useEffect(() => {
+    fetch("/api/config")
+      .then((r) => r.json())
+      .then((d) => { if (d && typeof d.deployTarget === "string") setDeployTarget(d.deployTarget); })
+      .catch(() => {});
   }, []);
 
   // Handle Stripe order success/cancel redirects.
@@ -326,6 +337,11 @@ export default function App() {
   };
 
   // While we check for an existing session, show a lightweight loader.
+  // mypets.cc runs the same build but serves the cold-storage warehouse identity.
+  if (deployTarget === "warehouse") {
+    return <WarehouseMode isDarkMode={isDarkMode} />;
+  }
+
   if (!authChecked) {
     return (
       <div className={`min-h-screen bg-surface flex items-center justify-center ${isDarkMode ? "dark" : ""}`}>
