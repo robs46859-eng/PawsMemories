@@ -4,6 +4,8 @@ import { fetchAvatars, generate3DAvatar, retryAvatarGeneration, pollAvatarStatus
 import CreateAvatarDialog, { type CreateModelOptions } from "./CreateAvatarDialog";
 import Avatar3DPlaypen from "./Avatar3DPlaypen";
 import LivingAvatarView from "./LivingAvatarView";
+import RefundReview from "./RefundReview";
+import { buildUncannyRegenerationHint, uncannyPresets } from "../avatar/uncannyPresets";
 import {
   Plus, Utensils, Droplets, Bone, RefreshCw, Info,
   Play, Camera, Moon, Zap, X, Sparkles, Clapperboard, Trash2
@@ -40,6 +42,10 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
   const [isLoading, setIsLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [refundAvatarId, setRefundAvatarId] = useState<number | null>(null);
+  const [presetByAvatar, setPresetByAvatar] = useState<Record<number, string>>({});
+  const [vibeMessage, setVibeMessage] = useState("");
+  const holdTimerRef = useRef<number | null>(null);
 
   // Tracks active action animation for each avatar
   const [activeActions, setActiveActions] = useState<Record<number, AvatarAction | null>>({});
@@ -211,6 +217,32 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
     }
   }, [loadAvatars]);
 
+  const applyVibePreset = (avatarId: number, presetId: string) => {
+    setPresetByAvatar((prev) => ({ ...prev, [avatarId]: presetId }));
+    const hint = buildUncannyRegenerationHint(presetId);
+    setVibeMessage(hint || "Lighter styling hint saved for the next restyle.");
+    window.setTimeout(() => setVibeMessage(""), 3500);
+  };
+
+  const startLighterHold = (avatarId: number) => {
+    if (holdTimerRef.current) window.clearTimeout(holdTimerRef.current);
+    holdTimerRef.current = window.setTimeout(async () => {
+      applyVibePreset(avatarId, "pixar_soft");
+      setVibeMessage("🐶 Free lighter retry started.");
+      try {
+        await retryAvatarGeneration(avatarId);
+        await loadAvatars();
+      } catch (err: any) {
+        setVibeMessage(err.message || "Could not start the lighter retry.");
+      }
+    }, 4000);
+  };
+
+  const cancelLighterHold = () => {
+    if (holdTimerRef.current) window.clearTimeout(holdTimerRef.current);
+    holdTimerRef.current = null;
+  };
+
   const calculateDecay = (timestamp: string, currentLevel: number) => {
     const lastTime = new Date(timestamp).getTime();
     const now = Date.now();
@@ -342,6 +374,49 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
                 </div>
 
                 <div className="p-5 flex flex-col gap-4">
+                  <div className="rounded-2xl border border-outline-variant/30 bg-surface-container-low p-3">
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <div>
+                        <h4 className="text-sm font-black text-on-surface">Fix the vibe</h4>
+                        <p className="text-[11px] text-on-surface-variant">Realistic can feel a little uncanny. Try a softer look.</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          applyVibePreset(avatar.id, "pixar_soft");
+                          setVibeMessage("😛 Lighter styling hint saved. Hold for 4 seconds to retry.");
+                        }}
+                        onPointerDown={() => startLighterHold(avatar.id)}
+                        onPointerUp={cancelLighterHold}
+                        onPointerLeave={cancelLighterHold}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") startLighterHold(avatar.id);
+                        }}
+                        onKeyUp={cancelLighterHold}
+                        className="min-h-11 min-w-11 rounded-full bg-primary/10 text-primary text-xl font-black"
+                        aria-label="Lighter styling. Hold for four seconds for a free lighter retry."
+                      >
+                        {presetByAvatar[avatar.id] === "pixar_soft" ? "🐶" : "😛"}
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {uncannyPresets.slice(0, 4).map((preset) => (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => applyVibePreset(avatar.id, preset.id)}
+                          className={`min-h-10 rounded-xl text-[11px] font-black border ${presetByAvatar[avatar.id] === preset.id ? "bg-primary text-on-primary" : "border-outline-variant text-on-surface"}`}
+                          title={preset.hint}
+                        >
+                          {preset.name}
+                        </button>
+                      ))}
+                    </div>
+                    <button type="button" onClick={() => setRefundAvatarId(avatar.id)} className="mt-3 w-full min-h-10 rounded-xl border border-primary/30 text-primary text-xs font-black">
+                      Review for refund or retry
+                    </button>
+                  </div>
+
                   {isReady && TAMAGOTCHI_ENABLED && (
                     <>
                       {/* Food Bar */}
@@ -482,6 +557,12 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
           </div>
         </div>
       )}
+      {vibeMessage && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[80] rounded-2xl bg-primary text-on-primary px-5 py-3 text-sm font-black shadow-xl">
+          {vibeMessage}
+        </div>
+      )}
+      {refundAvatarId && <RefundReview avatarId={refundAvatarId} onClose={() => setRefundAvatarId(null)} />}
     </div>
   );
 }

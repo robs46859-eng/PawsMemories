@@ -17,6 +17,7 @@ import { semanticScan as runSemanticScan } from "./server/semanticScan";
 import { animatorRouter } from "./server/animator/routes.ts";
 import { studioRouter } from "./server/animator/studio_proxy.ts";
 import { refundRouter } from "./server/refunds.ts";
+import { setRefundReviewGenerate } from "./server/refunds.ts";
 import { privacyHtml, termsHtml, smsTermsHtml } from "./server/legal.ts";
 import { startWorker as startAnimatorWorker } from "./server/animator/worker.ts";
 import { phraseKey } from "./src/three/ar/voice";
@@ -2197,6 +2198,7 @@ async function startServer() {
     });
     return (response.text || "").trim();
   };
+  setRefundReviewGenerate(classifyGenerate);
 
   // Strip a data: URL prefix if present, returning { data, mimeType }.
   const splitDataUrl = (s: string): { data: string; mimeType: string } => {

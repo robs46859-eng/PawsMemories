@@ -4,6 +4,12 @@ import { getPool, isUserAdmin, refundCredits } from "../db";
 import type { AuthedRequest } from "../auth";
 import type { GenerateFn } from "./petClassify";
 
+let refundGenerate: GenerateFn | null = null;
+
+export function setRefundReviewGenerate(generate: GenerateFn) {
+  refundGenerate = generate;
+}
+
 export const RefundVerdictSchema = z.object({
   matchScore: z.number().int().min(0).max(100),
   styleMatch: z.boolean(),
@@ -75,6 +81,19 @@ export function buildGeneratorRefundGuidance(signals: Array<{ reason_code: strin
 
 export const refundRouter = express.Router();
 
+async function imageUrlToBase64(url: string): Promise<{ data: string; mimeType: string }> {
+  if (url.startsWith("data:")) {
+    const match = /^data:([^;]+);base64,([\s\S]+)$/i.exec(url);
+    if (!match) throw new Error("Invalid data image");
+    return { mimeType: match[1], data: match[2] };
+  }
+  const response = await fetch(url);
+  if (!response.ok) throw new Error("Could not load output image");
+  const mimeType = response.headers.get("content-type") || "image/png";
+  const buffer = Buffer.from(await response.arrayBuffer());
+  return { mimeType, data: buffer.toString("base64") };
+}
+
 refundRouter.post("/refunds/review", async (req: AuthedRequest, res) => {
   const phone = req.user!.phone;
   const creationId = Number(req.body.creationId || 0) || null;
@@ -84,10 +103,50 @@ refundRouter.post("/refunds/review", async (req: AuthedRequest, res) => {
     const [existing] = await getPool().query(
       `SELECT id, match_score, ai_verdict FROM refund_reviews WHERE user_phone = ? AND creation_id <=> ? LIMIT 1`, [phone, creationId]);
     if ((existing as any[]).length) return res.status(409).json({ error: "This creation was already reviewed" });
-    const verdict = parseRefundVerdict({ matchScore: 0, styleMatch: false, anatomyOk: false, promptFidelity: 0, notes: "Review queued for comparison." });
+    if (!refundGenerate) return res.status(503).json({ error: "Refund reviewer is not ready" });
+    let prompt = "";
+    let outputUrl = "";
+    let costCredits = 40;
+    if (creationId) {
+      const [rows] = await getPool().query(
+        `SELECT * FROM creations WHERE id = ? AND user_phone = ? LIMIT 1`,
+        [creationId, phone]
+      );
+      const creation = (rows as any[])[0];
+      if (!creation?.image_url) return res.status(404).json({ error: "Creation image not found" });
+      prompt = JSON.stringify({
+        style: creation.style,
+        backdrop: creation.preset_name || creation.place_label || creation.backdrop_kind,
+        petName: creation.pet_name,
+        petBreed: creation.pet_breed,
+      });
+      outputUrl = creation.image_url;
+      costCredits = creation.media_type === "model" ? 400 : 40;
+    } else {
+      const [rows] = await getPool().query(
+        `SELECT * FROM avatars WHERE id = ? AND user_phone = ? LIMIT 1`,
+        [avatarId, phone]
+      );
+      const avatar = (rows as any[])[0];
+      if (!avatar?.image_url) return res.status(404).json({ error: "Avatar image not found" });
+      prompt = JSON.stringify({
+        name: avatar.name,
+        animalType: avatar.animal_type,
+        breed: avatar.breed,
+        avatarType: avatar.avatar_type,
+      });
+      outputUrl = avatar.image_url;
+      costCredits = 400;
+    }
+    const output = await imageUrlToBase64(outputUrl);
+    const verdict = await compareRequestToOutput(refundGenerate, {
+      prompt,
+      outputImageBase64: output.data,
+      mimeType: output.mimeType,
+    });
     const [result] = await getPool().query(
       `INSERT INTO refund_reviews (user_phone, creation_id, avatar_id, cost_credits, match_score, ai_verdict)
-       VALUES (?, ?, ?, ?, ?, ?)`, [phone, creationId, avatarId, 40, verdict.matchScore, JSON.stringify(verdict)]);
+       VALUES (?, ?, ?, ?, ?, ?)`, [phone, creationId, avatarId, costCredits, verdict.matchScore, JSON.stringify(verdict)]);
     return res.json({ reviewId: (result as any).insertId, matchScore: verdict.matchScore, verdict });
   } catch (error: any) { return res.status(400).json({ error: error.message }); }
 });
@@ -144,4 +203,3 @@ refundRouter.post("/admin/refunds/:id/deny", async (req: AuthedRequest, res) => 
   await getPool().query(`UPDATE refund_reviews SET outcome='denied', approved_by=?, resolved_at=NOW() WHERE id=? AND refunded=0`, [req.user!.phone, Number(req.params.id)]);
   return res.json({ status: "denied" });
 });
-
