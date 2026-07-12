@@ -9,7 +9,7 @@ import fs from "fs";
 import { sendSms } from "./server/sms";
 import { sendMail } from "./server/mail";
 import rateLimit from "express-rate-limit";
-import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, restoreReservedGenerationCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor, getStorageUsage, recordStorageAddHot, recordStorageRemoveHot, recordStorageMoveToCold, purchaseColdStorage } from "./db";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, restoreReservedGenerationCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor, getStorageUsage, recordStorageAddHot, recordStorageRemoveHot, recordStorageMoveToCold, purchaseColdStorage, grantPawprintTokens, spendPawprintTokens, getPawprintBalance, updateUserProfile, checkAndGrantProfileBonus, verifyUserPhone, verifyUserEmail, generateReferralCode, recordReferral, creditReferralIfComplete, getPawprintCategories, getPawprintTemplatesSync } from "./db";
 import { isEndpointEnabled, dailyCapFor, withinDailyCap, type PaidEndpoint } from "./server/paidApiGuards";
 import { classifyPetImage, type GenerateFn } from "./server/petClassify";
 import { semanticScan as runSemanticScan } from "./server/semanticScan";
@@ -531,6 +531,209 @@ async function startServer() {
       console.error("[POST /api/storage/purchase-gb] Error:", err?.message || err);
       res.status(500).json({ error: "Could not complete storage purchase." });
     }
+  });
+
+  // Profile — get full profile data
+  app.get("/api/profile", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const user = await findUserByPhone(req.user!.phone);
+      if (!user) return res.status(404).json({ error: "User not found." });
+      const usage = await getStorageUsage(req.user!.phone);
+      const history = await getCreditHistory(req.user!.phone, 25);
+      const publicUser = toPublicUser(user);
+      // Generate referral code if not set
+      if (!publicUser.referralCode) {
+        const code = await generateReferralCode(req.user!.phone);
+        publicUser.referralCode = code;
+      }
+      res.json({
+        user: publicUser,
+        storage: usage,
+        creditHistory: history,
+      });
+    } catch (err: any) {
+      console.error("[GET /api/profile] Error:", err?.message || err);
+      res.status(500).json({ error: "Could not load profile." });
+    }
+  });
+
+  // Profile — update editable fields
+  app.patch("/api/profile", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { fullName, bio, city, zip, notificationPrefs } = req.body || {};
+      await updateUserProfile(req.user!.phone, { fullName, bio, city, zip, notificationPrefs });
+      // Check if ZIP was added (triggers profile bonus check)
+      if (zip) await checkAndGrantProfileBonus(req.user!.phone);
+      const user = await findUserByPhone(req.user!.phone);
+      res.json({ success: true, user: toPublicUser(user) });
+    } catch (err: any) {
+      console.error("[PATCH /api/profile] Error:", err?.message || err);
+      res.status(500).json({ error: "Could not update profile." });
+    }
+  });
+
+  // Profile — request data export
+  app.post("/api/profile/request-data", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const user = await findUserByPhone(req.user!.phone);
+      const userName = user?.full_name || "User";
+      const userEmail = user?.email || "no-email";
+      await sendMail({
+        to: "rob@stelar.host",
+        subject: `[Pawsome3D] Data Export Request — ${userName}`,
+        html: `<h2>Data Export Request</h2><p>User: ${userName} (${userEmail})</p><p>Phone key: ${req.user!.phone}</p>`,
+        replyTo: userEmail,
+      });
+      res.json({ success: true, message: "Data export request submitted. You'll hear from us shortly." });
+    } catch (err: any) {
+      console.error("[POST /api/profile/request-data] Error:", err?.message || err);
+      res.status(500).json({ error: "Could not submit request." });
+    }
+  });
+
+  // Profile — request account deletion
+  app.post("/api/profile/request-delete", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const user = await findUserByPhone(req.user!.phone);
+      const userName = user?.full_name || "User";
+      const userEmail = user?.email || "no-email";
+      await sendMail({
+        to: "rob@stelar.host",
+        subject: `[Pawsome3D] Account Deletion Request — ${userName}`,
+        html: `<h2>Account Deletion Request</h2><p>User: ${userName} (${userEmail})</p><p>Phone key: ${req.user!.phone}</p>`,
+        replyTo: userEmail,
+      });
+      res.json({ success: true, message: "Deletion request submitted. We'll process it within 30 days." });
+    } catch (err: any) {
+      console.error("[POST /api/profile/request-delete] Error:", err?.message || err);
+      res.status(500).json({ error: "Could not submit request." });
+    }
+  });
+
+  // Phone verification — Telnyx Verify
+  app.post("/api/verify/phone/start", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const telnyxKey = process.env.TELNYX_API_KEY;
+      const verifyProfileId = process.env.TELNYX_VERIFY_PROFILE_ID;
+      if (!telnyxKey || !verifyProfileId) {
+        return res.status(503).json({ error: "Phone verification is not configured." });
+      }
+      // Use the user's real phone if stored, otherwise use body param
+      const phoneNumber = req.body?.phone;
+      if (!phoneNumber) return res.status(400).json({ error: "Phone number is required." });
+      const resp = await fetch("https://api.telnyx.com/v2/verifications/sms", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${telnyxKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ phone_number: phoneNumber, verify_profile_id: verifyProfileId }),
+      });
+      if (!resp.ok) {
+        const text = await resp.text();
+        console.warn("[Telnyx Verify] start failed:", text);
+        return res.status(502).json({ error: "Could not send verification code." });
+      }
+      res.json({ success: true, message: "Verification code sent." });
+    } catch (err: any) {
+      console.error("[POST /api/verify/phone/start] Error:", err?.message || err);
+      res.status(500).json({ error: "Could not start verification." });
+    }
+  });
+
+  app.post("/api/verify/phone/check", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const telnyxKey = process.env.TELNYX_API_KEY;
+      if (!telnyxKey) return res.status(503).json({ error: "Phone verification not configured." });
+      const { phone, code } = req.body || {};
+      if (!phone || !code) return res.status(400).json({ error: "Phone and code are required." });
+      const resp = await fetch(`https://api.telnyx.com/v2/verifications/by_phone_number/${encodeURIComponent(phone)}/actions/verify`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${telnyxKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      const data = await resp.json();
+      if (data?.data?.status === "verified" || resp.ok) {
+        await verifyUserPhone(req.user!.phone);
+        const bonus = await checkAndGrantProfileBonus(req.user!.phone);
+        const user = await findUserByPhone(req.user!.phone);
+        res.json({ success: true, phoneVerified: true, bonusGranted: bonus.granted, user: toPublicUser(user) });
+      } else {
+        res.status(400).json({ error: "Invalid verification code." });
+      }
+    } catch (err: any) {
+      console.error("[POST /api/verify/phone/check] Error:", err?.message || err);
+      res.status(500).json({ error: "Could not verify code." });
+    }
+  });
+
+  // Referral — get my code and stats
+  app.get("/api/referral", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const code = await generateReferralCode(req.user!.phone);
+      const [refs] = await getPool().query(
+        `SELECT COUNT(*) AS c FROM referrals WHERE referrer_phone = ? AND credited_at IS NOT NULL`,
+        [req.user!.phone]
+      ) as any;
+      res.json({
+        code,
+        link: `/r/${code}`,
+        totalReferrals: refs?.[0]?.c || 0,
+      });
+    } catch (err: any) {
+      console.error("[GET /api/referral] Error:", err?.message || err);
+      res.status(500).json({ error: "Could not load referral info." });
+    }
+  });
+
+  // Capture referral at signup
+  app.post("/api/referral/claim", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { code } = req.body || {};
+      if (!code || typeof code !== "string") return res.status(400).json({ error: "Referral code required." });
+      await recordReferral(code, req.user!.phone);
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("[POST /api/referral/claim] Error:", err?.message || err);
+      res.status(500).json({ error: "Could not record referral." });
+    }
+  });
+
+  // Share reward claim
+  app.post("/api/share/claim", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { network, rewardType } = req.body || {};
+      if (!network || !["credits", "pawprint"].includes(rewardType)) {
+        return res.status(400).json({ error: "network and rewardType (credits|pawprint) required." });
+      }
+      // Check if already claimed (per network, per user lifetime)
+      const [existing] = await getPool().query(
+        `SELECT 1 FROM share_rewards WHERE user_phone = ? AND network = ? LIMIT 1`,
+        [req.user!.phone, network]
+      ) as any;
+      if (Array.isArray(existing) && existing.length > 0) {
+        return res.status(409).json({ error: "Share reward already claimed for this network." });
+      }
+      // Grant reward
+      if (rewardType === "credits") {
+        await addCredits(req.user!.phone, 12, `share_reward:${network}`);
+      } else {
+        await grantPawprintTokens(req.user!.phone, 1, `share_reward:${network}`);
+      }
+      await getPool().query(
+        `INSERT INTO share_rewards (user_phone, network, reward_type) VALUES (?, ?, ?)`,
+        [req.user!.phone, network, rewardType]
+      );
+      const user = await findUserByPhone(req.user!.phone);
+      res.json({ success: true, reward: rewardType === "credits" ? 12 : 1, user: toPublicUser(user) });
+    } catch (err: any) {
+      console.error("[POST /api/share/claim] Error:", err?.message || err);
+      res.status(500).json({ error: "Could not claim share reward." });
+    }
+  });
+
+  // Pawprint templates
+  app.get("/api/pawprints/templates", (_req, res) => {
+    const categories = getPawprintCategories();
+    const templates = getPawprintTemplatesSync();
+    res.json({ categories, templates });
   });
 
   app.post("/api/streak/claim", requireAuth, async (req: AuthedRequest, res) => {

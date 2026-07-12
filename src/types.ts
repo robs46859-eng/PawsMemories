@@ -82,6 +82,14 @@ export interface UserProfile {
   city?: string;
   ageVerified?: boolean;
   profilePhotoUrl?: string | null;
+  // Phase 8
+  pawprintTokens?: number;
+  referralCode?: string | null;
+  phoneVerified?: boolean;
+  emailVerified?: boolean;
+  zip?: string;
+  bio?: string | null;
+  profileBonusGranted?: boolean;
 }
 
 export interface PublicUser {
@@ -98,6 +106,14 @@ export interface PublicUser {
   lastStreakClaim: string | null;
   profilePhotoUrl?: string | null;
   achievements: any[];
+  // Phase 8
+  pawprintTokens?: number;
+  referralCode?: string | null;
+  phoneVerified?: boolean;
+  emailVerified?: boolean;
+  zip?: string;
+  bio?: string | null;
+  profileBonusGranted?: boolean;
 }
 
 export interface PhysicalOrder {

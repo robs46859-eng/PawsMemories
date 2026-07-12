@@ -40,14 +40,26 @@ export interface UserRow {
   password_hash: string | null;
   birthdate: string | null;
   city: string | null;
+  zip: string | null;
   credits: number;
   treats: number;
-  profile_complete: number; // 0 | 1
-  is_admin?: number; // 0 | 1
+  profile_complete: number;
+  is_admin?: number;
   daily_streak?: number;
   last_streak_claim?: string | null;
   achievements_json?: string | null;
+  profile_photo_url?: string | null;
   created_at: string;
+  // Phase 8
+  phone_verified?: number;
+  email_verified?: number;
+  bio?: string | null;
+  notification_prefs?: string | null;
+  profile_bonus_granted?: number;
+  accepted_terms_version?: string | null;
+  pawprint_tokens?: number;
+  referral_code?: string | null;
+  referred_by?: string | null;
 }
 
 /** Public-safe shape returned to the client. */
@@ -58,6 +70,7 @@ export interface PublicUser {
   credits: number;
   treats: number;
   city: string;
+  zip?: string;
   birthdate: string;
   profileComplete: boolean;
   isAdmin: boolean;
@@ -65,6 +78,14 @@ export interface PublicUser {
   lastStreakClaim: string | null;
   profilePhotoUrl: string | null;
   achievements: any[];
+  // Phase 8
+  bio?: string | null;
+  phoneVerified?: boolean;
+  emailVerified?: boolean;
+  pawprintTokens?: number;
+  referralCode?: string | null;
+  profileBonusGranted?: boolean;
+  acceptedTermsVersion?: string | null;
 }
 
 export function toPublicUser(userRow: any): PublicUser {
@@ -78,6 +99,7 @@ export function toPublicUser(userRow: any): PublicUser {
     fullName: userRow.full_name || "",
     email: userRow.email || "",
     city: userRow.city || "",
+    zip: userRow.zip || undefined,
     birthdate: userRow.birthdate || "",
     profileComplete: !!userRow.profile_complete,
     credits: userRow.credits,
@@ -86,7 +108,14 @@ export function toPublicUser(userRow: any): PublicUser {
     dailyStreak: userRow.daily_streak || 0,
     lastStreakClaim: userRow.last_streak_claim || null,
     profilePhotoUrl: userRow.profile_photo_url || null,
-    achievements: achievements
+    achievements: achievements,
+    bio: userRow.bio || null,
+    phoneVerified: !!userRow.phone_verified,
+    emailVerified: !!userRow.email_verified,
+    pawprintTokens: userRow.pawprint_tokens || 0,
+    referralCode: userRow.referral_code || null,
+    profileBonusGranted: !!userRow.profile_bonus_granted,
+    acceptedTermsVersion: userRow.accepted_terms_version || null,
   };
 }
 
@@ -141,6 +170,17 @@ export async function initDb(): Promise<void> {
       { name: "last_streak_claim", ddl: "ADD COLUMN last_streak_claim DATE NULL" },
       { name: "achievements_json", ddl: "ADD COLUMN achievements_json TEXT NULL" },
       { name: "profile_photo_url", ddl: "ADD COLUMN profile_photo_url TEXT NULL" },
+      // Phase 8 columns
+      { name: "zip",                ddl: "ADD COLUMN zip VARCHAR(20) NULL" },
+      { name: "phone_verified",     ddl: "ADD COLUMN phone_verified TINYINT(1) NOT NULL DEFAULT 0" },
+      { name: "email_verified",     ddl: "ADD COLUMN email_verified TINYINT(1) NOT NULL DEFAULT 0" },
+      { name: "bio",                ddl: "ADD COLUMN bio TEXT NULL" },
+      { name: "notification_prefs", ddl: "ADD COLUMN notification_prefs JSON NULL" },
+      { name: "profile_bonus_granted", ddl: "ADD COLUMN profile_bonus_granted TINYINT(1) NOT NULL DEFAULT 0" },
+      { name: "accepted_terms_version", ddl: "ADD COLUMN accepted_terms_version VARCHAR(20) NULL" },
+      { name: "pawprint_tokens",    ddl: "ADD COLUMN pawprint_tokens INT NOT NULL DEFAULT 0" },
+      { name: "referral_code",      ddl: "ADD COLUMN referral_code VARCHAR(32) NULL" },
+      { name: "referred_by",        ddl: "ADD COLUMN referred_by VARCHAR(32) NULL" },
     ];
     for (const col of requiredColumns) {
       if (!columnNames.includes(col.name)) {
@@ -564,6 +604,49 @@ export async function initDb(): Promise<void> {
     }
 
     console.log("✅ Users, creations, generation_jobs, pets, avatars, and photo_requests tables ready.");
+
+    // Pawprint token ledger (Phase 8): one row per pawprint token change.
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS pawprint_history (
+        id            INT AUTO_INCREMENT PRIMARY KEY,
+        user_phone    VARCHAR(32) NOT NULL,
+        delta         INT NOT NULL,
+        reason        VARCHAR(80) NOT NULL,
+        balance_after INT NOT NULL,
+        created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX (user_phone),
+        INDEX (created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // Referrals table (Phase 8)
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS referrals (
+        id              INT AUTO_INCREMENT PRIMARY KEY,
+        referrer_phone  VARCHAR(32) NOT NULL,
+        referred_phone  VARCHAR(32) NOT NULL,
+        code            VARCHAR(32) NOT NULL,
+        credited_at     TIMESTAMP NULL,
+        created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_referred (referred_phone),
+        INDEX (referrer_phone),
+        INDEX (code)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // Share rewards table (Phase 8)
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS share_rewards (
+        id            INT AUTO_INCREMENT PRIMARY KEY,
+        user_phone    VARCHAR(32) NOT NULL,
+        generation_id INT NULL,
+        network       VARCHAR(32) NOT NULL,
+        reward_type   ENUM('credits','pawprint') NOT NULL DEFAULT 'credits',
+        granted_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_share (user_phone, network),
+        INDEX (user_phone)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
 
     // Storage accounting table (Phase 8): per-user hot/cold storage tracking.
     await getPool().query(`
@@ -2177,4 +2260,195 @@ export async function purchaseColdStorage(phone: string, requestId: string): Pro
     [phone]
   );
   return { success: true };
+}
+
+// ============================================================================
+// Phase 8: Pawprint token primitives
+// ============================================================================
+
+/** Record a pawprint token transaction. */
+async function recordPawprintTxn(phone: string, delta: number, reason: string): Promise<void> {
+  try {
+    const [rows] = await getPool().query(
+      `SELECT pawprint_tokens FROM users WHERE phone = ?`, [phone]
+    ) as any;
+    const balance = rows?.[0]?.pawprint_tokens || 0;
+    await getPool().query(
+      `INSERT INTO pawprint_history (user_phone, delta, reason, balance_after) VALUES (?, ?, ?, ?)`,
+      [phone, delta, reason.slice(0, 80), balance]
+    );
+  } catch (err) {
+    console.warn("[pawprint ledger] failed to record:", (err as any)?.message || err);
+  }
+}
+
+/** Grant pawprint tokens. Server-authoritative, fixed amounts only. */
+export async function grantPawprintTokens(phone: string, amount: number, reason: string): Promise<void> {
+  await getPool().query(
+    `UPDATE users SET pawprint_tokens = pawprint_tokens + ? WHERE phone = ?`,
+    [Math.abs(amount), phone]
+  );
+  await recordPawprintTxn(phone, Math.abs(amount), reason);
+}
+
+/** Deduct pawprint tokens if sufficient. */
+export async function spendPawprintTokens(phone: string, amount: number, reason: string): Promise<boolean> {
+  const [result] = await getPool().query(
+    `UPDATE users SET pawprint_tokens = pawprint_tokens - ? WHERE phone = ? AND pawprint_tokens >= ?`,
+    [Math.abs(amount), phone, Math.abs(amount)]
+  ) as any;
+  if (result.affectedRows === 1) {
+    await recordPawprintTxn(phone, -Math.abs(amount), reason);
+  }
+  return result.affectedRows === 1;
+}
+
+/** Get pawprint token balance. */
+export async function getPawprintBalance(phone: string): Promise<number> {
+  const [rows] = await getPool().query(
+    `SELECT pawprint_tokens FROM users WHERE phone = ?`, [phone]
+  ) as any;
+  return rows?.[0]?.pawprint_tokens || 0;
+}
+
+// ============================================================================
+// Phase 8: Profile
+// ============================================================================
+
+export async function updateUserProfile(phone: string, fields: {
+  fullName?: string;
+  bio?: string | null;
+  city?: string;
+  zip?: string;
+  notificationPrefs?: any;
+}): Promise<void> {
+  const parts: string[] = [];
+  const values: any[] = [];
+  if (fields.fullName !== undefined) { parts.push("full_name = ?"); values.push(fields.fullName); }
+  if (fields.bio !== undefined) { parts.push("bio = ?"); values.push(fields.bio); }
+  if (fields.city !== undefined) { parts.push("city = ?"); values.push(fields.city); }
+  if (fields.zip !== undefined) { parts.push("zip = ?"); values.push(fields.zip); }
+  if (fields.notificationPrefs !== undefined) { parts.push("notification_prefs = ?"); values.push(JSON.stringify(fields.notificationPrefs)); }
+  if (parts.length === 0) return;
+  values.push(phone);
+  await getPool().query(`UPDATE users SET ${parts.join(", ")} WHERE phone = ?`, values);
+}
+
+/** Check if profile completion conditions are met and grant the 100-cr bonus. */
+export async function checkAndGrantProfileBonus(phone: string): Promise<{ granted: boolean }> {
+  const [rows] = await getPool().query(
+    `SELECT profile_bonus_granted, email_verified, phone_verified, zip FROM users WHERE phone = ?`,
+    [phone]
+  ) as any;
+  const row = rows?.[0];
+  if (!row) return { granted: false };
+  if (row.profile_bonus_granted) return { granted: false };
+  if (row.zip && row.email_verified && row.phone_verified) {
+    await addCredits(phone, 100, "profile_complete_bonus");
+    await getPool().query(`UPDATE users SET profile_bonus_granted = 1 WHERE phone = ?`, [phone]);
+    return { granted: true };
+  }
+  return { granted: false };
+}
+
+export async function verifyUserEmail(phone: string): Promise<void> {
+  await getPool().query(`UPDATE users SET email_verified = 1 WHERE phone = ?`, [phone]);
+}
+
+export async function verifyUserPhone(phone: string): Promise<void> {
+  await getPool().query(`UPDATE users SET phone_verified = 1 WHERE phone = ?`, [phone]);
+}
+
+// ============================================================================
+// Phase 8: Referral
+// ============================================================================
+
+import { randomBytes } from "crypto";
+
+export async function generateReferralCode(phone: string): Promise<string> {
+  const [rows] = await getPool().query(`SELECT referral_code FROM users WHERE phone = ?`, [phone]) as any;
+  if (rows?.[0]?.referral_code) return rows[0].referral_code;
+  let code: string;
+  let isUnique = false;
+  do {
+    code = randomBytes(4).toString("hex").slice(0, 8);
+    const [existing] = await getPool().query(`SELECT 1 FROM users WHERE referral_code = ?`, [code]) as any;
+    isUnique = !(Array.isArray(existing) && existing.length > 0);
+  } while (!isUnique);
+  await getPool().query(`UPDATE users SET referral_code = ? WHERE phone = ?`, [code, phone]);
+  return code;
+}
+
+export async function recordReferral(referrerCode: string, referredPhone: string): Promise<void> {
+  const [refs] = await getPool().query(`SELECT phone FROM users WHERE referral_code = ?`, [referrerCode]) as any;
+  if (!refs?.[0]) return;
+  const referrerPhone = refs[0].phone;
+  if (referrerPhone === referredPhone) return;
+  try {
+    await getPool().query(
+      `INSERT INTO referrals (referrer_phone, referred_phone, code) VALUES (?, ?, ?)`,
+      [referrerPhone, referredPhone, referrerCode]
+    );
+  } catch { /* duplicate */ }
+}
+
+export async function creditReferralIfComplete(referredPhone: string): Promise<void> {
+  const [rows] = await getPool().query(
+    `SELECT r.id, r.referrer_phone, r.credited_at
+       FROM referrals r JOIN users u ON u.phone = r.referred_phone
+      WHERE r.referred_phone = ? AND u.profile_complete = 1 AND r.credited_at IS NULL
+      LIMIT 1`,
+    [referredPhone]
+  ) as any;
+  const ref = rows?.[0];
+  if (!ref) return;
+  await addCredits(ref.referrer_phone, 30, "referral_bonus");
+  await grantPawprintTokens(ref.referrer_phone, 1, "referral_bonus");
+  await getPool().query(`UPDATE referrals SET credited_at = NOW() WHERE id = ?`, [ref.id]);
+}
+
+// ============================================================================
+// Phase 8: Pawprint templates
+// ============================================================================
+
+export interface PawprintTemplate {
+  category: string; layoutId: string; name: string; tone: string;
+  sampleCopy: string[];
+  fieldSchema: { key: string; type: "text" | "image" | "name" | "message"; label: string; maxLength?: number }[];
+  imagePromptTemplate: string;
+}
+
+const PAWPRINT_CATEGORIES = [
+  "grieving_loss", "new_puppy", "veterinarian", "holiday_birthday",
+  "environment", "postcard_travel", "get_well", "miss_you", "pet_business",
+];
+
+const PAWPRINT_TEMPLATES: PawprintTemplate[] = [
+  { category: "grieving_loss", layoutId: "portrait_card", name: "Portrait Card", tone: "gentle", sampleCopy: ["Forever in our hearts.", "Until we meet again at the Rainbow Bridge."], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }, { key: "petName", type: "name", label: "Pet Name" }], imagePromptTemplate: "A soft watercolor-style memorial portrait of a pet, gentle warm lighting" },
+  { category: "grieving_loss", layoutId: "landscape_postcard", name: "Landscape Postcard", tone: "gentle", sampleCopy: ["You left pawprints on our hearts.", "Run free, sweet friend."], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }, { key: "message", type: "message", label: "Your Message", maxLength: 200 }], imagePromptTemplate: "A peaceful meadow scene with a rainbow, soft golden hour" },
+  { category: "grieving_loss", layoutId: "photo_top", name: "Photo Top", tone: "warm", sampleCopy: ["Remembering the good times.", "A life well loved."], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }, { key: "petName", type: "name", label: "Pet Name" }], imagePromptTemplate: "A warm-toned photo frame with a sleeping pet, surrounded by soft flowers" },
+  { category: "grieving_loss", layoutId: "framed_quote", name: "Framed Quote", tone: "gentle", sampleCopy: ["\"Dogs' lives are too short. Their only fault, really.\" — Agnes Sligh Turnbull", "Gone but never forgotten."], fieldSchema: [{ key: "petName", type: "name", label: "Pet Name" }, { key: "message", type: "message", label: "Your Quote", maxLength: 300 }], imagePromptTemplate: "An elegant framed calligraphy quote with subtle pawprint watermark" },
+  { category: "new_puppy", layoutId: "portrait_card", name: "Portrait Card", tone: "excited", sampleCopy: ["Welcome home, little one!", "Our newest family member."], fieldSchema: [{ key: "petPhoto", type: "image", label: "Puppy Photo" }, { key: "petName", type: "name", label: "Puppy Name" }], imagePromptTemplate: "A cute puppy portrait with bright playful colors, confetti" },
+  { category: "new_puppy", layoutId: "landscape_postcard", name: "Landscape Postcard", tone: "excited", sampleCopy: ["Pawsitively thrilled to meet you!", "A new chapter begins."], fieldSchema: [{ key: "petPhoto", type: "image", label: "Puppy Photo" }, { key: "message", type: "message", label: "Your Message", maxLength: 200 }], imagePromptTemplate: "A puppy playing in a sunny garden, vibrant colors" },
+  { category: "new_puppy", layoutId: "photo_top", name: "Photo Top", tone: "playful", sampleCopy: ["Life just got cuter!", "New best friend alert!"], fieldSchema: [{ key: "petPhoto", type: "image", label: "Puppy Photo" }], imagePromptTemplate: "A puppy with a big smile, surrounded by toys and treats" },
+  { category: "new_puppy", layoutId: "framed_quote", name: "Framed Quote", tone: "warm", sampleCopy: ["\"A puppy is the only thing that loves you more than you love yourself.\"", "Small paws, big love."], fieldSchema: [{ key: "petName", type: "name", label: "Puppy Name" }, { key: "message", type: "message", label: "Your Message", maxLength: 200 }], imagePromptTemplate: "A decorative border with puppy pawprints and hearts, warm pastel background" },
+  { category: "veterinarian", layoutId: "portrait_card", name: "Portrait Card", tone: "grateful", sampleCopy: ["Thanks for taking such good care of our fur baby!", "You're pawsome!"], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }, { key: "petName", type: "name", label: "Pet Name" }], imagePromptTemplate: "A professional warm-toned thank you card with a pet portrait" },
+  { category: "veterinarian", layoutId: "landscape_postcard", name: "Landscape Postcard", tone: "grateful", sampleCopy: ["Our furry friend says thank you!", "Grateful for your care."], fieldSchema: [{ key: "message", type: "message", label: "Your Message", maxLength: 300 }], imagePromptTemplate: "A cozy vet clinic with a happy pet on an exam table" },
+  { category: "veterinarian", layoutId: "photo_top", name: "Photo Top", tone: "cheerful", sampleCopy: ["Healthy and happy, thanks to you!", "Best vet ever!"], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }], imagePromptTemplate: "A cheerful pet at the vet, bright clinic lighting" },
+  { category: "veterinarian", layoutId: "framed_quote", name: "Framed Quote", tone: "warm", sampleCopy: ["\"The vet is the true hero of every pet's story.\"", "Thank you for your gentle hands."], fieldSchema: [{ key: "petName", type: "name", label: "Pet Name" }, { key: "message", type: "message", label: "Your Message", maxLength: 200 }], imagePromptTemplate: "A stethoscope heart shape with pawprints, clean medical aesthetic" },
+  { category: "holiday_birthday", layoutId: "portrait_card", name: "Portrait Card", tone: "festive", sampleCopy: ["Happy Birthday, fur baby!", "Wishing you a tail-wagging celebration!"], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }, { key: "petName", type: "name", label: "Pet Name" }], imagePromptTemplate: "A birthday celebration scene with party hats and balloons" },
+  { category: "holiday_birthday", layoutId: "landscape_postcard", name: "Landscape Postcard", tone: "festive", sampleCopy: ["Merry Christmas from our pack to yours!", "Happy Howl-oween!"], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }, { key: "message", type: "message", label: "Your Holiday Message", maxLength: 200 }], imagePromptTemplate: "Seasonal holiday background with pets and decorations" },
+  { category: "environment", layoutId: "portrait_card", name: "Portrait Card", tone: "eco_conscious", sampleCopy: ["Love nature, love pets.", "Green paws for a greener planet."], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }], imagePromptTemplate: "A pet in a lush natural setting, eco-friendly aesthetic" },
+  { category: "postcard_travel", layoutId: "landscape_postcard", name: "Landscape Postcard", tone: "adventurous", sampleCopy: ["Wish you were here!", "Paws on the go!"], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }, { key: "petName", type: "name", label: "Pet Name" }, { key: "message", type: "message", label: "Travel Message", maxLength: 200 }], imagePromptTemplate: "A scenic travel destination with a happy pet exploring" },
+  { category: "get_well", layoutId: "portrait_card", name: "Portrait Card", tone: "caring", sampleCopy: ["Get well soon, sweet one!", "Sending healing vibes!"], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }, { key: "petName", type: "name", label: "Pet Name" }], imagePromptTemplate: "A comforting scene with soft blankets and gentle healing light" },
+  { category: "miss_you", layoutId: "portrait_card", name: "Portrait Card", tone: "nostalgic", sampleCopy: ["Missing you from my paws to my heart.", "Wish you were here!"], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }, { key: "message", type: "message", label: "Your Message", maxLength: 200 }], imagePromptTemplate: "A nostalgic sunset with a silhouette of a pet looking into the distance" },
+  { category: "pet_business", layoutId: "portrait_card", name: "Portrait Card", tone: "professional", sampleCopy: ["Trust us with your fur babies!", "Pawsitively the best care in town."], fieldSchema: [{ key: "petPhoto", type: "image", label: "Business Logo" }, { key: "message", type: "message", label: "Business Message", maxLength: 300 }], imagePromptTemplate: "Professional pet business branding, clean modern aesthetic" },
+  { category: "pet_business", layoutId: "landscape_postcard", name: "Landscape Postcard", tone: "friendly", sampleCopy: ["Your pet's home away from home.", "Pet-sitting with love."], fieldSchema: [{ key: "petPhoto", type: "image", label: "Business Photo" }, { key: "message", type: "message", label: "Offer Details", maxLength: 300 }], imagePromptTemplate: "A welcoming pet care facility with happy animals" },
+];
+
+export function getPawprintCategories(): string[] { return PAWPRINT_CATEGORIES; }
+
+export function getPawprintTemplatesSync(category?: string): PawprintTemplate[] {
+  if (category) return PAWPRINT_TEMPLATES.filter(t => t.category === category);
+  return PAWPRINT_TEMPLATES;
 }

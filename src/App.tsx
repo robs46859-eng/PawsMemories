@@ -194,6 +194,13 @@ export default function App() {
       isAdmin: user.isAdmin,
       city: user.city,
       profilePhotoUrl: user.profilePhotoUrl ?? null,
+      pawprintTokens: user.pawprintTokens ?? 0,
+      referralCode: user.referralCode ?? null,
+      phoneVerified: user.phoneVerified ?? false,
+      emailVerified: user.emailVerified ?? false,
+      zip: user.zip,
+      bio: user.bio ?? null,
+      profileBonusGranted: user.profileBonusGranted ?? false,
     });
     setDailyStreak(user.dailyStreak || 0);
     const today = new Date().toISOString().split('T')[0];
