@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getPool, isUserAdmin, refundCredits } from "../db";
 import type { AuthedRequest } from "../auth";
 import type { GenerateFn } from "./petClassify";
+import { CREDIT_PRICES } from "../src/pricing";
 
 let refundGenerate: GenerateFn | null = null;
 
@@ -121,7 +122,11 @@ refundRouter.post("/refunds/review", async (req: AuthedRequest, res) => {
         petBreed: creation.pet_breed,
       });
       outputUrl = creation.image_url;
-      costCredits = creation.media_type === "model" ? 400 : 40;
+      costCredits = creation.preset_name === "pawprint"
+        ? CREDIT_PRICES.PAWPRINT
+        : creation.media_type === "model"
+          ? CREDIT_PRICES.STATIC_3D_PHOTO
+          : CREDIT_PRICES.HD_IMAGE;
     } else {
       const [rows] = await getPool().query(
         `SELECT * FROM avatars WHERE id = ? AND user_phone = ? LIMIT 1`,
@@ -136,7 +141,9 @@ refundRouter.post("/refunds/review", async (req: AuthedRequest, res) => {
         avatarType: avatar.avatar_type,
       });
       outputUrl = avatar.image_url;
-      costCredits = 400;
+      costCredits = avatar.avatar_type === "object"
+        ? CREDIT_PRICES.STATIC_3D_PHOTO
+        : CREDIT_PRICES.RIGGED_3D_AVATAR;
     }
     const output = await imageUrlToBase64(outputUrl);
     const verdict = await compareRequestToOutput(refundGenerate, {

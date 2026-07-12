@@ -10,7 +10,7 @@ import sharp from "sharp";
 import { sendSms } from "./server/sms";
 import { sendMail } from "./server/mail";
 import rateLimit from "express-rate-limit";
-import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, restoreReservedGenerationCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor, getStorageUsage, recordStorageAddHot, recordStorageRemoveHot, purchaseColdStorage, grantPawprintTokens, spendPawprintTokens, getPawprintBalance, updateUserProfile, checkAndGrantProfileBonus, verifyUserPhone, verifyUserEmail, generateReferralCode, recordReferral, creditReferralIfComplete, getPawprintCategories, getPawprintTemplatesSync, acceptTermsVersion, createVoiceCloneAsset, listVoiceCloneAssets } from "./db";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, restoreReservedGenerationCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor, getStorageUsage, recordStorageAddHot, recordStorageRemoveHot, purchaseColdStorage, updateUserProfile, checkAndGrantProfileBonus, verifyUserPhone, verifyUserEmail, generateReferralCode, recordReferral, creditReferralIfComplete, getPawprintCategories, getPawprintTemplatesSync, acceptTermsVersion, createVoiceCloneAsset, listVoiceCloneAssets } from "./db";
 import { isEndpointEnabled, dailyCapFor, withinDailyCap, type PaidEndpoint } from "./server/paidApiGuards";
 import { classifyPetImage, type GenerateFn } from "./server/petClassify";
 import { semanticScan as runSemanticScan } from "./server/semanticScan";
@@ -35,6 +35,7 @@ import { checkBudget, needsRetargetFallback, type BakeStats } from "./server/rig
 import { registerSnapgenRoutes } from "./server/snapgen";
 import { SKELETON_CONTRACTS } from "./skeletonContract";
 import { TERMS_VERSION } from "./src/legal";
+import { avatarGenerationCost, CREDIT_PACKS, CREDIT_PRICES } from "./src/pricing";
 import { buildReferencePrompt, turnaroundViewsForType, paletteLockClause, extractPaletteInstruction, buildTextPrompt, geometryToTripo, type TextPromptFields, type SubjectClass } from "./avatarPrompts";
 import { triageReferenceImage, triagePasses, correctiveFromTriage, friendlyQualifyError, isClassMismatch, classLabel, type TriageResult } from "./server/imageTriage";
 import { objectBuildProfile, humanRigHints } from "./server/subjectProfiles";
@@ -559,6 +560,7 @@ async function startServer() {
   });
 
   app.post("/api/voice-clones", requireAuth, async (req: AuthedRequest, res) => {
+    let debited = false;
     try {
       const name = String(req.body?.name || "Voice clone").trim().slice(0, 120);
       const audioBase64 = String(req.body?.audioBase64 || "");
@@ -575,6 +577,13 @@ async function startServer() {
       if (bytes <= 0 || bytes > 25 * 1024 * 1024) {
         return res.status(400).json({ error: "Voice files must be audio and 25 MB or smaller." });
       }
+      const isAdmin = await isUserAdmin(req.user!.phone);
+      if (!isAdmin) {
+        debited = await deductCredits(req.user!.phone, CREDIT_PRICES.VOICE_CLONE, "voice_clone");
+        if (!debited) {
+          return res.status(402).json({ error: `You need ${CREDIT_PRICES.VOICE_CLONE} credits to create a voice clone.` });
+        }
+      }
       const audioUrl = await uploadBase64Binary(audioBase64, mimeType, "sounds/voice-clones");
       const usage = await recordStorageAddHot(req.user!.phone, bytes);
       const asset = await createVoiceCloneAsset(req.user!.phone, {
@@ -584,10 +593,14 @@ async function startServer() {
         bytes,
         voiceConsent: true,
       });
-      res.status(201).json({ success: true, asset, storage: usage });
+      const user = await findUserByPhone(req.user!.phone);
+      res.status(201).json({ success: true, asset, storage: usage, user: toPublicUser(user, TERMS_VERSION) });
     } catch (err: any) {
+      if (debited) {
+        try { await restoreReservedGenerationCredits(req.user!.phone, CREDIT_PRICES.VOICE_CLONE); } catch {}
+      }
       console.error("[POST /api/voice-clones] Error:", err?.message || err);
-      res.status(500).json({ error: "Could not save the voice clone." });
+      res.status(500).json({ error: "Could not save the voice clone. Your credits were returned." });
     }
   });
 
@@ -757,9 +770,9 @@ async function startServer() {
   // Share reward claim
   app.post("/api/share/claim", requireAuth, async (req: AuthedRequest, res) => {
     try {
-      const { network, rewardType } = req.body || {};
-      if (!network || !["credits", "pawprint"].includes(rewardType)) {
-        return res.status(400).json({ error: "network and rewardType (credits|pawprint) required." });
+      const { network } = req.body || {};
+      if (!network || typeof network !== "string") {
+        return res.status(400).json({ error: "network is required." });
       }
       // Check if already claimed (per network, per user lifetime)
       const [existing] = await getPool().query(
@@ -769,18 +782,14 @@ async function startServer() {
       if (Array.isArray(existing) && existing.length > 0) {
         return res.status(409).json({ error: "Share reward already claimed for this network." });
       }
-      // Grant reward
-      if (rewardType === "credits") {
-        await addCredits(req.user!.phone, 12, `share_reward:${network}`);
-      } else {
-        await grantPawprintTokens(req.user!.phone, 1, `share_reward:${network}`);
-      }
+      const SHARE_NETWORK_REWARD = 12;
+      await addCredits(req.user!.phone, SHARE_NETWORK_REWARD, `share_reward:${network}`);
       await getPool().query(
         `INSERT INTO share_rewards (user_phone, network, reward_type) VALUES (?, ?, ?)`,
-        [req.user!.phone, network, rewardType]
+        [req.user!.phone, network, "credits"]
       );
       const user = await findUserByPhone(req.user!.phone);
-      res.json({ success: true, reward: rewardType === "credits" ? 12 : 1, user: toPublicUser(user) });
+      res.json({ success: true, reward: SHARE_NETWORK_REWARD, user: toPublicUser(user) });
     } catch (err: any) {
       console.error("[POST /api/share/claim] Error:", err?.message || err);
       res.status(500).json({ error: "Could not claim share reward." });
@@ -832,10 +841,13 @@ async function startServer() {
         }
       }
 
-      const balance = await getPawprintBalance(req.user!.phone);
-      if (balance < 1) return res.status(402).json({ error: "You need 1 pawprint token to create a Pawprint." });
-      await grantPawprintTokens(req.user!.phone, -1, "pawprint_spend");
-      debited = true;
+      const isAdmin = await isUserAdmin(req.user!.phone);
+      if (!isAdmin) {
+        debited = await deductCredits(req.user!.phone, CREDIT_PRICES.PAWPRINT, "pawprint_generation");
+        if (!debited) {
+          return res.status(402).json({ error: `You need ${CREDIT_PRICES.PAWPRINT} credits to create a Pawprint.` });
+        }
+      }
 
       const sampleCopy = template.sampleCopy.join("\n");
       const userData = JSON.stringify({ fields, customName, customMessage });
@@ -931,14 +943,14 @@ async function startServer() {
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [req.user!.phone, idempotencyKey, `${category}:${layoutId}`, category, layoutId, finalUrl, creationId]
       ) as any;
-      res.status(201).json({ pawprintId: inserted.insertId, url: finalUrl, creationId });
+      const user = await findUserByPhone(req.user!.phone);
+      res.status(201).json({ pawprintId: inserted.insertId, url: finalUrl, creationId, user: toPublicUser(user, TERMS_VERSION) });
     } catch (err: any) {
       if (debited) {
-        try { await grantPawprintTokens(req.user!.phone, 1, "pawprint_refund"); } catch {}
+        try { await restoreReservedGenerationCredits(req.user!.phone, CREDIT_PRICES.PAWPRINT); } catch {}
       }
-      const status = err?.message === "Insufficient pawprint tokens" ? 402 : 500;
       console.error("[POST /api/pawprints/generate] Error:", err?.message || err);
-      res.status(status).json({ error: status === 402 ? "You need 1 pawprint token to create a Pawprint." : "Could not create the Pawprint. Your token was returned." });
+      res.status(500).json({ error: "Could not create the Pawprint. Your credits were returned." });
     }
   });
 
@@ -1453,10 +1465,11 @@ async function startServer() {
   }
 
   app.post("/api/avatars", requireAuth, async (req: AuthedRequest, res) => {
+    let avatarCreditsDebited = 0;
     try {
       const { name, photo, photos, palette, avatar_type, face_photo, input_mode, subject, detail, texture, style, lighting } = req.body;
       // Defensive: accept either camelCase or snake_case so a frontend mismatch can't silently break text mode.
-      const inputMode = input_mode ?? req.body.inputMode;
+      const inputMode: "image" | "text" = (input_mode ?? req.body.inputMode) === "text" ? "text" : "image";
       const avatarTypeRaw = avatar_type ?? req.body.avatarType;
       const facePhotoRaw = face_photo ?? req.body.facePhoto;
       // Normalize the UI type to a canonical SubjectClass ('dog' == animal).
@@ -1491,6 +1504,8 @@ async function startServer() {
         }
       }
 
+      const avatarCost = avatarGenerationCost(avatarType, inputMode);
+
       const isAdmin = await isUserAdmin(req.user!.phone);
 
       // Phase 9 — hard model cap. Non-admin users may keep at most MODEL_CAP
@@ -1511,8 +1526,8 @@ async function startServer() {
 
       if (!isAdmin) {
         const balance = await getCreditBalance(req.user!.phone);
-        if (balance < 400) {
-          return res.status(402).json({ error: "Insufficient credits. You need 400 credits." });
+        if (balance < avatarCost) {
+          return res.status(402).json({ error: `Insufficient credits. You need ${avatarCost} credits.` });
         }
       }
 
@@ -1652,7 +1667,9 @@ async function startServer() {
 
       // Deduct credits ONLY now that we have a qualified image and are starting Tripo.
       if (!isAdmin) {
-        await deductCredits(req.user!.phone, 400);
+        const paid = await deductCredits(req.user!.phone, avatarCost, "avatar_generation");
+        if (!paid) return res.status(402).json({ error: `Insufficient credits. You need ${avatarCost} credits.` });
+        avatarCreditsDebited = avatarCost;
       }
 
       // Compact analysis record persisted for the build/rig stage (§8 "memory").
@@ -1690,6 +1707,9 @@ async function startServer() {
 
       res.json({ avatarId, status: "pending", referenceImageUrl: finalImageUrl, usedReferenceImage, avatarType, notice: detectNotice });
     } catch (err: any) {
+      if (avatarCreditsDebited > 0) {
+        try { await restoreReservedGenerationCredits(req.user!.phone, avatarCreditsDebited); } catch {}
+      }
       if (isTripoInsufficientCredit(err)) {
         console.error("[Tripo] Platform account out of credits — top up TRIPO_API_KEY account");
         return res.status(503).json({
@@ -1957,6 +1977,7 @@ async function startServer() {
   });
 
   app.post("/api/avatars/:id/retry", requireAuth, async (req: AuthedRequest, res) => {
+    let retryCreditsDebited = 0;
     try {
       const avatarId = Number(req.params.id);
       const avatar = await getAvatarById(avatarId, req.user!.phone);
@@ -1968,6 +1989,15 @@ async function startServer() {
       const retryableStatuses = ["failed", "done", "rigging", "retargeting", "baking_clips", "baking_sprites"];
       if (!retryableStatuses.includes(avatar.generation_status)) {
          return res.status(400).json({ error: "Avatar is currently generating" });
+      }
+
+      const isAdmin = await isUserAdmin(req.user!.phone);
+      const retryCount = Number((avatar as any).retry_count || 0);
+      const retryCost = retryCount === 0 ? CREDIT_PRICES.FIRST_REGENERATION : CREDIT_PRICES.ADDITIONAL_REGENERATION;
+      if (!isAdmin && retryCost > 0) {
+        const paid = await deductCredits(req.user!.phone, retryCost, "avatar_regeneration");
+        if (!paid) return res.status(402).json({ error: `You need ${retryCost} credits for another regeneration.` });
+        retryCreditsDebited = retryCost;
       }
 
       // Reset status and error
@@ -1986,13 +2016,20 @@ async function startServer() {
           views = undefined;
         }
         const handle = await startImageTo3D({ imageUrl: finalImageUrl, views });
-        await getPool().query(`UPDATE avatars SET meshy_handle = ? WHERE id = ?`, [handle, avatarId]);
+        await getPool().query(
+          `UPDATE avatars SET meshy_handle = ?, retry_count = retry_count + 1 WHERE id = ? AND user_phone = ?`,
+          [handle, avatarId, req.user!.phone]
+        );
       } else {
         return res.status(400).json({ error: "Original photo not available for retry" });
       }
 
-      res.json({ success: true, status: "pending" });
+      const user = await findUserByPhone(req.user!.phone);
+      res.json({ success: true, status: "pending", chargedCredits: retryCost, user: toPublicUser(user, TERMS_VERSION) });
     } catch (err: any) {
+      if (retryCreditsDebited > 0) {
+        try { await restoreReservedGenerationCredits(req.user!.phone, retryCreditsDebited); } catch {}
+      }
       console.error("[POST /api/avatars/:id/retry] Error retrying avatar:", err);
       res.status(500).json({ error: err.message || "Failed to retry avatar generation." });
     }
@@ -2723,21 +2760,10 @@ async function startServer() {
 
   // API route to create custom styled pet images using Imagen or Gemini
   // Fix 5: Credit store — let users purchase credit packs via Stripe
-  // Credit packs — authoritative pricing at 1 credit = $0.10 (client mirrors this in
-  // src/components/CreditStore.tsx). Stripe checkout amount is derived from
-  // `price` at session-creation time, so changing these needs no Stripe setup.
-  const CREDIT_PACKS = [
-    { id: "pack_100", credits: 100, price: 10, label: "Starter" },
-    { id: "pack_275", credits: 275, price: 25, label: "Creator" },
-    { id: "pack_600", credits: 600, price: 50, label: "Pro" },
-    { id: "pack_1300", credits: 1300, price: 100, label: "Studio" },
-    { id: "pack_3500", credits: 3500, price: 250, label: "Enterprise" },
-  ] as const;
-
   app.post("/api/create-credits-session", requireAuth, async (req: AuthedRequest, res) => {
     try {
       const { packId } = req.body;
-      const pack = CREDIT_PACKS.find((p) => p.id === packId);
+      const pack = CREDIT_PACKS.find((p) => p.id === packId && !p.comingSoon);
       if (!pack) return res.status(400).json({ success: false, error: "Invalid credit pack selected." });
 
       const appUrl = process.env.APP_URL || "http://localhost:3000";
@@ -2825,6 +2851,7 @@ async function startServer() {
   });
 
   app.post("/api/create-creation", requireAuth, async (req, res) => {
+    let imageCreditsDebited = 0;
     try {
       if (!apiKey || apiKey === "placeholder-key" || apiKey === "MY_GEMINI_API_KEY") {
         throw new Error("Missing or invalid GEMINI_API_KEY. Please configure your Gemini API key in the AI Studio Secrets panel.");
@@ -2832,7 +2859,7 @@ async function startServer() {
 
       const authedReq = req as AuthedRequest;
       const userPhone = authedReq.user!.phone;
-      const GENERATION_COST = 40;
+      const GENERATION_COST = CREDIT_PRICES.HD_IMAGE;
 
       // Fix 2: Server-side credit check + atomic deduction before calling AI
       // Admin bypass: skip credit checks for developer phone number
@@ -2845,6 +2872,11 @@ async function startServer() {
             error: `Insufficient credits. You need ${GENERATION_COST} credits but only have ${currentBalance}. Purchase more credits to continue.`
           });
         }
+        const paid = await deductCredits(userPhone, GENERATION_COST, "hd_image_generation");
+        if (!paid) {
+          return res.status(402).json({ success: false, error: `Insufficient credits. You need ${GENERATION_COST} credits.` });
+        }
+        imageCreditsDebited = GENERATION_COST;
       }
 
       const { style, background, photo, breed, name, brightness, contrast, location } = req.body;
@@ -2961,11 +2993,6 @@ async function startServer() {
           }
 
           if (generatedBase64) {
-            // Fix 2: Deduct credits after successful style-transfer generation (Admin bypass)
-            if (!isAdmin) {
-              await deductCredits(userPhone, GENERATION_COST);
-            }
-            
             // Phase 2: Upload to object storage
             let finalImageUrl = generatedBase64;
             try {
@@ -3012,11 +3039,6 @@ async function startServer() {
         if (!base64Bytes) throw new Error("No image generated by Imagen");
         
         const generatedBase64 = `data:image/jpeg;base64,${base64Bytes}`;
-        // Fix 2: Deduct credits after successful Imagen generation (Admin bypass)
-        if (!isAdmin) {
-          await deductCredits(userPhone, GENERATION_COST);
-        }
-        
         // Phase 2: Upload to object storage
         let finalImageUrl = generatedBase64;
         try {
@@ -3066,11 +3088,6 @@ async function startServer() {
         }
         
         if (generatedBase64) {
-          // Fix 2: Deduct credits in DB after confirmed successful generation (Admin bypass)
-          if (!isAdmin) {
-            await deductCredits(userPhone, GENERATION_COST);
-          }
-          
           // Phase 2: Upload to object storage
           let finalImageUrl = generatedBase64;
           try {
@@ -3101,6 +3118,9 @@ async function startServer() {
         throw new Error("All image generation methods failed.");
       }
     } catch (err: any) {
+      if (imageCreditsDebited > 0) {
+        try { await restoreReservedGenerationCredits((req as AuthedRequest).user!.phone, imageCreditsDebited); } catch {}
+      }
       console.error("create-creation error:", err);
       res.status(500).json({ success: false, error: err.message || "Failed to generate memory." });
     }
@@ -3336,10 +3356,11 @@ async function startServer() {
   });
 
   // Phase 3 & 4: Veo Video Generation Endpoints
-  const VIDEO_COST = 250;
+  const VIDEO_COST = CREDIT_PRICES.ANIMATED_VIDEO;
   const MAX_DAILY_VIDEOS = 5;
 
   app.post("/api/create-video", requireAuth, async (req: AuthedRequest, res) => {
+    let videoCreditsDebited = 0;
     try {
       const { creationId, motionPrompt, generateAudio } = req.body;
       if (!creationId) return res.status(400).json({ success: false, error: "creationId is required" });
@@ -3370,7 +3391,9 @@ async function startServer() {
 
       // 3. Deduct credits upfront (Admin bypass: skip deduction)
       if (!isAdmin) {
-        await deductCredits(userPhone, VIDEO_COST);
+        const paid = await deductCredits(userPhone, VIDEO_COST, "animated_video");
+        if (!paid) return res.status(402).json({ success: false, error: `Insufficient credits. You need ${VIDEO_COST} credits.` });
+        videoCreditsDebited = VIDEO_COST;
       }
 
       // 4. Prepare image bytes (fetch from URL if needed, or parse base64)
@@ -3411,6 +3434,9 @@ async function startServer() {
 
       res.status(202).json({ success: true, jobId, status: "queued" });
     } catch (err: any) {
+      if (videoCreditsDebited > 0) {
+        try { await restoreReservedGenerationCredits(req.user!.phone, videoCreditsDebited); } catch {}
+      }
       console.error("Error creating video:", err);
       res.status(500).json({ success: false, error: err.message || "Failed to start video generation." });
     }
@@ -3422,6 +3448,7 @@ async function startServer() {
   // is stored in operation_name with a "heygen:" prefix so the shared pollers
   // can route it correctly.
   app.post("/api/create-talking-video", requireAuth, async (req: AuthedRequest, res) => {
+    let lipSyncCreditsDebited = 0;
     try {
       const { creationId, script, voiceId } = req.body;
       if (!creationId) return res.status(400).json({ success: false, error: "creationId is required" });
@@ -3439,8 +3466,8 @@ async function startServer() {
           return res.status(429).json({ success: false, error: `Daily video limit reached (${MAX_DAILY_VIDEOS}/day). Please try again tomorrow.` });
         }
         const balance = await getCreditBalance(userPhone);
-        if (balance < VIDEO_COST) {
-          return res.status(402).json({ success: false, error: `Insufficient credits. You need ${VIDEO_COST} credits.` });
+        if (balance < CREDIT_PRICES.LIP_SYNC_30_SECONDS) {
+          return res.status(402).json({ success: false, error: `Insufficient credits. You need ${CREDIT_PRICES.LIP_SYNC_30_SECONDS} credits.` });
         }
       }
 
@@ -3453,7 +3480,9 @@ async function startServer() {
 
       // Deduct credits upfront (Admin bypass: skip deduction).
       if (!isAdmin) {
-        await deductCredits(userPhone, VIDEO_COST);
+        const paid = await deductCredits(userPhone, CREDIT_PRICES.LIP_SYNC_30_SECONDS, "lip_sync");
+        if (!paid) return res.status(402).json({ success: false, error: `Insufficient credits. You need ${CREDIT_PRICES.LIP_SYNC_30_SECONDS} credits.` });
+        lipSyncCreditsDebited = CREDIT_PRICES.LIP_SYNC_30_SECONDS;
       }
 
       // Prepare image bytes (parse base64 data URL, or fetch from storage URL).
@@ -3462,7 +3491,10 @@ async function startServer() {
       if (creation.image_url.startsWith("data:image")) {
         const matches = creation.image_url.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
         if (!matches) {
-          if (!isAdmin) await restoreReservedGenerationCredits(userPhone, VIDEO_COST);
+          if (lipSyncCreditsDebited > 0) {
+            await restoreReservedGenerationCredits(userPhone, lipSyncCreditsDebited);
+            lipSyncCreditsDebited = 0;
+          }
           return res.status(400).json({ success: false, error: "Invalid creation image data." });
         }
         mimeType = matches[1];
@@ -3484,7 +3516,10 @@ async function startServer() {
           voiceId: voiceId || undefined,
         });
       } catch (genErr: any) {
-        if (!isAdmin) await restoreReservedGenerationCredits(userPhone, VIDEO_COST);
+        if (lipSyncCreditsDebited > 0) {
+          await restoreReservedGenerationCredits(userPhone, lipSyncCreditsDebited);
+          lipSyncCreditsDebited = 0;
+        }
         console.error("HeyGen start error:", genErr);
         return res.status(502).json({ success: false, error: genErr.message || "Failed to start talking video." });
       }
@@ -3494,12 +3529,15 @@ async function startServer() {
         user_phone: userPhone,
         creation_id: creationId,
         kind: "video",
-        credits_reserved: VIDEO_COST,
+        credits_reserved: CREDIT_PRICES.LIP_SYNC_30_SECONDS,
         operation_name: handle,
       });
 
       res.status(202).json({ success: true, jobId, status: "queued" });
     } catch (err: any) {
+      if (lipSyncCreditsDebited > 0) {
+        try { await restoreReservedGenerationCredits(req.user!.phone, lipSyncCreditsDebited); } catch {}
+      }
       console.error("Error creating talking video:", err);
       res.status(500).json({ success: false, error: err.message || "Failed to start talking video generation." });
     }
@@ -3510,8 +3548,9 @@ async function startServer() {
   // credit/rate-limit logic; the Meshy task id is stored in operation_name with
   // a "meshy:" prefix so the shared pollers route it correctly. Output is a GLB
   // model stored on the creation's model_url (media_type 'model').
-  const MODEL_COST = 400;
+  const MODEL_COST = CREDIT_PRICES.STATIC_3D_PHOTO;
   app.post("/api/create-3d-model", requireAuth, async (req: AuthedRequest, res) => {
+    let modelCreditsDebited = 0;
     try {
       const { creationId } = req.body;
       if (!creationId) return res.status(400).json({ success: false, error: "creationId is required" });
@@ -3550,11 +3589,21 @@ async function startServer() {
         }
       }
 
+      if (!isAdmin) {
+        const paid = await deductCredits(userPhone, MODEL_COST, "static_3d_photo");
+        if (!paid) return res.status(402).json({ success: false, error: `Insufficient credits. You need ${MODEL_COST} credits.` });
+        modelCreditsDebited = MODEL_COST;
+      }
+
       // Start Tripo/Meshy generation first.
       let handle: string;
       try {
         handle = await startImageTo3D({ imageUrl: publicImageUrl });
       } catch (genErr: any) {
+        if (modelCreditsDebited > 0) {
+          await restoreReservedGenerationCredits(userPhone, modelCreditsDebited);
+          modelCreditsDebited = 0;
+        }
         console.error("Tripo/Meshy start error:", genErr);
         if (isTripoInsufficientCredit(genErr)) {
           return res.status(503).json({
@@ -3564,11 +3613,6 @@ async function startServer() {
           });
         }
         return res.status(502).json({ success: false, error: "Failed to start 3D model generation. Please try again later." });
-      }
-
-      // Deduct credits after successful submission.
-      if (!isAdmin) {
-        await deductCredits(userPhone, MODEL_COST);
       }
 
       // Create job in DB (kind 'model', handle stored with meshy: prefix).
@@ -3582,6 +3626,9 @@ async function startServer() {
 
       res.status(202).json({ success: true, jobId, status: "queued" });
     } catch (err: any) {
+      if (modelCreditsDebited > 0) {
+        try { await restoreReservedGenerationCredits(req.user!.phone, modelCreditsDebited); } catch {}
+      }
       console.error("Error creating 3D model:", err);
       res.status(500).json({ success: false, error: err.message || "Failed to start 3D model generation." });
     }
@@ -3629,6 +3676,7 @@ async function startServer() {
   });
 
   app.post("/api/image-to-3d", requireAuth, async (req: AuthedRequest, res) => {
+    let modelCreditsDebited = 0;
     try {
       const { image, multiview, geometry } = req.body || {};
       if (!image || typeof image !== "string") {
@@ -3677,11 +3725,21 @@ async function startServer() {
         if (Object.keys(uploaded).length > 0) views = uploaded;
       }
 
+      if (!isAdmin) {
+        const paid = await deductCredits(userPhone, MODEL_COST, "static_3d_photo");
+        if (!paid) return res.status(402).json({ success: false, error: `Insufficient credits. You need ${MODEL_COST} credits.` });
+        modelCreditsDebited = MODEL_COST;
+      }
+
       // Start Tripo generation directly — no pet AI reference image step
       let handle: string;
       try {
         handle = await startImageTo3D({ imageUrl: publicImageUrl, views, geometry: geo });
       } catch (genErr: any) {
+        if (modelCreditsDebited > 0) {
+          await restoreReservedGenerationCredits(userPhone, modelCreditsDebited);
+          modelCreditsDebited = 0;
+        }
         console.error("[image-to-3d] Tripo start error:", genErr);
         if (isTripoInsufficientCredit(genErr)) {
           return res.status(503).json({
@@ -3691,11 +3749,6 @@ async function startServer() {
           });
         }
         return res.status(502).json({ success: false, error: "Failed to start 3D generation. Please try again later." });
-      }
-
-      // Deduct credits after successful submission
-      if (!isAdmin) {
-        await deductCredits(userPhone, MODEL_COST);
       }
 
       // Create job in DB (kind 'model', reuse the same jobs table)
@@ -3710,6 +3763,9 @@ async function startServer() {
       console.log(`[image-to-3d] Job ${jobId} started for user ${userPhone} (handle: ${handle})`);
       res.status(202).json({ success: true, jobId, status: "queued" });
     } catch (err: any) {
+      if (modelCreditsDebited > 0) {
+        try { await restoreReservedGenerationCredits(req.user!.phone, modelCreditsDebited); } catch {}
+      }
       console.error("[image-to-3d] Error:", err);
       res.status(500).json({ success: false, error: err.message || "Failed to start 3D generation." });
     }
@@ -4025,11 +4081,10 @@ APP FEATURE MAP (use this to guide users accurately):
 - STORE: Browse merch, order printed photo albums, and purchase credit packs.
 - COMMUNITY: Local pet community info, live board, social features.
 - PROFILE: User profile, photos, referral code, storage meter, achievements, settings, legal acceptance, dark mode toggle, and logout.
-- PAWPRINTS: AI stationery/cards from curated templates. Costs 1 pawprint token.
+- PAWPRINTS: AI stationery/cards from curated templates. Costs 75 credits.
 - PAWLISHER: Production model editor for lighting, turntable, rigging, motion, voice consent/clone, micro-mesh, and hub cards.
 - FURBIN: Storage management for models, videos, voice clone files, Pawprints, uploads, and albums.
-- CREDITS: Earn credits through daily bonuses, sharing, and achievements. Spend credits on avatar generation and store items. Access the Credit Store to buy more.
-- PAWPRINT TOKENS: Earn by sharing/referrals. Spend 1 token per Pawprint.
+- CREDITS: The single wallet for Pawprints, images, 3D models, animation, voice, and storage. Earn credits through bonuses, sharing, referrals, and achievements, or buy a pack in the Credit Store.
 - AR (Augmented Reality): Accessed from the Avatar Dashboard > Living Avatar view > Enter AR. Places the 3D pet avatar in the real world using the phone camera.
 
 GUIDANCE BEHAVIOR: Use short, plain sentences for elderly or first-time users. If the user sounds confused ("I don't know how", "where is", "help me", "new here"), proactively offer a walkthrough. Confirm one step at a time. Include an action in your response to navigate or start a tour.

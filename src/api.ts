@@ -8,6 +8,7 @@ import { PublicUser, Creation, Album, LocationParams, Avatar, PhotoRequest, Requ
 const TOKEN_KEY = "paws_auth_token";
 
 export function getToken(): string | null {
+  if (typeof localStorage === "undefined") return null;
   return localStorage.getItem(TOKEN_KEY);
 }
 
@@ -212,14 +213,15 @@ export async function createVoiceCloneAsset(input: {
   mimeType: string;
   bytes: number;
   voiceConsent: boolean;
-}): Promise<VoiceCloneAsset> {
+}): Promise<{ asset: VoiceCloneAsset; user?: PublicUser }> {
   const res = await authedFetch("/api/voice-clones", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
   if (!res.ok) throw new Error(await parseError(res, "Could not save the voice clone."));
-  return (await res.json()).asset as VoiceCloneAsset;
+  const data = await res.json();
+  return { asset: data.asset as VoiceCloneAsset, user: data.user as PublicUser | undefined };
 }
 
 // --- Community -------------------------------------------------------------
@@ -403,7 +405,7 @@ export async function pollAvatarStatus(avatarId: number): Promise<{
 }
 
 /** Retry a failed avatar generation. Resets status and re-triggers the 3D pipeline. */
-export async function retryAvatarGeneration(avatarId: number): Promise<{ success: boolean; status: string }> {
+export async function retryAvatarGeneration(avatarId: number): Promise<{ success: boolean; status: string; chargedCredits?: number; user?: PublicUser }> {
   const res = await authedFetch(`/api/avatars/${avatarId}/retry`, {
     method: "POST",
   });

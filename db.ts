@@ -1,5 +1,6 @@
 import mysql from "mysql2/promise";
 import { generateUserKey } from "./auth";
+import { CREDIT_PRICES } from "./src/pricing";
 
 /** Internal row key for the seeded admin account (not a phone number). */
 const ADMIN_KEY = process.env.ADMIN_KEY || process.env.ADMIN_PHONE || "";
@@ -83,7 +84,6 @@ export interface PublicUser {
   bio?: string | null;
   phoneVerified?: boolean;
   emailVerified?: boolean;
-  pawprintTokens?: number;
   referralCode?: string | null;
   profileBonusGranted?: boolean;
   acceptedTermsVersion?: string | null;
@@ -117,7 +117,6 @@ export function toPublicUser(userRow: any, currentTermsVersion?: string): Public
     bio: userRow.bio || null,
     phoneVerified: !!userRow.phone_verified,
     emailVerified: !!userRow.email_verified,
-    pawprintTokens: userRow.pawprint_tokens || 0,
     referralCode: userRow.referral_code || null,
     profileBonusGranted: !!userRow.profile_bonus_granted,
     acceptedTermsVersion,
@@ -303,6 +302,7 @@ export async function initDb(): Promise<void> {
         generation_error TEXT NULL,
         avatar_type VARCHAR(16) NOT NULL DEFAULT 'dog',
         generation_analysis JSON NULL,
+        retry_count INT NOT NULL DEFAULT 0,
         food_level INT NOT NULL DEFAULT 100,
         water_level INT NOT NULL DEFAULT 100,
         last_fed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -379,6 +379,7 @@ export async function initDb(): Promise<void> {
       // Unified triage record (detection + qualification + anatomy) persisted at
       // generation time so the build/rig stage never re-analyzes the image.
       { name: "generation_analysis", ddl: "ADD COLUMN generation_analysis JSON NULL" },
+      { name: "retry_count",         ddl: "ADD COLUMN retry_count INT NOT NULL DEFAULT 0" },
     ];
     for (const col of requiredAvatarColumns) {
       if (!avatarColumnNames.includes(col.name)) {
@@ -557,6 +558,8 @@ export async function initDb(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
+    await retireLegacyPawprintTokens();
+
     // Community memory board: user-uploaded photos shown in the live inspiration loop.
     await getPool().query(`
       CREATE TABLE IF NOT EXISTS community_memories (
@@ -613,20 +616,6 @@ export async function initDb(): Promise<void> {
     }
 
     console.log("✅ Users, creations, generation_jobs, pets, avatars, and photo_requests tables ready.");
-
-    // Pawprint token ledger (Phase 8): one row per pawprint token change.
-    await getPool().query(`
-      CREATE TABLE IF NOT EXISTS pawprint_history (
-        id            INT AUTO_INCREMENT PRIMARY KEY,
-        user_phone    VARCHAR(32) NOT NULL,
-        delta         INT NOT NULL,
-        reason        VARCHAR(80) NOT NULL,
-        balance_after INT NOT NULL,
-        created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        INDEX (user_phone),
-        INDEX (created_at)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-    `);
 
     // Referrals table (Phase 8)
     await getPool().query(`
@@ -885,6 +874,40 @@ export async function addCredits(phone: string, amount: number, reason: string =
     [amount, phone]
   );
   await recordCreditTxn(phone, Math.abs(amount), reason);
+}
+
+/** Convert the retired Pawprint-token balance once without double-granting on restart. */
+async function retireLegacyPawprintTokens(): Promise<void> {
+  const lockConnection = await getPool().getConnection();
+  try {
+    const [lockRows] = await lockConnection.query(
+      `SELECT GET_LOCK('retire_pawprint_tokens', 10) AS acquired`
+    ) as any;
+    if (Number(lockRows?.[0]?.acquired) !== 1) {
+      console.warn("[credits] Could not acquire the legacy Pawprint conversion lock.");
+      return;
+    }
+    const [rows] = await getPool().query(
+      `SELECT phone, pawprint_tokens FROM users WHERE pawprint_tokens > 0`
+    ) as any;
+    for (const row of rows as Array<{ phone: string; pawprint_tokens: number }>) {
+      const [alreadyConverted] = await getPool().query(
+        `SELECT 1 FROM credit_transactions WHERE user_phone = ? AND reason = 'pawprint_token_conversion' LIMIT 1`,
+        [row.phone]
+      ) as any;
+      if (!alreadyConverted?.length) {
+        await addCredits(
+          row.phone,
+          Number(row.pawprint_tokens) * CREDIT_PRICES.PAWPRINT,
+          "pawprint_token_conversion"
+        );
+      }
+      await getPool().query(`UPDATE users SET pawprint_tokens = 0 WHERE phone = ?`, [row.phone]);
+    }
+  } finally {
+    try { await lockConnection.query(`SELECT RELEASE_LOCK('retire_pawprint_tokens')`); } catch {}
+    lockConnection.release();
+  }
 }
 
 /**
@@ -2243,7 +2266,7 @@ export async function savePetState(
 // ============================================================================
 
 const FREE_HOT_BYTES = 50 * 1024 * 1024;
-const COLD_GB_COST_CR = 4;
+const COLD_GB_COST_CR = CREDIT_PRICES.STORAGE_GB_MONTH;
 
 export interface StorageUsage {
   bytesHot: number;
@@ -2362,64 +2385,6 @@ export async function listVoiceCloneAssets(phone: string): Promise<VoiceCloneAss
 }
 
 // ============================================================================
-// Phase 8: Pawprint token primitives
-// ============================================================================
-
-/** Record a pawprint token transaction. */
-async function recordPawprintTxn(phone: string, delta: number, reason: string): Promise<void> {
-  try {
-    const [rows] = await getPool().query(
-      `SELECT pawprint_tokens FROM users WHERE phone = ?`, [phone]
-    ) as any;
-    const balance = rows?.[0]?.pawprint_tokens || 0;
-    await getPool().query(
-      `INSERT INTO pawprint_history (user_phone, delta, reason, balance_after) VALUES (?, ?, ?, ?)`,
-      [phone, delta, reason.slice(0, 80), balance]
-    );
-  } catch (err) {
-    console.warn("[pawprint ledger] failed to record:", (err as any)?.message || err);
-  }
-}
-
-/** Grant pawprint tokens. Server-authoritative, fixed amounts only. */
-export async function grantPawprintTokens(phone: string, amount: number, reason: string): Promise<void> {
-  if (!Number.isInteger(amount) || amount === 0) throw new Error("Invalid pawprint token amount");
-  if (amount < 0) {
-    const [result] = await getPool().query(
-      `UPDATE users SET pawprint_tokens = pawprint_tokens + ? WHERE phone = ? AND pawprint_tokens >= ?`,
-      [amount, phone, Math.abs(amount)]
-    ) as any;
-    if (result.affectedRows !== 1) throw new Error("Insufficient pawprint tokens");
-  } else {
-    await getPool().query(
-      `UPDATE users SET pawprint_tokens = pawprint_tokens + ? WHERE phone = ?`,
-      [amount, phone]
-    );
-  }
-  await recordPawprintTxn(phone, amount, reason);
-}
-
-/** Deduct pawprint tokens if sufficient. */
-export async function spendPawprintTokens(phone: string, amount: number, reason: string): Promise<boolean> {
-  const [result] = await getPool().query(
-    `UPDATE users SET pawprint_tokens = pawprint_tokens - ? WHERE phone = ? AND pawprint_tokens >= ?`,
-    [Math.abs(amount), phone, Math.abs(amount)]
-  ) as any;
-  if (result.affectedRows === 1) {
-    await recordPawprintTxn(phone, -Math.abs(amount), reason);
-  }
-  return result.affectedRows === 1;
-}
-
-/** Get pawprint token balance. */
-export async function getPawprintBalance(phone: string): Promise<number> {
-  const [rows] = await getPool().query(
-    `SELECT pawprint_tokens FROM users WHERE phone = ?`, [phone]
-  ) as any;
-  return rows?.[0]?.pawprint_tokens || 0;
-}
-
-// ============================================================================
 // Phase 8: Profile
 // ============================================================================
 
@@ -2511,7 +2476,6 @@ export async function creditReferralIfComplete(referredPhone: string): Promise<v
   const ref = rows?.[0];
   if (!ref) return;
   await addCredits(ref.referrer_phone, 30, "referral_bonus");
-  await grantPawprintTokens(ref.referrer_phone, 1, "referral_bonus");
   await getPool().query(`UPDATE referrals SET credited_at = NOW() WHERE id = ?`, [ref.id]);
 }
 

@@ -200,7 +200,6 @@ export default function App() {
       isAdmin: user.isAdmin,
       city: user.city,
       profilePhotoUrl: user.profilePhotoUrl ?? null,
-      pawprintTokens: user.pawprintTokens ?? 0,
       referralCode: user.referralCode ?? null,
       phoneVerified: user.phoneVerified ?? false,
       emailVerified: user.emailVerified ?? false,
@@ -715,7 +714,7 @@ export default function App() {
 
             {currentScreen === Screen.PAWPRINTS && (
               <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
-                <PawprintsScreen userProfile={userProfile} onOpenCreditStore={() => setShowCreditStore(true)} />
+                <PawprintsScreen userProfile={userProfile} onOpenCreditStore={() => setShowCreditStore(true)} onUserUpdate={applyUser} />
               </Suspense>
             )}
 
@@ -723,6 +722,7 @@ export default function App() {
               <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
                 <PawlisherScreen
                   userProfile={userProfile}
+                  onUserUpdate={applyUser}
                   onGoToAnimator={(assetId) => {
                     setAnimatorAssetId(assetId);
                     setCurrentScreen(Screen.ANIMATOR);

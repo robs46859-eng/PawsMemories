@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { createSceneController } from "./createSceneController.ts";
 import type { SceneController, SceneActor } from "../types.ts";
@@ -26,12 +26,12 @@ export function useSceneController() {
   }, [controller]);
   
   // Override structural methods to trigger React renders
-  const syncReact = () => {
+  const syncReact = useCallback(() => {
     setActors(controller.listActors());
     setActiveActorId(controller.getActiveActorId());
-  };
+  }, [controller]);
   
-  const wrappedController = {
+  const wrappedController = useMemo(() => ({
     ...controller,
     async addActor(...args: Parameters<typeof controller.addActor>) {
       const id = await controller.addActor(...args);
@@ -46,7 +46,7 @@ export function useSceneController() {
       controller.setActiveActor(...args);
       syncReact();
     }
-  };
+  }), [controller, syncReact]);
 
   return wrappedController;
 }

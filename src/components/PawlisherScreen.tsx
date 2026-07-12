@@ -3,15 +3,17 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Bounds, Environment, Html, OrbitControls, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
 import { clone as skeletonClone } from "three/examples/jsm/utils/SkeletonUtils.js";
-import { UserProfile, Avatar } from "../types";
+import { UserProfile, Avatar, PublicUser } from "../types";
 import { Brush, Lock, Film, Sparkles, Mic, Upload, CheckCircle2, X, Lightbulb, ZoomIn, RotateCw, Scissors, Save, Trash2, Shirt, Wand2, Move3D, Gauge, Footprints, Grid3X3, Volume2 } from "lucide-react";
 import { createVoiceCloneAsset, fetchAvatars } from "../api";
 import { AnimatorErrorBoundary } from "../animator/components/AnimatorErrorBoundary";
+import { CREDIT_PRICES } from "../pricing";
 
 interface PawlisherScreenProps {
   userProfile: UserProfile;
   onGoToAnimator?: (assetId: string) => void;
   onGoToPawprints?: () => void;
+  onUserUpdate?: (user: PublicUser) => void;
 }
 
 type LightMode = "warm" | "neutral" | "bright";
@@ -87,7 +89,7 @@ function SceneTools({ onCanvasReady }: { onCanvasReady: (canvas: HTMLCanvasEleme
   return null;
 }
 
-export default function PawlisherScreen({ userProfile, onGoToAnimator, onGoToPawprints }: PawlisherScreenProps) {
+export default function PawlisherScreen({ userProfile, onGoToAnimator, onGoToPawprints, onUserUpdate }: PawlisherScreenProps) {
   const [avatars, setAvatars] = useState<Avatar[]>([]);
   const [selectedId, setSelectedId] = useState<number | "">("");
   const [lightMode, setLightMode] = useState<LightMode>(() => (localStorage.getItem("pawlisher_light") as LightMode) || "warm");
@@ -147,13 +149,14 @@ export default function PawlisherScreen({ userProfile, onGoToAnimator, onGoToPaw
     setVoiceBusy(true);
     setVoiceMessage("");
     try {
-      const asset = await createVoiceCloneAsset({
+      const { asset, user } = await createVoiceCloneAsset({
         name: voiceName.trim() || "Voice clone",
         audioBase64: await readFile(file),
         mimeType: file.type || "audio/webm",
         bytes: file.size,
         voiceConsent: true,
       });
+      if (user) onUserUpdate?.(user);
       setVoiceMessage(`${asset.name} saved with consent recorded.`);
       setShowVoiceConsent(false);
       setVoiceConsent(false);
@@ -324,7 +327,7 @@ export default function PawlisherScreen({ userProfile, onGoToAnimator, onGoToPaw
               <option value="playful">Playful</option>
               <option value="calm">Calm</option>
             </select>
-            <button type="button" onClick={() => setShowVoiceConsent(true)} className="mt-4 w-full min-h-12 rounded-xl bg-primary text-on-primary font-black flex items-center justify-center gap-2"><Upload size={18} /> Clone voice</button>
+            <button type="button" onClick={() => setShowVoiceConsent(true)} disabled={!userProfile.isAdmin && userProfile.credits < CREDIT_PRICES.VOICE_CLONE} className="mt-4 w-full min-h-12 rounded-xl bg-primary text-on-primary font-black flex items-center justify-center gap-2 disabled:opacity-45"><Upload size={18} /> Clone voice ({CREDIT_PRICES.VOICE_CLONE} cr)</button>
             {voiceMessage && <p className="mt-3 text-xs font-bold text-primary">{voiceMessage}</p>}
           </section>
 
@@ -347,7 +350,7 @@ export default function PawlisherScreen({ userProfile, onGoToAnimator, onGoToPaw
           <div className="flex items-center gap-2"><Shirt size={18} /><h3 className="font-black">Wardrobe</h3><Lock size={14} className="ml-auto" /></div>
           <p className="text-xs text-on-surface-variant mt-2">Coming soon.</p>
         </button>
-        <button onClick={() => selected && onGoToAnimator?.(String(selected.id))} className="glass-panel border border-outline-variant/40 rounded-2xl p-5 text-left hover:border-primary/50">
+        <button onClick={() => modelUrl && onGoToAnimator?.(modelUrl)} disabled={!modelUrl} className="glass-panel border border-outline-variant/40 rounded-2xl p-5 text-left hover:border-primary/50 disabled:opacity-50">
           <div className="flex items-center gap-2"><Film size={18} className="text-primary" /><h3 className="font-black">Animation Creator</h3></div>
           <p className="text-xs text-on-surface-variant mt-2">Send this model to Animator.</p>
         </button>
@@ -376,7 +379,7 @@ export default function PawlisherScreen({ userProfile, onGoToAnimator, onGoToPaw
               <span>I confirm I own this voice or have documented permission to clone it.</span>
             </label>
             <button type="button" disabled={!voiceConsent || voiceBusy} onClick={() => voiceInputRef.current?.click()} className="w-full min-h-14 rounded-xl bg-primary text-on-primary text-lg font-black disabled:opacity-50 flex items-center justify-center gap-2">
-              {voiceBusy ? "Saving..." : <><CheckCircle2 size={20} /> Choose audio file</>}
+              {voiceBusy ? "Saving..." : <><CheckCircle2 size={20} /> Choose audio and pay {CREDIT_PRICES.VOICE_CLONE} credits</>}
             </button>
             <input ref={voiceInputRef} type="file" accept="audio/*" className="hidden" onChange={onVoiceFile} />
           </section>

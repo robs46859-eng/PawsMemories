@@ -250,6 +250,7 @@ export default function AnimatorScreen({
   const [showAddModal, setShowAddModal] = useState(false);
   
   const rafRef = useRef<number>(0);
+  const initialAssetLoadedRef = useRef<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const captureSession = useCaptureSession(canvasRef);
 
@@ -323,9 +324,8 @@ export default function AnimatorScreen({
     fetch("/api/avatars", { headers: { "Authorization": `Bearer ${getToken()}` }})
       .then(r => r.json())
       .then(data => {
-        if (Array.isArray(data)) {
-          setUserAvatars(filterReadyAvatars(data));
-        }
+        const avatars = Array.isArray(data) ? data : data?.avatars;
+        if (Array.isArray(avatars)) setUserAvatars(filterReadyAvatars(avatars));
       })
       .catch(console.error);
       
@@ -391,11 +391,13 @@ export default function AnimatorScreen({
   // Load initial asset
   useEffect(() => {
     setActorLoadError(false);
-    if (initialAssetId) {
+    if (initialAssetId && initialAssetLoadedRef.current !== initialAssetId) {
+      initialAssetLoadedRef.current = initialAssetId;
       sceneController.addActor(initialAssetId).then((actorId) => {
         if (!actorId) setActorLoadError(true);
       }).catch((error) => {
         console.error("[animator] initial actor load failed", error);
+        initialAssetLoadedRef.current = null;
         setActorLoadError(true);
       });
     }

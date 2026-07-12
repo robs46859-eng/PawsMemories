@@ -6,6 +6,8 @@ import Avatar3DPlaypen from "./Avatar3DPlaypen";
 import LivingAvatarView from "./LivingAvatarView";
 import RefundReview from "./RefundReview";
 import { buildUncannyRegenerationHint, uncannyPresets } from "../avatar/uncannyPresets";
+import { avatarGenerationCost } from "../pricing";
+import { resolveAvatarGlbUrl } from "../animator/utils/avatarUtils";
 import {
   Plus, Utensils, Droplets, Bone, RefreshCw, Info,
   Play, Camera, Moon, Zap, X, Sparkles, Clapperboard, Trash2
@@ -126,8 +128,9 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
   };
 
   const handleCreateAvatar = async (options: CreateModelOptions) => {
-    if (userProfile.credits < 400) {
-      alert("You need 400 credits to create a model.");
+    const generationCost = avatarGenerationCost(options.avatarType, options.inputMode);
+    if (!userProfile.isAdmin && userProfile.credits < generationCost) {
+      alert(`You need ${generationCost} credits to create this model.`);
       return;
     }
     setCreating(true);
@@ -147,8 +150,9 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
       };
       const result = await generate3DAvatar(payload);
 
-      // Optimistically deduct 400 credits
-      const updatedUser = { ...userProfile, credits: userProfile.credits - 400 };
+      const updatedUser = userProfile.isAdmin
+        ? userProfile
+        : { ...userProfile, credits: userProfile.credits - generationCost };
       onUpdateUser(updatedUser);
 
       setShowCreate(false);
@@ -209,13 +213,14 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
   // Retry a failed avatar generation
   const handleRetryGeneration = useCallback(async (avatarId: number) => {
     try {
-      await retryAvatarGeneration(avatarId);
+      const result = await retryAvatarGeneration(avatarId);
+      if (result.user) onUpdateUser({ ...userProfile, credits: result.user.credits });
       // Reload avatars to pick up the reset status
       await loadAvatars();
     } catch (err: any) {
       alert(err.message || "Failed to retry generation.");
     }
-  }, [loadAvatars]);
+  }, [loadAvatars, onUpdateUser, userProfile]);
 
   const applyVibePreset = (avatarId: number, presetId: string) => {
     setPresetByAvatar((prev) => ({ ...prev, [avatarId]: presetId }));
@@ -228,9 +233,10 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
     if (holdTimerRef.current) window.clearTimeout(holdTimerRef.current);
     holdTimerRef.current = window.setTimeout(async () => {
       applyVibePreset(avatarId, "pixar_soft");
-      setVibeMessage("🐶 Free lighter retry started.");
+      setVibeMessage("🐶 Lighter retry started.");
       try {
-        await retryAvatarGeneration(avatarId);
+        const result = await retryAvatarGeneration(avatarId);
+        if (result.user) onUpdateUser({ ...userProfile, credits: result.user.credits });
         await loadAvatars();
       } catch (err: any) {
         setVibeMessage(err.message || "Could not start the lighter retry.");
@@ -351,7 +357,10 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
                         <Sparkles size={12} /> Live 3D
                       </button>
                       <button
-                        onClick={() => onGoToAnimator?.(String(avatar.id))}
+                        onClick={() => {
+                          const glbUrl = resolveAvatarGlbUrl({ ...avatar, id: String(avatar.id) });
+                          if (glbUrl) onGoToAnimator?.(glbUrl);
+                        }}
                         className="absolute top-4 right-4 z-30 bg-secondary text-on-secondary px-3 py-1.5 rounded-full text-xs font-bold shadow-lg hover:bg-secondary/90 flex items-center gap-1 tactile-button"
                       >
                         <Clapperboard size={12} /> Studio
@@ -394,7 +403,7 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
                         }}
                         onKeyUp={cancelLighterHold}
                         className="min-h-11 min-w-11 rounded-full bg-primary/10 text-primary text-xl font-black"
-                        aria-label="Lighter styling. Hold for four seconds for a free lighter retry."
+                        aria-label="Lighter styling. Hold for four seconds to retry."
                       >
                         {presetByAvatar[avatar.id] === "pixar_soft" ? "🐶" : "😛"}
                       </button>

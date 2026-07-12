@@ -4,6 +4,7 @@ import { Creation } from "../types";
 import { authedFetch } from "../api";
 import OrderAlbumModal from "./OrderAlbumModal";
 import { createVideo, pollJob } from "../api";
+import { CREDIT_PRICES } from "../pricing";
 
 interface ShareMemoryProps {
   creation: Creation;
@@ -58,8 +59,8 @@ export default function ShareMemory({ creation, userCredits, onBack, isAdmin }: 
   };
 
   const handleConfirmAnimate = async () => {
-    if (!isAdmin && userCredits < 250) {
-      alert("You need 250 credits to animate a memory. Purchase more credits in the store!");
+    if (!isAdmin && userCredits < CREDIT_PRICES.ANIMATED_VIDEO) {
+      alert(`You need ${CREDIT_PRICES.ANIMATED_VIDEO} credits to animate a memory. Purchase more credits in the store!`);
       return;
     }
     setShowAnimateModal(false);
@@ -200,7 +201,7 @@ export default function ShareMemory({ creation, userCredits, onBack, isAdmin }: 
           className="w-full py-4 bg-gradient-to-r from-purple-500 to-indigo-600 text-white rounded-3xl font-black text-sm shadow-xl flex items-center justify-center gap-2 hover:brightness-110 active:scale-[0.98] transition-all cursor-pointer border-2 border-white/20"
         >
           <Sparkles size={18} />
-          <span>Bring to Life - Animate Video (250cr)</span>
+          <span>Bring to Life - Animate Video ({CREDIT_PRICES.ANIMATED_VIDEO}cr)</span>
         </button>
       )}
 
@@ -421,7 +422,7 @@ export default function ShareMemory({ creation, userCredits, onBack, isAdmin }: 
               </div>
               <div>
                 <h3 className="font-extrabold text-lg">Animate Memory</h3>
-                <p className="text-[10px] uppercase font-bold tracking-widest text-secondary">250cr per generation</p>
+                <p className="text-[10px] uppercase font-bold tracking-widest text-secondary">{CREDIT_PRICES.ANIMATED_VIDEO}cr per generation</p>
               </div>
             </div>
 

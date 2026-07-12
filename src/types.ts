@@ -88,7 +88,6 @@ export interface UserProfile {
   ageVerified?: boolean;
   profilePhotoUrl?: string | null;
   // Phase 8
-  pawprintTokens?: number;
   referralCode?: string | null;
   phoneVerified?: boolean;
   emailVerified?: boolean;
@@ -116,7 +115,6 @@ export interface PublicUser {
   profilePhotoUrl?: string | null;
   achievements: any[];
   // Phase 8
-  pawprintTokens?: number;
   referralCode?: string | null;
   phoneVerified?: boolean;
   emailVerified?: boolean;

@@ -7,6 +7,7 @@ import { MOTION_PRESETS, DEFAULT_MOTION_PRESET } from "../motionPresets";
 import { authedFetch, createVideo, pollJob } from "../api";
 import LocationPicker from "./LocationPicker";
 import PetModelViewer from "./PetModelViewer";
+import { CREDIT_PRICES } from "../pricing";
 
 interface EditMemoryProps {
   credits: number;
@@ -243,8 +244,8 @@ export default function EditMemory({
   };
 
   const handleSaveToAlbum = async () => {
-    if (!isAdmin && credits < 40) {
-      setErrorMessage("Insufficient credits (40 cr required). Use the daily bonus or share memories to get more credits!");
+    if (!isAdmin && credits < CREDIT_PRICES.HD_IMAGE) {
+      setErrorMessage(`Insufficient credits (${CREDIT_PRICES.HD_IMAGE} cr required). Use the daily bonus or share memories to get more credits!`);
       return;
     }
 
@@ -275,7 +276,7 @@ export default function EditMemory({
         throw new Error(data.error || "Generation endpoint returned status non-ok");
       }
 
-      onDeductCredits(40);
+      onDeductCredits(CREDIT_PRICES.HD_IMAGE);
 
       // Create new Creation locally
       const userCreation: Creation = {
@@ -437,7 +438,7 @@ export default function EditMemory({
                               videoPollingRef.current = null;
                               const updated = {...generatedResult, video_url: jobRes.video_url || null, media_type: 'video' as const};
                               setGeneratedResult(updated);
-                              onDeductCredits(250);
+                              onDeductCredits(CREDIT_PRICES.ANIMATED_VIDEO);
                               setAnimatingVideo(false);
                               if (onCreationUpdated) {
                                  onCreationUpdated(updated);
@@ -462,7 +463,7 @@ export default function EditMemory({
                 className="w-full py-4 bg-secondary text-white rounded-xl font-bold text-sm shadow-md hover:bg-secondary/95 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-70"
               >
                 {animatingVideo ? <RefreshCw className="animate-spin" size={16}/> : <Video size={16}/>}
-                <span>{animatingVideo ? "Animating with Veo..." : `Animate: ${MOTION_PRESETS.find(p=>p.value===selectedMotionPreset)?.emoji ?? ""} ${MOTION_PRESETS.find(p=>p.value===selectedMotionPreset)?.label ?? ""} · 250 cr`}</span>
+                <span>{animatingVideo ? "Animating with Veo..." : `Animate: ${MOTION_PRESETS.find(p=>p.value===selectedMotionPreset)?.emoji ?? ""} ${MOTION_PRESETS.find(p=>p.value===selectedMotionPreset)?.label ?? ""} · ${CREDIT_PRICES.ANIMATED_VIDEO} cr`}</span>
               </button>
             </div>
           )}
@@ -941,7 +942,7 @@ export default function EditMemory({
         className="w-full py-4 bg-primary text-white rounded-2xl font-bold font-sans text-sm shadow-md hover:bg-primary/95 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer border border-outline-variant/20"
       >
         <Wand2 size={16} />
-        <span>Generate Memory{isAdmin ? "" : " · 40 credits"}</span>
+        <span>Generate Memory{isAdmin ? "" : ` · ${CREDIT_PRICES.HD_IMAGE} credits`}</span>
       </button>
 
       {/* Location Picker Modal */}

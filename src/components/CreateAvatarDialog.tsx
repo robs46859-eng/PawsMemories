@@ -3,6 +3,7 @@ import { Camera, X, Check, Upload, Sparkles, Plus, User, ImageIcon, Type, Chevro
 import {
   TEXT_STYLE_OPTIONS,
 } from "../../avatarPrompts";
+import { avatarGenerationCost } from "../pricing";
 
 export interface CreateModelOptions {
   name: string;
@@ -377,7 +378,7 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
           className="w-full bg-primary text-white py-3.5 rounded-xl font-black uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-primary/90 transition-all shadow-lg active:scale-95"
         >
           <Sparkles size={18} />
-          Create Model (400 cr)
+          Create Model ({avatarGenerationCost(avatarType, inputMode)} cr)
         </button>
       </div>
     </div>

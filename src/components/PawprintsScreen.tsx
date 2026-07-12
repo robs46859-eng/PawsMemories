@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from "react";
-import { UserProfile } from "../types";
+import { PublicUser, UserProfile } from "../types";
 import { Loader2, Sparkles, Camera, ImagePlus, Download } from "lucide-react";
 import { authedFetch } from "../api";
+import { CREDIT_PRICES } from "../pricing";
 
 interface PawprintsScreenProps {
   userProfile: UserProfile;
   onOpenCreditStore: () => void;
+  onUserUpdate: (user: PublicUser) => void;
 }
 
 interface Template {
@@ -18,7 +20,7 @@ interface Template {
   imagePromptTemplate: string;
 }
 
-export default function PawprintsScreen({ userProfile, onOpenCreditStore }: PawprintsScreenProps) {
+export default function PawprintsScreen({ userProfile, onOpenCreditStore, onUserUpdate }: PawprintsScreenProps) {
   const [categories, setCategories] = useState<string[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -78,6 +80,7 @@ export default function PawprintsScreen({ userProfile, onOpenCreditStore }: Pawp
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Could not create your Pawprint.");
       setResultUrl(data.url);
+      if (data.user) onUserUpdate(data.user as PublicUser);
     } catch (err: any) {
       setError(err.message || "Could not create your Pawprint.");
     } finally {
@@ -98,9 +101,9 @@ export default function PawprintsScreen({ userProfile, onOpenCreditStore }: Pawp
           Show me how
         </button>
       </div>
-      <p className="text-xs text-on-surface-variant mb-4">
-        Create custom stationery from smart templates. Each creation costs <strong>1 pawprint token</strong>.
-        You have <strong className="text-secondary">{userProfile.pawprintTokens || 0}</strong> pawprint tokens.
+      <p className="text-base text-on-surface-variant mb-4 leading-relaxed">
+        Create custom stationery from smart templates. Each creation costs <strong>{CREDIT_PRICES.PAWPRINT} credits</strong>.
+        You have <strong className="text-secondary">{userProfile.credits} credits</strong>.
       </p>
 
       {/* Category picker */}
@@ -195,15 +198,15 @@ export default function PawprintsScreen({ userProfile, onOpenCreditStore }: Pawp
             <button
               data-tour="pawprints-create"
               onClick={createPawprint}
-              disabled={generating || (userProfile.pawprintTokens || 0) < 1}
+              disabled={generating || (!userProfile.isAdmin && userProfile.credits < CREDIT_PRICES.PAWPRINT)}
               className="mt-4 w-full py-3 bg-primary text-on-primary rounded-xl text-xs font-black uppercase tracking-wide hover:opacity-90 active:scale-95 transition-all cursor-pointer disabled:opacity-40 flex items-center justify-center gap-2"
             >
               {generating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-              {generating ? "Generating..." : `Create Pawprint (1 token)`}
+              {generating ? "Generating..." : `Create Pawprint (${CREDIT_PRICES.PAWPRINT} credits)`}
             </button>
-            {(userProfile.pawprintTokens || 0) < 1 && (
+            {!userProfile.isAdmin && userProfile.credits < CREDIT_PRICES.PAWPRINT && (
               <button type="button" onClick={onOpenCreditStore} className="mt-3 w-full py-3 rounded-xl border border-primary/30 text-primary text-xs font-black uppercase tracking-wide">
-                Get pawprint tokens
+                Buy credits
               </button>
             )}
           </div>

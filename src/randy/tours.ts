@@ -60,7 +60,7 @@ export const tours: Record<TourId, Tour> = {
     screen: Screen.PAWPRINTS,
     steps: [
       { target: tourTarget("pawprints-title"), title: "Choose a card type", body: "Pick the kind of Pawprint you want. Then choose a layout and add simple details." },
-      { target: tourTarget("pawprints-create"), title: "Create it", body: "When the details look right, tap Create Pawprint. It uses one pawprint token." },
+      { target: tourTarget("pawprints-create"), title: "Create it", body: "When the details look right, tap Create Pawprint. It costs 75 credits." },
     ],
   },
   use_pawlisher: {
@@ -77,7 +77,7 @@ export const tours: Record<TourId, Tour> = {
     title: "Share and refer",
     screen: Screen.PROFILE,
     steps: [
-      { target: tourTarget("profile-referral"), title: "Share your link", body: "Your referral code lives here. Share it to earn credits and pawprint tokens." },
+      { target: tourTarget("profile-referral"), title: "Share your link", body: "Your referral code lives here. Share it to earn credits." },
     ],
   },
   manage_furbin: {

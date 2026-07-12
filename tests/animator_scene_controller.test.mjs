@@ -64,3 +64,31 @@ test("SceneController - seekAll fans out to every actor without throwing", async
     GLTFLoader.prototype.loadAsync = originalLoadAsync;
   }
 });
+
+test("SceneController authenticates protected asset resolution", async () => {
+  const originalLoadAsync = GLTFLoader.prototype.loadAsync;
+  const originalFetch = global.fetch;
+  const originalLocalStorage = global.localStorage;
+  let authorization = null;
+
+  GLTFLoader.prototype.loadAsync = async () => ({
+    scene: new THREE.Scene(), scenes: [new THREE.Scene()], animations: [], cameras: [], asset: {}
+  });
+  global.localStorage = { getItem: () => "signed-test-token" };
+  global.fetch = async (url, init) => {
+    authorization = new Headers(init?.headers).get("Authorization");
+    return { ok: true, json: async () => [{ url: "/resolved-model.glb" }] };
+  };
+
+  try {
+    const ctrl = createSceneController();
+    const actorId = await ctrl.addActor("36");
+    assert.ok(actorId);
+    assert.strictEqual(authorization, "Bearer signed-test-token");
+  } finally {
+    GLTFLoader.prototype.loadAsync = originalLoadAsync;
+    global.fetch = originalFetch;
+    if (originalLocalStorage === undefined) delete global.localStorage;
+    else global.localStorage = originalLocalStorage;
+  }
+});

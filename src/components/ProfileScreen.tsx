@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { UserProfile, PublicUser } from "../types";
-import { User, Zap, Flame, LogOut, Sun, Moon, Trophy, MapPin, History, Camera, ImagePlus, Trash2, Loader2, PawPrint, Gift, Shield, FileText, Mail, Phone, Download, AlertTriangle, Share2, ExternalLink } from "lucide-react";
+import { User, Zap, Flame, LogOut, Sun, Moon, Trophy, MapPin, History, Camera, ImagePlus, Trash2, Loader2, Gift, Shield, FileText, Mail, Phone, Download, AlertTriangle, Share2, ExternalLink } from "lucide-react";
 import { getCreditHistory, CreditTxn, getUserPhotos, addUserPhoto, deleteUserPhoto, uploadProfilePhoto, UserPhoto, authedFetch, fetchStorageUsage, purchaseStorageGb, type StorageUsage } from "../api";
 import StorageMeter from "./StorageMeter";
 
@@ -19,7 +19,7 @@ interface ProfileScreenProps {
 }
 
 interface ProfileData {
-  user: PublicUser & { pawprintTokens?: number; referralCode?: string; bio?: string | null; phoneVerified?: boolean; emailVerified?: boolean; zip?: string; profileBonusGranted?: boolean; acceptedTermsVersion?: string | null };
+  user: PublicUser & { referralCode?: string; bio?: string | null; phoneVerified?: boolean; emailVerified?: boolean; zip?: string; profileBonusGranted?: boolean; acceptedTermsVersion?: string | null };
   storage: StorageUsage;
   creditHistory: CreditTxn[];
 }
@@ -268,17 +268,12 @@ export default function ProfileScreen({
           </div>
         </div>
 
-        {/* Credits + pawprints + streak */}
-        <div className="grid grid-cols-3 gap-3 mt-6">
+        {/* Credits + streak */}
+        <div className="grid grid-cols-2 gap-3 mt-6">
           <div className="glass-panel rounded-2xl p-3">
             <div className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant mb-1">🪙 Credits</div>
             <div className="text-xl font-black text-primary font-mono">{userProfile.credits}</div>
             <button onClick={onOpenCreditStore} className="mt-1 w-full py-1.5 bg-primary text-on-primary rounded-lg text-[10px] font-black uppercase tracking-wide hover:opacity-90 active:scale-95 transition-all cursor-pointer">Buy</button>
-          </div>
-          <div className="glass-panel rounded-2xl p-3">
-            <div className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant mb-1">🐾 Pawprints</div>
-            <div className="text-xl font-black text-secondary font-mono">{pData?.user?.pawprintTokens || 0}</div>
-            <div className="mt-1 text-[8px] text-on-surface-variant text-center">Earn by sharing & referring</div>
           </div>
           <div className="glass-panel rounded-2xl p-3">
             <div className="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-on-surface-variant mb-1"><Flame size={11} /> Streak</div>
@@ -328,7 +323,7 @@ export default function ProfileScreen({
             <Share2 size={16} className="text-primary" />
             <h3 className="text-sm font-extrabold text-on-surface uppercase tracking-wide">Referral</h3>
           </div>
-          <p className="text-xs text-on-surface-variant mb-2">Share your code & earn 30 credits + 1 pawprint per referral!</p>
+          <p className="text-xs text-on-surface-variant mb-2">Share your code and earn 30 credits per completed referral.</p>
           <div className="flex items-center gap-2 bg-surface-container rounded-xl p-3">
             <code className="flex-1 text-sm font-bold text-primary font-mono">{pData.user.referralCode}</code>
             <button onClick={() => { navigator.clipboard.writeText(`https://pawsome3d.com/r/${pData.user!.referralCode}`); alert("Link copied!"); }} className="px-3 py-1.5 bg-primary/10 text-primary rounded-lg text-[10px] font-black uppercase tracking-wide hover:bg-primary/20 transition-all cursor-pointer">Copy</button>

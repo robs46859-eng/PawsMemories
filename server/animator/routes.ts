@@ -14,6 +14,7 @@ import { CC0_CLIPS } from "./clips.ts";
 import { uploadBase64Binary } from "../../storage.ts";
 import { getCreditBalance, deductCredits, createJob, isUserAdmin, getDailyVideoCount } from "../../db.ts";
 import { startTalkingVideo } from "../../heygen.ts";
+import { CREDIT_PRICES } from "../../src/pricing.ts";
 
 export const animatorRouter = express.Router();
 
@@ -450,12 +451,12 @@ animatorRouter.post("/scenes/voiceover", async (req: any, res) => {
     }
 
     const estSeconds = estimateSpeechSeconds(scriptText);
-    if (estSeconds > 10) {
-      return res.status(400).json({ error: "Script exceeds 10s cap" });
+    if (estSeconds > 30) {
+      return res.status(400).json({ error: "Script exceeds 30-second cap" });
     }
 
     const isAdmin = await isUserAdmin(userPhone);
-    const VOICEOVER_COST = 250; // reuse VIDEO_COST
+    const VOICEOVER_COST = CREDIT_PRICES.AI_VOICE_30_SECONDS;
     const MAX_DAILY_VIDEOS = 5; 
 
     if (!isAdmin) {
@@ -467,7 +468,7 @@ animatorRouter.post("/scenes/voiceover", async (req: any, res) => {
       if (balance < VOICEOVER_COST) {
         return res.status(402).json({ error: `Insufficient credits. Need ${VOICEOVER_COST}` });
       }
-      await deductCredits(userPhone, VOICEOVER_COST);
+      await deductCredits(userPhone, VOICEOVER_COST, "ai_voice_generation");
     }
 
     // Dummy 1x1 image for HeyGen talking photo

@@ -137,11 +137,11 @@ export function termsHtml(): string {
 <h2>Acceptable use</h2>
 <p>Do not use ${BRAND} to upload content you lack rights to, to infringe others' intellectual property, to create unlawful, harmful, or deceptive content, or to abuse the platform (including fraud, scraping, or attempts to game credits, referrals, or refunds).</p>
 
-<h2>Credits &amp; pawprints</h2>
-<p>Credits and pawprint tokens are prepaid, non-cash, in-app units used to access features. They have no cash value, are non-transferable, and are non-refundable except where required by law or as provided by our in-app refund process. Signup, profile, referral, and share bonuses are promotional and may change or be withdrawn.</p>
+<h2>Credits</h2>
+<p>Credits are prepaid, non-cash, in-app units used to access features, including Pawprints. They have no cash value, are non-transferable, and are non-refundable except where required by law or as provided by our in-app refund process. Signup, profile, referral, and share bonuses are promotional and may change or be withdrawn.</p>
 
 <h2>Your content &amp; generated outputs</h2>
-<p>You retain ownership of content you upload. You grant ${BRAND} a limited license to store, process, and display that content solely to provide the service. Subject to these Terms and your account in good standing, you receive a license to use the models, videos, voice, and images generated for you, including for personal and commercial purposes.</p>
+<p>You retain ownership of content you upload. You grant ${BRAND} a limited license to store, process, and display that content solely to provide the service. Subject to these Terms and your account in good standing, generated models, videos, voice, and images are licensed for personal use. Commercial use requires the Commercial License Upgrade shown in the app.</p>
 
 <h2>Voice cloning consent</h2>
 <p>You may only create voice clones of a voice you own or have documented permission to use. You represent that you have the necessary rights and consent for any voice you submit.</p>

@@ -6,6 +6,7 @@ import type { SceneController, SceneActor, AnimationController, AssetId } from "
 import { createAnimationController } from "./createAnimationController.ts";
 import { ANIMATOR_DEFAULTS } from "../defaults.ts";
 import { buildLegIK, headLookAt, pelvisHeightFromPaws } from "../../three/ar/ik.ts";
+import { authedFetch } from "../../api.ts";
 
 export function createSceneController(): SceneController & { getScene(): THREE.Scene; getActiveActorId(): string | null } {
   const scene = new THREE.Scene();
@@ -41,14 +42,14 @@ export function createSceneController(): SceneController & { getScene(): THREE.S
       if (!url.startsWith("http") && !url.startsWith("/") && !url.startsWith("data:")) {
         // Fetch from API to get the first output URL, or fallback to originals
         try {
-          const res = await fetch(`/api/animator/outputs/${assetId}`);
+          const res = await authedFetch(`/api/animator/outputs/${assetId}`);
           if (res.ok) {
             const files = await res.json();
             if (files.length > 0) {
               url = files[0].url;
             } else {
               // Fallback to original
-              const metaRes = await fetch(`/api/animator/assets/${assetId}`);
+              const metaRes = await authedFetch(`/api/animator/assets/${assetId}`);
               if (metaRes.ok) {
                 const meta = await metaRes.json();
                 if (meta && typeof meta.originalFilename === "string" && meta.originalFilename) {
