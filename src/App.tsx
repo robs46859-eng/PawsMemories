@@ -721,7 +721,14 @@ export default function App() {
 
             {currentScreen === Screen.PAWLISHER && (
               <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
-                <PawlisherScreen userProfile={userProfile} />
+                <PawlisherScreen
+                  userProfile={userProfile}
+                  onGoToAnimator={(assetId) => {
+                    setAnimatorAssetId(assetId);
+                    setCurrentScreen(Screen.ANIMATOR);
+                  }}
+                  onGoToPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
+                />
               </Suspense>
             )}
 
