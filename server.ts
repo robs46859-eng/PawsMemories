@@ -271,6 +271,17 @@ async function startServer() {
   );
 
   app.use(
+    "/api",
+    (req, res, next) => {
+      if (req.path.startsWith("/refunds") || req.path.startsWith("/admin/refunds")) {
+        return requireAuth(req as AuthedRequest, res, next);
+      }
+      return next();
+    },
+    refundRouter
+  );
+
+  app.use(
     "/api/refunds",
     (req, res, next) => requireAuth(req as AuthedRequest, res, next),
     refundRouter
