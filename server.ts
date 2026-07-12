@@ -267,11 +267,8 @@ async function startServer() {
 
   // Studio AI Animation Pipeline — proxy /api/studio/* → Python FastAPI on port 8001
   app.use(
-    "/api",
-    (req, _res, next) => {
-      if (req.path.startsWith("/studio")) return requireAuth(req as AuthedRequest, _res, next);
-      return next();
-    },
+    "/api/studio",
+    (req, res, next) => requireAuth(req as AuthedRequest, res, next),
     studioRouter
   );
 

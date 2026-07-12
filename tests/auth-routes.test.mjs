@@ -93,6 +93,32 @@ test("Public routes are reachable without a token", async () => {
     401,
     "POST /api/auth/signup should not be blocked by requireAuth (should not return 401)"
   );
+
+  const pawprintTemplatesRes = await fetch(`${API_URL}/api/pawprints/templates`);
+  assert.equal(
+    pawprintTemplatesRes.status,
+    200,
+    "GET /api/pawprints/templates should be handled by Node, not the Studio proxy"
+  );
+  const pawprintTemplates = await pawprintTemplatesRes.json();
+  assert.ok(Array.isArray(pawprintTemplates.categories));
+  assert.ok(Array.isArray(pawprintTemplates.templates));
+});
+
+test("Studio proxy is isolated to /api/studio", async () => {
+  const avatarRes = await fetch(`${API_URL}/api/avatars`);
+  assert.equal(
+    avatarRes.status,
+    401,
+    "GET /api/avatars should reach its auth guard, not the Studio proxy"
+  );
+
+  const studioRes = await fetch(`${API_URL}/api/studio/productions`);
+  assert.equal(
+    studioRes.status,
+    401,
+    "GET /api/studio/* should remain protected by authentication"
+  );
 });
 
 test("Protected animator and scenes routes return 401 without a token", async () => {
