@@ -426,6 +426,13 @@ export default function ProfileScreen({
           <a href="/legal/licensing" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 p-3 rounded-xl hover:bg-surface-variant/50 transition-all text-xs font-medium text-on-surface">
             <FileText size={14} /> IP & Licensing <ExternalLink size={10} className="ml-auto text-on-surface-variant" />
           </a>
+          <div className="flex items-start gap-2 p-3 rounded-xl bg-surface-container text-xs text-on-surface-variant">
+            <Shield size={14} className="mt-0.5 text-primary" />
+            <div>
+              <div className="font-bold text-on-surface">Accepted terms version</div>
+              <div>{pData?.user?.acceptedTermsVersion || "Not recorded"}</div>
+            </div>
+          </div>
           <button onClick={requestDataExport} className="w-full flex items-center gap-2 p-3 rounded-xl hover:bg-surface-variant/50 transition-all text-xs font-medium text-on-surface text-left cursor-pointer">
             <Download size={14} /> Request Data Export
           </button>

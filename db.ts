@@ -57,6 +57,7 @@ export interface UserRow {
   notification_prefs?: string | null;
   profile_bonus_granted?: number;
   accepted_terms_version?: string | null;
+  accepted_terms_at?: string | null;
   pawprint_tokens?: number;
   referral_code?: string | null;
   referred_by?: string | null;
@@ -86,14 +87,18 @@ export interface PublicUser {
   referralCode?: string | null;
   profileBonusGranted?: boolean;
   acceptedTermsVersion?: string | null;
+  acceptedTermsAt?: string | null;
+  currentTermsVersion?: string;
+  requiresTermsAcceptance?: boolean;
 }
 
-export function toPublicUser(userRow: any): PublicUser {
+export function toPublicUser(userRow: any, currentTermsVersion?: string): PublicUser {
   let achievements = [];
   if (userRow.achievements_json) {
     try { achievements = JSON.parse(userRow.achievements_json); } catch(e) {}
   }
   
+  const acceptedTermsVersion = userRow.accepted_terms_version || null;
   return {
     id: userRow.id,
     fullName: userRow.full_name || "",
@@ -115,7 +120,10 @@ export function toPublicUser(userRow: any): PublicUser {
     pawprintTokens: userRow.pawprint_tokens || 0,
     referralCode: userRow.referral_code || null,
     profileBonusGranted: !!userRow.profile_bonus_granted,
-    acceptedTermsVersion: userRow.accepted_terms_version || null,
+    acceptedTermsVersion,
+    acceptedTermsAt: userRow.accepted_terms_at || null,
+    currentTermsVersion,
+    requiresTermsAcceptance: !!currentTermsVersion && acceptedTermsVersion !== currentTermsVersion,
   };
 }
 
@@ -178,6 +186,7 @@ export async function initDb(): Promise<void> {
       { name: "notification_prefs", ddl: "ADD COLUMN notification_prefs JSON NULL" },
       { name: "profile_bonus_granted", ddl: "ADD COLUMN profile_bonus_granted TINYINT(1) NOT NULL DEFAULT 0" },
       { name: "accepted_terms_version", ddl: "ADD COLUMN accepted_terms_version VARCHAR(20) NULL" },
+      { name: "accepted_terms_at", ddl: "ADD COLUMN accepted_terms_at TIMESTAMP NULL" },
       { name: "pawprint_tokens",    ddl: "ADD COLUMN pawprint_tokens INT NOT NULL DEFAULT 0" },
       { name: "referral_code",      ddl: "ADD COLUMN referral_code VARCHAR(32) NULL" },
       { name: "referred_by",        ddl: "ADD COLUMN referred_by VARCHAR(32) NULL" },
@@ -750,7 +759,7 @@ export class EmailTakenError extends Error {
  * existing foreign-key relationships keep working. The 50 free credits are NOT
  * granted here — they are granted when the user completes their profile.
  */
-export async function createUserByEmail(email: string, passwordHash: string): Promise<UserRow> {
+export async function createUserByEmail(email: string, passwordHash: string, acceptedTermsVersion: string): Promise<UserRow> {
   // Guard against a race / duplicate before insert.
   const existing = await findUserByEmail(email);
   if (existing) throw new EmailTakenError();
@@ -758,8 +767,10 @@ export async function createUserByEmail(email: string, passwordHash: string): Pr
   const userKey = generateUserKey();
   try {
     await getPool().query(
-      "INSERT INTO users (phone, email, password_hash, credits, treats, profile_complete) VALUES (?, ?, ?, 0, 0, 0)",
-      [userKey, email, passwordHash]
+      `INSERT INTO users
+         (phone, email, password_hash, credits, treats, profile_complete, accepted_terms_version, accepted_terms_at)
+       VALUES (?, ?, ?, 0, 0, 0, ?, NOW())`,
+      [userKey, email, passwordHash, acceptedTermsVersion]
     );
   } catch (err: any) {
     if (err && err.code === "ER_DUP_ENTRY") throw new EmailTakenError();
@@ -768,6 +779,20 @@ export async function createUserByEmail(email: string, passwordHash: string): Pr
   const created = await findUserByPhone(userKey);
   if (!created) throw new Error("User creation failed");
   return created;
+}
+
+/** Record that the user accepted the currently active legal terms. */
+export async function acceptTermsVersion(phone: string, termsVersion: string): Promise<UserRow> {
+  await getPool().query(
+    `UPDATE users
+        SET accepted_terms_version = ?,
+            accepted_terms_at = NOW()
+      WHERE phone = ?`,
+    [termsVersion, phone]
+  );
+  const updated = await findUserByPhone(phone);
+  if (!updated) throw new Error("User not found after terms update");
+  return updated;
 }
 
 /**

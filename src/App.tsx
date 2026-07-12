@@ -14,7 +14,7 @@ import ShareMemory from "./components/ShareMemory";
 const RandyChat = lazy(() => import("./components/RandyChat"));
 import AlbumView from "./components/AlbumView";
 import AlbumsPage from "./components/AlbumsPage";
-import { fetchMe, fetchCreations, fetchAlbums, createAlbum, clearToken, claimAchievement, claimDailyStreak, claimShareReward, confirmCreditsSession } from "./api";
+import { fetchMe, fetchCreations, fetchAlbums, createAlbum, clearToken, claimAchievement, claimDailyStreak, claimShareReward, confirmCreditsSession, acceptCurrentTerms } from "./api";
 import { Sparkles, User, History, FolderOpen, Sun, Moon, LogOut, RefreshCw, Zap, Dog, ClipboardList, Bell, ShoppingBag, Users, Home, Layers, HelpCircle } from "lucide-react";
 import CreditStore from "./components/CreditStore";
 const AvatarDashboard = lazy(() => import("./components/AvatarDashboard"));
@@ -28,7 +28,7 @@ const FurBinScreen = lazy(() => import("./components/FurBinScreen"));
 const AnimatorScreen = lazy(() => import("./animator/components/AnimatorScreen"));
 import WarehouseMode from "./components/WarehouseMode";
 
-const EMPTY_PROFILE: UserProfile = { fullName: "", email: "", credits: 0, treats: 0, isAdmin: false, city: "", ageVerified: false };
+const EMPTY_PROFILE: UserProfile = { fullName: "", email: "", credits: 0, treats: 0, isAdmin: false, city: "", ageVerified: false, acceptedTermsVersion: null, currentTermsVersion: undefined, requiresTermsAcceptance: false };
 
 const getBackgroundImage = (screen: Screen) => {
   switch (screen) {
@@ -207,6 +207,10 @@ export default function App() {
       zip: user.zip,
       bio: user.bio ?? null,
       profileBonusGranted: user.profileBonusGranted ?? false,
+      acceptedTermsVersion: user.acceptedTermsVersion ?? null,
+      acceptedTermsAt: user.acceptedTermsAt ?? null,
+      currentTermsVersion: user.currentTermsVersion,
+      requiresTermsAcceptance: user.requiresTermsAcceptance ?? false,
     });
     setDailyStreak(user.dailyStreak || 0);
     const today = new Date().toISOString().split('T')[0];
@@ -348,6 +352,15 @@ export default function App() {
       if (me) applyUser(me);
     } catch {
       /* keep optimistic value if the refresh fails */
+    }
+  };
+
+  const handleAcceptTerms = async () => {
+    try {
+      const updatedUser = await acceptCurrentTerms();
+      applyUser(updatedUser);
+    } catch (err: any) {
+      alert(err.message || "Could not save your acceptance. Please try again.");
     }
   };
 
@@ -753,6 +766,32 @@ export default function App() {
           </>
         )}
       </main>
+
+      {isAuthed && userProfile.requiresTermsAcceptance && (
+        <div className="fixed inset-0 z-[90] bg-black/70 flex items-center justify-center p-4">
+          <section className="w-full max-w-lg rounded-2xl bg-surface text-on-surface border border-outline-variant shadow-2xl p-6">
+            <h2 className="text-2xl font-black mb-3">Please review our terms</h2>
+            <p className="text-lg leading-relaxed text-on-surface-variant mb-5">
+              We updated our Terms and Privacy Policy. Please accept the current version to keep using Pawsome3D.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3 mb-5">
+              <a href="/legal/terms" target="_blank" rel="noopener noreferrer" className="min-h-12 flex items-center justify-center rounded-xl border border-outline-variant px-4 text-base font-bold text-primary">
+                Read Terms
+              </a>
+              <a href="/legal/privacy" target="_blank" rel="noopener noreferrer" className="min-h-12 flex items-center justify-center rounded-xl border border-outline-variant px-4 text-base font-bold text-primary">
+                Read Privacy Policy
+              </a>
+            </div>
+            <button
+              type="button"
+              onClick={handleAcceptTerms}
+              className="w-full min-h-14 rounded-xl bg-primary text-on-primary text-lg font-black"
+            >
+              I Agree
+            </button>
+          </section>
+        </div>
+      )}
 
       {/* Floating Bottom Navigator (only when signed in and past onboarding) */}
       {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN].includes(currentScreen) && (

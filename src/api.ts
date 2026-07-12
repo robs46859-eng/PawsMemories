@@ -58,15 +58,22 @@ async function throwApiError(res: Response, fallback: string): Promise<never> {
 // --- Auth flow -------------------------------------------------------------
 
 /** Step 1: create an account with email + password. Stores the session token. */
-export async function signup(email: string, password: string, confirmPassword: string): Promise<PublicUser> {
+export async function signup(email: string, password: string, confirmPassword: string, acceptedTerms: boolean): Promise<PublicUser> {
   const res = await fetch("/api/auth/signup", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password, confirmPassword }),
+    body: JSON.stringify({ email, password, confirmPassword, acceptedTerms }),
   });
   if (!res.ok) throw new Error(await parseError(res, "Sign up failed."));
   const data = await res.json();
   setToken(data.token);
+  return data.user as PublicUser;
+}
+
+export async function acceptCurrentTerms(): Promise<PublicUser> {
+  const res = await authedFetch("/api/auth/accept-terms", { method: "POST" });
+  if (!res.ok) throw new Error(await parseError(res, "Could not save your acceptance."));
+  const data = await res.json();
   return data.user as PublicUser;
 }
 

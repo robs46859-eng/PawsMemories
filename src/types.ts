@@ -93,6 +93,10 @@ export interface UserProfile {
   zip?: string;
   bio?: string | null;
   profileBonusGranted?: boolean;
+  acceptedTermsVersion?: string | null;
+  acceptedTermsAt?: string | null;
+  currentTermsVersion?: string;
+  requiresTermsAcceptance?: boolean;
 }
 
 export interface PublicUser {
@@ -117,6 +121,10 @@ export interface PublicUser {
   zip?: string;
   bio?: string | null;
   profileBonusGranted?: boolean;
+  acceptedTermsVersion?: string | null;
+  acceptedTermsAt?: string | null;
+  currentTermsVersion?: string;
+  requiresTermsAcceptance?: boolean;
 }
 
 export interface PhysicalOrder {

@@ -9,7 +9,7 @@ import fs from "fs";
 import { sendSms } from "./server/sms";
 import { sendMail } from "./server/mail";
 import rateLimit from "express-rate-limit";
-import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, restoreReservedGenerationCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor, getStorageUsage, recordStorageAddHot, recordStorageRemoveHot, recordStorageMoveToCold, purchaseColdStorage, grantPawprintTokens, spendPawprintTokens, getPawprintBalance, updateUserProfile, checkAndGrantProfileBonus, verifyUserPhone, verifyUserEmail, generateReferralCode, recordReferral, creditReferralIfComplete, getPawprintCategories, getPawprintTemplatesSync } from "./db";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, restoreReservedGenerationCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor, getStorageUsage, recordStorageAddHot, recordStorageRemoveHot, purchaseColdStorage, grantPawprintTokens, spendPawprintTokens, getPawprintBalance, updateUserProfile, checkAndGrantProfileBonus, verifyUserPhone, verifyUserEmail, generateReferralCode, recordReferral, creditReferralIfComplete, getPawprintCategories, getPawprintTemplatesSync, acceptTermsVersion } from "./db";
 import { isEndpointEnabled, dailyCapFor, withinDailyCap, type PaidEndpoint } from "./server/paidApiGuards";
 import { classifyPetImage, type GenerateFn } from "./server/petClassify";
 import { semanticScan as runSemanticScan } from "./server/semanticScan";
@@ -32,6 +32,7 @@ import { startImageTo3D, pollImageTo3D, isTripoHandle, startRig, pollTripoTask, 
 import { checkBudget, needsRetargetFallback, type BakeStats } from "./server/rigBudget";
 import { registerSnapgenRoutes } from "./server/snapgen";
 import { SKELETON_CONTRACTS } from "./skeletonContract";
+import { TERMS_VERSION } from "./src/legal";
 import { buildReferencePrompt, turnaroundViewsForType, paletteLockClause, extractPaletteInstruction, buildTextPrompt, geometryToTripo, type TextPromptFields, type SubjectClass } from "./avatarPrompts";
 import { triageReferenceImage, triagePasses, correctiveFromTriage, friendlyQualifyError, isClassMismatch, classLabel, type TriageResult } from "./server/imageTriage";
 import { objectBuildProfile, humanRigHints } from "./server/subjectProfiles";
@@ -339,9 +340,13 @@ async function startServer() {
       const email = String(req.body?.email || "").trim().toLowerCase();
       const password = String(req.body?.password || "");
       const confirmPassword = String(req.body?.confirmPassword || "");
+      const acceptedTerms = req.body?.acceptedTerms === true;
 
       if (!email || !password || !confirmPassword) {
         return res.status(400).json({ error: "Email, password, and confirmation are required." });
+      }
+      if (!acceptedTerms) {
+        return res.status(400).json({ error: "Please agree to the Terms and Privacy Policy before creating your account." });
       }
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
         return res.status(400).json({ error: "Please enter a valid email address." });
@@ -354,9 +359,9 @@ async function startServer() {
       }
 
       const passwordHash = hashPassword(password);
-      const user = await createUserByEmail(email, passwordHash);
+      const user = await createUserByEmail(email, passwordHash, TERMS_VERSION);
       const token = signToken({ phone: user.phone, uid: user.id });
-      res.json({ success: true, token, user: toPublicUser(user) });
+      res.json({ success: true, token, user: toPublicUser(user, TERMS_VERSION) });
     } catch (err: any) {
       if (err instanceof EmailTakenError) {
         return res.status(409).json({ error: err.message });
@@ -396,7 +401,7 @@ async function startServer() {
         }
       }
 
-      res.json({ success: true, user: toPublicUser(user) });
+      res.json({ success: true, user: toPublicUser(user, TERMS_VERSION) });
     } catch (err: any) {
       console.error("complete-profile error:", err?.message || err);
       res.status(500).json({ error: "Could not save your profile. Please try again." });
@@ -420,10 +425,20 @@ async function startServer() {
       }
 
       const token = signToken({ phone: user.phone, uid: user.id });
-      res.json({ success: true, token, user: toPublicUser(user) });
+      res.json({ success: true, token, user: toPublicUser(user, TERMS_VERSION) });
     } catch (err: any) {
       console.error("login error:", err);
       res.status(500).json({ error: "Login failed. Please try again." });
+    }
+  });
+
+  app.post("/api/auth/accept-terms", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const user = await acceptTermsVersion(req.user!.phone, TERMS_VERSION);
+      res.json({ success: true, user: toPublicUser(user, TERMS_VERSION) });
+    } catch (err: any) {
+      console.error("accept-terms error:", err?.message || err);
+      res.status(500).json({ error: "Could not save your acceptance. Please try again." });
     }
   });
 
@@ -432,6 +447,7 @@ async function startServer() {
   app.get("/api/config", (_req, res) => {
     res.json({
       deployTarget: process.env.DEPLOY_TARGET || "main",
+      termsVersion: TERMS_VERSION,
       // Address the 3D-print request form emails to. Falls back to the admin email.
       printEmail: process.env.PRINT_REQUEST_EMAIL || process.env.ADMIN_EMAIL || "",
     });
@@ -458,7 +474,7 @@ async function startServer() {
     try {
       const user = await findUserByPhone(req.user!.phone);
       if (!user) return res.status(404).json({ error: "User not found." });
-      res.json({ user: toPublicUser(user) });
+      res.json({ user: toPublicUser(user, TERMS_VERSION) });
     } catch (err: any) {
       console.error("me error:", err?.message || err);
       res.status(500).json({ error: "Could not load your account." });
@@ -540,7 +556,7 @@ async function startServer() {
       if (!user) return res.status(404).json({ error: "User not found." });
       const usage = await getStorageUsage(req.user!.phone);
       const history = await getCreditHistory(req.user!.phone, 25);
-      const publicUser = toPublicUser(user);
+      const publicUser = toPublicUser(user, TERMS_VERSION);
       // Generate referral code if not set
       if (!publicUser.referralCode) {
         const code = await generateReferralCode(req.user!.phone);
@@ -565,7 +581,7 @@ async function startServer() {
       // Check if ZIP was added (triggers profile bonus check)
       if (zip) await checkAndGrantProfileBonus(req.user!.phone);
       const user = await findUserByPhone(req.user!.phone);
-      res.json({ success: true, user: toPublicUser(user) });
+      res.json({ success: true, user: toPublicUser(user, TERMS_VERSION) });
     } catch (err: any) {
       console.error("[PATCH /api/profile] Error:", err?.message || err);
       res.status(500).json({ error: "Could not update profile." });

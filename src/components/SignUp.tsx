@@ -23,6 +23,7 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [birthdate, setBirthdate] = useState("");
   const [city, setCity] = useState("");
   const [petCount, setPetCount] = useState(1);
@@ -88,10 +89,14 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
       setError("Password must be at least 6 characters.");
       return;
     }
+    if (!acceptedTerms) {
+      setError("Please agree to the Terms and Privacy Policy before creating your account.");
+      return;
+    }
     setError("");
     setBusy(true);
     try {
-      await signup(email.trim(), password, confirmPassword);
+      await signup(email.trim(), password, confirmPassword, acceptedTerms);
       // Account created (profile still incomplete) — force the profile step.
       setStep("profile");
     } catch (err: any) {
@@ -250,6 +255,27 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
                   />
                 </div>
               </div>
+
+              <label className="flex items-start gap-3 rounded-xl border border-outline-variant/40 bg-surface-container-low p-3 text-sm text-on-surface cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={acceptedTerms}
+                  onChange={(e) => setAcceptedTerms(e.target.checked)}
+                  className="mt-1 h-5 w-5 accent-primary"
+                  required
+                />
+                <span className="leading-relaxed">
+                  I agree to the{" "}
+                  <a href="/legal/terms" target="_blank" rel="noopener noreferrer" className="font-bold text-primary underline">
+                    Terms
+                  </a>{" "}
+                  and{" "}
+                  <a href="/legal/privacy" target="_blank" rel="noopener noreferrer" className="font-bold text-primary underline">
+                    Privacy Policy
+                  </a>
+                  .
+                </span>
+              </label>
 
               {error && <p className="text-[10px] text-error font-medium px-1">{error}</p>}
 

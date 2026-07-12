@@ -1,0 +1,2 @@
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS accepted_terms_at TIMESTAMP NULL;
