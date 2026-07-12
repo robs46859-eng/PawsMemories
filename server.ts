@@ -7,6 +7,7 @@ import dotenv from "dotenv";
 import Stripe from "stripe";
 import fs from "fs";
 import { sendSms } from "./server/sms";
+import { sendMail } from "./server/mail";
 import rateLimit from "express-rate-limit";
 import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, restoreReservedGenerationCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor } from "./db";
 import { isEndpointEnabled, dailyCapFor, withinDailyCap, type PaidEndpoint } from "./server/paidApiGuards";
@@ -461,6 +462,41 @@ async function startServer() {
     } catch (err: any) {
       console.error("me error:", err?.message || err);
       res.status(500).json({ error: "Could not load your account." });
+    }
+  });
+
+  // Help & Support — submits a support request email to rob@stelar.host.
+  app.post("/api/help", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { message } = req.body || {};
+      if (!message || typeof message !== "string" || message.trim().length < 10) {
+        return res.status(400).json({ error: "Please describe your issue (at least 10 characters)." });
+      }
+      const user = await findUserByPhone(req.user!.phone);
+      const userName = user?.full_name || "Unknown";
+      const userEmail = user?.email || "no-email";
+      const emailSent = await sendMail({
+        to: "rob@stelar.host",
+        subject: `[Pawsome3D Help] ${userName} needs support`,
+        html: `<h2>Support Request</h2>
+<p><strong>User:</strong> ${userName} (${userEmail})</p>
+<p><strong>Message:</strong></p>
+<p>${message.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>")}</p>`,
+        replyTo: userEmail,
+      });
+      if (emailSent) {
+        res.json({ success: true, message: "Your support request has been sent. We'll get back to you soon!" });
+      } else {
+        // Fallback: return a mailto link if mailer is unconfigured
+        res.json({
+          success: true,
+          mailto: `mailto:rob@stelar.host?subject=${encodeURIComponent(`[Pawsome3D Help] ${userName}`)}&body=${encodeURIComponent(message)}`,
+          message: "Email system is offline. Please email rob@stelar.host directly.",
+        });
+      }
+    } catch (err: any) {
+      console.error("[POST /api/help] Error:", err?.message || err);
+      res.status(500).json({ error: "Could not send support request. Please email rob@stelar.host directly." });
     }
   });
 

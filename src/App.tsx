@@ -15,12 +15,13 @@ const RandyChat = lazy(() => import("./components/RandyChat"));
 import AlbumView from "./components/AlbumView";
 import AlbumsPage from "./components/AlbumsPage";
 import { fetchMe, fetchCreations, fetchAlbums, createAlbum, clearToken, claimAchievement, claimDailyStreak, claimShareReward, confirmCreditsSession } from "./api";
-import { Sparkles, User, History, FolderOpen, Sun, Moon, LogOut, RefreshCw, Zap, Dog, ClipboardList, Bell, ShoppingBag, Users, Home, Layers } from "lucide-react";
+import { Sparkles, User, History, FolderOpen, Sun, Moon, LogOut, RefreshCw, Zap, Dog, ClipboardList, Bell, ShoppingBag, Users, Home, Layers, HelpCircle } from "lucide-react";
 import CreditStore from "./components/CreditStore";
 const AvatarDashboard = lazy(() => import("./components/AvatarDashboard"));
 import Store from "./components/Store";
 import ProfileScreen from "./components/ProfileScreen";
 import Community from "./components/Community";
+import HelpModal from "./components/HelpModal";
 const AnimatorScreen = lazy(() => import("./animator/components/AnimatorScreen"));
 import WarehouseMode from "./components/WarehouseMode";
 
@@ -79,6 +80,7 @@ export default function App() {
   const [creditSuccessMsg, setCreditSuccessMsg] = useState("");
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [requestSuccessMsg, setRequestSuccessMsg] = useState("");
+  const [showHelpModal, setShowHelpModal] = useState(false);
 
   const [albums, setAlbums] = useState<Album[]>([]);
   const [creations, setCreations] = useState<Creation[]>([]);
@@ -431,6 +433,13 @@ export default function App() {
               >
                 <Zap size={11} className="fill-primary" />
                 <span className="hidden sm:inline">Buy</span> Credits
+              </button>
+              <button
+                onClick={() => setShowHelpModal(true)}
+                className="w-10 h-10 rounded-full bg-surface-container hover:bg-primary/10 hover:text-primary text-on-surface-variant flex items-center justify-center border border-outline-variant/20 transition-all cursor-pointer shadow-sm"
+                title="Help & Support"
+              >
+                <HelpCircle size={18} />
               </button>
               <button
                 onClick={handleLogout}
@@ -786,6 +795,9 @@ export default function App() {
           {creditSuccessMsg}
         </div>
       )}
+
+      {/* Help & Support Modal */}
+      {showHelpModal && <HelpModal userEmail={userProfile.email || ""} onClose={() => setShowHelpModal(false)} />}
 
       {/* Credit Store Modal */}
       {showCreditStore && (
