@@ -565,6 +565,18 @@ export async function initDb(): Promise<void> {
 
     console.log("✅ Users, creations, generation_jobs, pets, avatars, and photo_requests tables ready.");
 
+    // Storage accounting table (Phase 8): per-user hot/cold storage tracking.
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS user_storage (
+        user_phone      VARCHAR(32) NOT NULL PRIMARY KEY,
+        bytes_hot       BIGINT NOT NULL DEFAULT 0,
+        bytes_cold      BIGINT NOT NULL DEFAULT 0,
+        cold_gb_purchased INT NOT NULL DEFAULT 0,
+        updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
     // Email hygiene (guarded — must never abort init): normalize to lower-case,
     // then best-effort enforce uniqueness. The UNIQUE index only applies once any
     // legacy duplicate-email rows have been removed; until then it is skipped.
@@ -2083,4 +2095,86 @@ export async function savePetState(
     ]
   )) as any;
   return result.affectedRows >= 1;
+}
+
+// ============================================================================
+// Phase 8: Storage accounting
+// ============================================================================
+
+const FREE_HOT_BYTES = 50 * 1024 * 1024;
+const COLD_GB_COST_CR = 4;
+
+export interface StorageUsage {
+  bytesHot: number;
+  bytesCold: number;
+  freeLimit: number;
+  coldGbPurchased: number;
+  coldLimit: number;
+}
+
+/** Get the user's current storage usage, creating a row if none exists. */
+export async function getStorageUsage(phone: string): Promise<StorageUsage> {
+  await getPool().query(
+    `INSERT IGNORE INTO user_storage (user_phone, bytes_hot, bytes_cold, cold_gb_purchased) VALUES (?, 0, 0, 0)`,
+    [phone]
+  );
+  const [rows] = await getPool().query(
+    `SELECT bytes_hot, bytes_cold, cold_gb_purchased FROM user_storage WHERE user_phone = ?`,
+    [phone]
+  ) as any;
+  const row = rows?.[0] || { bytes_hot: 0, bytes_cold: 0, cold_gb_purchased: 0 };
+  return {
+    bytesHot: Number(row.bytes_hot) || 0,
+    bytesCold: Number(row.bytes_cold) || 0,
+    freeLimit: FREE_HOT_BYTES,
+    coldGbPurchased: Number(row.cold_gb_purchased) || 0,
+    coldLimit: (Number(row.cold_gb_purchased) || 0) * (1024 * 1024 * 1024),
+  };
+}
+
+/** Record that N bytes were added to hot storage. Returns the updated usage. */
+export async function recordStorageAddHot(phone: string, bytes: number): Promise<StorageUsage> {
+  await getPool().query(
+    `INSERT INTO user_storage (user_phone, bytes_hot) VALUES (?, ?)
+     ON DUPLICATE KEY UPDATE bytes_hot = bytes_hot + ?`,
+    [phone, bytes, bytes]
+  );
+  return getStorageUsage(phone);
+}
+
+/** Record that N bytes were freed from hot storage. */
+export async function recordStorageRemoveHot(phone: string, bytes: number): Promise<void> {
+  await getPool().query(
+    `UPDATE user_storage SET bytes_hot = GREATEST(0, bytes_hot - ?) WHERE user_phone = ?`,
+    [bytes, phone]
+  );
+}
+
+/** Move bytes from hot to cold tier. */
+export async function recordStorageMoveToCold(phone: string, bytes: number): Promise<void> {
+  await getPool().query(
+    `UPDATE user_storage SET bytes_hot = GREATEST(0, bytes_hot - ?), bytes_cold = bytes_cold + ? WHERE user_phone = ?`,
+    [bytes, bytes, phone]
+  );
+}
+
+/** Deduct 4 credits and grant 1 GB of cold storage. Idempotent per requestId. */
+export async function purchaseColdStorage(phone: string, requestId: string): Promise<{ success: boolean; error?: string }> {
+  const [existing] = await getPool().query(
+    `SELECT 1 FROM credit_transactions WHERE reason = ? LIMIT 1`,
+    [`storage_purchase:${requestId}`]
+  ) as any;
+  if (Array.isArray(existing) && existing.length > 0) {
+    return { success: true };
+  }
+  const ok = await deductCredits(phone, COLD_GB_COST_CR, `storage_purchase:${requestId}`);
+  if (!ok) {
+    return { success: false, error: `Insufficient credits. You need ${COLD_GB_COST_CR} credits for 1 GB of cold storage.` };
+  }
+  await getPool().query(
+    `INSERT INTO user_storage (user_phone, cold_gb_purchased) VALUES (?, 1)
+     ON DUPLICATE KEY UPDATE cold_gb_purchased = cold_gb_purchased + 1`,
+    [phone]
+  );
+  return { success: true };
 }

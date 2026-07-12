@@ -699,3 +699,37 @@ export async function uploadPrintFile(fileBase64: string, mime: string): Promise
   const data = await res.json();
   return data.url as string;
 }
+
+// --- Storage (Phase 8) ------------------------------------------------------
+
+export interface StorageUsage {
+  bytesHot: number;
+  bytesCold: number;
+  freeLimit: number;
+  coldGbPurchased: number;
+  coldLimit: number;
+}
+
+export async function fetchStorageUsage(): Promise<StorageUsage | null> {
+  try {
+    const res = await authedFetch("/api/storage/usage");
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function purchaseStorageGb(requestId: string): Promise<{ success: boolean; error?: string; usage?: StorageUsage }> {
+  try {
+    const res = await authedFetch("/api/storage/purchase-gb", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requestId }),
+    });
+    const data = await res.json();
+    return { success: data.success, error: data.error, usage: data.usage };
+  } catch {
+    return { success: false, error: "Network error" };
+  }
+}

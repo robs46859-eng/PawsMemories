@@ -9,7 +9,7 @@ import fs from "fs";
 import { sendSms } from "./server/sms";
 import { sendMail } from "./server/mail";
 import rateLimit from "express-rate-limit";
-import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, restoreReservedGenerationCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor } from "./db";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, restoreReservedGenerationCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor, getStorageUsage, recordStorageAddHot, recordStorageRemoveHot, recordStorageMoveToCold, purchaseColdStorage } from "./db";
 import { isEndpointEnabled, dailyCapFor, withinDailyCap, type PaidEndpoint } from "./server/paidApiGuards";
 import { classifyPetImage, type GenerateFn } from "./server/petClassify";
 import { semanticScan as runSemanticScan } from "./server/semanticScan";
@@ -497,6 +497,39 @@ async function startServer() {
     } catch (err: any) {
       console.error("[POST /api/help] Error:", err?.message || err);
       res.status(500).json({ error: "Could not send support request. Please email rob@stelar.host directly." });
+    }
+  });
+
+  // Storage accounting: usage, purchase cold storage
+  const GB = 1024 * 1024 * 1024;
+  const HOT_LIMIT = 50 * 1024 * 1024; // 50 MB
+
+  app.get("/api/storage/usage", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const usage = await getStorageUsage(req.user!.phone);
+      res.json(usage);
+    } catch (err: any) {
+      console.error("[GET /api/storage/usage] Error:", err?.message || err);
+      res.status(500).json({ error: "Could not load storage usage." });
+    }
+  });
+
+  app.post("/api/storage/purchase-gb", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { requestId } = req.body || {};
+      if (!requestId || typeof requestId !== "string") {
+        return res.status(400).json({ error: "requestId is required for idempotency." });
+      }
+      const result = await purchaseColdStorage(req.user!.phone, requestId);
+      if (!result.success) {
+        return res.status(402).json({ error: result.error || "Could not purchase storage." });
+      }
+      const usage = await getStorageUsage(req.user!.phone);
+      const user = await findUserByPhone(req.user!.phone);
+      res.json({ success: true, usage, user: toPublicUser(user) });
+    } catch (err: any) {
+      console.error("[POST /api/storage/purchase-gb] Error:", err?.message || err);
+      res.status(500).json({ error: "Could not complete storage purchase." });
     }
   });
 
