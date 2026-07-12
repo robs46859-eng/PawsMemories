@@ -127,6 +127,17 @@ export interface PublicUser {
   requiresTermsAcceptance?: boolean;
 }
 
+export interface VoiceCloneAsset {
+  id: number;
+  name: string;
+  audio_url: string;
+  mime_type: string;
+  bytes: number;
+  voice_consent: number;
+  voice_consent_at: string | null;
+  created_at: string;
+}
+
 export interface PhysicalOrder {
   orderId: string;
   creationId: string;

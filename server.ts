@@ -9,7 +9,7 @@ import fs from "fs";
 import { sendSms } from "./server/sms";
 import { sendMail } from "./server/mail";
 import rateLimit from "express-rate-limit";
-import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, restoreReservedGenerationCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor, getStorageUsage, recordStorageAddHot, recordStorageRemoveHot, purchaseColdStorage, grantPawprintTokens, spendPawprintTokens, getPawprintBalance, updateUserProfile, checkAndGrantProfileBonus, verifyUserPhone, verifyUserEmail, generateReferralCode, recordReferral, creditReferralIfComplete, getPawprintCategories, getPawprintTemplatesSync, acceptTermsVersion } from "./db";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, restoreReservedGenerationCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor, getStorageUsage, recordStorageAddHot, recordStorageRemoveHot, purchaseColdStorage, grantPawprintTokens, spendPawprintTokens, getPawprintBalance, updateUserProfile, checkAndGrantProfileBonus, verifyUserPhone, verifyUserEmail, generateReferralCode, recordReferral, creditReferralIfComplete, getPawprintCategories, getPawprintTemplatesSync, acceptTermsVersion, createVoiceCloneAsset, listVoiceCloneAssets } from "./db";
 import { isEndpointEnabled, dailyCapFor, withinDailyCap, type PaidEndpoint } from "./server/paidApiGuards";
 import { classifyPetImage, type GenerateFn } from "./server/petClassify";
 import { semanticScan as runSemanticScan } from "./server/semanticScan";
@@ -546,6 +546,49 @@ async function startServer() {
     } catch (err: any) {
       console.error("[POST /api/storage/purchase-gb] Error:", err?.message || err);
       res.status(500).json({ error: "Could not complete storage purchase." });
+    }
+  });
+
+  app.get("/api/voice-clones", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const assets = await listVoiceCloneAssets(req.user!.phone);
+      res.json({ assets });
+    } catch (err: any) {
+      console.error("[GET /api/voice-clones] Error:", err?.message || err);
+      res.status(500).json({ error: "Could not load voice clone files." });
+    }
+  });
+
+  app.post("/api/voice-clones", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const name = String(req.body?.name || "Voice clone").trim().slice(0, 120);
+      const audioBase64 = String(req.body?.audioBase64 || "");
+      const mimeType = String(req.body?.mimeType || "");
+      const voiceConsent = req.body?.voiceConsent === true;
+      if (!voiceConsent) {
+        return res.status(422).json({ error: "Voice clone consent is required before we can save this voice." });
+      }
+      if (!audioBase64 || !mimeType.startsWith("audio/")) {
+        return res.status(400).json({ error: "Please upload an audio file." });
+      }
+      const rawBase64 = audioBase64.startsWith("data:") ? audioBase64.split(",")[1] || "" : audioBase64;
+      const bytes = Buffer.byteLength(rawBase64, "base64");
+      if (bytes <= 0 || bytes > 25 * 1024 * 1024) {
+        return res.status(400).json({ error: "Voice files must be audio and 25 MB or smaller." });
+      }
+      const audioUrl = await uploadBase64Binary(audioBase64, mimeType, "sounds/voice-clones");
+      const usage = await recordStorageAddHot(req.user!.phone, bytes);
+      const asset = await createVoiceCloneAsset(req.user!.phone, {
+        name: name || "Voice clone",
+        audioUrl,
+        mimeType,
+        bytes,
+        voiceConsent: true,
+      });
+      res.status(201).json({ success: true, asset, storage: usage });
+    } catch (err: any) {
+      console.error("[POST /api/voice-clones] Error:", err?.message || err);
+      res.status(500).json({ error: "Could not save the voice clone." });
     }
   });
 

@@ -1,12 +1,52 @@
-import React from "react";
+import React, { useRef, useState } from "react";
 import { UserProfile } from "../types";
-import { Brush, Lock, Film, Sparkles } from "lucide-react";
+import { Brush, Lock, Film, Sparkles, Mic, Upload, CheckCircle2, X } from "lucide-react";
+import { createVoiceCloneAsset } from "../api";
 
 interface PawlisherScreenProps {
   userProfile: UserProfile;
 }
 
 export default function PawlisherScreen({ userProfile }: PawlisherScreenProps) {
+  const [showVoiceConsent, setShowVoiceConsent] = useState(false);
+  const [voiceConsent, setVoiceConsent] = useState(false);
+  const [voiceName, setVoiceName] = useState(`${userProfile.fullName || "My pet"} voice`);
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const [voiceMessage, setVoiceMessage] = useState("");
+  const voiceInputRef = useRef<HTMLInputElement | null>(null);
+
+  const readFile = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+  const onVoiceFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setVoiceBusy(true);
+    setVoiceMessage("");
+    try {
+      const asset = await createVoiceCloneAsset({
+        name: voiceName.trim() || "Voice clone",
+        audioBase64: await readFile(file),
+        mimeType: file.type || "audio/webm",
+        bytes: file.size,
+        voiceConsent: true,
+      });
+      setVoiceMessage(`${asset.name} saved with consent recorded.`);
+      setShowVoiceConsent(false);
+      setVoiceConsent(false);
+    } catch (err: any) {
+      setVoiceMessage(err.message || "Could not save the voice.");
+    } finally {
+      setVoiceBusy(false);
+      if (voiceInputRef.current) voiceInputRef.current.value = "";
+    }
+  };
+
   return (
     <div className="w-full max-w-4xl mx-auto px-4 pt-6 pb-28 animate-fade-in">
       <div className="flex items-center gap-3 mb-6">
@@ -66,6 +106,73 @@ export default function PawlisherScreen({ userProfile }: PawlisherScreenProps) {
           micro-mesh overlay, and the ✂️/💾/⬆️/🗑️ toolbar.
         </p>
       </div>
+
+      <section className="glass-panel border border-outline-variant/40 rounded-3xl p-6 mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 text-on-surface">
+              <Mic size={18} className="text-primary" />
+              <h3 className="text-base font-extrabold">Voice clone</h3>
+            </div>
+            <p className="text-sm text-on-surface-variant mt-1 leading-relaxed">
+              Add a voice only when you own it or have permission. We will save that consent with the file.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowVoiceConsent(true)}
+            className="min-h-12 rounded-xl bg-primary text-on-primary px-5 text-base font-black flex items-center justify-center gap-2"
+          >
+            <Upload size={18} /> Add voice
+          </button>
+        </div>
+        {voiceMessage && (
+          <p className="mt-4 text-sm font-bold text-primary">{voiceMessage}</p>
+        )}
+      </section>
+
+      {showVoiceConsent && (
+        <div className="fixed inset-0 z-[80] bg-black/70 flex items-center justify-center p-4">
+          <section className="w-full max-w-lg rounded-2xl bg-surface text-on-surface border border-outline-variant shadow-2xl p-6">
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div>
+                <h2 className="text-2xl font-black">Voice permission</h2>
+                <p className="text-lg leading-relaxed text-on-surface-variant mt-2">
+                  Please confirm you own this voice or have documented permission to clone it.
+                </p>
+              </div>
+              <button type="button" onClick={() => setShowVoiceConsent(false)} className="w-11 h-11 rounded-full border border-outline-variant flex items-center justify-center">
+                <X size={20} />
+              </button>
+            </div>
+            <label className="block text-sm font-bold text-on-surface mb-2" htmlFor="voice-name">Voice name</label>
+            <input
+              id="voice-name"
+              value={voiceName}
+              onChange={(e) => setVoiceName(e.target.value)}
+              className="w-full min-h-12 rounded-xl border border-outline-variant bg-surface-container px-4 text-base mb-4"
+            />
+            <label className="flex items-start gap-3 rounded-xl border border-outline-variant/50 bg-surface-container p-4 text-base leading-relaxed cursor-pointer mb-5">
+              <input
+                type="checkbox"
+                checked={voiceConsent}
+                onChange={(e) => setVoiceConsent(e.target.checked)}
+                className="mt-1 h-6 w-6 accent-primary"
+              />
+              <span>I confirm I own this voice or have documented permission to clone it.</span>
+            </label>
+            <button
+              type="button"
+              disabled={!voiceConsent || voiceBusy}
+              onClick={() => voiceInputRef.current?.click()}
+              className="w-full min-h-14 rounded-xl bg-primary text-on-primary text-lg font-black disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {voiceBusy ? "Saving..." : <><CheckCircle2 size={20} /> Choose audio file</>}
+            </button>
+            <input ref={voiceInputRef} type="file" accept="audio/*" className="hidden" onChange={onVoiceFile} />
+          </section>
+        </div>
+      )}
     </div>
   );
 }

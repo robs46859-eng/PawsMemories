@@ -669,6 +669,22 @@ export async function initDb(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS voice_clone_assets (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_phone VARCHAR(32) NOT NULL,
+        name VARCHAR(120) NOT NULL,
+        audio_url TEXT NOT NULL,
+        mime_type VARCHAR(80) NOT NULL,
+        bytes BIGINT NOT NULL DEFAULT 0,
+        voice_consent TINYINT(1) NOT NULL DEFAULT 0,
+        voice_consent_at TIMESTAMP NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX (user_phone),
+        FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
     // Email hygiene (guarded — must never abort init): normalize to lower-case,
     // then best-effort enforce uniqueness. The UNIQUE index only applies once any
     // legacy duplicate-email rows have been removed; until then it is skipped.
@@ -2285,6 +2301,47 @@ export async function purchaseColdStorage(phone: string, requestId: string): Pro
     [phone]
   );
   return { success: true };
+}
+
+// ============================================================================
+// Phase 9: Voice clone assets
+// ============================================================================
+
+export interface VoiceCloneAsset {
+  id: number;
+  user_phone: string;
+  name: string;
+  audio_url: string;
+  mime_type: string;
+  bytes: number;
+  voice_consent: number;
+  voice_consent_at: string | null;
+  created_at: string;
+}
+
+export async function createVoiceCloneAsset(
+  phone: string,
+  input: { name: string; audioUrl: string; mimeType: string; bytes: number; voiceConsent: true }
+): Promise<VoiceCloneAsset> {
+  const [result] = await getPool().query(
+    `INSERT INTO voice_clone_assets
+       (user_phone, name, audio_url, mime_type, bytes, voice_consent, voice_consent_at)
+     VALUES (?, ?, ?, ?, ?, 1, NOW())`,
+    [phone, input.name.slice(0, 120), input.audioUrl, input.mimeType.slice(0, 80), Math.max(0, input.bytes)]
+  ) as any;
+  const [rows] = await getPool().query(
+    `SELECT * FROM voice_clone_assets WHERE id = ? AND user_phone = ? LIMIT 1`,
+    [result.insertId, phone]
+  ) as any;
+  return rows[0] as VoiceCloneAsset;
+}
+
+export async function listVoiceCloneAssets(phone: string): Promise<VoiceCloneAsset[]> {
+  const [rows] = await getPool().query(
+    `SELECT * FROM voice_clone_assets WHERE user_phone = ? ORDER BY id DESC`,
+    [phone]
+  ) as any;
+  return rows as VoiceCloneAsset[];
 }
 
 // ============================================================================

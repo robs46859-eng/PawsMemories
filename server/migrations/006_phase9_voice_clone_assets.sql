@@ -1,0 +1,13 @@
+CREATE TABLE IF NOT EXISTS voice_clone_assets (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_phone VARCHAR(32) NOT NULL,
+  name VARCHAR(120) NOT NULL,
+  audio_url TEXT NOT NULL,
+  mime_type VARCHAR(80) NOT NULL,
+  bytes BIGINT NOT NULL DEFAULT 0,
+  voice_consent TINYINT(1) NOT NULL DEFAULT 0,
+  voice_consent_at TIMESTAMP NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX (user_phone),
+  FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -1,4 +1,4 @@
-import { PublicUser, Creation, Album, LocationParams, Avatar, PhotoRequest, RequestType, AvatarNeeds, BehaviorAction, PlacedObject } from "./types";
+import { PublicUser, Creation, Album, LocationParams, Avatar, PhotoRequest, RequestType, AvatarNeeds, BehaviorAction, PlacedObject, VoiceCloneAsset } from "./types";
 
 /**
  * Lightweight API client that manages the session token and auth flow.
@@ -198,6 +198,28 @@ export async function addUserPhoto(image: string): Promise<UserPhoto> {
 export async function deleteUserPhoto(id: number): Promise<boolean> {
   const res = await authedFetch(`/api/profile/photos/${id}`, { method: "DELETE" });
   return res.ok;
+}
+
+export async function listVoiceCloneAssets(): Promise<VoiceCloneAsset[]> {
+  const res = await authedFetch("/api/voice-clones");
+  if (!res.ok) return [];
+  return ((await res.json()).assets as VoiceCloneAsset[]) || [];
+}
+
+export async function createVoiceCloneAsset(input: {
+  name: string;
+  audioBase64: string;
+  mimeType: string;
+  bytes: number;
+  voiceConsent: boolean;
+}): Promise<VoiceCloneAsset> {
+  const res = await authedFetch("/api/voice-clones", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(await parseError(res, "Could not save the voice clone."));
+  return (await res.json()).asset as VoiceCloneAsset;
 }
 
 // --- Community -------------------------------------------------------------
