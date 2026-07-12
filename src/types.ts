@@ -110,6 +110,7 @@ export interface PublicUser {
   birthdate: string;
   profileComplete: boolean;
   isAdmin: boolean;
+  isTester?: boolean;
   dailyStreak: number;
   lastStreakClaim: string | null;
   profilePhotoUrl?: string | null;

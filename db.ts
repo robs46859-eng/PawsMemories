@@ -46,6 +46,7 @@ export interface UserRow {
   treats: number;
   profile_complete: number;
   is_admin?: number;
+  is_tester?: number;
   daily_streak?: number;
   last_streak_claim?: string | null;
   achievements_json?: string | null;
@@ -76,6 +77,7 @@ export interface PublicUser {
   birthdate: string;
   profileComplete: boolean;
   isAdmin: boolean;
+  isTester: boolean;
   dailyStreak: number;
   lastStreakClaim: string | null;
   profilePhotoUrl: string | null;
@@ -110,6 +112,7 @@ export function toPublicUser(userRow: any, currentTermsVersion?: string): Public
     credits: userRow.credits,
     treats: userRow.treats || 0,
     isAdmin: !!userRow.is_admin || (!!ADMIN_KEY && userRow.phone === ADMIN_KEY),
+    isTester: !!userRow.is_tester,
     dailyStreak: userRow.daily_streak || 0,
     lastStreakClaim: userRow.last_streak_claim || null,
     profilePhotoUrl: userRow.profile_photo_url || null,
@@ -173,6 +176,7 @@ export async function initDb(): Promise<void> {
       { name: "treats",            ddl: "ADD COLUMN treats INT NOT NULL DEFAULT 0" },
       { name: "profile_complete",  ddl: "ADD COLUMN profile_complete TINYINT(1) NOT NULL DEFAULT 0" },
       { name: "is_admin",          ddl: "ADD COLUMN is_admin TINYINT(1) NOT NULL DEFAULT 0" },
+      { name: "is_tester",         ddl: "ADD COLUMN is_tester TINYINT(1) NOT NULL DEFAULT 0" },
       { name: "daily_streak",      ddl: "ADD COLUMN daily_streak INT NOT NULL DEFAULT 0" },
       { name: "last_streak_claim", ddl: "ADD COLUMN last_streak_claim DATE NULL" },
       { name: "achievements_json", ddl: "ADD COLUMN achievements_json TEXT NULL" },
