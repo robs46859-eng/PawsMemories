@@ -4228,7 +4228,16 @@ CRITICAL RULES:
         }
       },
     }));
+    // Static-asset requests (models, images, media, data files) that reached here
+    // did NOT match a real file — return a clean 404 instead of index.html. Otherwise
+    // a missing asset like /objects/bed.glb returns HTML, and loaders (GLTFLoader,
+    // fetch(...).json()) choke on "<!doctype ...". SPA routes (no file extension)
+    // still fall through to index.html.
+    const ASSET_EXT = /\.(glb|gltf|bin|hdr|exr|ktx2|basis|png|jpe?g|webp|avif|gif|svg|mp4|webm|mp3|wav|ogg|json|wasm|woff2?|ttf|otf)$/i;
     app.get('*', (req, res) => {
+      if (ASSET_EXT.test(req.path)) {
+        return res.status(404).type("txt").send("Not found");
+      }
       res.setHeader("Cache-Control", "no-cache");
       res.sendFile(path.join(distPath, 'index.html'));
     });

@@ -73,7 +73,19 @@ export function createSceneController(): SceneController & { getScene(): THREE.S
       try {
         gltf = await loader.loadAsync(url);
       } catch (error) {
-        throw new Error(`ANIMATOR_ASSET_LOAD_FAILED: ${assetId}`, { cause: error });
+        // Asset missing or unreachable (e.g. a catalog object whose .glb was never
+        // shipped, or a 404 that the SPA catch-all answered with index.html — which
+        // GLTFLoader then fails to parse as JSON). Degrade to a visible placeholder
+        // primitive instead of throwing an uncaught rejection that crashes the studio.
+        console.warn(`[animator] asset failed to load (${assetId}); using placeholder`, error);
+        const placeholder = new THREE.Group();
+        const box = new THREE.Mesh(
+          new THREE.BoxGeometry(0.4, 0.4, 0.4),
+          new THREE.MeshStandardMaterial({ color: 0xcaa472, roughness: 0.85 })
+        );
+        box.name = "placeholder";
+        placeholder.add(box);
+        gltf = { scene: placeholder, animations: [] as THREE.AnimationClip[] } as any;
       }
       const clonedScene = SkeletonUtils.clone(gltf.scene);
       
