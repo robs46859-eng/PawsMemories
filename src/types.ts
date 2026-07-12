@@ -13,6 +13,9 @@ export enum Screen {
   PROFILE = "PROFILE",
   COMMUNITY = "COMMUNITY",
   ANIMATOR = "ANIMATOR",
+  PAWPRINTS = "PAWPRINTS",
+  PAWLISHER = "PAWLISHER",
+  FURBIN = "FURBIN",
 }
 
 // Randy AI guidance action types — used by /api/randy-chat response and RandyChat component

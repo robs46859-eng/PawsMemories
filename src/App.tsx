@@ -22,6 +22,9 @@ import Store from "./components/Store";
 import ProfileScreen from "./components/ProfileScreen";
 import Community from "./components/Community";
 import HelpModal from "./components/HelpModal";
+const PawprintsScreen = lazy(() => import("./components/PawprintsScreen"));
+const PawlisherScreen = lazy(() => import("./components/PawlisherScreen"));
+const FurBinScreen = lazy(() => import("./components/FurBinScreen"));
 const AnimatorScreen = lazy(() => import("./animator/components/AnimatorScreen"));
 import WarehouseMode from "./components/WarehouseMode";
 
@@ -42,6 +45,9 @@ const getBackgroundImage = (screen: Screen) => {
       };
     case Screen.MODELS:
     case Screen.STORE:
+    case Screen.PAWPRINTS:
+    case Screen.PAWLISHER:
+    case Screen.FURBIN:
       return {
         url: "/MAIN2.jpg",
         className: "opacity-45 blur-[1px]"
@@ -391,9 +397,12 @@ export default function App() {
 
           <div className="hidden md:flex items-center gap-8">
             <button onClick={() => setCurrentScreen(Screen.DASHBOARD)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.DASHBOARD ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Home</button>
-            <button onClick={() => setCurrentScreen(Screen.MODELS)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.MODELS ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Models</button>
+            <button onClick={() => setCurrentScreen(Screen.MODELS)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.MODELS ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Furball3D©️</button>
             <button onClick={() => setCurrentScreen(Screen.STORE)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.STORE ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Avatars-R-Us</button>
             <button onClick={() => setCurrentScreen(Screen.COMMUNITY)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.COMMUNITY ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Community</button>
+            <button onClick={() => setCurrentScreen(Screen.PAWPRINTS)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.PAWPRINTS ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Pawprints</button>
+            <button onClick={() => setCurrentScreen(Screen.PAWLISHER)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.PAWLISHER ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Pawlisher</button>
+            <button onClick={() => setCurrentScreen(Screen.FURBIN)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.FURBIN ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Fur Bin©️</button>
           </div>
 
           <div className="flex items-center gap-2 md:gap-4">
@@ -463,7 +472,7 @@ export default function App() {
 
       <div className="flex-grow flex w-full relative">
         {/* Desktop Sidebar */}
-        {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR].includes(currentScreen) && (
+        {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN].includes(currentScreen) && (
           <aside className="fixed left-0 top-0 h-full z-40 hidden md:flex flex-col py-8 w-64 bg-surface/80 dark:bg-surface-dim/80 backdrop-blur-xl shadow-xl border-r border-outline-variant/20 pt-24">
             <div className="px-6 mb-8">
               <button
@@ -491,7 +500,7 @@ export default function App() {
               </button>
               <button onClick={() => setCurrentScreen(Screen.MODELS)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${currentScreen === Screen.MODELS ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
                 <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.MODELS ? "'FILL' 1" : "'FILL' 0" }}>pets</span>
-                <span className="font-medium">Models</span>
+                <span className="font-medium">Furball3D©️</span>
               </button>
               <button onClick={() => setCurrentScreen(Screen.STORE)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${currentScreen === Screen.STORE ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
                 <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.STORE ? "'FILL' 1" : "'FILL' 0" }}>storefront</span>
@@ -500,6 +509,18 @@ export default function App() {
               <button onClick={() => setCurrentScreen(Screen.COMMUNITY)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${currentScreen === Screen.COMMUNITY ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
                 <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.COMMUNITY ? "'FILL' 1" : "'FILL' 0" }}>groups</span>
                 <span className="font-medium">Community</span>
+              </button>
+              <button onClick={() => setCurrentScreen(Screen.PAWPRINTS)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${currentScreen === Screen.PAWPRINTS ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
+                <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.PAWPRINTS ? "'FILL' 1" : "'FILL' 0" }}>auto_stories</span>
+                <span className="font-medium">Pawprints</span>
+              </button>
+              <button onClick={() => setCurrentScreen(Screen.PAWLISHER)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${currentScreen === Screen.PAWLISHER ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
+                <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.PAWLISHER ? "'FILL' 1" : "'FILL' 0" }}>brush</span>
+                <span className="font-medium">Pawlisher</span>
+              </button>
+              <button onClick={() => setCurrentScreen(Screen.FURBIN)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${currentScreen === Screen.FURBIN ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
+                <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.FURBIN ? "'FILL' 1" : "'FILL' 0" }}>inventory_2</span>
+                <span className="font-medium">Fur Bin©️</span>
               </button>
               <button onClick={() => setCurrentScreen(Screen.MODELS)} className="w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30">
                 <span className="material-symbols-outlined font-sans">view_in_ar</span>
@@ -678,6 +699,24 @@ export default function App() {
               <Community userProfile={userProfile} />
             )}
 
+            {currentScreen === Screen.PAWPRINTS && (
+              <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
+                <PawprintsScreen userProfile={userProfile} onOpenCreditStore={() => setShowCreditStore(true)} />
+              </Suspense>
+            )}
+
+            {currentScreen === Screen.PAWLISHER && (
+              <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
+                <PawlisherScreen userProfile={userProfile} />
+              </Suspense>
+            )}
+
+            {currentScreen === Screen.FURBIN && (
+              <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
+                <FurBinScreen userProfile={userProfile} onOpenCreditStore={() => setShowCreditStore(true)} />
+              </Suspense>
+            )}
+
             {currentScreen === Screen.ANIMATOR && (
               <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
                 <AnimatorScreen
@@ -716,7 +755,7 @@ export default function App() {
       </main>
 
       {/* Floating Bottom Navigator (only when signed in and past onboarding) */}
-      {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR].includes(currentScreen) && (
+      {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN].includes(currentScreen) && (
         <div className="fixed md:hidden bottom-0 left-0 right-0 bg-surface-container-lowest/90 dark:bg-surface-dim/90 backdrop-blur-xl border-t border-outline-variant/30 py-2 px-4 flex justify-around items-center z-40 rounded-t-2xl shadow-[0_-8px_32px_0_rgba(68,42,34,0.08)]">
           <button
             onClick={() => setCurrentScreen(Screen.DASHBOARD)}
@@ -755,7 +794,7 @@ export default function App() {
             }`}
           >
             <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.MODELS ? "'FILL' 1" : "'FILL' 0" }}>pets</span>
-            <span className="text-[10px] font-bold">Models</span>
+            <span className="text-[10px] font-bold">Furball3D©️</span>
           </button>
 
           <button
