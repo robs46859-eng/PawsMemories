@@ -6,7 +6,7 @@ import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import Stripe from "stripe";
 import fs from "fs";
-import twilio from "twilio";
+import { sendSms } from "./server/sms";
 import rateLimit from "express-rate-limit";
 import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, restoreReservedGenerationCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor } from "./db";
 import { isEndpointEnabled, dailyCapFor, withinDailyCap, type PaidEndpoint } from "./server/paidApiGuards";
@@ -15,6 +15,7 @@ import { semanticScan as runSemanticScan } from "./server/semanticScan";
 import { animatorRouter } from "./server/animator/routes.ts";
 import { studioRouter } from "./server/animator/studio_proxy.ts";
 import { refundRouter } from "./server/refunds.ts";
+import { privacyHtml, termsHtml, smsTermsHtml } from "./server/legal.ts";
 import { startWorker as startAnimatorWorker } from "./server/animator/worker.ts";
 import { phraseKey } from "./src/three/ar/voice";
 import { decayCompliance, pointsForTrial, creditsFromPoints, type TrialType } from "./src/brain";
@@ -3307,18 +3308,7 @@ async function startServer() {
                 const videoUrl = await uploadBase64Image(dataUrl);
                 await updateJobStatus(jobId, "done");
                 await setCreationVideoUrl(job.creation_id!, req.user!.phone, videoUrl);
-                if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
-                  try {
-                    const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-                    await twilioClient.messages.create({
-                      body: `🐾 Paws & Memories: Your talking pet video is ready! View it at ${process.env.APP_URL || "your app"}.`,
-                      to: req.user!.phone,
-                      from: process.env.TWILIO_PHONE_NUMBER
-                    });
-                  } catch (smsErr) {
-                    console.warn("Failed to send SMS notification:", smsErr);
-                  }
-                }
+                await sendSms(req.user!.phone, `🐾 Paws & Memories: Your talking pet video is ready! View it at ${process.env.APP_URL || "your app"}.`);
                 return res.json({ success: true, status: "done", video_url: videoUrl });
               } else {
                 await updateJobStatus(jobId, "failed", result.error || "HeyGen generation failed");
@@ -3345,18 +3335,7 @@ async function startServer() {
                 const modelUrl = await uploadBinaryFromUrl(result.glbUrl, "model/gltf-binary");
                 await updateJobStatus(jobId, "done");
                 await setCreationModelUrl(job.creation_id!, req.user!.phone, modelUrl);
-                if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
-                  try {
-                    const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-                    await twilioClient.messages.create({
-                      body: `🐾 Paws & Memories: Your 3D pet model is ready! View it at ${process.env.APP_URL || "your app"}.`,
-                      to: req.user!.phone,
-                      from: process.env.TWILIO_PHONE_NUMBER
-                    });
-                  } catch (smsErr) {
-                    console.warn("Failed to send SMS notification:", smsErr);
-                  }
-                }
+                await sendSms(req.user!.phone, `🐾 Paws & Memories: Your 3D pet model is ready! View it at ${process.env.APP_URL || "your app"}.`);
                 return res.json({ success: true, status: "done", model_url: modelUrl });
               } else {
                 await updateJobStatus(jobId, "failed", result.error || "Meshy generation failed");
@@ -3396,19 +3375,7 @@ async function startServer() {
                 await updateJobStatus(jobId, "done");
                 await setCreationVideoUrl(job.creation_id!, req.user!.phone, videoUrl);
                 
-                // Phase 4: Send Twilio SMS notification on success
-                if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
-                  try {
-                    const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-                    await twilioClient.messages.create({
-                      body: `🐾 Paws & Memories: Your pet video animation is ready! View it at ${process.env.APP_URL || "your app"}.`,
-                      to: req.user!.phone,
-                      from: process.env.TWILIO_PHONE_NUMBER // Fallback if no dedicated messaging SID, or use a specific one
-                    });
-                  } catch (smsErr) {
-                    console.warn("Failed to send SMS notification:", smsErr);
-                  }
-                }
+                await sendSms(req.user!.phone, `🐾 Paws & Memories: Your pet video animation is ready! View it at ${process.env.APP_URL || "your app"}.`);
                 
                 return res.json({ success: true, status: "done", video_url: videoUrl });
               } else {
@@ -3483,18 +3450,7 @@ async function startServer() {
                   if (job.creation_id) {
                     await setCreationVideoUrl(job.creation_id, job.user_phone, videoUrl);
                   }
-                  if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
-                    try {
-                      const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-                      await twilioClient.messages.create({
-                        body: `🐾 Paws & Memories: Your talking pet video is ready! View it at ${process.env.APP_URL || "your app"}.`,
-                        to: job.user_phone,
-                        from: process.env.TWILIO_PHONE_NUMBER
-                      });
-                    } catch (smsErr) {
-                      console.warn("Failed to send SMS notification (poller):", smsErr);
-                    }
-                  }
+                  await sendSms(job.user_phone, `🐾 Paws & Memories: Your talking pet video is ready! View it at ${process.env.APP_URL || "your app"}.`);
                 }
               } else {
                 await updateJobStatus(job.id, "failed", result.error || "HeyGen generation failed");
@@ -3519,18 +3475,7 @@ async function startServer() {
                 if (job.creation_id) {
                   await setCreationModelUrl(job.creation_id, job.user_phone, modelUrl);
                 }
-                if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
-                  try {
-                    const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-                    await twilioClient.messages.create({
-                      body: `🐾 Paws & Memories: Your 3D pet model is ready! View it at ${process.env.APP_URL || "your app"}.`,
-                      to: job.user_phone,
-                      from: process.env.TWILIO_PHONE_NUMBER
-                    });
-                  } catch (smsErr) {
-                    console.warn("Failed to send SMS notification (poller):", smsErr);
-                  }
-                }
+                await sendSms(job.user_phone, `🐾 Paws & Memories: Your 3D pet model is ready! View it at ${process.env.APP_URL || "your app"}.`);
               } else {
                 await updateJobStatus(job.id, "failed", result.error || "Meshy generation failed");
                 await restoreReservedGenerationCredits(job.user_phone, job.credits_reserved);
@@ -3565,19 +3510,7 @@ async function startServer() {
                 await setCreationVideoUrl(job.creation_id, job.user_phone, videoUrl);
               }
               
-              // Phase 4: Send Twilio SMS notification on success (background poller)
-              if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
-                try {
-                  const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-                  await twilioClient.messages.create({
-                    body: `🐾 Paws & Memories: Your pet video animation is ready! View it at ${process.env.APP_URL || "your app"}.`,
-                    to: job.user_phone,
-                    from: process.env.TWILIO_VERIFY_SERVICE_SID
-                  });
-                } catch (smsErr) {
-                  console.warn("Failed to send SMS notification (poller):", smsErr);
-                }
-              }
+              await sendSms(job.user_phone, `🐾 Paws & Memories: Your pet video animation is ready! View it at ${process.env.APP_URL || "your app"}.`);
             } else {
               await updateJobStatus(job.id, "failed", "No video generated");
               await restoreReservedGenerationCredits(job.user_phone, job.credits_reserved);
@@ -3711,6 +3644,17 @@ CRITICAL RULES:
       });
     }
   });
+
+  // Legal pages — served server-side as standalone HTML so they always load
+  // for users and for SMS/10DLC compliance reviewers, independent of the SPA.
+  // Registered BEFORE static/SPA catch-all so /legal/* is not swallowed by index.html.
+  const legalHeaders = (res: any) => {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", "public, max-age=3600");
+  };
+  app.get("/legal/privacy", (_req, res) => { legalHeaders(res); res.send(privacyHtml()); });
+  app.get("/legal/terms", (_req, res) => { legalHeaders(res); res.send(termsHtml()); });
+  app.get("/legal/sms", (_req, res) => { legalHeaders(res); res.send(smsTermsHtml()); });
 
   // Serve static assets or mount Vite middleware
   // Auto-detect production: if dist/index.html exists we're running from a build
