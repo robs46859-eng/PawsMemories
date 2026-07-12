@@ -1,11 +1,13 @@
-import React, { useState, useEffect } from "react";
-import { PublicUser, UserProfile } from "../types";
-import { Loader2, Sparkles, Camera, ImagePlus, Download } from "lucide-react";
+import React, { useState, useEffect, useMemo } from "react";
+import { PublicUser, UserProfile, Creation } from "../types";
+import { Loader2, Sparkles, Camera, ImagePlus, Download, RotateCcw } from "lucide-react";
 import { authedFetch } from "../api";
-import { CREDIT_PRICES } from "../pricing";
+import { CREDIT_PRICES, REUSE_DISCOUNT } from "../pricing";
+import PawprintWalkthrough from "./PawprintWalkthrough";
 
 interface PawprintsScreenProps {
   userProfile: UserProfile;
+  creations: Creation[];
   onOpenCreditStore: () => void;
   onUserUpdate: (user: PublicUser) => void;
 }
@@ -20,7 +22,7 @@ interface Template {
   imagePromptTemplate: string;
 }
 
-export default function PawprintsScreen({ userProfile, onOpenCreditStore, onUserUpdate }: PawprintsScreenProps) {
+export default function PawprintsScreen({ userProfile, creations, onOpenCreditStore, onUserUpdate }: PawprintsScreenProps) {
   const [categories, setCategories] = useState<string[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -30,6 +32,26 @@ export default function PawprintsScreen({ userProfile, onOpenCreditStore, onUser
   const [fields, setFields] = useState<Record<string, string>>({});
   const [fileNames, setFileNames] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
+  const [reuseCreationId, setReuseCreationId] = useState<number | null>(null);
+  const [showWalkthrough, setShowWalkthrough] = useState(false);
+
+  // Themed graphic + gradient per category (watermark shown at low opacity on the cards).
+  const categoryGraphic: Record<string, string> = {
+    grieving_loss: "🕊️", new_puppy: "🐶", veterinarian: "🩺", holiday_birthday: "🎂",
+    environment: "🌿", postcard_travel: "✈️", get_well: "💐", miss_you: "💌", pet_business: "🏪",
+  };
+  const categoryGradient: Record<string, string> = {
+    grieving_loss: "from-slate-400/20 to-slate-600/10", new_puppy: "from-amber-300/25 to-orange-400/10",
+    veterinarian: "from-teal-300/25 to-cyan-500/10", holiday_birthday: "from-pink-400/25 to-fuchsia-500/10",
+    environment: "from-green-400/25 to-emerald-600/10", postcard_travel: "from-sky-400/25 to-blue-500/10",
+    get_well: "from-rose-300/25 to-red-400/10", miss_you: "from-violet-400/25 to-purple-500/10",
+    pet_business: "from-indigo-300/25 to-indigo-500/10",
+  };
+
+  // Prior generated images the user can reuse (skip fresh gen for 20% off).
+  const reusable = useMemo(() => creations.filter((c) => c.image_url), [creations]);
+  const reusePrice = Math.round(CREDIT_PRICES.PAWPRINT * (1 - REUSE_DISCOUNT));
+  const effectivePrice = reuseCreationId ? reusePrice : CREDIT_PRICES.PAWPRINT;
 
   useEffect(() => {
     fetch("/api/pawprints/templates")
@@ -75,6 +97,7 @@ export default function PawprintsScreen({ userProfile, onOpenCreditStore, onUser
           fields,
           customName: fields.petName || fields.name || "",
           customMessage: fields.message || "",
+          reuseCreationId: reuseCreationId || undefined,
         }),
       });
       const data = await res.json();
@@ -95,8 +118,8 @@ export default function PawprintsScreen({ userProfile, onOpenCreditStore, onUser
         <h1 className="text-xl font-extrabold text-on-surface">Pawprints — Digital Stationery</h1>
         <button
           type="button"
-          onClick={() => window.dispatchEvent(new CustomEvent("randy:start-tour", { detail: { tourId: "make_pawprint" } }))}
-          className="ml-auto min-h-11 rounded-xl border border-primary/30 px-3 text-sm font-black text-primary"
+          onClick={() => setShowWalkthrough(true)}
+          className="ml-auto min-h-11 rounded-xl border border-primary/30 px-3 text-sm font-black text-primary hover:bg-primary/5"
         >
           Show me how
         </button>
@@ -106,17 +129,26 @@ export default function PawprintsScreen({ userProfile, onOpenCreditStore, onUser
         You have <strong className="text-secondary">{userProfile.credits} credits</strong>.
       </p>
 
-      {/* Category picker */}
+      {/* Category picker — larger vertical cards with a themed graphic watermark */}
       {!selectedCategory && (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {categories.map((cat) => (
             <button
               key={cat}
               onClick={() => setSelectedCategory(cat)}
-              className="glass-panel border border-outline-variant/40 rounded-2xl p-4 text-left hover:border-primary/50 transition-all cursor-pointer"
+              className={`group relative overflow-hidden rounded-3xl border border-outline-variant/40 hover:border-primary/60 transition-all cursor-pointer aspect-[3/4] flex flex-col justify-end p-4 text-left bg-gradient-to-br ${categoryGradient[cat] || "from-primary/15 to-primary/5"}`}
             >
-              <span className="text-sm font-bold text-on-surface">{categoryLabels[cat] || cat}</span>
-              <span className="text-[10px] text-on-surface-variant block mt-1">{templates.filter((t) => t.category === cat).length} layouts</span>
+              {/* Themed graphic watermark at ~18% opacity */}
+              <span
+                aria-hidden
+                className="pointer-events-none absolute -top-2 right-1 text-[7rem] leading-none select-none opacity-[0.18] group-hover:opacity-25 group-hover:scale-105 transition-all duration-300"
+              >
+                {categoryGraphic[cat] || "🐾"}
+              </span>
+              <div className="relative z-10">
+                <span className="text-base font-extrabold text-on-surface block leading-tight">{categoryLabels[cat] || cat}</span>
+                <span className="text-[11px] text-on-surface-variant block mt-1">{templates.filter((t) => t.category === cat).length} layouts</span>
+              </div>
             </button>
           ))}
         </div>
@@ -149,6 +181,34 @@ export default function PawprintsScreen({ userProfile, onOpenCreditStore, onUser
           <div className="glass-panel border border-outline-variant/40 rounded-3xl p-6 mb-6">
             <h3 className="text-sm font-extrabold text-on-surface mb-3">{selectedTemplate.name}</h3>
             <p className="text-xs text-on-surface-variant mb-3 italic">"{selectedTemplate.sampleCopy[0]}"</p>
+
+            {/* Reuse a previous image of the same subject — 20% off */}
+            {reusable.length > 0 && (
+              <div className="mb-4 rounded-2xl border border-secondary/30 bg-secondary/5 p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] font-black uppercase tracking-wide text-secondary">Reuse a photo you made — save 20%</span>
+                  {reuseCreationId && (
+                    <button onClick={() => setReuseCreationId(null)} className="text-[10px] font-bold text-on-surface-variant hover:text-primary flex items-center gap-1">
+                      <RotateCcw size={11} /> Generate fresh instead
+                    </button>
+                  )}
+                </div>
+                <p className="text-[10px] text-on-surface-variant mb-2">Same pet? Pick one of your earlier images and we'll skip the redraw — <strong>{reusePrice} cr instead of {CREDIT_PRICES.PAWPRINT}</strong>.</p>
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {reusable.map((c) => (
+                    <button
+                      key={c.id}
+                      onClick={() => setReuseCreationId((cur) => (cur === c.id ? null : c.id))}
+                      className={`relative shrink-0 w-16 h-16 rounded-xl overflow-hidden border-2 transition-all ${reuseCreationId === c.id ? "border-secondary ring-2 ring-secondary/30" : "border-transparent hover:border-secondary/40"}`}
+                      title={c.name || "Reuse this image"}
+                    >
+                      <img src={c.image_url as string} alt={c.name || "Creation"} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="space-y-3">
               {selectedTemplate.fieldSchema.map((field) => (
                 <div key={field.key}>
@@ -198,19 +258,26 @@ export default function PawprintsScreen({ userProfile, onOpenCreditStore, onUser
             <button
               data-tour="pawprints-create"
               onClick={createPawprint}
-              disabled={generating || (!userProfile.isAdmin && userProfile.credits < CREDIT_PRICES.PAWPRINT)}
+              disabled={generating || (!userProfile.isAdmin && userProfile.credits < effectivePrice)}
               className="mt-4 w-full py-3 bg-primary text-on-primary rounded-xl text-xs font-black uppercase tracking-wide hover:opacity-90 active:scale-95 transition-all cursor-pointer disabled:opacity-40 flex items-center justify-center gap-2"
             >
               {generating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-              {generating ? "Generating..." : `Create Pawprint (${CREDIT_PRICES.PAWPRINT} credits)`}
+              {generating ? "Generating..." : reuseCreationId ? `Create Pawprint (${effectivePrice} credits · 20% off)` : `Create Pawprint (${effectivePrice} credits)`}
             </button>
-            {!userProfile.isAdmin && userProfile.credits < CREDIT_PRICES.PAWPRINT && (
+            {!userProfile.isAdmin && userProfile.credits < effectivePrice && (
               <button type="button" onClick={onOpenCreditStore} className="mt-3 w-full py-3 rounded-xl border border-primary/30 text-primary text-xs font-black uppercase tracking-wide">
                 Buy credits
               </button>
             )}
           </div>
         </div>
+      )}
+
+      {showWalkthrough && (
+        <PawprintWalkthrough
+          onClose={() => setShowWalkthrough(false)}
+          onStart={() => { setSelectedTemplate(null); setSelectedCategory("holiday_birthday"); }}
+        />
       )}
     </div>
   );
