@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { User, RefreshCw, Mail, ArrowLeft, Lock, Calendar, MapPin, LogIn, UserPlus } from "lucide-react";
 import { PublicUser } from "../types";
-import { signup, completeProfile, login } from "../api";
+import { signup, completeProfile, login, requestPasswordReset } from "../api";
 import { useJsApiLoader } from "@react-google-maps/api";
 
 // IMPORTANT: keep this list identical to the one used in LocationPicker.tsx.
@@ -15,7 +15,7 @@ interface SignUpProps {
   onAuthenticated: (user: PublicUser, isNew: boolean) => void;
 }
 
-type Step = "login" | "signup" | "profile" | "pets";
+type Step = "login" | "signup" | "profile" | "pets" | "forgot";
 
 export default function SignUp({ onAuthenticated }: SignUpProps) {
   const [step, setStep] = useState<Step>("login");
@@ -31,6 +31,23 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [forgotMsg, setForgotMsg] = useState("");
+
+  const handleForgot = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim()) { setError("Please enter your email."); return; }
+    setError("");
+    setBusy(true);
+    try {
+      const msg = await requestPasswordReset(email.trim());
+      setForgotMsg(msg);
+    } catch {
+      // Endpoint is intentionally non-revealing; show the generic message anyway.
+      setForgotMsg("If that email is registered, a reset link is on its way.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY_BROWSER;
   const { isLoaded } = useJsApiLoader({
@@ -213,6 +230,62 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
                 {busy ? <RefreshCw className="animate-spin" size={14} /> : <LogIn size={18} />}
                 Log In
               </button>
+              <button
+                type="button"
+                onClick={() => { setError(""); setForgotMsg(""); setStep("forgot"); }}
+                className="w-full text-center text-[11px] text-on-surface-variant hover:text-primary mt-1 cursor-pointer"
+              >
+                Forgot your password?
+              </button>
+            </form>
+          )}
+
+          {/* STEP: Forgot password */}
+          {step === "forgot" && (
+            <form className="space-y-3" onSubmit={handleForgot}>
+              {forgotMsg ? (
+                <>
+                  <p className="text-body-sm text-on-surface-variant px-1">{forgotMsg}</p>
+                  <button
+                    type="button"
+                    onClick={() => { setForgotMsg(""); setError(""); setStep("login"); }}
+                    className="tactile-button w-full bg-primary text-on-primary text-body-md py-4 rounded-xl flex items-center justify-center gap-2 cursor-pointer mt-2"
+                  >
+                    <ArrowLeft size={16} /> Back to Log In
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="text-body-sm text-on-surface-variant px-1">Enter your email and we'll send you a link to reset your password.</p>
+                  <div className="space-y-1">
+                    <label htmlFor="forgot-email" className={labelClass}>Email</label>
+                    <div className="relative group">
+                      <span className={iconWrap}><Mail size={16} /></span>
+                      <input
+                        id="forgot-email" type="email" required
+                        placeholder="you@example.com"
+                        value={email} onChange={(e) => setEmail(e.target.value)}
+                        className={inputClass}
+                      />
+                    </div>
+                  </div>
+                  {error && <p className="text-[10px] text-error font-medium px-1">{error}</p>}
+                  <button
+                    type="submit" disabled={busy}
+                    className="tactile-button w-full bg-primary text-on-primary font-headline-lg-mobile text-body-md py-4 rounded-xl flex items-center justify-center gap-2 cursor-pointer disabled:opacity-70 mt-2"
+                  >
+                    {busy ? <RefreshCw className="animate-spin" size={14} /> : <Mail size={18} />}
+                    Send reset link
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setError(""); setStep("login"); }}
+                    className="w-full text-center text-[11px] text-on-surface-variant hover:text-primary cursor-pointer"
+                  >
+                    Back to Log In
+                  </button>
+                </>
+              )}
             </form>
           )}
 

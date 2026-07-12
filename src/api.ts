@@ -102,6 +102,29 @@ export async function login(email: string, password: string): Promise<PublicUser
   return data.user as PublicUser;
 }
 
+/** Request a password-reset email. Always resolves (no account enumeration). */
+export async function requestPasswordReset(email: string): Promise<string> {
+  const res = await fetch("/api/auth/forgot-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  const data = await res.json().catch(() => ({}));
+  return data.message || "If that email is registered, a reset link is on its way.";
+}
+
+/** Complete a password reset with the emailed token. */
+export async function resetPassword(token: string, newPassword: string): Promise<string> {
+  const res = await fetch("/api/auth/reset-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, newPassword }),
+  });
+  if (!res.ok) throw new Error(await parseError(res, "Could not reset password."));
+  const data = await res.json();
+  return data.message || "Password updated.";
+}
+
 /** Restore the session on app load. Returns null if there is no valid session. */
 export async function fetchMe(): Promise<PublicUser | null> {
   if (!getToken()) return null;

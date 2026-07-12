@@ -10,7 +10,7 @@ import sharp from "sharp";
 import { sendSms } from "./server/sms";
 import { sendMail } from "./server/mail";
 import rateLimit from "express-rate-limit";
-import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, restoreReservedGenerationCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor, getStorageUsage, recordStorageAddHot, recordStorageRemoveHot, purchaseColdStorage, updateUserProfile, checkAndGrantProfileBonus, verifyUserPhone, verifyUserEmail, generateReferralCode, recordReferral, creditReferralIfComplete, getPawprintCategories, getPawprintTemplatesSync, acceptTermsVersion, createVoiceCloneAsset, listVoiceCloneAssets } from "./db";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, restoreReservedGenerationCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor, getStorageUsage, recordStorageAddHot, recordStorageRemoveHot, purchaseColdStorage, updateUserProfile, checkAndGrantProfileBonus, verifyUserPhone, verifyUserEmail, generateReferralCode, recordReferral, creditReferralIfComplete, getPawprintCategories, getPawprintTemplatesSync, acceptTermsVersion, createVoiceCloneAsset, listVoiceCloneAssets, createPasswordReset, consumePasswordReset, setUserPassword } from "./db";
 import { isEndpointEnabled, dailyCapFor, withinDailyCap, type PaidEndpoint } from "./server/paidApiGuards";
 import { classifyPetImage, type GenerateFn } from "./server/petClassify";
 import { semanticScan as runSemanticScan } from "./server/semanticScan";
@@ -44,6 +44,8 @@ import {
   requireAuth,
   hashPassword,
   verifyPassword,
+  generateResetToken,
+  hashResetToken,
   type AuthedRequest,
 } from "./auth";
 
@@ -429,6 +431,65 @@ async function startServer() {
     } catch (err: any) {
       console.error("login error:", err);
       res.status(500).json({ error: "Login failed. Please try again." });
+    }
+  });
+
+  // --- Password reset (self-serve, email link via Resend) ------------------
+  app.use("/api/auth/forgot-password", authLimiter);
+  app.use("/api/auth/reset-password", authLimiter);
+
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    // Always respond with the same generic 200 — never reveal whether an email
+    // is registered (prevents account enumeration).
+    const generic = { success: true, message: "If that email is registered, a reset link is on its way." };
+    try {
+      const email = String(req.body?.email || "").trim().toLowerCase();
+      if (email) {
+        const user = await findUserByEmail(email);
+        if (user) {
+          const { raw, hash } = generateResetToken();
+          const expiresAt = new Date(Date.now() + 45 * 60 * 1000); // 45 minutes
+          await createPasswordReset(user.phone, hash, expiresAt);
+          const appUrl = process.env.APP_URL || "https://pawsome3d.com";
+          const link = `${appUrl}/reset-password?token=${raw}`;
+          await sendMail({
+            to: email,
+            subject: "Reset your Pawsome3D password",
+            html: `<div style="font-family:system-ui,Arial,sans-serif;line-height:1.6">
+              <h2>Reset your Pawsome3D password</h2>
+              <p>We received a request to reset your password. Click the button below to choose a new one.</p>
+              <p><a href="${link}" style="display:inline-block;padding:10px 18px;background:#442a22;color:#fff;border-radius:8px;text-decoration:none">Choose a new password</a></p>
+              <p style="color:#666;font-size:13px">This link expires in 45 minutes and can be used once. If you didn't request this, you can safely ignore this email.</p>
+            </div>`,
+            replyTo: "rob@stelar.host",
+          });
+        }
+      }
+    } catch (err: any) {
+      console.error("forgot-password error:", err?.message || err);
+    }
+    return res.json(generic);
+  });
+
+  app.post("/api/auth/reset-password", async (req, res) => {
+    try {
+      const token = String(req.body?.token || "");
+      const newPassword = String(req.body?.newPassword || "");
+      if (!token || !newPassword) {
+        return res.status(400).json({ error: "Token and new password are required." });
+      }
+      if (newPassword.length < 8) {
+        return res.status(400).json({ error: "Password must be at least 8 characters." });
+      }
+      const userPhone = await consumePasswordReset(hashResetToken(token));
+      if (!userPhone) {
+        return res.status(400).json({ error: "This reset link is invalid or has expired. Please request a new one." });
+      }
+      await setUserPassword(userPhone, hashPassword(newPassword));
+      return res.json({ success: true, message: "Your password has been updated. You can now sign in." });
+    } catch (err: any) {
+      console.error("reset-password error:", err?.message || err);
+      return res.status(500).json({ error: "Could not reset your password. Please try again." });
     }
   });
 

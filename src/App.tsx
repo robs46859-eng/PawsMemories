@@ -1,6 +1,7 @@
 import React, { useState, lazy, Suspense } from "react";
 import { Screen, UserProfile, Creation, Album, PublicUser } from "./types";
 import SignUp from "./components/SignUp";
+import ResetPassword from "./components/ResetPassword";
 import Welcome from "./components/Welcome";
 import Tutorial from "./components/Tutorial";
 import Dashboard from "./components/Dashboard";
@@ -362,6 +363,12 @@ export default function App() {
       alert(err.message || "Could not save your acceptance. Please try again.");
     }
   };
+
+  // Standalone password-reset page (opened from the emailed link) — render it
+  // before auth/warehouse so a logged-out user can reset from any deploy target.
+  if (typeof window !== "undefined" && window.location.pathname === "/reset-password") {
+    return <ResetPassword />;
+  }
 
   // While we check for an existing session, show a lightweight loader.
   // mypets.cc runs the same build but serves the cold-storage warehouse identity.

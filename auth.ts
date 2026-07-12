@@ -47,6 +47,20 @@ export function verifyPassword(password: string, hash: string): boolean {
   return key === derivedKey;
 }
 
+/**
+ * Password-reset tokens. The RAW token is emailed to the user; only its SHA-256
+ * HASH is stored in the DB, so a DB leak can't be used to reset accounts.
+ */
+export function generateResetToken(): { raw: string; hash: string } {
+  const raw = crypto.randomBytes(32).toString("hex");
+  const hash = hashResetToken(raw);
+  return { raw, hash };
+}
+
+export function hashResetToken(raw: string): string {
+  return crypto.createHash("sha256").update(raw).digest("hex");
+}
+
 export interface TokenPayload {
   /** Opaque internal user key (stored in users.phone). NOT a phone number. */
   phone: string;

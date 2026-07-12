@@ -443,6 +443,20 @@ export async function initDb(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
+    // Password reset tokens — only the SHA-256 hash of the token is stored.
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS password_resets (
+        id          INT AUTO_INCREMENT PRIMARY KEY,
+        user_phone  VARCHAR(32) NOT NULL,
+        token_hash  VARCHAR(64) NOT NULL,
+        expires_at  TIMESTAMP NOT NULL,
+        used_at     TIMESTAMP NULL,
+        created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX (user_phone),
+        INDEX (token_hash)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
     // --- AR virtual-pet simulator (AR_PET_SIM_SPEC §8, milestone AR2) ---------
     // pet_profiles extends an avatar with breed-aware gameplay + persisted brain state.
     await getPool().query(`
@@ -2527,4 +2541,40 @@ export function getPawprintCategories(): string[] { return PAWPRINT_CATEGORIES; 
 export function getPawprintTemplatesSync(category?: string): PawprintTemplate[] {
   if (category) return PAWPRINT_TEMPLATES.filter(t => t.category === category);
   return PAWPRINT_TEMPLATES;
+}
+
+// ---------------------------------------------------------------------------
+// Password reset
+// ---------------------------------------------------------------------------
+
+/** Store a reset-token hash, invalidating any prior unused tokens for the user. */
+export async function createPasswordReset(userPhone: string, tokenHash: string, expiresAt: Date): Promise<void> {
+  await getPool().query(
+    "UPDATE password_resets SET used_at = NOW() WHERE user_phone = ? AND used_at IS NULL",
+    [userPhone]
+  );
+  await getPool().query(
+    "INSERT INTO password_resets (user_phone, token_hash, expires_at) VALUES (?, ?, ?)",
+    [userPhone, tokenHash, expiresAt]
+  );
+}
+
+/**
+ * Validate a reset-token hash. If a matching unused, unexpired row exists, mark
+ * it used and return the associated user key; otherwise return null.
+ */
+export async function consumePasswordReset(tokenHash: string): Promise<string | null> {
+  const [rows] = await getPool().query(
+    "SELECT id, user_phone FROM password_resets WHERE token_hash = ? AND used_at IS NULL AND expires_at > NOW() ORDER BY id DESC LIMIT 1",
+    [tokenHash]
+  ) as any;
+  if (!rows || rows.length === 0) return null;
+  const row = rows[0];
+  await getPool().query("UPDATE password_resets SET used_at = NOW() WHERE id = ?", [row.id]);
+  return row.user_phone as string;
+}
+
+/** Set a user's password hash by their internal key (users.phone). */
+export async function setUserPassword(userPhone: string, passwordHash: string): Promise<void> {
+  await getPool().query("UPDATE users SET password_hash = ? WHERE phone = ?", [passwordHash, userPhone]);
 }
