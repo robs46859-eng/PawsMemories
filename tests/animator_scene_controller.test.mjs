@@ -20,8 +20,8 @@ test("SceneController - addActor assigns unique actorIds and non-overlapping pla
   try {
     const ctrl = createSceneController();
     
-    const id1 = await ctrl.addActor("asset1");
-    const id2 = await ctrl.addActor("asset2");
+    const id1 = await ctrl.addActor("/asset1.glb");
+    const id2 = await ctrl.addActor("/asset2.glb");
   
   assert.notStrictEqual(id1, id2);
   
@@ -53,8 +53,8 @@ test("SceneController - seekAll fans out to every actor without throwing", async
 
   try {
     const ctrl = createSceneController();
-    const id1 = await ctrl.addActor("asset1");
-    const id2 = await ctrl.addActor("asset2");
+    const id1 = await ctrl.addActor("/asset1.glb");
+    const id2 = await ctrl.addActor("/asset2.glb");
 
     // seekAll must reach every actor's controller and not throw (clamped per-actor).
     assert.doesNotThrow(() => ctrl.seekAll(1.5));

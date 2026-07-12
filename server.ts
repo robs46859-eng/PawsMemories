@@ -8,11 +8,13 @@ import Stripe from "stripe";
 import fs from "fs";
 import twilio from "twilio";
 import rateLimit from "express-rate-limit";
-import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, refundCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor } from "./db";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, restoreReservedGenerationCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor } from "./db";
 import { isEndpointEnabled, dailyCapFor, withinDailyCap, type PaidEndpoint } from "./server/paidApiGuards";
 import { classifyPetImage, type GenerateFn } from "./server/petClassify";
 import { semanticScan as runSemanticScan } from "./server/semanticScan";
 import { animatorRouter } from "./server/animator/routes.ts";
+import { studioRouter } from "./server/animator/studio_proxy.ts";
+import { refundRouter } from "./server/refunds.ts";
 import { startWorker as startAnimatorWorker } from "./server/animator/worker.ts";
 import { phraseKey } from "./src/three/ar/voice";
 import { decayCompliance, pointsForTrial, creditsFromPoints, type TrialType } from "./src/brain";
@@ -256,6 +258,22 @@ async function startServer() {
       return next();
     },
     animatorRouter
+  );
+
+  // Studio AI Animation Pipeline — proxy /api/studio/* → Python FastAPI on port 8001
+  app.use(
+    "/api",
+    (req, _res, next) => {
+      if (req.path.startsWith("/studio")) return requireAuth(req as AuthedRequest, _res, next);
+      return next();
+    },
+    studioRouter
+  );
+
+  app.use(
+    "/api/refunds",
+    (req, res, next) => requireAuth(req as AuthedRequest, res, next),
+    refundRouter
   );
 
   // Serve animator files statically
@@ -2214,15 +2232,15 @@ async function startServer() {
 
   // API route to create custom styled pet images using Imagen or Gemini
   // Fix 5: Credit store — let users purchase credit packs via Stripe
-  // Credit packs — bulk buys cost less per credit ($5→5.00¢, $10→4.55¢,
-  // $25→4.17¢, $50→3.85¢/credit). Authoritative pricing (client mirrors this in
+  // Credit packs — authoritative pricing at 1 credit = $0.10 (client mirrors this in
   // src/components/CreditStore.tsx). Stripe checkout amount is derived from
   // `price` at session-creation time, so changing these needs no Stripe setup.
   const CREDIT_PACKS = [
-    { id: "pack_100",  credits: 100,  price: 5.0,   label: "Starter Pack" },
-    { id: "pack_220",  credits: 220,  price: 10.0,  label: "Popular Pack" },
-    { id: "pack_600",  credits: 600,  price: 25.0,  label: "Pro Pack" },
-    { id: "pack_1300", credits: 1300, price: 50.0,  label: "Studio Pack" },
+    { id: "pack_100", credits: 100, price: 10, label: "Starter" },
+    { id: "pack_275", credits: 275, price: 25, label: "Creator" },
+    { id: "pack_600", credits: 600, price: 50, label: "Pro" },
+    { id: "pack_1300", credits: 1300, price: 100, label: "Studio" },
+    { id: "pack_3500", credits: 3500, price: 250, label: "Enterprise" },
   ] as const;
 
   app.post("/api/create-credits-session", requireAuth, async (req: AuthedRequest, res) => {
@@ -2953,7 +2971,7 @@ async function startServer() {
       if (creation.image_url.startsWith("data:image")) {
         const matches = creation.image_url.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
         if (!matches) {
-          if (!isAdmin) await refundCredits(userPhone, VIDEO_COST);
+          if (!isAdmin) await restoreReservedGenerationCredits(userPhone, VIDEO_COST);
           return res.status(400).json({ success: false, error: "Invalid creation image data." });
         }
         mimeType = matches[1];
@@ -2975,7 +2993,7 @@ async function startServer() {
           voiceId: voiceId || undefined,
         });
       } catch (genErr: any) {
-        if (!isAdmin) await refundCredits(userPhone, VIDEO_COST);
+        if (!isAdmin) await restoreReservedGenerationCredits(userPhone, VIDEO_COST);
         console.error("HeyGen start error:", genErr);
         return res.status(502).json({ success: false, error: genErr.message || "Failed to start talking video." });
       }
@@ -3293,7 +3311,7 @@ async function startServer() {
                 return res.json({ success: true, status: "done", video_url: videoUrl });
               } else {
                 await updateJobStatus(jobId, "failed", result.error || "HeyGen generation failed");
-                await refundCredits(req.user!.phone, job.credits_reserved);
+                await restoreReservedGenerationCredits(req.user!.phone, job.credits_reserved);
                 return res.json({ success: true, status: "failed", error: result.error || "HeyGen generation failed" });
               }
             } else {
@@ -3302,7 +3320,7 @@ async function startServer() {
           } catch (pollErr: any) {
             console.error("HeyGen poll error:", pollErr);
             await updateJobStatus(jobId, "failed", pollErr.message);
-            await refundCredits(req.user!.phone, job.credits_reserved);
+            await restoreReservedGenerationCredits(req.user!.phone, job.credits_reserved);
             return res.json({ success: true, status: "failed", error: pollErr.message });
           }
           return res.json({ success: true, status: job.status, video_url: null, error: job.error });
@@ -3331,7 +3349,7 @@ async function startServer() {
                 return res.json({ success: true, status: "done", model_url: modelUrl });
               } else {
                 await updateJobStatus(jobId, "failed", result.error || "Meshy generation failed");
-                await refundCredits(req.user!.phone, job.credits_reserved);
+                await restoreReservedGenerationCredits(req.user!.phone, job.credits_reserved);
                 return res.json({ success: true, status: "failed", error: result.error || "Meshy generation failed" });
               }
             } else {
@@ -3340,7 +3358,7 @@ async function startServer() {
           } catch (pollErr: any) {
             console.error("Meshy poll error:", pollErr);
             await updateJobStatus(jobId, "failed", pollErr.message);
-            await refundCredits(req.user!.phone, job.credits_reserved);
+            await restoreReservedGenerationCredits(req.user!.phone, job.credits_reserved);
             return res.json({ success: true, status: "failed", error: pollErr.message });
           }
           return res.json({ success: true, status: job.status, model_url: null, error: job.error });
@@ -3385,7 +3403,7 @@ async function startServer() {
               } else {
                 // Failed or empty response
                 await updateJobStatus(jobId, "failed", "No video generated");
-                await refundCredits(req.user!.phone, job.credits_reserved);
+                await restoreReservedGenerationCredits(req.user!.phone, job.credits_reserved);
                 return res.json({ success: true, status: "failed", error: "Generation returned no video" });
               }
             } else {
@@ -3395,7 +3413,7 @@ async function startServer() {
           } catch (pollErr: any) {
             console.error("Video poll error:", pollErr);
             await updateJobStatus(jobId, "failed", pollErr.message);
-            await refundCredits(req.user!.phone, job.credits_reserved);
+            await restoreReservedGenerationCredits(req.user!.phone, job.credits_reserved);
             return res.json({ success: true, status: "failed", error: pollErr.message });
           }
         }
@@ -3469,13 +3487,13 @@ async function startServer() {
                 }
               } else {
                 await updateJobStatus(job.id, "failed", result.error || "HeyGen generation failed");
-                await refundCredits(job.user_phone, job.credits_reserved);
+                await restoreReservedGenerationCredits(job.user_phone, job.credits_reserved);
               }
             }
           } catch (err) {
             console.error(`Background HeyGen poller error for job ${job.id}:`, err);
             await updateJobStatus(job.id, "failed", "Poller error");
-            await refundCredits(job.user_phone, job.credits_reserved);
+            await restoreReservedGenerationCredits(job.user_phone, job.credits_reserved);
           }
           continue;
         }
@@ -3504,13 +3522,13 @@ async function startServer() {
                 }
               } else {
                 await updateJobStatus(job.id, "failed", result.error || "Meshy generation failed");
-                await refundCredits(job.user_phone, job.credits_reserved);
+                await restoreReservedGenerationCredits(job.user_phone, job.credits_reserved);
               }
             }
           } catch (err) {
             console.error(`Background Meshy poller error for job ${job.id}:`, err);
             await updateJobStatus(job.id, "failed", "Poller error");
-            await refundCredits(job.user_phone, job.credits_reserved);
+            await restoreReservedGenerationCredits(job.user_phone, job.credits_reserved);
           }
           continue;
         }
@@ -3551,13 +3569,13 @@ async function startServer() {
               }
             } else {
               await updateJobStatus(job.id, "failed", "No video generated");
-              await refundCredits(job.user_phone, job.credits_reserved);
+              await restoreReservedGenerationCredits(job.user_phone, job.credits_reserved);
             }
           }
         } catch (err) {
           console.error(`Background poller error for job ${job.id}:`, err);
           await updateJobStatus(job.id, "failed", "Poller error");
-          await refundCredits(job.user_phone, job.credits_reserved);
+          await restoreReservedGenerationCredits(job.user_phone, job.credits_reserved);
         }
       }
     } catch (e) {

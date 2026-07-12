@@ -208,6 +208,7 @@ animatorRouter.get("/animator/outputs/:assetId", (req: any, res) => {
       url: `/animator-files/outputs/${req.params.assetId}/${f}`
     })));
   } catch (e: any) {
+    if (e.message === "ANIMATOR_UNAVAILABLE") return res.json([]);
     handleError(res, e);
   }
 });
@@ -343,6 +344,7 @@ animatorRouter.get("/scenes/environments", (req: any, res) => {
     const presets = loadEnvironments();
     res.json(presets);
   } catch (e: any) {
+    if (e.message === "ANIMATOR_UNAVAILABLE") return res.json([]);
     res.status(500).json({ error: e.message });
   }
 });
@@ -355,6 +357,7 @@ animatorRouter.get("/scenes/scripts", (req: any, res) => {
     const scripts = loadScripts();
     res.json(scripts);
   } catch (e: any) {
+    if (e.message === "ANIMATOR_UNAVAILABLE") return res.json([]);
     res.status(500).json({ error: e.message });
   }
 });
@@ -480,8 +483,8 @@ animatorRouter.post("/scenes/voiceover", async (req: any, res) => {
       });
     } catch (genErr: any) {
       if (!isAdmin) {
-        const { refundCredits } = await import("../../db.ts");
-        await refundCredits(userPhone, VOICEOVER_COST);
+        const { restoreReservedGenerationCredits } = await import("../../db.ts");
+        await restoreReservedGenerationCredits(userPhone, VOICEOVER_COST);
       }
       return res.status(502).json({ error: genErr.message || "Failed to start Voiceover generation" });
     }

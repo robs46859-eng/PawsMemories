@@ -231,6 +231,7 @@ export default function AnimatorScreen({
   const webGL2 = useMemo(() => hasWebGL2(), []);
   const webCodecs = useMemo(() => hasWebCodecs(), []);
   const [contextLost, setContextLost] = useState(false);
+  const [actorLoadError, setActorLoadError] = useState(false);
   
   const [activeEnvId, setActiveEnvId] = useState<string>("");
   const [weather, setWeather] = useState<WeatherType>("clear");
@@ -389,8 +390,14 @@ export default function AnimatorScreen({
 
   // Load initial asset
   useEffect(() => {
+    setActorLoadError(false);
     if (initialAssetId) {
-      sceneController.addActor(initialAssetId).catch(console.error);
+      sceneController.addActor(initialAssetId).then((actorId) => {
+        if (!actorId) setActorLoadError(true);
+      }).catch((error) => {
+        console.error("[animator] initial actor load failed", error);
+        setActorLoadError(true);
+      });
     }
   }, [initialAssetId, sceneController]);
 
@@ -512,6 +519,11 @@ export default function AnimatorScreen({
   return (
     <AnimatorErrorBoundary hasWebGL2={webGL2} onClose={onClose}>
       <div className="fixed inset-0 z-50 bg-black text-white flex flex-col font-sans">
+          {actorLoadError && (
+            <div role="status" className="absolute top-16 left-1/2 -translate-x-1/2 z-20 rounded-xl bg-amber-500/90 px-4 py-2 text-sm text-black shadow-lg">
+              Couldn't load the selected model — the studio is still available
+            </div>
+          )}
           {/* Top Bar */}
           <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center z-10 bg-gradient-to-b from-black/80 to-transparent">
             <div className="flex items-center gap-4">

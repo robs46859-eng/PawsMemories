@@ -1081,11 +1081,21 @@ export async function getRunningJobs(): Promise<JobRow[]> {
   return rows as unknown as JobRow[];
 }
 
-export async function refundCredits(phone: string, amount: number): Promise<void> {
+/** Restore credits reserved by a failed generation. This is operational recovery,
+ * separate from user refund reviews and never accepts user/AI-selected amounts. */
+export async function restoreReservedGenerationCredits(phone: string, amount: number): Promise<void> {
+  if (!Number.isInteger(amount) || amount < 0) throw new Error("Invalid reserved credit amount");
   await getPool().query(
     `UPDATE users SET credits = credits + ? WHERE phone = ?`,
     [amount, phone]
   );
+}
+
+/** Refund-review disbursement primitive. Callers must be the refund service's
+ * deterministic auto-approve/admin paths; it is not a general route helper. */
+export async function refundCredits(phone: string, amount: number): Promise<void> {
+  if (!Number.isInteger(amount) || amount < 0) throw new Error("Invalid refund amount");
+  await getPool().query(`UPDATE users SET credits = credits + ? WHERE phone = ?`, [amount, phone]);
 }
 
 export async function setCreationVideoUrl(creationId: number, phone: string, videoUrl: string): Promise<boolean> {

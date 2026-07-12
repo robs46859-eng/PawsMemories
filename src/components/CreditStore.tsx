@@ -7,17 +7,17 @@ interface CreditPack {
   credits: number;
   price: number;
   label: string;
-  badge?: string;
   highlight?: boolean;
 }
 
 // NOTE: must stay in sync with CREDIT_PACKS in server.ts (authoritative pricing).
-// Bulk buys cost less per credit: $5→5.00¢, $10→4.55¢, $25→4.17¢, $50→3.85¢/cr.
+const CREDIT_RATE_USD = 0.10;
 const PACKS: CreditPack[] = [
-  { id: "pack_100",  credits: 100,  price: 5.0,   label: "Starter Pack",  badge: "2 Avatar styles" },
-  { id: "pack_220",  credits: 220,  price: 10.0,  label: "Popular Pack",  badge: "5 Avatar styles", highlight: true },
-  { id: "pack_600",  credits: 600,  price: 25.0,  label: "Pro Pack",       badge: "14 Avatar styles" },
-  { id: "pack_1300", credits: 1300, price: 50.0,  label: "Studio Pack",    badge: "30 Avatar styles + album" },
+  { id: "pack_100", credits: 100, price: 10, label: "Starter" },
+  { id: "pack_275", credits: 275, price: 25, label: "Creator", highlight: true },
+  { id: "pack_600", credits: 600, price: 50, label: "Pro" },
+  { id: "pack_1300", credits: 1300, price: 100, label: "Studio" },
+  { id: "pack_3500", credits: 3500, price: 250, label: "Enterprise" },
 ];
 
 interface CreditStoreProps {
@@ -26,7 +26,7 @@ interface CreditStoreProps {
 }
 
 export default function CreditStore({ onClose, currentCredits }: CreditStoreProps) {
-  const [selectedPack, setSelectedPack] = useState<string>("pack_220");
+  const [selectedPack, setSelectedPack] = useState<string>("pack_600");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -70,13 +70,6 @@ export default function CreditStore({ onClose, currentCredits }: CreditStoreProp
           </button>
         </div>
 
-        {/* What can you do banner */}
-        <div className="bg-primary/5 border border-primary/15 rounded-2xl px-4 py-3 mb-5 flex items-center gap-3">
-          <Sparkles size={16} className="text-primary shrink-0" />
-          <p className="text-xs text-primary leading-relaxed font-medium">
-            Credits power your <strong>AI Avatar</strong> features — every <strong>40 credits</strong> = 1 Avatar restyle. For photo &amp; video memories, use the <strong>Request a Memory</strong> form.
-          </p>
-        </div>
 
         {/* Pack grid */}
         <div className="grid grid-cols-2 gap-3 mb-5">
@@ -103,24 +96,13 @@ export default function CreditStore({ onClose, currentCredits }: CreditStoreProp
               )}
 
               <div className="text-xl font-black text-on-surface font-mono mb-0.5">{pack.credits}<span className="text-xs font-bold text-on-surface-variant ml-0.5">cr</span></div>
-              <div className="text-sm font-black text-primary font-mono">${pack.price}</div>
+              {(() => { const original = pack.credits * CREDIT_RATE_USD; const pct = Math.round((1 - pack.price / original) * 100); return <div className="text-sm font-black text-primary font-mono"><span className={pct > 0 ? "line-through opacity-60 mr-2" : ""}>{pct > 0 ? `$${original.toFixed(2)}` : ""}</span>${pack.price.toFixed(2)}{pct > 0 && <span className="ml-2 text-[9px] text-secondary">{pct}% off</span>}</div>; })()}
               <div className="text-[10px] text-on-surface-variant font-medium mt-1">{pack.label}</div>
-              {pack.badge && (
-                <div className="mt-2 px-2 py-0.5 bg-secondary/10 text-secondary text-[9px] font-bold rounded-full inline-block uppercase tracking-wide">
-                  {pack.badge}
-                </div>
-              )}
+
             </button>
           ))}
         </div>
 
-        {/* Per-credit rate */}
-        <div className="bg-surface-container rounded-xl px-4 py-2.5 flex justify-between items-center mb-5 border border-outline-variant/20">
-          <span className="text-xs text-on-surface-variant font-medium">Rate per credit</span>
-          <span className="text-xs font-black text-on-surface font-mono">
-            ${((selected.price / selected.credits) * 100).toFixed(2)}¢ / cr
-          </span>
-        </div>
 
         {error && (
           <div className="mb-4 p-3 bg-red-50 text-red-700 border border-red-200/50 rounded-xl text-xs">
@@ -137,7 +119,7 @@ export default function CreditStore({ onClose, currentCredits }: CreditStoreProp
           {loading ? (
             <><RefreshCw size={16} className="animate-spin" /> Connecting to Checkout...</>
           ) : (
-            <><ShoppingCart size={16} /> Buy {selected.credits} Credits — ${selected.price}</>
+            <><ShoppingCart size={16} /> Buy {selected.credits} Credits — ${selected.price.toFixed(2)}</>
           )}
         </button>
 

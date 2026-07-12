@@ -1,6 +1,9 @@
-/**
- * §6.7 — Empty shim used to alias IWER emulator packages out of the
- * production build. See vite.config.ts resolve.alias.
- */
+/** Production-only IWER emulator shim. */
+export class XRDevice {}
+export class DevUI {}
+export class SyntheticEnvironmentModule {}
+export const metaQuest3 = {};
+export const metaQuest2 = {};
+export const metaQuestPro = {};
+export const oculusQuest1 = {};
 export default {};
-export {};

@@ -47,6 +47,8 @@ export class AnimatorErrorBoundary extends React.Component<Props, State> {
           <p className="text-white/60 max-w-sm mb-8 text-sm leading-relaxed">
             {this.props.hasWebGL2 === false 
               ? "The Animation Studio requires a modern browser with WebGL2 support. Please try again on a desktop computer or a more recent device."
+              : this.state.error?.message.includes("ANIMATOR_ASSET_LOAD_FAILED")
+              ? "The selected model could not be imported. Please go back and choose another model."
               : "The Animation Studio ran out of memory or encountered a graphics error. Please try again or use a device with more memory."}
           </p>
           

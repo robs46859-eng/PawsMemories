@@ -33,6 +33,10 @@ export function createSceneController(): SceneController & { getScene(): THREE.S
       // Wait, the requirement says "addActor(assetId): load the GLB... return a fresh actorId".
       // Since it's unit testable, we might pass a direct URL in tests, or we could fetch the outputs.
       // Let's resolve the URL.
+      if (!assetId || typeof assetId !== "string") {
+        console.warn("[animator] addActor called with invalid assetId", assetId);
+        return "";
+      }
       let url = assetId;
       if (!url.startsWith("http") && !url.startsWith("/") && !url.startsWith("data:")) {
         // Fetch from API to get the first output URL, or fallback to originals
@@ -47,8 +51,10 @@ export function createSceneController(): SceneController & { getScene(): THREE.S
               const metaRes = await fetch(`/api/animator/assets/${assetId}`);
               if (metaRes.ok) {
                 const meta = await metaRes.json();
-                const safeOriginal = meta.originalFilename.replace(/[^a-zA-Z0-9_\-\.]/g, "");
-                url = `/animator-files/originals/${assetId}/${safeOriginal}`;
+                if (meta && typeof meta.originalFilename === "string" && meta.originalFilename) {
+                  const safeOriginal = meta.originalFilename.replace(/[^a-zA-Z0-9_\-\.]/g, "");
+                  url = `/animator-files/originals/${assetId}/${safeOriginal}`;
+                }
               }
             }
           }
@@ -58,7 +64,16 @@ export function createSceneController(): SceneController & { getScene(): THREE.S
         }
       }
 
-      const gltf = await loader.loadAsync(url);
+      if (!/^(https?:|\/|data:|file:)/.test(url)) {
+        console.warn("[animator] could not resolve asset URL", assetId);
+        return "";
+      }
+      let gltf;
+      try {
+        gltf = await loader.loadAsync(url);
+      } catch (error) {
+        throw new Error(`ANIMATOR_ASSET_LOAD_FAILED: ${assetId}`, { cause: error });
+      }
       const clonedScene = SkeletonUtils.clone(gltf.scene);
       
       const actorId = uuidv4();
