@@ -943,32 +943,18 @@ async function startServer() {
         "Leave quiet space for readable overlaid text. Warm, high-quality, family-friendly."
       ].filter(Boolean).join(" ");
 
-      let generatedImage = "";
+      // Use the SAME image generator as the model/avatar pipeline
+      // (generateImageWithFallback → GEMINI_IMAGE_MODELS chain) so Pawprints
+      // never depends on models that aren't enabled on the API key.
+      const imageParts: any[] = [];
       if (photoBase64) {
         const match = /^data:([^;]+);base64,([\s\S]+)$/i.exec(photoBase64);
         if (!match) throw new Error("Invalid image upload.");
-        const imageResponse = await ai.models.generateContent({
-          model: "gemini-2.0-flash-exp",
-          contents: { parts: [{ inlineData: { mimeType: match[1], data: match[2] } }, { text: imagePrompt }] },
-          config: { responseModalities: ["IMAGE", "TEXT"] },
-        });
-        for (const part of imageResponse.candidates?.[0]?.content?.parts || []) {
-          if (part.inlineData?.data) {
-            generatedImage = `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`;
-            break;
-          }
-        }
+        imageParts.push({ inlineData: { mimeType: match[1], data: match[2] } });
       }
-      if (!generatedImage) {
-        const imageResponse = await ai.models.generateImages({
-          model: "imagen-4.0-generate-001",
-          prompt: imagePrompt,
-          config: { numberOfImages: 1, outputMimeType: "image/jpeg", aspectRatio: "4:3" },
-        });
-        const bytes = imageResponse.generatedImages?.[0]?.image?.imageBytes;
-        if (!bytes) throw new Error("No Pawprint image generated.");
-        generatedImage = `data:image/jpeg;base64,${bytes}`;
-      }
+      imageParts.push({ text: imagePrompt });
+      const generatedImage = (await generateImageWithFallback(imageParts, "pawprint")) || "";
+      if (!generatedImage) throw new Error("No Pawprint image generated.");
 
       const bgMatch = /^data:([^;]+);base64,([\s\S]+)$/i.exec(generatedImage);
       if (!bgMatch) throw new Error("Generated image was not usable.");
@@ -981,11 +967,19 @@ async function startServer() {
           <text x="90" y="830" font-family="Arial, sans-serif" font-size="42" fill="#4b403c">${escapeXml(generatedText)}</text>
           <text x="90" y="925" font-family="Arial, sans-serif" font-size="28" fill="#7a6b64">Pawsome3D Pawprints</text>
         </svg>`;
-      const finalBuffer = await sharp(Buffer.from(bgMatch[2], "base64"))
-        .resize(1400, 1000, { fit: "cover" })
-        .composite([{ input: Buffer.from(overlay), top: 0, left: 0 }])
-        .png()
-        .toBuffer();
+      // Composite the text overlay with sharp. If sharp is unavailable/errors on
+      // the host, fall back to the un-composited generated image so we never 500.
+      let finalBuffer: Buffer;
+      try {
+        finalBuffer = await sharp(Buffer.from(bgMatch[2], "base64"))
+          .resize(1400, 1000, { fit: "cover" })
+          .composite([{ input: Buffer.from(overlay), top: 0, left: 0 }])
+          .png()
+          .toBuffer();
+      } catch (sharpErr) {
+        console.warn("[pawprints] sharp composite failed; using raw image:", (sharpErr as any)?.message || sharpErr);
+        finalBuffer = Buffer.from(bgMatch[2], "base64");
+      }
       const finalDataUrl = `data:image/png;base64,${finalBuffer.toString("base64")}`;
       const finalUrl = await uploadBase64Image(finalDataUrl, "pawprints");
       await recordStorageAddHot(req.user!.phone, finalBuffer.length);
