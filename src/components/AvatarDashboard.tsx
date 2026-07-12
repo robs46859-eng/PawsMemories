@@ -248,6 +248,7 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
             </div>
           )}
           <button
+            data-tour="avatar-create"
             onClick={() => setShowCreate(true)}
             className="flex items-center gap-2 bg-primary text-on-primary px-5 py-2.5 rounded-full text-xs font-black uppercase tracking-wider shadow-md hover:bg-primary/90 transition-all tactile-button"
           >
@@ -266,6 +267,7 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
             Generate your first 3D model! You can create fully animated humans and dogs, or generic objects.
           </p>
           <button
+            data-tour="avatar-create-first"
             onClick={() => setShowCreate(true)}
             className="bg-primary text-white px-6 py-3 rounded-full text-sm font-black uppercase tracking-wider shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all tactile-button"
           >

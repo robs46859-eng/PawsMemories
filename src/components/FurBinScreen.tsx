@@ -18,9 +18,16 @@ export default function FurBinScreen({ userProfile, onOpenCreditStore }: FurBinS
 
   return (
     <div className="w-full max-w-4xl mx-auto px-4 pt-6 pb-28 animate-fade-in">
-      <div className="flex items-center gap-3 mb-6">
+      <div data-tour="furbin-title" className="flex items-center gap-3 mb-6">
         <HardDrive size={22} className="text-primary" />
         <h1 className="text-xl font-extrabold text-on-surface">Fur Bin©️ — Storage</h1>
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new CustomEvent("randy:start-tour", { detail: { tourId: "manage_furbin" } }))}
+          className="ml-auto min-h-11 rounded-xl border border-primary/30 px-3 text-sm font-black text-primary"
+        >
+          Show me how
+        </button>
       </div>
 
       {/* Storage meter */}
@@ -36,7 +43,7 @@ export default function FurBinScreen({ userProfile, onOpenCreditStore }: FurBinS
 
       {/* Asset groups */}
       {(["Furball3D Models", "Animator/Videos", "Voice Clone Files", "Pawprints", "Uploads/References", "Memories/Albums"] as const).map((group) => (
-        <div key={group} className="glass-panel border border-outline-variant/40 rounded-2xl p-4 mb-3">
+        <div key={group} data-tour={group === "Voice Clone Files" ? "furbin-voice-files" : undefined} className="glass-panel border border-outline-variant/40 rounded-2xl p-4 mb-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-on-surface">{group}</h3>
             <span className="text-[10px] text-on-surface-variant font-mono">

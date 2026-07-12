@@ -4,6 +4,8 @@ import { authedFetch } from "../api";
 import { Screen, RandyAction, RandyHeadState } from "../types";
 import RandyHead, { RandyHeadRef } from "./RandyHead";
 import { speakText } from "../three/randyVisemes";
+import RandyWalkthrough from "./RandyWalkthrough";
+import { tours, type TourId } from "../randy/tours";
 
 interface Message {
   id: string;
@@ -32,6 +34,10 @@ function resolveScreen(screen?: string): Screen | null {
     PROFILE: Screen.PROFILE,
     ALBUMS: Screen.ALBUMS,
     ALBUM_VIEW: Screen.ALBUM_VIEW,
+    PAWPRINTS: Screen.PAWPRINTS,
+    PAWLISHER: Screen.PAWLISHER,
+    FURBIN: Screen.FURBIN,
+    REQUEST_MEMORY: Screen.REQUEST_MEMORY,
   };
   return map[screen] ?? null;
 }
@@ -56,6 +62,8 @@ export default function RandyChat({
   const [isLoading, setIsLoading] = useState(false);
   const [isMuted, setIsMuted] = useState(true); // Default muted (autoplay policy)
   const [headState, setHeadState] = useState<RandyHeadState>("idle");
+  const [activeTourId, setActiveTourId] = useState<TourId | null>(null);
+  const [highlightTour, setHighlightTour] = useState<any | null>(null);
 
   // Microphone / Speech Recognition status
   const [isListening, setIsListening] = useState(false);
@@ -83,6 +91,18 @@ export default function RandyChat({
       setHeadState("idle");
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    const onStartTour = (event: Event) => {
+      const tourId = (event as CustomEvent<{ tourId: TourId }>).detail?.tourId;
+      if (tourId && tours[tourId]) {
+        setActiveTourId(tourId);
+        setIsOpen(false);
+      }
+    };
+    window.addEventListener("randy:start-tour", onStartTour);
+    return () => window.removeEventListener("randy:start-tour", onStartTour);
+  }, []);
 
   // Set head to 'listen' state when speech recognition active
   useEffect(() => {
@@ -140,6 +160,25 @@ export default function RandyChat({
       case "open_credit_store":
         if (onOpenCreditStore) {
           onOpenCreditStore();
+        }
+        break;
+      case "start_tour": {
+        const tourId = action.tourId as TourId | undefined;
+        if (tourId && tours[tourId]) {
+          setActiveTourId(tourId);
+          setIsOpen(false);
+        }
+        break;
+      }
+      case "highlight":
+        if (action.target) {
+          setHighlightTour({
+            id: "highlight",
+            title: "Randy highlight",
+            screen: Screen.DASHBOARD,
+            steps: [{ target: action.target, title: "Look here", body: "This is the part Randy wanted to show you." }],
+          });
+          setIsOpen(false);
         }
         break;
       default:
@@ -245,7 +284,7 @@ export default function RandyChat({
       if (data.success && data.text) {
         const action: RandyAction | undefined =
           data.action && data.action.type !== "none"
-            ? { type: data.action.type, screen: data.action.screen }
+            ? { type: data.action.type, screen: data.action.screen, tourId: data.action.tourId, target: data.action.target }
             : undefined;
 
         setMessages((prev) => [
@@ -309,12 +348,23 @@ export default function RandyChat({
         return "Launch AR 🌟";
       case "open_credit_store":
         return "Open Credit Store";
+      case "start_tour":
+        return "Show me how";
+      case "highlight":
+        return "Show me";
       default:
         return "Take me there";
     }
   };
 
   return (
+    <>
+    {activeTourId && (
+      <RandyWalkthrough tour={tours[activeTourId]} onClose={() => setActiveTourId(null)} onNavigate={onNavigate} />
+    )}
+    {highlightTour && (
+      <RandyWalkthrough tour={highlightTour} onClose={() => setHighlightTour(null)} onNavigate={onNavigate} />
+    )}
     <div className="fixed bottom-22 right-5 z-55 flex flex-col items-end pointer-events-none">
 
       {/* Expanded chat window */}
@@ -479,5 +529,6 @@ export default function RandyChat({
         )}
       </button>
     </div>
+    </>
   );
 }

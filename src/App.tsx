@@ -410,7 +410,7 @@ export default function App() {
 
           <div className="hidden md:flex items-center gap-8">
             <button onClick={() => setCurrentScreen(Screen.DASHBOARD)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.DASHBOARD ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Home</button>
-            <button onClick={() => setCurrentScreen(Screen.MODELS)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.MODELS ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Furball3D©️</button>
+            <button data-tour="nav-models" onClick={() => setCurrentScreen(Screen.MODELS)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.MODELS ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Furball3D©️</button>
             <button onClick={() => setCurrentScreen(Screen.STORE)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.STORE ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Avatars-R-Us</button>
             <button onClick={() => setCurrentScreen(Screen.COMMUNITY)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.COMMUNITY ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Community</button>
             <button onClick={() => setCurrentScreen(Screen.PAWPRINTS)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.PAWPRINTS ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Pawprints</button>
@@ -456,6 +456,7 @@ export default function App() {
               </button>
               {/* Buy Credits button */}
               <button
+                data-tour="buy-credits"
                 onClick={() => setShowCreditStore(true)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm"
                 title="Buy more credits"
@@ -511,7 +512,7 @@ export default function App() {
                 <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.DASHBOARD ? "'FILL' 1" : "'FILL' 0" }}>home</span>
                 <span className="font-medium">Home</span>
               </button>
-              <button onClick={() => setCurrentScreen(Screen.MODELS)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${currentScreen === Screen.MODELS ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
+              <button data-tour="nav-models" onClick={() => setCurrentScreen(Screen.MODELS)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${currentScreen === Screen.MODELS ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
                 <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.MODELS ? "'FILL' 1" : "'FILL' 0" }}>pets</span>
                 <span className="font-medium">Furball3D©️</span>
               </button>
@@ -546,7 +547,7 @@ export default function App() {
             </nav>
             
             <div className="px-4 py-6 mt-auto border-t border-outline-variant/20 mx-4">
-              <button onClick={() => setCurrentScreen(Screen.MODELS)} className="w-full bg-primary text-on-primary py-3 rounded-lg font-bold hover:scale-[1.02] transition-transform active:scale-95 shadow-lg shadow-primary/20">
+              <button data-tour="avatar-create" onClick={() => setCurrentScreen(Screen.MODELS)} className="w-full bg-primary text-on-primary py-3 rounded-lg font-bold hover:scale-[1.02] transition-transform active:scale-95 shadow-lg shadow-primary/20">
                 Generate Model
               </button>
               <div className="mt-6 space-y-2">

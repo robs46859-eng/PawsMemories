@@ -49,9 +49,16 @@ export default function PawlisherScreen({ userProfile }: PawlisherScreenProps) {
 
   return (
     <div className="w-full max-w-4xl mx-auto px-4 pt-6 pb-28 animate-fade-in">
-      <div className="flex items-center gap-3 mb-6">
+      <div data-tour="pawlisher-title" className="flex items-center gap-3 mb-6">
         <Brush size={22} className="text-primary" />
         <h1 className="text-xl font-extrabold text-on-surface">Pawlisher Studio</h1>
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new CustomEvent("randy:start-tour", { detail: { tourId: "use_pawlisher" } }))}
+          className="ml-auto min-h-11 rounded-xl border border-primary/30 px-3 text-sm font-black text-primary"
+        >
+          Show me how
+        </button>
       </div>
       <p className="text-xs text-on-surface-variant mb-6">
         Pro 3D model workspace. Select a model below to edit lighting, posture, voice, and more.
@@ -107,7 +114,7 @@ export default function PawlisherScreen({ userProfile }: PawlisherScreenProps) {
         </p>
       </div>
 
-      <section className="glass-panel border border-outline-variant/40 rounded-3xl p-6 mb-6">
+      <section data-tour="pawlisher-voice" className="glass-panel border border-outline-variant/40 rounded-3xl p-6 mb-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 text-on-surface">

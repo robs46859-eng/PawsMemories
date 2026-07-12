@@ -87,9 +87,16 @@ export default function PawprintsScreen({ userProfile, onOpenCreditStore }: Pawp
 
   return (
     <div className="w-full max-w-3xl mx-auto px-4 pt-6 pb-28 animate-fade-in">
-      <div className="flex items-center gap-3 mb-6">
+      <div data-tour="pawprints-title" className="flex items-center gap-3 mb-6">
         <Sparkles size={22} className="text-primary" />
         <h1 className="text-xl font-extrabold text-on-surface">Pawprints — Digital Stationery</h1>
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new CustomEvent("randy:start-tour", { detail: { tourId: "make_pawprint" } }))}
+          className="ml-auto min-h-11 rounded-xl border border-primary/30 px-3 text-sm font-black text-primary"
+        >
+          Show me how
+        </button>
       </div>
       <p className="text-xs text-on-surface-variant mb-4">
         Create custom stationery from smart templates. Each creation costs <strong>1 pawprint token</strong>.
@@ -186,6 +193,7 @@ export default function PawprintsScreen({ userProfile, onOpenCreditStore }: Pawp
               )}
             </div>
             <button
+              data-tour="pawprints-create"
               onClick={createPawprint}
               disabled={generating || (userProfile.pawprintTokens || 0) < 1}
               className="mt-4 w-full py-3 bg-primary text-on-primary rounded-xl text-xs font-black uppercase tracking-wide hover:opacity-90 active:scale-95 transition-all cursor-pointer disabled:opacity-40 flex items-center justify-center gap-2"

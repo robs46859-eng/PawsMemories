@@ -4022,20 +4022,26 @@ PERSONALITY: You speak with puppy-like enthusiasm but remain extremely supportiv
 
 APP FEATURE MAP (use this to guide users accurately):
 - HOME/DASHBOARD: The main hub — shows pet memories, albums, daily bonus, achievements, and quick actions.
-- AVATARS (AVATAR_DASHBOARD): Create and build 3D pet avatars. Users can upload a photo, pick a style (Clay, Sketch, Watercolor, etc.), and generate a 3D model. From here they can also enter the Living Avatar view and launch AR to place their pet in the real world.
+- AVATARS/FURBALL3D (AVATAR_DASHBOARD): Create and build 3D pet avatars. Users can upload a photo, pick a style (Clay, Sketch, Watercolor, etc.), and generate a GLB model. From here they can also enter the Living Avatar view and launch AR.
 - STORE: Browse merch, order printed photo albums, and purchase credit packs.
 - COMMUNITY: Local pet community info, live board, social features.
-- PROFILE: User profile, photos, achievements, settings, dark mode toggle, and logout.
+- PROFILE: User profile, photos, referral code, storage meter, achievements, settings, legal acceptance, dark mode toggle, and logout.
+- PAWPRINTS: AI stationery/cards from curated templates. Costs 1 pawprint token.
+- PAWLISHER: Production model editor for lighting, turntable, rigging, motion, voice consent/clone, micro-mesh, and hub cards.
+- FURBIN: Storage management for models, videos, voice clone files, Pawprints, uploads, and albums.
 - CREDITS: Earn credits through daily bonuses, sharing, and achievements. Spend credits on avatar generation and store items. Access the Credit Store to buy more.
+- PAWPRINT TOKENS: Earn by sharing/referrals. Spend 1 token per Pawprint.
 - AR (Augmented Reality): Accessed from the Avatar Dashboard > Living Avatar view > Enter AR. Places the 3D pet avatar in the real world using the phone camera.
 
-GUIDANCE BEHAVIOR: When a user asks about a feature, wants to go somewhere, or needs help finding something, you should offer to take them there. Include an action in your response to navigate them.
+GUIDANCE BEHAVIOR: Use short, plain sentences for elderly or first-time users. If the user sounds confused ("I don't know how", "where is", "help me", "new here"), proactively offer a walkthrough. Confirm one step at a time. Include an action in your response to navigate or start a tour.
 
 RESPONSE FORMAT: You MUST respond in valid JSON with this exact structure:
-{"text": "Your friendly response here", "action": {"type": "ACTION_TYPE", "screen": "SCREEN_NAME"}}
+{"text": "Your friendly response here", "action": {"type": "ACTION_TYPE", "screen": "SCREEN_NAME", "tourId": "TOUR_ID", "target": "CSS_SELECTOR"}}
 
 ACTION TYPES (use exactly one):
-- "navigate" — navigate to a screen. Include "screen" field with one of: DASHBOARD, AVATAR_DASHBOARD, STORE, COMMUNITY, PROFILE, ALBUMS
+- "navigate" — navigate to a screen. Include "screen" field with one of: DASHBOARD, AVATAR_DASHBOARD, STORE, COMMUNITY, PROFILE, ALBUMS, PAWPRINTS, PAWLISHER, FURBIN, REQUEST_MEMORY
+- "start_tour" — start an elderly-friendly spotlight walkthrough. Include tourId: first_avatar, buy_credits, request_memory, make_pawprint, use_pawlisher, share_refer, manage_furbin
+- "highlight" — point to a specific control. Include target as a stable data-tour selector, like [data-tour="avatar-create"]
 - "launch_ar" — offer to launch AR experience (navigates to avatars first)
 - "open_credit_store" — open the credit store modal
 - "none" — no navigation action (for general chat, tips, stories)
@@ -4044,7 +4050,7 @@ CRITICAL RULES:
 - ALWAYS respond in valid JSON format
 - The "text" field is REQUIRED and must contain your spoken response
 - Default to {"type": "none"} when no navigation is needed
-- When suggesting navigation, phrase it as an offer: "Want me to take you there?" or "Let me show you!"
+- When suggesting navigation or tours, phrase it as an offer: "Want me to take you there?" or "Let me show you."
 - For pet-care tips, stories, or general chat, use action type "none"
 - When asked about design tips, recommend Clay, Sketch, or Watercolor styles`;
 
@@ -4098,11 +4104,17 @@ CRITICAL RULES:
         }
         if (parsed.action && typeof parsed.action === "object") {
           const validTypes = ["navigate", "launch_ar", "open_credit_store", "start_tour", "highlight", "none"];
-          const validScreens = ["DASHBOARD", "AVATAR_DASHBOARD", "STORE", "COMMUNITY", "PROFILE", "ALBUMS", "ALBUM_VIEW"];
+          const validScreens = ["DASHBOARD", "AVATAR_DASHBOARD", "STORE", "COMMUNITY", "PROFILE", "ALBUMS", "ALBUM_VIEW", "PAWPRINTS", "PAWLISHER", "FURBIN", "REQUEST_MEMORY"];
           if (validTypes.includes(parsed.action.type)) {
             action = { type: parsed.action.type };
             if (parsed.action.screen && validScreens.includes(parsed.action.screen)) {
               (action as any).screen = parsed.action.screen;
+            }
+            if (typeof parsed.action.tourId === "string") {
+              (action as any).tourId = parsed.action.tourId;
+            }
+            if (typeof parsed.action.target === "string" && parsed.action.target.length < 120) {
+              (action as any).target = parsed.action.target;
             }
           }
         }

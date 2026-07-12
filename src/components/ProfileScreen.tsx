@@ -323,7 +323,7 @@ export default function ProfileScreen({
 
       {/* Referral code */}
       {pData?.user?.referralCode && (
-        <section className="glass-panel border border-outline-variant/40 rounded-3xl p-6 mb-6">
+        <section data-tour="profile-referral" className="glass-panel border border-outline-variant/40 rounded-3xl p-6 mb-6">
           <div className="flex items-center gap-2 mb-3">
             <Share2 size={16} className="text-primary" />
             <h3 className="text-sm font-extrabold text-on-surface uppercase tracking-wide">Referral</h3>

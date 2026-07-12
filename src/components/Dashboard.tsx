@@ -58,6 +58,7 @@ export default function Dashboard({ userProfile, streak, dailyStreakClaimed, onC
 
         {/* Create Button — solid/opaque, navigates to the avatar builder */}
         <button
+          data-tour="dashboard-create"
           onClick={onCreate}
           onMouseEnter={() => setIsHoveringAR(true)}
           onMouseLeave={() => setIsHoveringAR(false)}

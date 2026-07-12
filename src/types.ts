@@ -24,6 +24,8 @@ export type RandyActionType = 'navigate' | 'launch_ar' | 'open_credit_store' | '
 export interface RandyAction {
   type: RandyActionType;
   screen?: string; // Screen enum value for 'navigate' actions
+  tourId?: string;
+  target?: string;
 }
 
 export type RandyHeadState = 'idle' | 'listen' | 'think' | 'talk' | 'happy';
