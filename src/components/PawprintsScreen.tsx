@@ -25,6 +25,9 @@ export default function PawprintsScreen({ userProfile, onOpenCreditStore }: Pawp
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
   const [generating, setGenerating] = useState(false);
   const [resultUrl, setResultUrl] = useState<string | null>(null);
+  const [fields, setFields] = useState<Record<string, string>>({});
+  const [fileNames, setFileNames] = useState<Record<string, string>>({});
+  const [error, setError] = useState("");
 
   useEffect(() => {
     fetch("/api/pawprints/templates")
@@ -43,6 +46,44 @@ export default function PawprintsScreen({ userProfile, onOpenCreditStore }: Pawp
   };
 
   const filtered = selectedCategory ? templates.filter((t) => t.category === selectedCategory) : [];
+  const readFile = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+  const createPawprint = async () => {
+    if (!selectedTemplate) return;
+    setGenerating(true);
+    setError("");
+    setResultUrl(null);
+    try {
+      const idempotencyKey = typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const res = await authedFetch("/api/pawprints/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify({
+          templateId: selectedTemplate.layoutId,
+          category: selectedTemplate.category,
+          layoutId: selectedTemplate.layoutId,
+          fields,
+          customName: fields.petName || fields.name || "",
+          customMessage: fields.message || "",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Could not create your Pawprint.");
+      setResultUrl(data.url);
+    } catch (err: any) {
+      setError(err.message || "Could not create your Pawprint.");
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   return (
     <div className="w-full max-w-3xl mx-auto px-4 pt-6 pb-28 animate-fade-in">
@@ -103,28 +144,60 @@ export default function PawprintsScreen({ userProfile, onOpenCreditStore }: Pawp
                 <div key={field.key}>
                   <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wide">{field.label}</label>
                   {field.type === "image" ? (
-                    <div className="mt-1 p-8 border-2 border-dashed border-outline-variant/40 rounded-xl text-center text-xs text-on-surface-variant hover:border-primary/40 transition-all cursor-pointer">
+                    <label className="block mt-1 p-8 border-2 border-dashed border-outline-variant/40 rounded-xl text-center text-xs text-on-surface-variant hover:border-primary/40 transition-all cursor-pointer">
                       <Camera size={20} className="mx-auto mb-1 text-primary" />
-                      Upload {field.label}
-                    </div>
+                      {fileNames[field.key] || `Upload ${field.label}`}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          if (!file.type.startsWith("image/")) {
+                            setError("Please choose an image file.");
+                            return;
+                          }
+                          const dataUrl = await readFile(file);
+                          setFields((prev) => ({ ...prev, [field.key]: dataUrl }));
+                          setFileNames((prev) => ({ ...prev, [field.key]: file.name }));
+                        }}
+                      />
+                    </label>
                   ) : (
                     <input
                       placeholder={field.label}
                       maxLength={field.maxLength || 200}
+                      value={fields[field.key] || ""}
+                      onChange={(e) => setFields((prev) => ({ ...prev, [field.key]: e.target.value }))}
                       className="w-full mt-1 p-2.5 rounded-xl border border-outline-variant/30 bg-surface-container text-xs text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-2 focus:ring-primary/40"
                     />
                   )}
                 </div>
               ))}
+              {error && <p className="text-xs font-bold text-error">{error}</p>}
+              {resultUrl && (
+                <div className="rounded-2xl border border-primary/30 bg-primary/5 p-3">
+                  <img src={resultUrl} alt="Generated Pawprint" className="w-full rounded-xl border border-outline-variant/30" />
+                  <a href={resultUrl} target="_blank" rel="noopener noreferrer" className="mt-3 min-h-11 rounded-xl bg-primary text-on-primary text-xs font-black uppercase tracking-wide flex items-center justify-center gap-2">
+                    <Download size={14} /> Open Pawprint
+                  </a>
+                </div>
+              )}
             </div>
             <button
-              onClick={() => setGenerating(true)}
+              onClick={createPawprint}
               disabled={generating || (userProfile.pawprintTokens || 0) < 1}
               className="mt-4 w-full py-3 bg-primary text-on-primary rounded-xl text-xs font-black uppercase tracking-wide hover:opacity-90 active:scale-95 transition-all cursor-pointer disabled:opacity-40 flex items-center justify-center gap-2"
             >
               {generating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
               {generating ? "Generating..." : `Create Pawprint (1 token)`}
             </button>
+            {(userProfile.pawprintTokens || 0) < 1 && (
+              <button type="button" onClick={onOpenCreditStore} className="mt-3 w-full py-3 rounded-xl border border-primary/30 text-primary text-xs font-black uppercase tracking-wide">
+                Get pawprint tokens
+              </button>
+            )}
           </div>
         </div>
       )}

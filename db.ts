@@ -685,6 +685,23 @@ export async function initDb(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS pawprint_assets (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_phone VARCHAR(32) NOT NULL,
+        idempotency_key VARCHAR(120) NOT NULL,
+        template_id VARCHAR(80) NOT NULL,
+        category VARCHAR(80) NOT NULL,
+        layout_id VARCHAR(80) NOT NULL,
+        image_url TEXT NOT NULL,
+        creation_id INT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_pawprint_request (user_phone, idempotency_key),
+        INDEX (user_phone),
+        FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
     // Email hygiene (guarded — must never abort init): normalize to lower-case,
     // then best-effort enforce uniqueness. The UNIQUE index only applies once any
     // legacy duplicate-email rows have been removed; until then it is skipped.
@@ -2366,11 +2383,20 @@ async function recordPawprintTxn(phone: string, delta: number, reason: string): 
 
 /** Grant pawprint tokens. Server-authoritative, fixed amounts only. */
 export async function grantPawprintTokens(phone: string, amount: number, reason: string): Promise<void> {
-  await getPool().query(
-    `UPDATE users SET pawprint_tokens = pawprint_tokens + ? WHERE phone = ?`,
-    [Math.abs(amount), phone]
-  );
-  await recordPawprintTxn(phone, Math.abs(amount), reason);
+  if (!Number.isInteger(amount) || amount === 0) throw new Error("Invalid pawprint token amount");
+  if (amount < 0) {
+    const [result] = await getPool().query(
+      `UPDATE users SET pawprint_tokens = pawprint_tokens + ? WHERE phone = ? AND pawprint_tokens >= ?`,
+      [amount, phone, Math.abs(amount)]
+    ) as any;
+    if (result.affectedRows !== 1) throw new Error("Insufficient pawprint tokens");
+  } else {
+    await getPool().query(
+      `UPDATE users SET pawprint_tokens = pawprint_tokens + ? WHERE phone = ?`,
+      [amount, phone]
+    );
+  }
+  await recordPawprintTxn(phone, amount, reason);
 }
 
 /** Deduct pawprint tokens if sufficient. */
