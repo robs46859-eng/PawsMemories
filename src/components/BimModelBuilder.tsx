@@ -4,8 +4,10 @@ import { Grid, OrbitControls } from "@react-three/drei";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import * as THREE from "three";
 import { Download, FileUp, Plus, Redo2, Trash2, Undo2, X } from "lucide-react";
-import { exportIfc, importIfc } from "../api";
-import { BIM_ELEMENT_TYPES, EMPTY_BIM_MODEL, bimHistoryReducer, snap, validateBimModel, type BimElement, type BimElementType } from "../bim/model";
+import { buildBim, importIfc, preflightBim } from "../api";
+import { BIM_ELEMENT_TYPES, EMPTY_BIM_MODEL, bimHistoryReducer, snap, type BimElement, type BimElementType } from "../bim/model";
+import { bimModelCost, type BimBuildMode } from "../pricing";
+import type { UserProfile } from "../types";
 
 const COLORS: Record<string, string> = { wall: "#c97545", slab: "#8b969c", roof: "#8a4937", opening: "#78a9c2", door: "#b07943", window: "#67b8cf", space: "#b7d59c", column: "#d4b15d", beam: "#d6a15e" };
 const IFC_COLORS: Record<string, string> = { IfcWall: "#c97545", IfcSlab: "#8b969c", IfcRoof: "#8a4937", IfcDoor: "#b07943", IfcWindow: "#67b8cf", IfcSpace: "#b7d59c", IfcColumn: "#d4b15d", IfcBeam: "#d6a15e" };
@@ -55,7 +57,7 @@ function base64Download(base64: string, filename: string, mime: string) {
   const link = document.createElement("a"); link.href = `data:${mime};base64,${base64}`; link.download = filename; link.click();
 }
 
-export default function BimModelBuilder({ onClose }: { onClose: () => void }) {
+export default function BimModelBuilder({ onClose, userProfile, onUpdateUser }: { onClose: () => void; userProfile: UserProfile; onUpdateUser: (user: UserProfile) => void }) {
   const [history, dispatch] = useReducer(bimHistoryReducer, { past: [], present: structuredClone(EMPTY_BIM_MODEL), future: [] });
   const [selected, setSelected] = useState("");
   const [filter, setFilter] = useState("all");
@@ -65,8 +67,13 @@ export default function BimModelBuilder({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("Author in meters, or import IFC2X3 / IFC4 / IFC4X3.");
   const [notes, setNotes] = useState("");
+  const [buildMode, setBuildMode] = useState<BimBuildMode>("shell");
+  const [preflight, setPreflight] = useState<any>(null);
+  const [postBuild, setPostBuild] = useState<any>(null);
   const selectedElement = imported?.sidecar?.elements?.find((item: any) => item.globalId === selected) || history.present.elements.find((item) => item.id === selected);
   const classes = useMemo(() => Array.from(new Set((imported?.sidecar?.elements || []).map((item: any) => item.class))) as string[], [imported]);
+  const price = bimModelCost(buildMode);
+  useEffect(() => { setPreflight(null); setPostBuild(null); }, [history.present, buildMode]);
 
   const addElement = (type: BimElementType) => {
     const index = history.present.elements.length + 1;
@@ -87,13 +94,26 @@ export default function BimModelBuilder({ onClose }: { onClose: () => void }) {
     } catch (error: any) { setMessage(error.message); } finally { setBusy(""); }
   };
 
-  const handleExport = async () => {
-    const errors = validateBimModel(history.present);
-    if (errors.length) return setMessage(errors.join(" "));
-    setBusy("Validating and exporting IFC4");
+  const handleVerify = async () => {
+    setBusy("Running pre-build verification");
     try {
-      const result = await exportIfc(history.present as any); base64Download(result.ifc_base64, `${history.present.name.replace(/\W+/g, "-")}.ifc`, "application/x-step");
-      setImported({ ...result, glbUrl: `data:model/gltf-binary;base64,${result.glb_base64}` }); setMessage(`IFC4 export passed round-trip validation with ${result.sidecar.elementCount} semantic elements.`);
+      const result = await preflightBim(history.present as any, buildMode); setPreflight(result.verification);
+      setMessage(result.verification.passed ? `Pre-build verification passed: ${result.verification.elementCount} elements and ${result.verification.levelCount} levels. Review warnings, then build.` : result.verification.errors.join(" "));
+    } catch (error: any) { setMessage(error.message); } finally { setBusy(""); }
+  };
+
+  const handleBuild = async () => {
+    if (!preflight?.passed) return setMessage("Run and pass pre-build verification first.");
+    if (!userProfile.isAdmin && userProfile.credits < price) return setMessage(`You need ${price} credits for this build.`);
+    setBusy(`Building and running post-build ${buildMode === "ifc" ? "IFC semantic" : "GLB accuracy"} verification`);
+    try {
+      const result = await buildBim(history.present as any, buildMode);
+      const filename = history.present.name.replace(/\W+/g, "-");
+      if (buildMode === "ifc") base64Download(result.ifc_base64, `${filename}.ifc`, "application/x-step");
+      else base64Download(result.glb_base64, `${filename}.glb`, "model/gltf-binary");
+      setPostBuild(result.postBuild); setImported({ ...result, sidecar: result.sidecar || { elements: [] }, glbUrl: `data:model/gltf-binary;base64,${result.glb_base64}` });
+      if (!userProfile.isAdmin && Number.isFinite(result.balance)) onUpdateUser({ ...userProfile, credits: result.balance });
+      setMessage(`${buildMode === "ifc" ? "IFC/BIM" : "Shell"} model passed post-build verification. ${price} credits charged.`);
     } catch (error: any) { setMessage(error.message); } finally { setBusy(""); }
   };
 
@@ -117,7 +137,10 @@ export default function BimModelBuilder({ onClose }: { onClose: () => void }) {
         <div className="absolute bottom-3 left-3 right-3 rounded-xl bg-white/90 p-3 text-xs shadow">{message}</div>
       </section>
       <aside className="border-l border-[#28302c]/15 p-4">
-        <div className="mb-3 flex gap-2"><button onClick={handleExport} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#234f46] px-3 py-3 text-xs font-black text-white"><Download size={15}/> Export IFC4</button>{selected && !imported && <button onClick={() => { dispatch({ type: "remove-element", id: selected }); setSelected(""); }} className="rounded-xl border border-red-300 p-3 text-red-700"><Trash2 size={16}/></button>}</div>
+        <h3 className="mb-2 text-xs font-black uppercase tracking-wider">Choose model type</h3>
+        <div className="mb-3 grid grid-cols-2 gap-2"><button onClick={() => setBuildMode("shell")} className={`rounded-xl border p-3 text-left ${buildMode === "shell" ? "border-[#c85d3b] bg-[#c85d3b]/10" : "bg-white"}`}><strong className="block text-sm">Shell</strong><span className="text-[10px]">Scaled visual GLB<br/>{bimModelCost("shell")} credits</span></button><button onClick={() => setBuildMode("ifc")} className={`rounded-xl border p-3 text-left ${buildMode === "ifc" ? "border-[#234f46] bg-[#234f46]/10" : "bg-white"}`}><strong className="block text-sm">IFC / BIM</strong><span className="text-[10px]">Semantic IFC4 + GLB<br/>{bimModelCost("ifc")} credits</span></button></div>
+        <div className="mb-3 rounded-xl border bg-white p-3 text-xs"><strong>Gate 1 · Before build</strong><p className={preflight?.passed ? "text-green-700" : "text-[#59655f]"}>{preflight ? preflight.passed ? "Passed" : "Failed" : "Not run"}</p>{preflight?.warnings?.map((warning: string) => <p key={warning} className="mt-1 text-amber-700">{warning}</p>)}<strong className="mt-2 block">Gate 2 · After build</strong><p className={postBuild?.passed ? "text-green-700" : "text-[#59655f]"}>{postBuild ? postBuild.passed ? `Passed · ${postBuild.format}` : "Failed and refunded" : "Runs after construction"}</p></div>
+        <div className="mb-3 flex gap-2"><button onClick={handleVerify} disabled={!!busy} className="flex-1 rounded-xl border border-[#234f46] px-3 py-3 text-xs font-black text-[#234f46] disabled:opacity-40">Verify before build</button><button onClick={handleBuild} disabled={!!busy || !preflight?.passed || (!userProfile.isAdmin && userProfile.credits < price)} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#234f46] px-3 py-3 text-xs font-black text-white disabled:opacity-40"><Download size={15}/> Build · {price} cr</button>{selected && !imported && <button onClick={() => { dispatch({ type: "remove-element", id: selected }); setSelected(""); }} className="rounded-xl border border-red-300 p-3 text-red-700"><Trash2 size={16}/></button>}</div>
         <label className="mb-3 block text-[11px] font-black uppercase">Visibility filter<select value={filter} onChange={(event) => setFilter(event.target.value)} className="mt-1 w-full rounded-lg border bg-white p-2 normal-case"><option value="all">All categories</option>{(imported ? classes : BIM_ELEMENT_TYPES).map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
         {imported && <label className="mb-4 flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={categoryColors} onChange={(event) => setCategoryColors(event.target.checked)}/> BIM category colors</label>}
         <h3 className="border-b pb-2 text-xs font-black uppercase tracking-wider">Selection</h3>

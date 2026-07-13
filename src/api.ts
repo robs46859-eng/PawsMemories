@@ -40,11 +40,20 @@ export async function importIfc(ifcBase64: string): Promise<any> {
   return res.json();
 }
 
-export async function exportIfc(model: Record<string, unknown>): Promise<any> {
-  const res = await authedFetch("/api/bim/export-ifc", {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model }),
+export async function preflightBim(model: Record<string, unknown>, mode: "shell" | "ifc"): Promise<any> {
+  const res = await authedFetch("/api/bim/preflight", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model, mode }),
   });
-  if (!res.ok) throw new Error(await parseError(res, "IFC export failed."));
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok && !data.verification) throw new Error(data.error || "Pre-build verification failed.");
+  return data;
+}
+
+export async function buildBim(model: Record<string, unknown>, mode: "shell" | "ifc"): Promise<any> {
+  const res = await authedFetch("/api/bim/build", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model, mode }),
+  });
+  if (!res.ok) throw new Error(await parseError(res, "Verified model build failed."));
   return res.json();
 }
 

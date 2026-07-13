@@ -575,7 +575,7 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
         </div>
       )}
       {refundAvatarId && <RefundReview avatarId={refundAvatarId} onClose={() => setRefundAvatarId(null)} />}
-      {showBimBuilder && <BimModelBuilder onClose={() => setShowBimBuilder(false)} />}
+      {showBimBuilder && <BimModelBuilder onClose={() => setShowBimBuilder(false)} userProfile={userProfile} onUpdateUser={onUpdateUser} />}
     </div>
   );
 }

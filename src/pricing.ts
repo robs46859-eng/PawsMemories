@@ -10,6 +10,8 @@ export const CREDIT_PRICES = {
   STATIC_3D_TEXT: 40,
   STATIC_3D_PHOTO: 45,
   RIGGED_3D_AVATAR: 80,
+  BIM_SHELL_MODEL: 60,
+  BIM_IFC_MODEL: 300,
   AVATAR_CLOTHING_VARIANT: 15,
   AVATAR_POSE_PACK: 10,
   AI_VOICE_30_SECONDS: 25,
@@ -54,6 +56,8 @@ export const SERVICE_PRICES: readonly ServicePrice[] = [
   { label: "Static 3D Object", credits: CREDIT_PRICES.STATIC_3D_TEXT, detail: "Text to GLB" },
   { label: "Static 3D Object", credits: CREDIT_PRICES.STATIC_3D_PHOTO, detail: "Photo to GLB" },
   { label: "Rigged 3D Avatar", credits: CREDIT_PRICES.RIGGED_3D_AVATAR },
+  { label: "Scaled Building Shell", credits: CREDIT_PRICES.BIM_SHELL_MODEL, detail: "GLB geometry without BIM semantics" },
+  { label: "IFC Building Information Model", credits: CREDIT_PRICES.BIM_IFC_MODEL, detail: "IFC4 + semantic GLB + verification" },
   { label: "Avatar Clothing Variant", credits: CREDIT_PRICES.AVATAR_CLOTHING_VARIANT, comingSoon: true },
   { label: "Avatar Pose Pack", credits: CREDIT_PRICES.AVATAR_POSE_PACK, comingSoon: true },
   { label: "AI Voice Generation", credits: CREDIT_PRICES.AI_VOICE_30_SECONDS, detail: "Up to 30 seconds" },
@@ -70,4 +74,9 @@ export const SERVICE_PRICES: readonly ServicePrice[] = [
 export function avatarGenerationCost(avatarType: "dog" | "human" | "object", inputMode: "image" | "text"): number {
   if (avatarType !== "object") return CREDIT_PRICES.RIGGED_3D_AVATAR;
   return inputMode === "text" ? CREDIT_PRICES.STATIC_3D_TEXT : CREDIT_PRICES.STATIC_3D_PHOTO;
+}
+
+export type BimBuildMode = "shell" | "ifc";
+export function bimModelCost(mode: BimBuildMode): number {
+  return mode === "ifc" ? CREDIT_PRICES.BIM_IFC_MODEL : CREDIT_PRICES.BIM_SHELL_MODEL;
 }

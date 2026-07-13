@@ -41,6 +41,13 @@ Exit gate: valid IFC converts and is selectable by GlobalId; invalid IFC fails c
 
 Exit gate: authored IFC4 reopens, retains semantic counts/relations, and renders as valid GLB.
 
+## Verification and Product Tiers
+
+Every paid build has two gates. The free pre-build gate validates topology, host relationships, positive dimensions, levels, warnings, and intended physical bounds. The server repeats it before charging. The post-build gate parses the delivered GLB and confirms serialized bounds for Shell models; IFC builds additionally reopen IFC4, verify semantic counts and GlobalIds, convert to GLB, and compare intended versus rendered dimensions. A failed post-build gate refunds the charge.
+
+- Shell model: 60 credits. Meter-scaled visual GLB without IFC/BIM semantics.
+- IFC/BIM model: 300 credits. IFC4, semantic sidecar, rendered GLB, and stronger round-trip verification.
+
 ## Library Decision
 
 Required: IfcOpenShell 0.8.5 and NumPy 2.2.1 in the worker. Existing Three.js, React Three Fiber, and glTF Transform dependencies cover browser rendering and GLB validation. Do not add `web-ifc` unless client-only/offline parsing becomes necessary; duplicating parsers now would increase bundle size and create semantic differences.

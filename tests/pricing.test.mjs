@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { avatarGenerationCost, CREDIT_PACKS, CREDIT_PRICES, REUSE_DISCOUNT } from "../src/pricing.ts";
+import { avatarGenerationCost, bimModelCost, CREDIT_PACKS, CREDIT_PRICES, REUSE_DISCOUNT } from "../src/pricing.ts";
 
 test("authoritative credit prices match the published catalog", () => {
   assert.equal(CREDIT_PRICES.PAWPRINT, 75);
@@ -20,6 +20,12 @@ test("avatar pricing is fixed by product type", () => {
 test("pawprint reuse applies the published 20% discount", () => {
   assert.equal(REUSE_DISCOUNT, 0.2);
   assert.equal(Math.round(CREDIT_PRICES.PAWPRINT * (1 - REUSE_DISCOUNT)), 60);
+});
+
+test("IFC BIM pricing is materially higher than a visual shell", () => {
+  assert.equal(bimModelCost("shell"), 60);
+  assert.equal(bimModelCost("ifc"), 300);
+  assert.ok(bimModelCost("ifc") >= bimModelCost("shell") * 5);
 });
 
 test("credit packs match the published wallet packages", () => {

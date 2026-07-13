@@ -272,6 +272,11 @@ def convert_ifc(input_path: str, output_path: str, sidecar_path: str | None = No
     document = validate_glb(str(output))
     if not document.get("meshes"):
         raise WorkerError("Converted GLB contains no meshes")
+    position_accessors = [item for item in document.get("accessors", []) if item.get("type") == "VEC3" and "min" in item and "max" in item]
+    if not position_accessors:
+        raise WorkerError("Converted GLB has no bounded position accessors")
+    glb_min = [min(item["min"][axis] for item in position_accessors) for axis in range(3)]
+    glb_max = [max(item["max"][axis] for item in position_accessors) for axis in range(3)]
     for element in report["elements"]:
         element["hasGeometry"] = element["globalId"] in converted
         if not element["hasGeometry"]:
@@ -281,6 +286,7 @@ def convert_ifc(input_path: str, output_path: str, sidecar_path: str | None = No
         "durationSec": time.monotonic() - started,
         "geometryFailures": [],
         "warnings": [],
+        "glbBounds": {"min": glb_min, "max": glb_max, "dimensions": [glb_max[i] - glb_min[i] for i in range(3)]},
     })
     if sidecar_path:
         sidecar = Path(sidecar_path).resolve()
@@ -302,7 +308,9 @@ def _box_geometry(model: Any, body: Any, product: Any, x: float, y: float, z: fl
         (0, 1, 2, 3), (4, 7, 6, 5), (0, 4, 5, 1),
         (1, 5, 6, 2), (2, 6, 7, 3), (3, 7, 4, 0),
     ]]
-    representation = ifcopenshell.api.geometry.add_mesh_representation(model, context=body, vertices=vertices, faces=faces, unit_scale=1)
+    # Let IfcOpenShell derive the project's unit scale. Passing 1 here treats SI
+    # dimensions as project units (for example 0.2 mm instead of 0.2 m).
+    representation = ifcopenshell.api.geometry.add_mesh_representation(model, context=body, vertices=vertices, faces=faces)
     ifcopenshell.api.geometry.assign_representation(model, product=product, representation=representation)
     matrix = np.eye(4)
     matrix[:3, 3] = [x, y, z]

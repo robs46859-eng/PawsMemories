@@ -44,6 +44,17 @@ class IfcWorkerTests(unittest.TestCase):
             self.assertEqual(inspected["schema"], "IFC4")
             self.assertEqual(inspected["entitiesByClass"]["IfcSpace"], 2)
             self.assertEqual(inspected["entitiesByClass"]["IfcOpeningElement"], 2)
+            glb = Path(temp) / "roundtrip.glb"
+            convert_ifc(str(output), str(glb))
+            document = validate_glb(str(glb))
+            accessors = document["accessors"]
+            position_accessors = [item for item in accessors if item.get("type") == "VEC3" and "min" in item and "max" in item]
+            mins = [min(item["min"][axis] for item in position_accessors) for axis in range(3)]
+            maxs = [max(item["max"][axis] for item in position_accessors) for axis in range(3)]
+            extents = sorted(maxs[axis] - mins[axis] for axis in range(3))
+            self.assertAlmostEqual(extents[0], 3.4, delta=0.05)
+            self.assertAlmostEqual(extents[1], 5.2, delta=0.05)
+            self.assertAlmostEqual(extents[2], 8.2, delta=0.05)
 
 if __name__ == "__main__":
     unittest.main()

@@ -35,7 +35,9 @@ import { checkBudget, needsRetargetFallback, type BakeStats } from "./server/rig
 import { registerSnapgenRoutes } from "./server/snapgen";
 import { SKELETON_CONTRACTS } from "./skeletonContract";
 import { TERMS_VERSION } from "./src/legal";
-import { avatarGenerationCost, CREDIT_PACKS, CREDIT_PRICES, REUSE_DISCOUNT } from "./src/pricing";
+import { avatarGenerationCost, bimModelCost, CREDIT_PACKS, CREDIT_PRICES, REUSE_DISCOUNT, type BimBuildMode } from "./src/pricing";
+import { preflightBimModel, type BimModel } from "./src/bim/model";
+import { buildAndVerifyShell } from "./server/bim/shell";
 import { buildReferencePrompt, turnaroundViewsForType, paletteLockClause, extractPaletteInstruction, buildTextPrompt, geometryToTripo, type TextPromptFields, type SubjectClass } from "./avatarPrompts";
 import { triageReferenceImage, triagePasses, correctiveFromTriage, friendlyQualifyError, isClassMismatch, classLabel, type TriageResult } from "./server/imageTriage";
 import { objectBuildProfile, humanRigHints } from "./server/subjectProfiles";
@@ -252,16 +254,75 @@ async function startServer() {
     }
   });
 
-  app.post("/api/bim/export-ifc", requireAuth, async (req: AuthedRequest, res) => {
+  app.post("/api/bim/preflight", requireAuth, async (req: AuthedRequest, res) => {
+    const mode = req.body?.mode as BimBuildMode;
+    if (!req.body?.model || !["shell", "ifc"].includes(mode)) return res.status(400).json({ error: "Choose Shell or IFC and provide a model." });
+    const verification = preflightBimModel(req.body.model as BimModel);
+    res.status(verification.passed ? 200 : 422).json({ verification, mode, price: bimModelCost(mode) });
+  });
+
+  app.post("/api/bim/build", requireAuth, async (req: AuthedRequest, res) => {
+    let creditsDebited = 0;
     try {
-      if (!req.body?.model || typeof req.body.model !== "object") return res.status(400).json({ error: "A BIM model is required." });
-      const result = await getBlenderClient().exportIfc(req.body.model);
-      res.json(result);
+      const mode = req.body?.mode as BimBuildMode;
+      if (!req.body?.model || typeof req.body.model !== "object" || !["shell", "ifc"].includes(mode)) return res.status(400).json({ error: "Choose Shell or IFC and provide a model." });
+      const model = req.body.model as BimModel;
+
+      // The server repeats preflight even when the UI already passed it. No charge or build occurs before this gate.
+      const preflight = preflightBimModel(model);
+      if (!preflight.passed) return res.status(422).json({ error: "Pre-build verification failed.", preflight });
+
+      const userPhone = req.user!.phone;
+      const isAdmin = await isUserAdmin(userPhone);
+      const price = bimModelCost(mode);
+      if (!isAdmin) {
+        const paid = await deductCredits(userPhone, price, `bim_${mode}_build`);
+        if (!paid) return res.status(402).json({ error: `You need ${price} credits for this ${mode === "ifc" ? "IFC/BIM model" : "Shell model"}.`, price });
+        creditsDebited = price;
+      }
+
+      if (mode === "shell") {
+        const shell = await buildAndVerifyShell(model);
+        return res.json({ success: true, mode, price, preflight, postBuild: shell.verification, glb_base64: shell.glbBase64, balance: await getCreditBalance(userPhone) });
+      }
+
+      const result = await getBlenderClient().exportIfc(model as any);
+      const semanticElements = result.sidecar?.elements || [];
+      const intendedDimensions = preflight.bounds
+        ? preflight.bounds.max.map((value, axis) => value - preflight.bounds!.min[axis]).sort((a, b) => a - b)
+        : [];
+      const builtDimensions = [...(result.sidecar?.glbBounds?.dimensions || [])].sort((a: number, b: number) => a - b);
+      const dimensionsWithinTolerance = intendedDimensions.length === 3 && builtDimensions.length === 3
+        && intendedDimensions.every((value, axis) => Math.abs(builtDimensions[axis] - value) <= Math.max(0.25, value * 0.02));
+      const postBuild = {
+        stage: "post-build",
+        format: "ifc4-bim",
+        passed: result.exportReport?.schema === "IFC4"
+          && result.exportReport?.exportedElementCount === model.elements.length
+          && result.sidecar?.elementCount === model.elements.length
+          && semanticElements.every((item: any) => item.globalId)
+          && dimensionsWithinTolerance,
+        schema: result.exportReport?.schema,
+        elementCount: result.sidecar?.elementCount,
+        globalIdsVerified: semanticElements.filter((item: any) => item.globalId).length,
+        geometryElements: semanticElements.filter((item: any) => item.hasGeometry).length,
+        sourceHash: result.sidecar?.sourceHash,
+        intendedDimensions,
+        builtDimensions,
+        dimensionsWithinTolerance,
+      };
+      if (!postBuild.passed) throw new Error("IFC failed post-build semantic verification");
+      res.json({ ...result, mode, price, preflight, postBuild, balance: await getCreditBalance(userPhone) });
     } catch (err: any) {
-      console.error("[BIM] IFC export failed:", err.message);
-      res.status(422).json({ error: err.message || "IFC export failed." });
+      if (creditsDebited > 0) {
+        try { await restoreReservedGenerationCredits(req.user!.phone, creditsDebited); creditsDebited = 0; } catch (refundError) { console.error("[BIM] refund failed:", refundError); }
+      }
+      console.error("[BIM] verified build failed:", err.message);
+      res.status(422).json({ error: `${err.message || "Model build failed."} Credits were returned.` });
     }
   });
+
+  app.post("/api/bim/export-ifc", requireAuth, (_req, res) => res.status(410).json({ error: "Use the verified BIM build flow." }));
 
   const authLimiter = rateLimit({ windowMs: 60 * 1000, max: 10, message: { error: "Too many requests from this IP, please try again after a minute" } });
   app.use("/api/auth/login", authLimiter);
