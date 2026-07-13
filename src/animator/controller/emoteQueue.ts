@@ -19,6 +19,7 @@ import * as THREE from "three";
 import type { LayeredAnimationController } from "./createAnimationController.ts";
 import type { AnimationLayer } from "../types.ts";
 import type { EmoteEntry, EmotePlaying } from "./layers.ts";
+import { resolveMask } from "./animationSets.ts";
 
 // ──────────────────────────────────────────────────────────────────────
 // EmoteQueue
@@ -31,6 +32,8 @@ export interface EmoteQueueOptions {
   defaultCooldownSec?: number;
   /** Minimum gap between identical clips to avoid repetition. */
   minRepeatGapSec?: number;
+  /** AnimationSetV2 key used to resolve declared overlay masks. */
+  setType?: string;
 }
 
 export class EmoteQueue {
@@ -39,16 +42,19 @@ export class EmoteQueue {
   private controller: LayeredAnimationController;
   private lastPlayedClip: string | null = null;
   private lastPlayedAt: number = 0;
+  private playingElapsedSec = 0;
 
   private readonly defaultHoldSec: number;
   private readonly defaultCooldownSec: number;
   private readonly minRepeatGapSec: number;
+  private readonly setType: string;
 
   constructor(controller: LayeredAnimationController, opts?: EmoteQueueOptions) {
     this.controller = controller;
     this.defaultHoldSec = opts?.defaultHoldSec ?? 2;
     this.defaultCooldownSec = opts?.defaultCooldownSec ?? 5;
     this.minRepeatGapSec = opts?.minRepeatGapSec ?? 3;
+    this.setType = opts?.setType ?? "quadruped";
   }
 
   /**
@@ -106,11 +112,11 @@ export class EmoteQueue {
    * or interrupt the current one if the front-of-queue has higher priority.
    */
   tick(dt: number): void {
+    if (this.playing) this.playingElapsedSec += Math.max(0, dt);
     if (!this.queue.length) {
       // Nothing in queue; check if an emote has finished
       if (this.playing) {
-        const elapsed = (performance.now() - this.playing.startTime) / 1000;
-        if (elapsed >= this.playing.entry.holdSec) {
+        if (this.playingElapsedSec >= this.playing.entry.holdSec) {
           this.finishEmote();
         }
       }
@@ -134,8 +140,7 @@ export class EmoteQueue {
     }
 
     // Check if current emote has finished
-    const elapsed = (performance.now() - this.playing.startTime) / 1000;
-    if (elapsed >= this.playing.entry.holdSec) {
+    if (this.playingElapsedSec >= this.playing.entry.holdSec) {
       this.finishEmote();
       // Start next if any
       if (this.queue.length > 0) {
@@ -160,6 +165,7 @@ export class EmoteQueue {
     if (this.playing) {
       this.playing.action?.stop();
       this.playing = null;
+      this.playingElapsedSec = 0;
     }
   }
 
@@ -175,7 +181,13 @@ export class EmoteQueue {
     this.lastPlayedClip = entry.clip;
     this.lastPlayedAt = Date.now();
 
-    const action = this.controller.getClipAction(entry.clip);
+    this.controller.playOverlay(entry.clip, {
+      layer: entry.layer === "L1" ? "L1" : undefined,
+      holdSec: entry.holdSec,
+      mask: resolveMask(this.setType, entry.clip) ?? undefined,
+      additive: true,
+    });
+    const action = this.controller.getLayerAction(entry.layer);
     if (!action) return;
 
     const playing: EmotePlaying = {
@@ -184,18 +196,19 @@ export class EmoteQueue {
       action,
     };
 
-    action.reset();
     action.setLoop(THREE.LoopOnce, Infinity);
     action.clampWhenFinished = true;
     action.paused = false;
     action.play();
 
     this.playing = playing;
+    this.playingElapsedSec = 0;
   }
 
   private finishEmote(): void {
     if (!this.playing) return;
     this.playing.action?.stop();
     this.playing = null;
+    this.playingElapsedSec = 0;
   }
 }

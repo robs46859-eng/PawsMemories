@@ -234,3 +234,16 @@ export function resolveMask(
     ?? set.masks[`${clipName}_no_spine`]
     ?? null;
 }
+
+/** Resolve normalized gait contact markers for phase-synchronized blending. */
+export function resolvePhaseMarkers(
+  setType: string,
+  clipName: string,
+): number[] {
+  const markers = getAnimationSetV2(setType)?.phaseMarkers[clipName] ?? [0];
+  const normalized = markers
+    .map((marker) => marker >= 0 && marker < 1 ? marker : ((marker % 1) + 1) % 1)
+    .filter((marker, index, values) => values.indexOf(marker) === index)
+    .sort((a, b) => a - b);
+  return normalized.length > 0 ? normalized : [0];
+}

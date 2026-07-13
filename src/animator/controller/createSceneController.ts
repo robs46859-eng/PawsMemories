@@ -2,8 +2,10 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 import { v4 as uuidv4 } from "uuid";
-import type { SceneController, SceneActor, AnimationController, AssetId } from "../types.ts";
-import { createAnimationController } from "./createAnimationController.ts";
+import type { SceneController, SceneActor, AssetId } from "../types.ts";
+import type { AvatarNeeds, BehaviorAction } from "../../types.ts";
+import { createAnimationController, type LayeredAnimationController } from "./createAnimationController.ts";
+import { BehaviorEmoteBridge } from "./behaviorEmotes.ts";
 import { ANIMATOR_DEFAULTS } from "../defaults.ts";
 import { buildLegIK, headLookAt, pelvisHeightFromPaws } from "../../three/ar/ik.ts";
 import { authedFetch } from "../../api.ts";
@@ -13,7 +15,8 @@ export function createSceneController(): SceneController & { getScene(): THREE.S
   const loader = new GLTFLoader();
   
   const actors = new Map<string, SceneActor>();
-  const controllers = new Map<string, AnimationController>();
+  const controllers = new Map<string, LayeredAnimationController>();
+  const behaviorBridges = new Map<string, BehaviorEmoteBridge>();
   const objectRoots = new Map<string, THREE.Object3D>();
   const ikRigs = new Map<string, any>(); // LegIKRig
   
@@ -118,6 +121,7 @@ export function createSceneController(): SceneController & { getScene(): THREE.S
       const controller = createAnimationController(clonedScene, gltf.animations);
       controller.setSpeed(globalSpeed);
       controllers.set(actorId, controller);
+      behaviorBridges.set(actorId, new BehaviorEmoteBridge(controller));
       
       // Auto-pick idle clip
       const clips = controller.listClips();
@@ -143,6 +147,8 @@ export function createSceneController(): SceneController & { getScene(): THREE.S
     },
     
     removeActor(actorId: string) {
+      behaviorBridges.get(actorId)?.dispose();
+      behaviorBridges.delete(actorId);
       const controller = controllers.get(actorId);
       if (controller) {
         controller.dispose();
@@ -175,6 +181,10 @@ export function createSceneController(): SceneController & { getScene(): THREE.S
     
     getActorRoot(actorId: string) {
       return objectRoots.get(actorId);
+    },
+
+    setActorBehavior(actorId: string, action: BehaviorAction, needs: AvatarNeeds) {
+      behaviorBridges.get(actorId)?.sync(action, needs);
     },
     
     applyIK(actorId: string, options: { groundIK: boolean, lookAtCamera: boolean, cameraPosition?: THREE.Vector3 }) {
@@ -240,6 +250,7 @@ export function createSceneController(): SceneController & { getScene(): THREE.S
     
     update(delta: number) {
       for (const ctrl of controllers.values()) ctrl.update(delta);
+      for (const bridge of behaviorBridges.values()) bridge.update(delta);
     },
     
     dispose() {

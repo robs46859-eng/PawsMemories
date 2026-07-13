@@ -17,6 +17,7 @@ import * as THREE from "three";
 
 import { createAnimationController } from "../src/animator/controller/createAnimationController.ts";
 import { EmoteQueue } from "../src/animator/controller/emoteQueue.ts";
+import { BehaviorEmoteBridge } from "../src/animator/controller/behaviorEmotes.ts";
 import { createBlendSpace, applyBlendState } from "../src/animator/controller/blendSpace.ts";
 import {
   QUADRUPED_SET,
@@ -110,11 +111,11 @@ function createSkeleton() {
 /**
  * Create a clip with tracks targeting specific bones in the skeleton.
  */
-function makeClip(name, trackData) {
+function makeClip(name, trackData, duration = 2) {
   const tracks = trackData.map((d) => {
-    return new THREE.VectorKeyframeTrack(`${d.node}.position`, [0, 1], [d.x1, d.y1, d.z1, d.x2, d.y2, d.z2]);
+    return new THREE.VectorKeyframeTrack(`${d.node}.position`, [0, duration], [d.x1, d.y1, d.z1, d.x2, d.y2, d.z2]);
   });
-  return new THREE.AnimationClip(name, 2, tracks);
+  return new THREE.AnimationClip(name, duration, tracks);
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -504,6 +505,106 @@ test("ANIM-RUN-02 — applyBlendState sets action weights", async (t) => {
 
     ctrl.dispose();
   });
+});
+
+test("ANIM-RUN-02 — marker synchronization and blended lifecycle", async (t) => {
+  await t.test("declared contact markers align clips with different durations", () => {
+    const { root } = createSkeleton();
+    const walk = makeClip("walk", [
+      { node: "hip", x1: 0, y1: 0, z1: 0, x2: 0.2, y2: 0.2, z2: 0 },
+    ], 2);
+    const run = makeClip("run", [
+      { node: "hip", x1: 0, y1: 0, z1: 0, x2: 0.4, y2: 0.4, z2: 0 },
+    ], 1);
+    const ctrl = createAnimationController(root, [walk, run]);
+    const blend = createBlendSpace("quadruped", ctrl, {
+      phaseMarkers: { walk: [0, 0.5], run: [0.1, 0.6] },
+    });
+
+    const state = blend(0.7, 0);
+    applyBlendState(ctrl, state);
+
+    assert.deepStrictEqual(state.referenceMarkers, [0.1, 0.6]);
+    assert.ok(Math.abs(ctrl.getClipAction("run").time - 0.1) < 1e-8,
+      "dominant run should land on its declared contact marker");
+    assert.ok(Math.abs(ctrl.getClipAction("walk").time) < 1e-8,
+      "walk should map the corresponding contact to its own marker");
+
+    applyBlendState(ctrl, blend(0.7, 0.1));
+    const runIntervalProgress = (ctrl.getClipAction("run").time - 0.1) / 0.5;
+    const walkIntervalProgress = (ctrl.getClipAction("walk").time / 2) / 0.5;
+    assert.ok(Math.abs(runIntervalProgress - walkIntervalProgress) < 1e-8,
+      "both clips should preserve progress through corresponding contact intervals");
+    ctrl.dispose();
+  });
+
+  await t.test("pause, play, stop, reset, and dispose cover every weighted action", () => {
+    const { root } = createSkeleton();
+    const idle = makeClip("idle", [
+      { node: "hip", x1: 0, y1: 0, z1: 0, x2: 0, y2: 0.1, z2: 0 },
+    ]);
+    const walk = makeClip("walk", [
+      { node: "hip", x1: 0, y1: 0, z1: 0, x2: 0.2, y2: 0.2, z2: 0 },
+    ]);
+    const ctrl = createAnimationController(root, [idle, walk]);
+    const state = createBlendSpace("quadruped", ctrl)(0.25, 0.1);
+    applyBlendState(ctrl, state);
+    const actions = [ctrl.getClipAction("idle"), ctrl.getClipAction("walk")];
+
+    assert.ok(actions.every((action) => action?.isRunning()), "both weighted actions should run");
+    ctrl.pause();
+    assert.ok(actions.every((action) => action?.paused), "pause should reach both weighted actions");
+    ctrl.play();
+    assert.ok(actions.every((action) => !action?.paused && action?.isRunning()), "play should resume both actions");
+    ctrl.stop();
+    assert.ok(actions.every((action) => !action?.isRunning()), "stop should stop both actions");
+
+    applyBlendState(ctrl, state);
+    ctrl.resetToBindPose();
+    assert.ok(actions.every((action) => !action?.isRunning()), "reset should stop both actions");
+
+    applyBlendState(ctrl, state);
+    ctrl.dispose();
+    assert.ok(actions.every((action) => !action?.isRunning()), "dispose should stop both actions");
+  });
+});
+
+test("ANIM-RUN-03 — live behavior/needs bridge", () => {
+  const { root } = createSkeleton();
+  const walk = makeClip("walk", [
+    { node: "hip", x1: 0, y1: 0, z1: 0, x2: 0.2, y2: 0.2, z2: 0 },
+  ]);
+  const tailWave = makeClip("tail_wave", [
+    { node: "tail.01", x1: 0, y1: 0, z1: 0, x2: 0.5, y2: 0, z2: 0 },
+    { node: "hip", x1: 0, y1: 0, z1: 0, x2: 10, y2: 10, z2: 10 },
+  ]);
+  const ctrl = createAnimationController(root, [walk, tailWave]);
+  const bridge = new BehaviorEmoteBridge(ctrl);
+  ctrl.selectClip("walk", 0);
+
+  const accepted = bridge.sync("idle", {
+    food: 80,
+    water: 80,
+    energy: 90,
+    bladder: 20,
+    bowel: 15,
+    happiness: 85,
+    lastSeen: new Date(0).toISOString(),
+  });
+  bridge.update(0.016);
+  ctrl.update(0.5);
+
+  assert.strictEqual(accepted, true, "happy idle behavior should enqueue idle life");
+  assert.strictEqual(bridge.getPlayingClip(), "tail_wave");
+  assert.ok(ctrl.getClipAction("walk").isRunning(), "L0 locomotion must continue under the emote");
+  assert.ok(ctrl.getLayerAction("L1").isRunning(), "derived L1 emote must run concurrently");
+  assert.notStrictEqual(root.getObjectByName("hip").position.y, 0, "locomotion should animate the hip");
+  assert.notStrictEqual(root.getObjectByName("tail.01").position.x, 0, "emote should animate the tail");
+  assert.ok(root.getObjectByName("hip").position.x < 1,
+    "the declared tail mask must suppress the emote's conflicting hip track");
+
+  bridge.dispose();
+  ctrl.dispose();
 });
 
 // ──────────────────────────────────────────────────────────────────────

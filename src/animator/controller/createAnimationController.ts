@@ -51,12 +51,16 @@ function createFilteredClip(
   clip: THREE.AnimationClip,
   mask: string[]
 ): THREE.AnimationClip {
-  const maskSet = new Set(mask);
+  const matchesMask = (nodePath: string) => mask.some((pattern) => {
+    if (!pattern.includes("*")) return pattern === nodePath;
+    const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replaceAll("*", ".*");
+    return new RegExp(`^${escaped}$`).test(nodePath);
+  });
   const filteredTracks = clip.tracks.filter((track) => {
     // Extract bone name: everything before the last dot (e.g. "tail.01.position" → "tail.01")
     const lastDot = track.name.lastIndexOf(".");
     const nodePath = lastDot > 0 ? track.name.slice(0, lastDot) : track.name;
-    return maskSet.has(nodePath) || maskSet.has(track.name);
+    return matchesMask(nodePath) || matchesMask(track.name);
   });
   return new THREE.AnimationClip(
     clip.name + "_masked",
@@ -94,15 +98,19 @@ export interface LayeredAnimationController extends AnimationController {
   /** Register a clip before playback. */
   addClip(clip: THREE.AnimationClip): void;
   /** Select a clip on a specific layer (L0 exclusive, L1–L3 concurrent). */
-  selectLayeredClip(name: string, opts?: { layer?: "L0" | "L1" | "L2" | "L3"; fadeSec?: number }): void;
+  selectLayeredClip(name: string, opts?: { layer?: "L0" | "L1" | "L2" | "L3"; fadeSec?: number; mask?: string[]; additive?: boolean }): void;
   /** Play a one-shot on any layer (overrides same-priority + lower). */
-  playOverlay(name: string, opts?: { layer?: "L1"; fadeSec?: number; holdSec: number; priority?: number }): void;
+  playOverlay(name: string, opts?: { layer?: "L1"; fadeSec?: number; holdSec?: number; priority?: number; mask?: string[]; additive?: boolean }): void;
   /** Get the action for a clip name (useful for manual tweens). */
   getClipAction(name: string): THREE.AnimationAction | null;
+  /** Get the derived action currently assigned to a layer. */
+  getLayerAction(layer: "L0" | "L1" | "L2" | "L3"): THREE.AnimationAction | null;
   /** Manually suppress/restore a bone mask on the given layer. */
   setBoneMask(layer: "L0" | "L1" | "L2" | "L3", mask: string[]): void;
   /** List active layers and their names. */
   listActiveLayers(): { layer: string; clipName: string }[];
+  /** Atomically apply every active L0 blend action and retire stale ones. */
+  setLocomotionBlend(entries: { clipName: string; weight: number; timeSec: number }[]): void;
 }
 
 /**
@@ -144,6 +152,7 @@ export function createAnimationController(
 
   // Tracks for masking
   const boneMasks = new Map<string, string[] | null>(); // layer → mask or null
+  const locomotionBlendActions = new Set<THREE.AnimationAction>();
 
   // ── helpers ────────────────────────────────────────────────────────
 
@@ -165,17 +174,32 @@ export function createAnimationController(
     mask?: string[],
     additive?: boolean
   ): void {
-    const action = actions.get(name);
-    if (!action) return;
+    const sourceAction = actions.get(name);
+    if (!sourceAction) return;
 
     const state = layerStates[layer];
     if (!state) return;
 
-    // If this is the same clip already playing on this layer, just resume
+    // If this is the same clip already playing on this layer, just resume.
     if (state.name === name && state.action) {
       state.action.paused = false;
+      state.action.play();
       return;
     }
+
+    let runtimeClip = sourceAction.getClip();
+    if (mask?.length) {
+      boneMasks.set(layer, mask);
+      runtimeClip = createFilteredClip(runtimeClip, mask);
+      state.maskClips.set(layer, runtimeClip);
+    }
+    if (additive && layer !== "L0") runtimeClip = makeClipAdditiveProper(runtimeClip);
+    const action = runtimeClip === sourceAction.getClip()
+      ? sourceAction
+      : mixer.clipAction(runtimeClip);
+    action.clampWhenFinished = true;
+    action.loop = sourceAction.loop;
+    state.clipAdditive = Boolean(additive && layer !== "L0");
 
     // If there's an existing action on this layer, handle cross-fade
     if (state.action) {
@@ -191,7 +215,7 @@ export function createAnimationController(
         state.name = name;
         state.action.time = 0;
         state.action.paused = false;
-        action.play(); // start the new action
+        action.play();
 
         // Cross-fade: old action fades out, new action fades in
         prev.crossFadeTo(action, fadeSec, true);
@@ -202,7 +226,7 @@ export function createAnimationController(
         state.name = name;
         state.action.time = 0;
         state.action.paused = false;
-        action.play(); // start the new action
+        action.play();
       }
     } else {
       // No clip playing on this layer — just start
@@ -210,26 +234,7 @@ export function createAnimationController(
       state.name = name;
       state.action.time = 0;
       state.action.paused = false;
-      action.play(); // MUST call play() to start the clip
-
-      // Apply mask if specified (create filtered clone)
-      if (mask) {
-        boneMasks.set(layer, mask);
-        const clip = action.getClip();
-        const filtered = createFilteredClip(clip, mask);
-        const maskedAction = mixer.clipAction(filtered);
-        maskedAction.time = 0;
-        maskedAction.play();
-        action.stop(); // stop the original — we only want the filtered clip
-        state.action = maskedAction;
-        state.name = name + "_masked";
-        state.maskClips.set(layer, filtered);
-      }
-
-      // Mark as additive if requested
-      if (additive) {
-        state.clipAdditive = true;
-      }
+      action.play();
     }
   }
 
@@ -282,12 +287,12 @@ export function createAnimationController(
 
   function playOverlay(
     name: string,
-    opts?: { layer?: "L1"; fadeSec?: number; holdSec: number; priority?: number; additive?: boolean }
+    opts?: { layer?: "L1"; fadeSec?: number; holdSec?: number; priority?: number; mask?: string[]; additive?: boolean }
   ) {
     const layer = opts?.layer ?? "L1";
     const fadeSec = opts?.fadeSec ?? 0.15;
     const additive = opts?.additive ?? true; // overlays default to additive
-    playClipOnLayer(name, layer, fadeSec, undefined, additive);
+    playClipOnLayer(name, layer, fadeSec, opts?.mask, additive);
   }
 
   function play(): void {
@@ -299,6 +304,10 @@ export function createAnimationController(
         state.action.play();
       }
     }
+    for (const action of locomotionBlendActions) {
+      action.paused = false;
+      action.play();
+    }
   }
 
   function pause(): void {
@@ -308,6 +317,7 @@ export function createAnimationController(
         state.action.paused = true;
       }
     }
+    for (const action of locomotionBlendActions) action.paused = true;
   }
 
   function stop(): void {
@@ -322,6 +332,8 @@ export function createAnimationController(
         state.crossFadeProgress = 0;
       }
     }
+    for (const action of locomotionBlendActions) action.stop();
+    locomotionBlendActions.clear();
   }
 
   function setLoop(loop: boolean) {
@@ -337,6 +349,7 @@ export function createAnimationController(
         state.action.timeScale = multiplier;
       }
     }
+    for (const action of locomotionBlendActions) action.timeScale = multiplier;
   }
 
   function seek(seconds: number) {
@@ -362,6 +375,7 @@ export function createAnimationController(
 
   function resetToBindPose(): void {
     mixer.stopAllAction();
+    locomotionBlendActions.clear();
     for (const state of Object.values(layerStates)) {
       if (state.action) {
         state.action.time = 0;
@@ -398,6 +412,7 @@ export function createAnimationController(
 
   function dispose() {
     mixer.stopAllAction();
+    locomotionBlendActions.clear();
     mixer.uncacheRoot(root);
     actions.clear();
     bindPoses.clear();
@@ -440,6 +455,10 @@ export function createAnimationController(
     return actions.get(name) ?? null;
   }
 
+  function getLayerAction(layer: "L0" | "L1" | "L2" | "L3"): THREE.AnimationAction | null {
+    return layerStates[layer].action;
+  }
+
   function setBoneMask(layer: "L0" | "L1" | "L2" | "L3", mask: string[]) {
     boneMasks.set(layer, mask);
     const state = layerStates[layer];
@@ -472,6 +491,33 @@ export function createAnimationController(
     return result;
   }
 
+  function setLocomotionBlend(
+    entries: { clipName: string; weight: number; timeSec: number }[],
+  ): void {
+    const nextActions = new Set<THREE.AnimationAction>();
+
+    for (const entry of entries) {
+      const action = actions.get(entry.clipName);
+      if (!action || entry.weight <= 0) continue;
+      nextActions.add(action);
+      action.enabled = true;
+      action.paused = false;
+      action.setEffectiveWeight(entry.weight);
+      action.time = Math.max(0, Math.min(entry.timeSec, action.getClip().duration));
+      action.play();
+    }
+
+    for (const action of locomotionBlendActions) {
+      if (!nextActions.has(action)) {
+        action.stop();
+        action.setEffectiveWeight(0);
+      }
+    }
+
+    locomotionBlendActions.clear();
+    for (const action of nextActions) locomotionBlendActions.add(action);
+  }
+
   // Return object implementing the AnimationController interface
   // with extra methods attached for layer-aware control
   return {
@@ -497,7 +543,9 @@ export function createAnimationController(
     selectLayeredClip,
     playOverlay,
     getClipAction,
+    getLayerAction,
     setBoneMask,
     listActiveLayers,
+    setLocomotionBlend,
   };
 }

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { createSceneController } from "./createSceneController.ts";
 import type { SceneController, SceneActor } from "../types.ts";
+import { useAvatarScene } from "../../three/store.ts";
 
 export function useSceneController() {
   const [controller] = useState(() => createSceneController());
@@ -9,6 +10,8 @@ export function useSceneController() {
   // React state mirrors for UI
   const [actors, setActors] = useState<SceneActor[]>([]);
   const [activeActorId, setActiveActorId] = useState<string | null>(null);
+  const behaviorAction = useAvatarScene((state) => state.action);
+  const needs = useAvatarScene((state) => state.needs);
   
   // We don't want to re-render 60fps for timeline progress, so we only trigger React state updates
   // for structural changes.
@@ -24,6 +27,10 @@ export function useSceneController() {
       controller.dispose();
     };
   }, [controller]);
+
+  useEffect(() => {
+    if (activeActorId) controller.setActorBehavior(activeActorId, behaviorAction, needs);
+  }, [activeActorId, behaviorAction, controller, needs]);
   
   // Override structural methods to trigger React renders
   const syncReact = useCallback(() => {
