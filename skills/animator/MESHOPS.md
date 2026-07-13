@@ -1,5 +1,7 @@
 # MESHOPS — Animator Build-Out Skill
 
+> **Cross-ref:** Master skill index `SKILLS.md` (§4), AGENTS.md `Animator Agent Personas` section.
+
 ## Purpose
 QEM/LOD policy, topology gates, Poisson parameters, and deviation-analysis procedure.
 

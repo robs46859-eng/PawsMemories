@@ -1,5 +1,7 @@
 # LIPSYNC — Animator Build-Out Skill
 
+> **Cross-ref:** Master skill index `SKILLS.md` (§2), AGENTS.md `Animator Agent Personas` section.
+
 ## Purpose
 Viseme standard, transition rules, Rhubarb invocation, and VisemeTrack schema.
 

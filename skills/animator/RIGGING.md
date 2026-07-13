@@ -1,5 +1,7 @@
 # RIGGING — Animator Build-Out Skill
 
+> **Cross-ref:** Master skill index `SKILLS.md` (§1.1), AGENTS.md `Animator Agent Personas` section.
+
 ## Purpose
 Canonical rig conventions, BoneDefinitionProfile schema, validation rules, and worker API.
 

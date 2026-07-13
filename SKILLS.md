@@ -12,7 +12,8 @@
 - **Validation doctrine:** treat outputs as hypotheses. Every job writes a manifest with `validation: [{rule, pass, detail}]`. On failure, adjust parameters and re-run; do not accept degraded output silently.
 - Naming: AnimationSet v2 (`src/animator/controller/animationSets.ts`) is the single source of truth for clip names; `blender-worker` clip exports must match it exactly; `src/three/clipMap.ts` fuzzy matching is a safety net only.
 - Tests: runtime logic uses `node:test` (NOT Vitest). Worker-side Python uses its existing conventions.
-- Paths referenced below: client `src/animator/`, `src/three/`; server `server/animator/`; worker `blender-worker/`.
+|- Paths referenced below: client `src/animator/`, `src/three/`; server `server/animator/`; worker `blender-worker/`.
+|- **Skill docs:** `skills/animator/RIGGING.md` (RIG-01..08, MESH-01/02), `skills/animator/LIPSYNC.md` (LIP-01..05, AUD-01), `skills/animator/MESHOPS.md` (MESH-01..04). Canonical source of ANIM-* IDs and operational constraints.
 
 ---
 
