@@ -4,6 +4,28 @@ Companion to `ANIMATOR_SPEC.md`. Phases are ordered by dependency, not time — 
 
 ---
 
+## Verified Implementation Status — 2026-07-13
+
+This table is based on source imports, routes, worker dispatch, UI wiring, and automated tests at `main` commit `0527711`. A file or unit test alone is counted as a scaffold unless a production path invokes it and the phase exit fixture passes.
+
+| Phase | Verified status | Implemented evidence | Exit-gate blockers |
+|---|---|---|---|
+| 0 | Complete | Contracts, guarded availability, doctor, skills/personas, route stubs | None for the Phase 0 contract |
+| 1 | Complete | Layered controller, blend space, masks, EmoteQueue, behavior bridge | None; Phase 1 regression suite passes |
+| 2 | Complete | Rhubarb service, viseme rules/player, live ElevenLabs preview, Tier A fallback, production UI | Tier B requires `RHUBARB_BIN` in production, but absence degrades as designed |
+| 3 | Scaffold only | Three `BoneDefinitionProfile` JSON fixtures exist | `/rig` remains 501; no profile fitter, selective rigging, validation worker, 10-mesh corpus, or accepted batch |
+| 4 | Partial legacy foundation | AnimationSet v2 and existing Tripo/Blender retarget paths exist | No current-plan expanded clip library, profile-group batch retarget, repurpose proof, playback sweep, or foot-slide exit metric |
+| 5 | Scaffold only | `server/animator/meshops.ts` has pure Euler/LOD planning and budget checks; four focused tests pass | Module has no production importer; no QEM execution/LOD artifacts, topology extraction/repair, winding/non-manifold checks, compression pipeline, runtime switching, broken-mesh corpus, or exit report |
+| 6 | Partial foundation | Theatre camera control, multi-actor project persistence, MediaRecorder capture, an unused WebCodecs encoder, and RMS/onset helpers exist | No multi-lane sequencer, in-betweening, frame-driven MP4/image sequence, sRGB gate, audio lane, or baked GLB; `/bake` remains 501 |
+| 7 | Scaffold only | `src/animator/audio/dsp.ts` provides framing, mel-scale, RMS/onset, and stats primitives; five tests pass | No AudioWorklet/MFCC classifier or calibration, Audio2Face, UniRig/RigNet, Poisson/MLS/deviation worker, or sound-event classifier; `/reconstruct` remains 501 |
+| 8 | Scaffold only | Animator skills/personas exist; `scripts/animator-batch.mjs` validates and prints a manifest | CLI explicitly does not dispatch; no retries, QA aggregation, end-to-end batch test, or Blender MCP operating recipe proving zero-manual happy path |
+
+**Ordering gate:** Phases 5–8 must not be represented as complete. Phase 3 and Phase 4 exit criteria remain unmet, so later-phase implementation may build isolated foundations but cannot close its production exit gate until those dependencies land.
+
+**Numbering warning:** commits `ce62617`, `4a9a528`, and `9e2cc52` use an older “Phase 8/8.1 Animation Studio” numbering. Their Theatre and studio features are useful Phase 6 foundations here; they do not implement this plan's Phase 8 Agentic Operations scope.
+
+---
+
 ## Phase 0 — Foundations & Hardening
 
 **Goal:** the Animator never boots into a broken state, and the new pipeline has rails to run on.
@@ -76,6 +98,8 @@ Companion to `ANIMATOR_SPEC.md`. Phases are ordered by dependency, not time — 
 
 ## Phase 5 — Mesh Processing & Quality Gates
 
+**Audit status: SCAFFOLD ONLY.** Commit `7caffe0` added tested planning/math helpers, not the production mesh pipeline. Do not mark Phase 5 complete until `optimize` or a dedicated worker job produces real LOD0–LOD3 artifacts and manifests from mesh input, and the broken-mesh/hero-pet exit corpus passes.
+
 **Goal:** every asset that enters the animator is validated, optimized, and LOD'd with formal metrics.
 
 - QEM simplification via meshoptimizer in the server pipeline; LOD chain LOD0–LOD3 with per-LOD max/mean quadric error in the manifest (§7.1); runtime LOD switching by screen-space error.
@@ -88,6 +112,8 @@ Companion to `ANIMATOR_SPEC.md`. Phases are ordered by dependency, not time — 
 ---
 
 ## Phase 6 — Sequencer Pro & Capture Upgrade
+
+**Audit status: PARTIAL FOUNDATION.** Existing Theatre, project, capture, and encoder files predate this plan and are not connected into a frame-accurate export pipeline. `createMp4Encoder` is not invoked by production UI, while `/bake` is still a 501 stub.
 
 **Goal:** the Animator becomes a multi-actor mini-studio with frame-accurate export.
 
@@ -102,6 +128,8 @@ Companion to `ANIMATOR_SPEC.md`. Phases are ordered by dependency, not time — 
 
 ## Phase 7 — Realtime & ML Frontier
 
+**Audit status: SCAFFOLD ONLY.** Commit `7caffe0` added dependency-free DSP primitives and unit tests. The file explicitly states that no production module imports it; it is not an MFCC classifier or live-mic implementation.
+
 **Goal:** live performance and hard-mesh coverage — the ambitious tail.
 
 - Tier C lip-sync: AudioWorklet MFCC classifier (20 MFCCs, 50 ms/10 ms) with per-voice calibration flow; live mic → avatar speech (§5.4).
@@ -115,6 +143,8 @@ Companion to `ANIMATOR_SPEC.md`. Phases are ordered by dependency, not time — 
 ---
 
 ## Phase 8 — Agentic Operations & Batch Production
+
+**Audit status: SCAFFOLD ONLY.** `scripts/animator-batch.mjs` validates manifests and prints a plan, then reports `dispatch not implemented yet` and treats execution as a dry run. Skills/personas are guidance, not proof of automated operation.
 
 **Goal:** the pipeline runs itself; agents are the operators.
 

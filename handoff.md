@@ -1,4 +1,4 @@
-# Pawsome3D BIM Handoff
+# Pawsome3D Project Handoff
 
 Updated: 2026-07-13
 
@@ -7,6 +7,51 @@ Updated: 2026-07-13
 Phases 0-3 are implemented and their automated exit gates pass. The BIM builder is available from **My Models > Scaled BIM Builder**. It authors in meters, imports IFC through the worker, displays semantic properties, and exports IFC4 only after a server-side reopen and GLB conversion.
 
 Paid builds use two verification gates. Pre-build verification is free and is repeated server-side before charging. Shell builds cost 60 credits and deliver a dimension-verified GLB without BIM semantics. IFC/BIM builds cost 300 credits and deliver IFC4 plus semantic GLB after schema, GlobalId, element-count, and dimensional verification. Failed post-build verification refunds the charge.
+
+The current Animator plan is a separate phase sequence in `PHASED_IMPLEMENTATION.md`. Animator Phases 0–2 are complete. The committed Phase 5–8 work was reviewed on 2026-07-13 and is scaffold/partial work, not completed phase delivery. Phase 3 and Phase 4 dependencies are also not closed.
+
+## Animator Handoff
+
+### Current verified baseline
+
+- `main`/`origin/main`: `0527711`; the deployed Phase 2 implementation is commit `765b7f5` plus the later documentation-only game-loop commit.
+- Full verification at Phase 2 close: TypeScript clean, production client/server build clean, 471/471 tests passing.
+- Live Animator voice preview calls ElevenLabs, charges non-admin users 25 credits for a maximum 30 seconds, and drives the selected actor through the L2 face layer.
+- `RHUBARB_BIN` is optional. If the executable is absent or invalid, speech remains available with Tier A jaw animation; Tier B visemes require the Linux binary and its adjacent resource directory.
+- `PHASE2_CHECKLIST.html` contains the Phase 2 acceptance evidence.
+
+### Phase 5–8 audit
+
+| Phase | Status | What is real | What the next agent must not assume |
+|---|---|---|---|
+| 5 Mesh Processing | Scaffold | Pure Euler characteristic, LOD target planning, and quadric-budget checks in `server/animator/meshops.ts`; four tests | No caller imports it; no simplification, repair, LOD outputs, compression, runtime LOD, or corpus exit gate exists |
+| 6 Sequencer/Capture | Partial foundation | Theatre camera integration, project persistence, MediaRecorder recording, WebCodecs encoder module, RMS/onset helpers | No frame-accurate sequencer/export path; encoder is unused; no image sequence or baked GLB; `/bake` returns 501 |
+| 7 Realtime/ML | Scaffold | DSP framing/mel/RMS/onset/statistics primitives and five tests | No AudioWorklet, MFCC classifier/calibration, Audio2Face, ML rigger, reconstruction worker, or sound classifier; `/reconstruct` returns 501 |
+| 8 Agentic Batch | Scaffold | Skills/personas and manifest validation/plan printing | Batch dispatch is explicitly unimplemented; there is no retry engine, QA report, or end-to-end catalog run |
+
+Commit `7caffe0` accurately calls these additions “scaffolds.” Older commits named Phase 8/8.1 (`ce62617`, `4a9a528`, `9e2cc52`) refer to an earlier Animation Studio numbering and count as Phase 6 foundations under the current plan, not current Phase 8 completion.
+
+### Required next order
+
+1. Close Animator Phase 3: implement `/rig`, profile fitting/selective rigging, validation manifests, and the ≥10-mesh acceptance corpus.
+2. Close Animator Phase 4: expanded canonical clips, batch retarget/repurpose, lip-sync preservation, playback sweep, and foot-slide metrics.
+3. Implement Phase 5 production wiring. Reuse `meshops.ts` policy helpers, but derive metrics from actual geometry and produce versioned LOD artifacts/manifests.
+4. Complete Phase 6 with a deterministic render clock, connected WebCodecs/image-sequence output, sRGB fixture, audio lane, and a real `/bake` worker path.
+5. Build Phase 7 runtime/ML features behind capability and confidence gates.
+6. Make Phase 8 batch execution real only after the underlying jobs exist; require retry policy, aggregate QA report, and end-to-end fixtures before closing it.
+
+### Review commands for the next agent
+
+```bash
+rg -n "dispatch not implemented|NOT_IMPLEMENTED|returns 501|nothing imports" scripts server src
+rg -n "meshops|createMp4Encoder|audio/dsp" server src scripts tests
+npm run lint
+npm run test
+npm run build
+node scripts/animator-doctor.mjs
+```
+
+Do not delete or overwrite the two untracked source-note markdown files unless the user explicitly asks for them to be added.
 
 ## Architecture
 

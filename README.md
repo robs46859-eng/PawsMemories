@@ -12,8 +12,26 @@ Live site: https://pawsome3d.com  (formerly mypets.cc)
 - **Community** — local info (nearby parks, weather, pet‑recall news), a live pet inspiration board (dog.ceo + dogapi.dog) with user‑uploaded memories, and a coming‑soon roadmap.
 - **Credits** — server‑backed ledger with earn/spend history, persisted daily bonus, per‑day‑capped share rewards, and Stripe credit‑pack purchases (webhook + redirect‑confirm double safety net).
 - **Profile** — avatar thumbnail uploader + a personal photo library; photos uploaded in the avatar builder persist here automatically.
-- **Animation Studio Tooling** — An advanced timeline sequence editor using `@theatre/core` + `@theatre/studio` (behind an admin/advanced "Pro Mode" flag) running imperatively to support React Three Fiber v9 seamlessly. Features include native Three.js crossfade blending, a CC0 library of retargetable animations, Director scripts for quick lighting/weather/sound cues, Cast assignment, and Studio IK (Ground planted feet and camera tracking). It offers persistence, keyframing, easing, and scrubbing for precise cinematic control.
+- **Animation Studio Tooling** — A multi-actor Three.js studio with layered animation, blend spaces, emote scheduling, Theatre camera control, project persistence, Director scripts, CC0 clip discovery, IK, recording, and live ElevenLabs/Rhubarb lip-sync preview. The current production baseline is Animator Phase 2; later rigging, LOD, frame-accurate sequencing, realtime ML, and agentic batch phases remain incomplete as documented in `PHASED_IMPLEMENTATION.md`.
 - **Randy AI** — Gemini‑powered pet guide (spec for a 3D talking head in `RANDY_AI_SPEC.md`).
+
+## Animator implementation status
+
+The active phase definitions are in `PHASED_IMPLEMENTATION.md`; `handoff.md` records the audited next-agent state.
+
+| Phase | Status | Current boundary |
+|---|---|---|
+| 0 Foundations | Complete | Contracts, availability guards, doctor, skills/personas |
+| 1 Layered runtime | Complete | Layered mixer, masks, blend space, EmoteQueue, behavior bridge |
+| 2 Lip-sync | Complete | Rhubarb Tier B, Tier A fallback, viseme player, live ElevenLabs preview, production UI |
+| 3 Auto-rig | Scaffold | Profiles exist, but `/rig` is still a 501 stub and the acceptance corpus has not run |
+| 4 Retargeting | Partial foundation | Existing clip/retarget paths do not satisfy the current plan's expanded library and QA exit gate |
+| 5 Mesh processing | Scaffold | Tested Euler/LOD policy helpers are not wired into production geometry processing |
+| 6 Sequencer/capture | Partial foundation | Theatre/capture modules exist; deterministic export, image sequence, audio lane, and `/bake` do not |
+| 7 Realtime/ML | Scaffold | DSP primitives exist; live MFCC, ML rigging, reconstruction, and event classification do not |
+| 8 Agentic batch | Scaffold | Manifest validation is dry-run-only; dispatch, retries, and aggregate QA are not implemented |
+
+Older commits labeled “Phase 8/8.1 Animation Studio” use a previous numbering scheme. They provide Theatre/studio foundations but do not complete the current Phase 8 Agentic Operations scope. A phase is complete only when its production path and stated exit fixture pass, not when helper files or unit tests exist.
 
 ## Tech stack
 
@@ -155,6 +173,8 @@ Set these in Hostinger (Website → Environment variables) for production, or in
 | `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_PHONE_NUMBER` | Twilio SMS API for request fulfillment notifications |
 | `TRIPO_API_KEY` | Tripo3D API key for Image-to-3D mesh generation (Primary 3D engine) |
 | `HEYGEN_API_KEY` / `HEYGEN_DEFAULT_VOICE_ID` | HeyGen API for talking avatar video generation |
+| `ELEVENLABS_API_KEY` / `ELEVENLABS_MODEL_ID` / `ELEVENLABS_DEFAULT_VOICE_ID` | Animator live voice preview; defaults are documented in `.env.example` |
+| `RHUBARB_BIN` | Optional absolute path to the Rhubarb Linux executable; enables Tier B visemes and falls back to Tier A when absent |
 | `BLENDER_WORKER_URL` | URL to the separate blender microservice (e.g. `https://pawsmemories.onrender.com/render`) |
 | `WORKER_SHARED_SECRET` | Secret key for blender-worker auth |
 
