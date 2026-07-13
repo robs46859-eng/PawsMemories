@@ -12,6 +12,8 @@
     "lint": "tsc --noEmit",
     "prepare": "git config core.hooksPath .githooks 2>/dev/null || true",
     "test": "tsx --test tests/*.test.mjs",
+    "test:ifc": "PYTHONPATH=blender-worker/ifc_worker python3 -m unittest discover -s blender-worker/ifc_worker/tests -v",
+    "fixtures:bim": "tsx scripts/generate-bim-fixtures.mjs && PYTHONPATH=blender-worker/ifc_worker python3 scripts/generate-ifc-fixtures.py",
     "test:brain": "tsx --test tests/brain_*.test.mjs",
     "test:pets": "tsx --test tests/pets_*.test.mjs",
     "test:ar": "tsx --test tests/brain_*.test.mjs tests/pets_*.test.mjs tests/ar_*.test.mjs tests/paid_guards.test.mjs",

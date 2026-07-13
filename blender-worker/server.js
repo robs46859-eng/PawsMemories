@@ -279,6 +279,99 @@ function requireWorkerAuth(req, res, next) {
   next();
 }
 
+const IFC_WORKER = path.join(__dirname, "ifc_worker", "ifc_worker.py");
+const IFC_CACHE = path.join(os.tmpdir(), "pawsome3d-ifc-cache");
+const IFC_MAX_BYTES = 50 * 1024 * 1024;
+const IFC_MAX_CONCURRENT = Math.max(1, Number(process.env.IFC_MAX_CONCURRENT || 2));
+let ifcActiveProcesses = 0;
+fs.mkdirSync(IFC_CACHE, { recursive: true });
+
+function runIfcWorker(args, timeoutMs = 120000) {
+  return new Promise((resolve, reject) => {
+    if (ifcActiveProcesses >= IFC_MAX_CONCURRENT) return reject(new Error("IFC worker is busy; retry shortly"));
+    ifcActiveProcesses += 1;
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      ifcActiveProcesses -= 1;
+      callback(value);
+    };
+    const child = spawn(process.env.IFC_PYTHON || "python3", [IFC_WORKER, ...args], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      finish(reject, new Error("IFC operation timed out"));
+    }, timeoutMs);
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("error", (error) => finish(reject, error));
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      let result;
+      try { result = JSON.parse(stdout.trim().split("\n").at(-1) || "{}"); }
+      catch { return finish(reject, new Error(`Invalid IFC worker response: ${stderr || stdout}`)); }
+      if (code !== 0 || !result.success) return finish(reject, new Error(result.error || stderr || "IFC operation failed"));
+      finish(resolve, result);
+    });
+  });
+}
+
+function decodeIfcBase64(value) {
+  if (typeof value !== "string" || !value) throw new Error("Missing ifc_base64");
+  const raw = value.startsWith("data:") ? value.split(",")[1] : value;
+  const buffer = Buffer.from(raw || "", "base64");
+  if (!buffer.length || buffer.length > IFC_MAX_BYTES) throw new Error("IFC input must be between 1 byte and 50 MB");
+  return buffer;
+}
+
+app.use(["/ifc/convert", "/ifc/export"], requireWorkerAuth);
+
+app.post("/ifc/convert", async (req, res) => {
+  let tempDir;
+  try {
+    const input = decodeIfcBase64(req.body?.ifc_base64);
+    const hash = crypto.createHash("sha256").update(input).digest("hex");
+    const cachedGlb = path.join(IFC_CACHE, `${hash}.glb`);
+    const cachedSidecar = path.join(IFC_CACHE, `${hash}.json`);
+    if (fs.existsSync(cachedGlb) && fs.existsSync(cachedSidecar)) {
+      return res.json({ success: true, cached: true, sourceHash: hash, glb_base64: fs.readFileSync(cachedGlb).toString("base64"), sidecar: JSON.parse(fs.readFileSync(cachedSidecar, "utf8")) });
+    }
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "ifc-import-"));
+    const source = path.join(tempDir, "source.ifc");
+    fs.writeFileSync(source, input, { mode: 0o600 });
+    const report = await runIfcWorker(["convert", source, cachedGlb, "--dump-sidecar", cachedSidecar]);
+    res.json({ success: true, cached: false, sourceHash: hash, glb_base64: fs.readFileSync(cachedGlb).toString("base64"), sidecar: report });
+  } catch (err) {
+    res.status(422).json({ error: err.message });
+  } finally {
+    if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+app.post("/ifc/export", async (req, res) => {
+  let tempDir;
+  try {
+    if (!req.body?.model || typeof req.body.model !== "object") return res.status(400).json({ error: "Missing BIM model" });
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "ifc-export-"));
+    const source = path.join(tempDir, "model.json");
+    const ifc = path.join(tempDir, "model.ifc");
+    const glb = path.join(tempDir, "model.glb");
+    const sidecar = path.join(tempDir, "model.sidecar.json");
+    fs.writeFileSync(source, JSON.stringify(req.body.model), { mode: 0o600 });
+    const exportReport = await runIfcWorker(["export", source, ifc]);
+    const conversionReport = await runIfcWorker(["convert", ifc, glb, "--dump-sidecar", sidecar]);
+    res.json({ success: true, ifc_base64: fs.readFileSync(ifc).toString("base64"), glb_base64: fs.readFileSync(glb).toString("base64"), sidecar: conversionReport, exportReport });
+  } catch (err) {
+    res.status(422).json({ error: err.message });
+  } finally {
+    if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 async function requireBridge(req, res, next) {
   try {
     await ensureBridgeReady();

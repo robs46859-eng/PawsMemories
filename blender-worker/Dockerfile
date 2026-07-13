@@ -3,7 +3,7 @@ FROM node:20-slim
 
 # Update package list and install dependencies for headless Blender
 RUN apt-get update && \
-    apt-get install -y wget xz-utils libx11-6 libxi6 libxxf86vm1 libxrender1 libgl1 libegl1 libxkbcommon0 libsm6 libxext6 libwayland-client0 libwayland-cursor0 libwayland-egl1 libxfixes3 && \
+    apt-get install -y wget xz-utils python3 python3-pip libx11-6 libxi6 libxxf86vm1 libxrender1 libgl1 libegl1 libxkbcommon0 libsm6 libxext6 libwayland-client0 libwayland-cursor0 libwayland-egl1 libxfixes3 && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -18,6 +18,9 @@ RUN mkdir -p /tmp/blender_checkpoints /tmp/blender_viewports
 
 # Set the working directory in the container
 WORKDIR /app
+
+COPY ifc_worker/requirements.txt ./ifc_worker/requirements.txt
+RUN pip3 install --break-system-packages --no-cache-dir -r ifc_worker/requirements.txt
 
 # Copy package info and install node dependencies
 COPY package*.json ./

@@ -1,0 +1,26 @@
+{
+  "generatedBy": "scripts/generate-ifc-fixtures.py",
+  "fixtures": [
+    {
+      "path": "small-building.ifc",
+      "schema": "IFC4",
+      "units": "m",
+      "expectedToFail": false
+    },
+    {
+      "path": "rotated-building.ifc",
+      "schema": "IFC4",
+      "units": "m",
+      "expectedToFail": false
+    },
+    {
+      "path": "malformed-building.ifc",
+      "expectedToFail": true
+    },
+    {
+      "path": "unsupported-schema.ifc",
+      "schema": "IFC5",
+      "expectedToFail": true
+    }
+  ]
+}

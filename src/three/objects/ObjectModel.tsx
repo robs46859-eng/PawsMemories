@@ -5,7 +5,7 @@ import { PlacedObject, PetObjectKind } from "../../types";
 import { OBJECT_CATALOG } from "./catalog";
 
 /** Renders a downloaded GLB, auto-normalized to `fitSize` and dropped to the ground. */
-function GlbObject({ url, fitSize }: { url: string; fitSize: number }) {
+function GlbObject({ url, fitSize, spatialMetadata }: { url: string; fitSize: number; spatialMetadata?: PlacedObject["spatialMetadata"] }) {
   const { scene } = useGLTF(url);
   const model = useMemo(() => {
     const cloned = scene.clone(true);
@@ -15,7 +15,8 @@ function GlbObject({ url, fitSize }: { url: string; fitSize: number }) {
     const center = new THREE.Vector3();
     box.getCenter(center);
     const longest = Math.max(size.x, size.y, size.z) || 1;
-    const s = fitSize / longest;
+    const authoritative = spatialMetadata && !["unknown", "estimated"].includes(spatialMetadata.calibrationMethod);
+    const s = authoritative ? spatialMetadata.physicalScale : fitSize / longest;
     cloned.position.x -= center.x;
     cloned.position.z -= center.z;
     cloned.position.y -= box.min.y;
@@ -28,7 +29,7 @@ function GlbObject({ url, fitSize }: { url: string; fitSize: number }) {
       }
     });
     return cloned;
-  }, [scene, fitSize]);
+  }, [scene, fitSize, spatialMetadata]);
   return <primitive object={model} />;
 }
 
@@ -177,7 +178,7 @@ export default function ObjectModel({ object, onClick }: ObjectModelProps) {
       {def?.glbUrl ? (
         <GlbFallback fallback={<Procedural kind={object.kind} />}>
           <Suspense fallback={null}>
-            <GlbObject url={def.glbUrl} fitSize={def.fitSize} />
+            <GlbObject url={def.glbUrl} fitSize={def.fitSize} spatialMetadata={object.spatialMetadata} />
           </Suspense>
         </GlbFallback>
       ) : (

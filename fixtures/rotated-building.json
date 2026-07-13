@@ -1,0 +1,243 @@
+{
+  "name": "Rotated acceptance building",
+  "siteName": "Acceptance Site",
+  "buildingName": "Scaled Model Building",
+  "levels": [
+    {
+      "id": "level-0",
+      "name": "Ground Floor",
+      "elevation": 0
+    }
+  ],
+  "elements": [
+    {
+      "id": "slab-1",
+      "type": "slab",
+      "name": "Ground slab",
+      "levelId": "level-0",
+      "position": [
+        100,
+        200,
+        0
+      ],
+      "width": 8,
+      "depth": 5,
+      "height": 0.2
+    },
+    {
+      "id": "wall-n",
+      "type": "wall",
+      "name": "North wall",
+      "levelId": "level-0",
+      "position": [
+        95,
+        200,
+        0.2
+      ],
+      "end": [
+        95,
+        208
+      ],
+      "height": 3,
+      "thickness": 0.2
+    },
+    {
+      "id": "wall-s",
+      "type": "wall",
+      "name": "South wall",
+      "levelId": "level-0",
+      "position": [
+        100,
+        200,
+        0.2
+      ],
+      "end": [
+        100,
+        208
+      ],
+      "height": 3,
+      "thickness": 0.2
+    },
+    {
+      "id": "wall-w",
+      "type": "wall",
+      "name": "West wall",
+      "levelId": "level-0",
+      "position": [
+        100,
+        200,
+        0.2
+      ],
+      "end": [
+        95,
+        200
+      ],
+      "height": 3,
+      "thickness": 0.2
+    },
+    {
+      "id": "wall-e",
+      "type": "wall",
+      "name": "East wall",
+      "levelId": "level-0",
+      "position": [
+        100,
+        208,
+        0.2
+      ],
+      "end": [
+        95,
+        208
+      ],
+      "height": 3,
+      "thickness": 0.2
+    },
+    {
+      "id": "wall-mid",
+      "type": "wall",
+      "name": "Partition",
+      "levelId": "level-0",
+      "position": [
+        100,
+        204,
+        0.2
+      ],
+      "end": [
+        95,
+        204
+      ],
+      "height": 3,
+      "thickness": 0.15
+    },
+    {
+      "id": "opening-door",
+      "type": "opening",
+      "name": "Door opening",
+      "levelId": "level-0",
+      "hostId": "wall-mid",
+      "position": [
+        98,
+        203.9,
+        0.2
+      ],
+      "width": 0.2,
+      "depth": 1,
+      "height": 2.1
+    },
+    {
+      "id": "door-1",
+      "type": "door",
+      "name": "Interior door",
+      "levelId": "level-0",
+      "openingId": "opening-door",
+      "position": [
+        98,
+        203.9,
+        0.2
+      ],
+      "width": 0.08,
+      "depth": 1,
+      "height": 2.1
+    },
+    {
+      "id": "opening-window",
+      "type": "opening",
+      "name": "Window opening",
+      "levelId": "level-0",
+      "hostId": "wall-n",
+      "position": [
+        95.1,
+        201.5,
+        1.1
+      ],
+      "width": 1.5,
+      "depth": 0.2,
+      "height": 1.2
+    },
+    {
+      "id": "window-1",
+      "type": "window",
+      "name": "North window",
+      "levelId": "level-0",
+      "openingId": "opening-window",
+      "position": [
+        95.05,
+        201.5,
+        1.1
+      ],
+      "width": 1.5,
+      "depth": 0.08,
+      "height": 1.2
+    },
+    {
+      "id": "space-left",
+      "type": "space",
+      "name": "Room A",
+      "levelId": "level-0",
+      "position": [
+        99.8,
+        200.2,
+        0.2
+      ],
+      "width": 3.7,
+      "depth": 4.6,
+      "height": 2.8
+    },
+    {
+      "id": "space-right",
+      "type": "space",
+      "name": "Room B",
+      "levelId": "level-0",
+      "position": [
+        99.8,
+        204.1,
+        0.2
+      ],
+      "width": 3.7,
+      "depth": 4.6,
+      "height": 2.8
+    },
+    {
+      "id": "roof-1",
+      "type": "roof",
+      "name": "Flat roof",
+      "levelId": "level-0",
+      "position": [
+        100,
+        200,
+        3.2
+      ],
+      "width": 8,
+      "depth": 5,
+      "height": 0.2
+    },
+    {
+      "id": "column-1",
+      "type": "column",
+      "name": "Column",
+      "levelId": "level-0",
+      "position": [
+        99.8,
+        200.2,
+        0.2
+      ],
+      "width": 0.2,
+      "depth": 0.2,
+      "height": 3
+    },
+    {
+      "id": "beam-1",
+      "type": "beam",
+      "name": "Beam",
+      "levelId": "level-0",
+      "position": [
+        99.8,
+        200.2,
+        3
+      ],
+      "width": 7.6,
+      "depth": 0.2,
+      "height": 0.2
+    }
+  ]
+}

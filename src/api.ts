@@ -32,6 +32,22 @@ export async function authedFetch(input: string, init: RequestInit = {}): Promis
   return fetch(input, { ...init, headers });
 }
 
+export async function importIfc(ifcBase64: string): Promise<any> {
+  const res = await authedFetch("/api/bim/import-ifc", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ifcBase64 }),
+  });
+  if (!res.ok) throw new Error(await parseError(res, "IFC import failed."));
+  return res.json();
+}
+
+export async function exportIfc(model: Record<string, unknown>): Promise<any> {
+  const res = await authedFetch("/api/bim/export-ifc", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model }),
+  });
+  if (!res.ok) throw new Error(await parseError(res, "IFC export failed."));
+  return res.json();
+}
+
 async function parseError(res: Response, fallback: string): Promise<string> {
   try {
     const data = await res.json();

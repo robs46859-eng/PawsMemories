@@ -275,8 +275,26 @@ export interface PlacedObject {
   kind: PetObjectKind;
   position: [number, number, number];
   rotationY: number;
+  /** Combined user-scale factor. For authoritative models, physicalScale
+   *  from spatialMetadata overrides display fitting and this is display-only. */
   scale: number;
   createdAt: string;
+  /**
+   * Optional spatial metadata for authoritative scale and coordinate info.
+   * Absent for legacy objects created before Phase 1.
+   */
+  spatialMetadata?: {
+    sourceUnit: string;
+    metersPerSourceUnit: number;
+    canonicalBoundsMin: [number, number, number];
+    canonicalBoundsMax: [number, number, number];
+    physicalScale: number;
+    displayScale: number;
+    accuracyClass: string;
+    calibrationMethod: string;
+    sourceHash: string;
+    createdAt: string;
+  };
 }
 
 /** A command the user issues to the avatar. */

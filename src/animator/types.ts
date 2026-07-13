@@ -17,6 +17,19 @@ export interface AssetMetadata {
   morphTargetCount: number;
   hasSkin: boolean;
   boundingBox?: { min: [number, number, number]; max: [number, number, number] };
+  /** Optional spatial metadata for authoritative scale/coordinate info. */
+  spatialMetadata?: {
+    sourceUnit: string;
+    metersPerSourceUnit: number;
+    canonicalBoundsMin: [number, number, number];
+    canonicalBoundsMax: [number, number, number];
+    physicalScale: number;
+    displayScale: number;
+    accuracyClass: string;
+    calibrationMethod: string;
+    sourceHash: string;
+    createdAt: string;
+  };
 }
 
 export interface AnimationClipInfo {

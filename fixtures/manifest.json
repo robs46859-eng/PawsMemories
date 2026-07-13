@@ -1,0 +1,13 @@
+{
+  "generatedBy": ["scripts/generate-bim-fixtures.mjs", "scripts/generate-ifc-fixtures.py"],
+  "canonicalUnit": "m",
+  "fixtures": [
+    { "path": "1m-cube.glb", "expectedBounds": { "min": [-0.5, -0.5, -0.5], "max": [0.5, 0.5, 0.5] } },
+    { "path": "10m-cube.glb", "expectedBounds": { "min": [-5, -5, -5], "max": [5, 5, 5] } },
+    { "path": "100mm-cube.glb", "sourceUnit": "mm", "expectedBounds": { "min": [-0.05, -0.05, -0.05], "max": [0.05, 0.05, 0.05] } },
+    { "path": "small-building.ifc", "schema": "IFC4", "sourceUnit": "mm", "acceptanceModel": "two-room-building.json" },
+    { "path": "rotated-building.ifc", "schema": "IFC4", "sourceUnit": "mm", "translated": true },
+    { "path": "malformed-building.ifc", "expectedToFail": true, "reason": "invalid STEP signature" },
+    { "path": "unsupported-schema.ifc", "schema": "IFC5", "expectedToFail": true }
+  ]
+}

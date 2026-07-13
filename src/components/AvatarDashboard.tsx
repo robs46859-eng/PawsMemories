@@ -5,6 +5,7 @@ import CreateAvatarDialog, { type CreateModelOptions } from "./CreateAvatarDialo
 import Avatar3DPlaypen from "./Avatar3DPlaypen";
 import LivingAvatarView from "./LivingAvatarView";
 import RefundReview from "./RefundReview";
+import BimModelBuilder from "./BimModelBuilder";
 import { buildUncannyRegenerationHint, uncannyPresets } from "../avatar/uncannyPresets";
 import { avatarGenerationCost } from "../pricing";
 import { resolveAvatarGlbUrl } from "../animator/utils/avatarUtils";
@@ -47,6 +48,7 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
   const [refundAvatarId, setRefundAvatarId] = useState<number | null>(null);
   const [presetByAvatar, setPresetByAvatar] = useState<Record<number, string>>({});
   const [vibeMessage, setVibeMessage] = useState("");
+  const [showBimBuilder, setShowBimBuilder] = useState(false);
   const holdTimerRef = useRef<number | null>(null);
 
   // Tracks active action animation for each avatar
@@ -292,6 +294,7 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
           >
             <Plus size={16} /> Create Model
           </button>
+          <button onClick={() => setShowBimBuilder(true)} className="rounded-full border border-primary/30 bg-surface px-5 py-2 text-xs font-black uppercase tracking-wider text-primary">Scaled BIM Builder</button>
         </div>
       </div>
 
@@ -572,6 +575,7 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
         </div>
       )}
       {refundAvatarId && <RefundReview avatarId={refundAvatarId} onClose={() => setRefundAvatarId(null)} />}
+      {showBimBuilder && <BimModelBuilder onClose={() => setShowBimBuilder(false)} />}
     </div>
   );
 }

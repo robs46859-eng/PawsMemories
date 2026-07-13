@@ -1,6 +1,7 @@
 import mysql from "mysql2/promise";
 import { generateUserKey } from "./auth";
 import { CREDIT_PRICES } from "./src/pricing";
+import type { ModelSpatialMetadata } from "./src/three/spatial/types";
 
 /** Internal row key for the seeded admin account (not a phone number). */
 const ADMIN_KEY = process.env.ADMIN_KEY || process.env.ADMIN_PHONE || "";
@@ -705,6 +706,48 @@ export async function initDb(): Promise<void> {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY uniq_pawprint_request (user_phone, idempotency_key),
         INDEX (user_phone),
+        FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // Model spatial metadata for authoritative scale & coordinate info (Phase 1 BIM).
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS model_spatial_metadata (
+        id                  INT AUTO_INCREMENT PRIMARY KEY,
+        user_phone          VARCHAR(32) NOT NULL,
+        asset_kind          VARCHAR(24) NOT NULL DEFAULT 'model',
+        asset_id            VARCHAR(64) NOT NULL,
+        source_unit         VARCHAR(16) NOT NULL DEFAULT 'm',
+        meters_per_unit     DOUBLE NOT NULL DEFAULT 1,
+        canonical_unit      VARCHAR(8) NOT NULL DEFAULT 'm',
+        up_axis             VARCHAR(4) NOT NULL DEFAULT 'Y',
+        forward_axis        VARCHAR(4) NOT NULL DEFAULT '+Z',
+        handedness          VARCHAR(8) NOT NULL DEFAULT 'right',
+        source_bounds_min   JSON NOT NULL,
+        source_bounds_max   JSON NOT NULL,
+        canonical_bounds_min JSON NOT NULL,
+        canonical_bounds_max JSON NOT NULL,
+        local_origin        JSON DEFAULT NULL,
+        datum_description   VARCHAR(255) DEFAULT NULL,
+        source_crs          VARCHAR(64) DEFAULT NULL,
+        vertical_datum      VARCHAR(64) DEFAULT NULL,
+        calibration_method  VARCHAR(32) NOT NULL DEFAULT 'unknown',
+        accuracy_class      VARCHAR(16) NOT NULL DEFAULT 'visual',
+        calibration_confidence DOUBLE NOT NULL DEFAULT 0,
+        tolerance_m         DOUBLE DEFAULT NULL,
+        source_hash         VARCHAR(128) NOT NULL,
+        source_filename     VARCHAR(255) DEFAULT NULL,
+        source_uri          TEXT DEFAULT NULL,
+        parent_derivative_id VARCHAR(64) DEFAULT NULL,
+        derivative_id       VARCHAR(64) DEFAULT NULL,
+        physical_scale      DOUBLE NOT NULL DEFAULT 1,
+        display_scale       DOUBLE NOT NULL DEFAULT 1,
+        import_tool         VARCHAR(64) DEFAULT NULL,
+        converter_version   VARCHAR(32) DEFAULT NULL,
+        created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at          TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_spatial_asset (user_phone, asset_kind, asset_id),
+        INDEX (source_hash),
         FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
@@ -2577,4 +2620,135 @@ export async function consumePasswordReset(tokenHash: string): Promise<string | 
 /** Set a user's password hash by their internal key (users.phone). */
 export async function setUserPassword(userPhone: string, passwordHash: string): Promise<void> {
   await getPool().query("UPDATE users SET password_hash = ? WHERE phone = ?", [passwordHash, userPhone]);
+}
+
+// ---------------------------------------------------------------------------
+// Model spatial metadata CRUD (Phase 1 BIM)
+// ---------------------------------------------------------------------------
+
+export interface ModelSpatialMetadataRow {
+  id: number;
+  user_phone: string;
+  asset_kind: string;
+  asset_id: string;
+  source_unit: string;
+  meters_per_unit: number;
+  canonical_unit: string;
+  up_axis: string;
+  forward_axis: string;
+  handedness: string;
+  source_bounds_min: string;
+  source_bounds_max: string;
+  canonical_bounds_min: string;
+  canonical_bounds_max: string;
+  local_origin: string | null;
+  datum_description: string | null;
+  source_crs: string | null;
+  vertical_datum: string | null;
+  calibration_method: string;
+  accuracy_class: string;
+  tolerance_m: number | null;
+  source_hash: string;
+  source_filename: string | null;
+  source_uri: string | null;
+  parent_derivative_id: string | null;
+  derivative_id: string | null;
+  calibration_confidence: number;
+  physical_scale: number;
+  display_scale: number;
+  import_tool: string | null;
+  converter_version: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export async function upsertSpatialMetadata(
+  userPhone: string,
+  assetKind: "model" | "avatar" | "ifc" | "derivative",
+  assetId: string,
+  data: ModelSpatialMetadata
+): Promise<void> {
+  await getPool().query(
+    `INSERT INTO model_spatial_metadata
+     (user_phone, asset_kind, asset_id, source_unit, meters_per_unit, canonical_unit,
+      up_axis, forward_axis, handedness,
+      source_bounds_min, source_bounds_max,
+      canonical_bounds_min, canonical_bounds_max,
+      local_origin, datum_description, source_crs, vertical_datum,
+      calibration_method, calibration_confidence, accuracy_class, tolerance_m,
+      source_hash, source_filename, source_uri, parent_derivative_id, derivative_id,
+      physical_scale, display_scale, import_tool, converter_version)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+      source_unit = VALUES(source_unit),
+      meters_per_unit = VALUES(meters_per_unit),
+      calibration_method = VALUES(calibration_method),
+      calibration_confidence = VALUES(calibration_confidence),
+      accuracy_class = VALUES(accuracy_class),
+      tolerance_m = VALUES(tolerance_m),
+      source_hash = VALUES(source_hash),
+      physical_scale = VALUES(physical_scale),
+      display_scale = VALUES(display_scale)`,
+    [
+      userPhone,
+      assetKind,
+      assetId,
+      data.sourceUnit,
+      data.metersPerSourceUnit,
+      data.canonicalUnit,
+      data.upAxis,
+      data.forwardAxis,
+      data.handedness,
+      JSON.stringify(data.sourceBoundsMin),
+      JSON.stringify(data.sourceBoundsMax),
+      JSON.stringify(data.canonicalBoundsMin),
+      JSON.stringify(data.canonicalBoundsMax),
+      data.localOrigin ? JSON.stringify(data.localOrigin) : null,
+      data.datumDescription || null,
+      data.sourceCRS || null,
+      data.verticalDatum || null,
+      data.calibrationMethod,
+      data.calibrationConfidence,
+      data.accuracyClass,
+      data.tolerance ?? null,
+      data.sourceHash,
+      data.sourceFilename || null,
+      data.sourceUri || null,
+      data.parentDerivativeId || null,
+      data.derivativeId || null,
+      data.physicalScale,
+      data.displayScale,
+      data.importTool || null,
+      data.converterVersion || null,
+    ]
+  );
+}
+
+export async function getSpatialMetadata(
+  userPhone: string,
+  assetKind: "model" | "avatar" | "ifc" | "derivative",
+  assetId: string
+): Promise<ModelSpatialMetadataRow | null> {
+  const [rows] = await getPool().query(
+    "SELECT * FROM model_spatial_metadata WHERE user_phone = ? AND asset_kind = ? AND asset_id = ? LIMIT 1",
+    [userPhone, assetKind, assetId]
+  ) as any;
+  if (!rows || rows.length === 0) return null;
+  return rows[0] as ModelSpatialMetadataRow;
+}
+
+export async function getSpatialMetadataByHash(
+  userPhone: string,
+  sourceHash: string
+): Promise<ModelSpatialMetadataRow | null> {
+  const [rows] = await getPool().query(
+    "SELECT * FROM model_spatial_metadata WHERE user_phone = ? AND source_hash = ? ORDER BY created_at DESC LIMIT 1",
+    [userPhone, sourceHash]
+  ) as any;
+  if (!rows || rows.length === 0) return null;
+  return rows[0] as ModelSpatialMetadataRow;
+}
+
+export async function deleteSpatialMetadata(userPhone: string, assetKind: string, assetId: string): Promise<void> {
+  await getPool().query("DELETE FROM model_spatial_metadata WHERE user_phone = ? AND asset_kind = ? AND asset_id = ?", [userPhone, assetKind, assetId]);
 }

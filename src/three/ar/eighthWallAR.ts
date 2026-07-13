@@ -114,7 +114,8 @@ export async function startEighthWallAR(
       box.getSize(size);
       const center = new THREE.Vector3();
       box.getCenter(center);
-      const s = fit / (Math.max(size.x, size.y, size.z) || 1);
+      const authoritative = o.spatialMetadata && !["unknown", "estimated"].includes(o.spatialMetadata.calibrationMethod);
+      const s = authoritative ? o.spatialMetadata.physicalScale : fit / (Math.max(size.x, size.y, size.z) || 1);
       child.position.set(-center.x, -box.min.y, -center.z);
       const inner = new THREE.Group();
       inner.scale.setScalar(s * o.scale);

@@ -241,6 +241,28 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+  app.post("/api/bim/import-ifc", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      if (typeof req.body?.ifcBase64 !== "string") return res.status(400).json({ error: "Choose an IFC file to import." });
+      const result = await getBlenderClient().convertIfc(req.body.ifcBase64);
+      res.json(result);
+    } catch (err: any) {
+      console.error("[BIM] IFC import failed:", err.message);
+      res.status(422).json({ error: err.message || "IFC import failed." });
+    }
+  });
+
+  app.post("/api/bim/export-ifc", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      if (!req.body?.model || typeof req.body.model !== "object") return res.status(400).json({ error: "A BIM model is required." });
+      const result = await getBlenderClient().exportIfc(req.body.model);
+      res.json(result);
+    } catch (err: any) {
+      console.error("[BIM] IFC export failed:", err.message);
+      res.status(422).json({ error: err.message || "IFC export failed." });
+    }
+  });
+
   const authLimiter = rateLimit({ windowMs: 60 * 1000, max: 10, message: { error: "Too many requests from this IP, please try again after a minute" } });
   app.use("/api/auth/login", authLimiter);
   app.use("/api/auth/signup", authLimiter);

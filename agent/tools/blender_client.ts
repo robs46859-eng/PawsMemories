@@ -104,6 +104,16 @@ export interface PingResult {
   scene_objects: number;
 }
 
+export interface IfcConversionResult {
+  success: boolean;
+  cached?: boolean;
+  sourceHash?: string;
+  glb_base64: string;
+  ifc_base64?: string;
+  sidecar: Record<string, any>;
+  exportReport?: Record<string, any>;
+}
+
 // ---------------------------------------------------------------------------
 // Client
 // ---------------------------------------------------------------------------
@@ -220,6 +230,14 @@ export class BlenderClient {
   /** Export the scene as GLB and return base64. */
   async exportGlb(): Promise<ExportResult> {
     return this.send<ExportResult>("/export-glb", "POST");
+  }
+
+  async convertIfc(ifcBase64: string): Promise<IfcConversionResult> {
+    return this.send<IfcConversionResult>("/ifc/convert", "POST", { ifc_base64: ifcBase64 });
+  }
+
+  async exportIfc(model: Record<string, any>): Promise<IfcConversionResult> {
+    return this.send<IfcConversionResult>("/ifc/export", "POST", { model });
   }
 
   /**
