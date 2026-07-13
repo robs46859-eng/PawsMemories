@@ -40,7 +40,7 @@ export interface AnimationClipInfo {
   tracksMorph: boolean;
 }
 
-export type JobType = "inspect" | "convert" | "optimize";
+export type JobType = "inspect" | "convert" | "optimize" | "rig" | "retarget" | "repurpose" | "lipsync" | "reconstruct" | "bake";
 export interface JobSpec {
   id: JobId;
   userPhone: string;
@@ -131,4 +131,95 @@ export interface AnimationController {
   crossFadeTo(name: string, seconds: number): void;
   playSequence(steps: SequenceStep[]): void;
   setMorphInfluence(name: string, weight: number): void;
+}
+
+// ──────────────────────────────────────────────────────────────────
+// §12 data-contract interfaces (typed contracts, never undefined reads)
+// ──────────────────────────────────────────────────────────────────
+
+export type VisemeShape = "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "X";
+
+export interface VisemeCue {
+  t: number;    // seconds
+  v: VisemeShape;
+}
+
+export type VisemeSource = "rhubarb" | "mfcc" | "provider";
+
+export interface VisemeTrack {
+  version: 1;
+  fps: number;
+  source: VisemeSource;
+  audioUrl?: string;
+  durationSec: number;
+  cues: VisemeCue[];
+  anticipationSec?: number;
+}
+
+export interface RigValidationRule {
+  rule: string;   // e.g. "twist_bones_present"
+  pass: boolean;
+  detail: string;
+}
+
+export interface RigManifest {
+  version: 1;
+  jobId: string;
+  state: "pending" | "running" | "done" | "failed" | "needs_manual";
+  profileId: string;
+  validation: RigValidationRule[];
+  stats: {
+    boneCount: number;
+    skinnedVerts: number;
+    rigidAttachments: number;
+  };
+}
+
+export interface LodEntry {
+  level: number;       // 0 = source, 1..3 = simplified
+  triangles: number;
+  maxQuadricError: number;
+  sizeBytes: number;
+  url: string;
+}
+
+export interface LodManifest {
+  version: 1;
+  lods: LodEntry[];
+}
+
+export interface AnimationTransition {
+  from: string;
+  to: string;
+  fadeSec: number;
+  condition?: string;
+}
+
+export interface BoneDefinitionProfile {
+  id: string;
+  skeleton: "quadruped" | "biped" | "winged";
+  version: 1;
+  joints: Record<string, [number, number, number]>; // name → [x,y,z] normalised bbox
+  twistBones?: Record<string, number>;              // bone → count
+  boneMask?: string[];
+  rigidAttachments?: string[];                       // mesh-name globs
+  physics?: {
+    bones: string[];
+    type: "spring";
+    stiffness: number;
+    damping: number;
+    gravity?: number;
+  }[];
+}
+
+export type AnimationLayer = "L0" | "L1" | "L2" | "L3";
+
+export interface AnimationSetV2 {
+  version: 1;
+  type: "quadruped" | "biped" | "winged";
+  expectedClips: string[];
+  transitions?: AnimationTransition[];
+  layers?: Record<AnimationLayer, string>;
+  masks?: Record<string, string[]>;
+  phaseMarkers?: Record<string, number[]>;
 }

@@ -9,8 +9,8 @@ export const JobSpecSchema = z.object({
   id: z.string().uuid(),
   userPhone: z.string(),
   assetId: z.string().uuid(),
-  type: z.enum(["inspect", "convert", "optimize"]),
-  preset: z.enum(["safe", "optimize"]),
+  type: z.enum(["inspect", "convert", "optimize", "rig", "retarget", "repurpose", "lipsync", "reconstruct", "bake"]),
+  preset: z.enum(["safe", "optimize"]).optional(),
   params: z.record(z.string(), z.unknown()),
   createdAt: z.string(),
 });

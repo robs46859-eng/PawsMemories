@@ -18,6 +18,26 @@ import { CREDIT_PRICES } from "../../src/pricing.ts";
 
 export const animatorRouter = express.Router();
 
+/**
+ * Handler for errors in read (GET) endpoints.
+ * ANIMATOR_UNAVAILABLE → empty shape, 200 (never break boot; spec §1D).
+ * Other errors → 500 with message.
+ */
+function handleReadError(res: express.Response, e: any) {
+  if (e.message === "ANIMATOR_UNAVAILABLE") {
+    return res.json([]);
+  }
+  if (e.message === "ANIMATOR_DATA_DIR_NOT_FOUND") {
+    return res.json([]);
+  }
+  res.status(500).json({ error: e.message });
+}
+
+/**
+ * Handler for errors in write/convert (POST) endpoints.
+ * ANIMATOR_UNAVAILABLE → 503 (write genuinely needs toolchain; spec §1D).
+ * Other errors → 500 with message.
+ */
 function handleError(res: express.Response, e: any) {
   if (e.message === "ANIMATOR_UNAVAILABLE") {
     res.status(503).json({ code: "ANIMATOR_UNAVAILABLE", error: "Animator dependencies missing on server" });
@@ -70,7 +90,7 @@ animatorRouter.get("/animator/assets", (req: any, res) => {
     }
     res.json(assets);
   } catch (e: any) {
-    handleError(res, e);
+    handleReadError(res, e);
   }
 });
 
@@ -83,7 +103,7 @@ animatorRouter.get("/animator/assets/:id", (req: any, res) => {
     if (meta.userPhone && meta.userPhone !== userPhone) return res.status(403).json({ error: "Forbidden" });
     res.json(meta);
   } catch (e: any) {
-    handleError(res, e);
+    handleReadError(res, e);
   }
 });
 
@@ -103,7 +123,7 @@ animatorRouter.get("/animator/assets/:id/inspect", async (req: any, res) => {
     freshMeta.userPhone = meta.userPhone;
     res.json(freshMeta);
   } catch (e: any) {
-    handleError(res, e);
+    handleReadError(res, e);
   }
 });
 
@@ -159,7 +179,7 @@ animatorRouter.get("/animator/jobs/:id", (req: any, res) => {
     }
     res.status(404).json({ error: "Job not found" });
   } catch (e: any) {
-    handleError(res, e);
+    handleReadError(res, e);
   }
 });
 
@@ -209,8 +229,7 @@ animatorRouter.get("/animator/outputs/:assetId", (req: any, res) => {
       url: `/animator-files/outputs/${req.params.assetId}/${f}`
     })));
   } catch (e: any) {
-    if (e.message === "ANIMATOR_UNAVAILABLE") return res.json([]);
-    handleError(res, e);
+    handleReadError(res, e);
   }
 });
 
@@ -230,7 +249,7 @@ animatorRouter.get("/animator/projects", (req: any, res) => {
     const projects = listProjects(userPhone);
     res.json(projects);
   } catch (e: any) {
-    handleError(res, e);
+    handleReadError(res, e);
   }
 });
 
@@ -345,8 +364,7 @@ animatorRouter.get("/scenes/environments", (req: any, res) => {
     const presets = loadEnvironments();
     res.json(presets);
   } catch (e: any) {
-    if (e.message === "ANIMATOR_UNAVAILABLE") return res.json([]);
-    res.status(500).json({ error: e.message });
+    handleReadError(res, e);
   }
 });
 
@@ -358,8 +376,7 @@ animatorRouter.get("/scenes/scripts", (req: any, res) => {
     const scripts = loadScripts();
     res.json(scripts);
   } catch (e: any) {
-    if (e.message === "ANIMATOR_UNAVAILABLE") return res.json([]);
-    res.status(500).json({ error: e.message });
+    handleReadError(res, e);
   }
 });
 
@@ -505,4 +522,52 @@ animatorRouter.post("/scenes/voiceover", async (req: any, res) => {
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// ──────────────────────────────────────────────────────────────────
+// Animator Builder‑out Phase‑0 stubs (job types pending implementation)
+// ──────────────────────────────────────────────────────────────────
+
+animatorRouter.post("/rig", (req: any, res) => {
+  res.status(501).json({ code: "NOT_IMPLEMENTED", service: "rig", message: "Auto‑rig service not yet available" });
+});
+
+animatorRouter.get("/rig/:id", (req: any, res) => {
+  res.status(501).json({ code: "NOT_IMPLEMENTED", service: "rig", message: "Auto‑rig service not yet available" });
+});
+
+animatorRouter.post("/retarget", (req: any, res) => {
+  res.status(501).json({ code: "NOT_IMPLEMENTED", service: "retarget", message: "Clip retargeting not yet available" });
+});
+
+animatorRouter.post("/repurpose", (req: any, res) => {
+  res.status(501).json({ code: "NOT_IMPLEMENTED", service: "repurpose", message: "Character repurposing not yet available" });
+});
+
+animatorRouter.post("/lipsync", (req: any, res) => {
+  res.status(501).json({ code: "NOT_IMPLEMENTED", service: "lipsync", message: "Lip‑sync service not yet available" });
+});
+
+animatorRouter.get("/lipsync/:id", (req: any, res) => {
+  res.status(501).json({ code: "NOT_IMPLEMENTED", service: "lipsync", message: "Lip‑sync service not yet available" });
+});
+
+animatorRouter.post("/reconstruct", (req: any, res) => {
+  res.status(501).json({ code: "NOT_IMPLEMENTED", service: "reconstruct", message: "Point‑cloud reconstruction not yet available" });
+});
+
+animatorRouter.get("/reconstruct/:id", (req: any, res) => {
+  res.status(501).json({ code: "NOT_IMPLEMENTED", service: "reconstruct", message: "Point‑cloud reconstruction not yet available" });
+});
+
+animatorRouter.post("/bake", (req: any, res) => {
+  res.status(501).json({ code: "NOT_IMPLEMENTED", service: "bake", message: "Animation bake not yet available" });
+});
+
+animatorRouter.get("/bake/:id", (req: any, res) => {
+  res.status(501).json({ code: "NOT_IMPLEMENTED", service: "bake", message: "Animation bake not yet available" });
+});
+
+animatorRouter.get("/rig-profiles", (req: any, res) => {
+  res.json([]); // Phase‑0 stub: no profiles yet
 });
