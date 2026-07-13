@@ -1,0 +1,30 @@
+{
+  "id": "quadruped.dog.medium",
+  "skeleton": "quadruped",
+  "version": "1",
+  "joints": {
+    "hip": [0.5, 0.5, 0.62],
+    "spine": [0.5, 0.5, 0.66],
+    "chest": [0.5, 0.72, 0.68],
+    "neck": [0.5, 0.82, 0.74],
+    "head": [0.5, 0.9, 0.82],
+    "jaw": [0.5, 0.97, 0.76],
+    "ear.L": [0.42, 0.88, 0.92],
+    "ear.R": [0.58, 0.88, 0.92],
+    "shoulder.L": [0.36, 0.74, 0.6],
+    "shoulder.R": [0.64, 0.74, 0.6],
+    "leg_front.L": [0.36, 0.76, 0.32],
+    "leg_front.R": [0.64, 0.76, 0.32],
+    "leg_back.L": [0.38, 0.22, 0.34],
+    "leg_back.R": [0.62, 0.22, 0.34],
+    "tail.01": [0.5, 0.08, 0.66],
+    "tail.02": [0.5, 0.02, 0.72]
+  },
+  "twistBones": { "leg_front.L": 1, "leg_front.R": 1, "leg_back.L": 1, "leg_back.R": 1 },
+  "boneMask": [],
+  "rigidAttachments": ["*collar*", "*tag*", "*harness*"],
+  "physics": [
+    { "bones": ["tail.01", "tail.02"], "type": "spring", "stiffness": 0.35, "damping": 0.8, "gravity": 9.81 },
+    { "bones": ["ear.L", "ear.R"], "type": "spring", "stiffness": 0.55, "damping": 0.85, "gravity": 9.81 }
+  ]
+}
