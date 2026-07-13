@@ -98,8 +98,8 @@ test("POST /rig and GET /rig/:id resolve correctly regardless of order", async (
     const stubEndpoints = [
       { method: "POST", path: "/animator/retarget" },
       { method: "POST", path: "/animator/repurpose" },
-      { method: "POST", path: "/animator/lipsync" },
-      { method: "GET", path: "/animator/lipsync/550e8400-e29b-41d4-a716-446655440000" },
+      // NOTE: /animator/lipsync is no longer a 501 stub — Phase 2 implemented it
+      // (POST → job, GET → validated track / typed failure). See tests/animator_phase2.test.mjs.
       { method: "POST", path: "/animator/reconstruct" },
       { method: "GET", path: "/animator/reconstruct/550e8400-e29b-41d4-a716-446655440000" },
       { method: "POST", path: "/animator/bake" },

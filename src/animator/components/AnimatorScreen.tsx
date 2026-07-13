@@ -20,6 +20,8 @@ import { retargetClip } from "../utils/retargetUtils.ts";
 import { findSkinnedMesh } from "../../three/ar/ik.ts";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { useTheatreSheet } from "./TheatreWrapper.tsx";
+import { playLiveActorSpeech, type LiveSpeechHandle } from "../speech/liveSpeech.ts";
+import { CREDIT_PRICES } from "../../pricing.ts";
 
 /**
  * Renders the scene backdrop based on the preset's `backdrop.kind`.
@@ -245,6 +247,8 @@ export default function AnimatorScreen({
   
   const [voiceoverText, setVoiceoverText] = useState("");
   const [isVoiceoverRunning, setIsVoiceoverRunning] = useState(false);
+  const [isVoicePreviewRunning, setIsVoicePreviewRunning] = useState(false);
+  const [voicePreviewTier, setVoicePreviewTier] = useState<"A" | "B" | "C" | null>(null);
   
   const [addingAssetId, setAddingAssetId] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
@@ -253,6 +257,8 @@ export default function AnimatorScreen({
   const initialAssetLoadedRef = useRef<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const captureSession = useCaptureSession(canvasRef);
+  const voicePreviewRef = useRef<LiveSpeechHandle | null>(null);
+  const voicePreviewAbortRef = useRef<AbortController | null>(null);
 
   const actors = sceneController.listActors();
   const activeActorId = sceneController.getActiveActorId();
@@ -433,6 +439,53 @@ export default function AnimatorScreen({
   };
   
   const [recordingId, setRecordingId] = useState<string | null>(null);
+
+  const stopVoicePreview = () => {
+    voicePreviewAbortRef.current?.abort();
+    voicePreviewAbortRef.current = null;
+    voicePreviewRef.current?.cancel();
+    voicePreviewRef.current = null;
+    setIsVoicePreviewRunning(false);
+  };
+
+  useEffect(() => () => {
+    voicePreviewAbortRef.current?.abort();
+    voicePreviewRef.current?.cancel();
+  }, []);
+
+  const handlePreviewVoice = async () => {
+    if (!voiceoverText.trim() || !activeActorId) return;
+    const root = sceneController.getActorRoot(activeActorId);
+    if (!root) {
+      alert("Add and select a rigged actor before previewing voice.");
+      return;
+    }
+
+    stopVoicePreview();
+    setIsVoicePreviewRunning(true);
+    setVoicePreviewTier(null);
+    const abortController = new AbortController();
+    voicePreviewAbortRef.current = abortController;
+    try {
+      const handle = await playLiveActorSpeech({
+        root,
+        text: voiceoverText.trim(),
+        signal: abortController.signal,
+        onPlayer: (player) => sceneController.setActorLipSyncPlayer(activeActorId, player),
+        onTier: setVoicePreviewTier,
+        onEnd: () => {
+          voicePreviewRef.current = null;
+          setIsVoicePreviewRunning(false);
+        },
+      });
+      voicePreviewRef.current = handle;
+    } catch (error: any) {
+      if (error?.name !== "AbortError") alert(`Voice preview failed: ${error.message}`);
+      setIsVoicePreviewRunning(false);
+    } finally {
+      if (voicePreviewAbortRef.current === abortController) voicePreviewAbortRef.current = null;
+    }
+  };
 
   const handleGenerateVoiceover = async () => {
     if (!voiceoverText) return;
@@ -639,7 +692,7 @@ export default function AnimatorScreen({
                       onClick={() => sceneController.setActiveActor(actor.actorId)}
                     >
                       <span className="text-sm font-medium truncate max-w-[120px]">{actor.label}</span>
-                      <button 
+                      <button
                         onClick={(e) => { e.stopPropagation(); sceneController.removeActor(actor.actorId); }}
                         className="opacity-50 hover:opacity-100 hover:text-error"
                       >
@@ -654,7 +707,7 @@ export default function AnimatorScreen({
                   {ALL_OBJECT_KINDS.map(kind => {
                     const def = OBJECT_CATALOG[kind];
                     return (
-                      <button 
+                      <button
                         key={kind}
                         onClick={() => {
                           if (!def.glbUrl) return;
@@ -861,7 +914,7 @@ export default function AnimatorScreen({
                     placeholder="Enter script here..."
                     className="bg-black/50 border border-white/20 rounded-xl p-2 text-xs outline-none focus:border-primary w-full h-16 resize-none"
                   />
-                  <div className="flex justify-between items-center">
+                  <div className="flex justify-between items-center gap-2">
                     <select 
                       onChange={(e) => setVoiceoverText(e.target.value)}
                       className="bg-transparent border-none text-xs text-white/60 outline-none w-24"
@@ -872,13 +925,24 @@ export default function AnimatorScreen({
                         <option key={s.id} value={s.text}>{s.title}</option>
                       ))}
                     </select>
-                    <button 
-                      onClick={handleGenerateVoiceover}
-                      disabled={isVoiceoverRunning || !voiceoverText}
-                      className="bg-primary text-on-primary text-xs font-bold px-3 py-1.5 rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    >
-                      {isVoiceoverRunning ? "Generating..." : "Generate Audio"}
-                    </button>
+                    <div className="flex gap-1.5">
+                      <button
+                        onClick={isVoicePreviewRunning ? stopVoicePreview : handlePreviewVoice}
+                        disabled={!isVoicePreviewRunning && (!voiceoverText || !activeActorId)}
+                        title={`Live voice preview uses ${CREDIT_PRICES.AI_VOICE_30_SECONDS} credits for non-admin users`}
+                        className="bg-white/15 text-white text-[10px] font-bold px-2.5 py-1.5 rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {isVoicePreviewRunning ? "Stop Preview" : `Preview (${CREDIT_PRICES.AI_VOICE_30_SECONDS})`}
+                        {voicePreviewTier ? ` · Tier ${voicePreviewTier}` : ""}
+                      </button>
+                      <button
+                        onClick={handleGenerateVoiceover}
+                        disabled={isVoiceoverRunning || !voiceoverText}
+                        className="bg-primary text-on-primary text-xs font-bold px-3 py-1.5 rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {isVoiceoverRunning ? "Generating..." : "Generate Audio"}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="w-full h-px bg-white/10 my-1"></div>

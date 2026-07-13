@@ -109,6 +109,25 @@ export function speakText(
 }
 
 // ---------------------------------------------------------------------------
+// Tier A — amplitude fallback (shared by the LipSyncPlayer & speak() pipeline)
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns a deterministic jaw-openness function (0–1) for Tier A fallback when
+ * no VisemeTrack is available. Cadence ~12 Hz with a secondary harmonic for a
+ * natural, non-periodic look. Used by `LipSyncPlayer` tierA mode and the
+ * speak() pipeline when Tier B/C fail.
+ */
+export function tierAAmplitude(_text: string): (t: number) => number {
+  return (t: number) => {
+    const local = t * 12;
+    const base = 0.5 + 0.35 * Math.sin(local);
+    const variation = 0.15 * Math.sin(local * 0.6 + 1.2);
+    return Math.max(0, Math.min(1, base + variation));
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Tier B — Viseme mapper interface (future)
 // ---------------------------------------------------------------------------
 

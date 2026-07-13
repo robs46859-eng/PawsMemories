@@ -17,6 +17,7 @@ export function createSceneController(): SceneController & { getScene(): THREE.S
   const actors = new Map<string, SceneActor>();
   const controllers = new Map<string, LayeredAnimationController>();
   const behaviorBridges = new Map<string, BehaviorEmoteBridge>();
+  const lipSyncPlayers = new Map<string, { update(): void; dispose(): void }>();
   const objectRoots = new Map<string, THREE.Object3D>();
   const ikRigs = new Map<string, any>(); // LegIKRig
   
@@ -147,6 +148,8 @@ export function createSceneController(): SceneController & { getScene(): THREE.S
     },
     
     removeActor(actorId: string) {
+      lipSyncPlayers.get(actorId)?.dispose();
+      lipSyncPlayers.delete(actorId);
       behaviorBridges.get(actorId)?.dispose();
       behaviorBridges.delete(actorId);
       const controller = controllers.get(actorId);
@@ -185,6 +188,13 @@ export function createSceneController(): SceneController & { getScene(): THREE.S
 
     setActorBehavior(actorId: string, action: BehaviorAction, needs: AvatarNeeds) {
       behaviorBridges.get(actorId)?.sync(action, needs);
+    },
+
+    setActorLipSyncPlayer(actorId: string, player: { update(): void; dispose(): void } | null) {
+      const previous = lipSyncPlayers.get(actorId);
+      if (previous && previous !== player) previous.dispose();
+      if (player) lipSyncPlayers.set(actorId, player);
+      else lipSyncPlayers.delete(actorId);
     },
     
     applyIK(actorId: string, options: { groundIK: boolean, lookAtCamera: boolean, cameraPosition?: THREE.Vector3 }) {
@@ -251,6 +261,7 @@ export function createSceneController(): SceneController & { getScene(): THREE.S
     update(delta: number) {
       for (const ctrl of controllers.values()) ctrl.update(delta);
       for (const bridge of behaviorBridges.values()) bridge.update(delta);
+      for (const player of lipSyncPlayers.values()) player.update();
     },
     
     dispose() {

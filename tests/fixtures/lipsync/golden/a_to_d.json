@@ -1,0 +1,18 @@
+{
+  "meta": {
+    "case": "a_to_d",
+    "language": "en-US",
+    "transcript": "pat",
+    "recognizer": "pocketSphinx",
+    "fps": 30,
+    "note": "Direct A->D transition must be bridged with C by the post-processor."
+  },
+  "rhubarb": {
+    "mouthCues": [
+      { "start": 0.0, "end": 0.1, "value": "X" },
+      { "start": 0.1, "end": 0.2, "value": "A" },
+      { "start": 0.2, "end": 0.3, "value": "D" },
+      { "start": 0.3, "end": 0.4, "value": "X" }
+    ]
+  }
+}

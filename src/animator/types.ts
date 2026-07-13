@@ -103,6 +103,7 @@ export interface SceneController {
   getActorRoot(actorId: string): any; // THREE.Object3D
   applyIK(actorId: string, options: { groundIK: boolean; lookAtCamera: boolean; cameraPosition?: any }): void;
   setActorBehavior(actorId: string, action: import("../types.ts").BehaviorAction, needs: import("../types.ts").AvatarNeeds): void;
+  setActorLipSyncPlayer(actorId: string, player: { update(): void; dispose(): void } | null): void;
   setActiveActor(actorId: string): void;
   playAll(): void;
   pauseAll(): void;

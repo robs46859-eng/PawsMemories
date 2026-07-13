@@ -7,6 +7,8 @@ import { readManifest } from "./manifest.ts";
 import { resolveWithinWorkspace } from "./paths.ts";
 import { createProject, getProject, listProjects, updateProject, deleteProject } from "./projects.ts";
 import { createScene, getScene } from "./scenes.ts";
+import { handleLipsyncPost, handleLipsyncGet } from "./lipsync.ts";
+import { createSpeechPreview, SpeechPreviewSchema } from "./speechPreview.ts";
 import { loadEnvironments } from "./environments.ts";
 import { loadScripts, estimateSpeechSeconds } from "./scripts.ts";
 import { PRESET_SCRIPTS } from "./sceneScripts.ts";
@@ -544,12 +546,49 @@ animatorRouter.post("/repurpose", (req: any, res) => {
   res.status(501).json({ code: "NOT_IMPLEMENTED", service: "repurpose", message: "Character repurposing not yet available" });
 });
 
+animatorRouter.post("/animator/lipsync", (req: any, res) => {
+  handleLipsyncPost(req, res).catch((e: any) => res.status(500).json({ error: e.message }));
+});
 animatorRouter.post("/lipsync", (req: any, res) => {
-  res.status(501).json({ code: "NOT_IMPLEMENTED", service: "lipsync", message: "Lip‑sync service not yet available" });
+  handleLipsyncPost(req, res).catch((e: any) => res.status(500).json({ error: e.message }));
 });
 
+animatorRouter.get("/animator/lipsync/:id", (req: any, res) => {
+  handleLipsyncGet(req, res).catch((e: any) => res.status(500).json({ error: e.message }));
+});
 animatorRouter.get("/lipsync/:id", (req: any, res) => {
-  res.status(501).json({ code: "NOT_IMPLEMENTED", service: "lipsync", message: "Lip‑sync service not yet available" });
+  handleLipsyncGet(req, res).catch((e: any) => res.status(500).json({ error: e.message }));
+});
+
+animatorRouter.post("/animator/speech-preview", async (req: any, res) => {
+  const parsed = SpeechPreviewSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || "Invalid speech preview" });
+
+  const userPhone = req.user?.phone;
+  if (!userPhone) return res.status(401).json({ error: "Unauthorized" });
+  const cost = CREDIT_PRICES.AI_VOICE_30_SECONDS;
+  let admin = false;
+  let charged = false;
+
+  try {
+    admin = await isUserAdmin(userPhone);
+    if (!admin) {
+      const balance = await getCreditBalance(userPhone);
+      if (balance < cost) return res.status(402).json({ error: `Insufficient credits. Need ${cost}` });
+      const deducted = await deductCredits(userPhone, cost, "ai_voice_generation");
+      if (!deducted) return res.status(402).json({ error: `Insufficient credits. Need ${cost}` });
+      charged = true;
+    }
+
+    const preview = await createSpeechPreview(parsed.data);
+    res.json({ ...preview, creditsCharged: admin ? 0 : cost });
+  } catch (error: any) {
+    if (charged) {
+      const { restoreReservedGenerationCredits } = await import("../../db.ts");
+      await restoreReservedGenerationCredits(userPhone, cost);
+    }
+    res.status(502).json({ error: error.message || "Voice preview generation failed" });
+  }
 });
 
 animatorRouter.post("/reconstruct", (req: any, res) => {

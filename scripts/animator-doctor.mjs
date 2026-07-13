@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { execSync } from "child_process";
+import { spawnSync, execSync } from "child_process";
 
 const BOLD = "\x1b[1m";
 const GREEN = "\x1b[32m";
@@ -30,7 +30,7 @@ async function probeWarning(message, testFn) {
   } catch (e) {
     console.log(`${YELLOW}⚠ (optional, will degrade gracefully)${RESET}`);
     console.error(`  ${e.message}`);
-    return false;
+    return true;
   }
 }
 
@@ -133,21 +133,55 @@ async function run() {
   })) && allPass;
 
   // 8. Rhubarb Lip Sync CLI (Tier B — optional, degrades gracefully)
-  const rhubarbBin = path.join(process.cwd(), "bin", "rhubarb-lipsync");
-  allPass = (await probeWarning(`Rhubarb Lip Sync CLI (${rhubarbBin})`, () => {
-    if (!fs.existsSync(rhubarbBin)) {
-      // Check PATH as fallback
+  //    Resolution order mirrors server/animator/lipsync.ts resolveRhubarbBin():
+  //      RHUBARB_BIN env → vendor/local paths → PATH (rhubarb-lipsync | rhubarb)
+  const rhubarbVendor = [
+    path.join(process.cwd(), "bin", "rhubarb-lipsync"),
+    path.join(process.cwd(), "bin", "rhubarb"),
+    path.join(process.cwd(), "vendor", "rhubarb", "rhubarb"),
+    path.join(process.cwd(), "vendor", "rhubarb", "rhubarb-lipsync"),
+    "/usr/local/bin/rhubarb",
+    "/usr/local/bin/rhubarb-lipsync",
+    "/opt/rhubarb/rhubarb",
+  ];
+  function resolveRhubarbBin() {
+    const envBin = process.env.RHUBARB_BIN;
+    if (envBin) {
+      if (path.isAbsolute(envBin) || envBin.includes("/") || envBin.includes("\\")) {
+        return fs.existsSync(envBin) && fs.statSync(envBin).isFile() ? envBin : null;
+      }
+      return envBin; // bare name — trust PATH
+    }
+    for (const c of rhubarbVendor) {
+      if (fs.existsSync(c) && fs.statSync(c).isFile()) return c;
+    }
+    for (const name of ["rhubarb-lipsync", "rhubarb"]) {
       try {
-        execSync("rhubarb-lipsync --version", { stdio: "ignore" });
+        const r = spawnSync(name, ["--version"], { stdio: "ignore", timeout: 2000 });
+        if (r.status === 0) return name;
       } catch {
-        // Also try just "rhubarb"
-        try {
-          execSync("rhubarb --version", { stdio: "ignore" });
-        } catch {
-          throw new Error("Rhubarb binary not found in bin/ or PATH");
-        }
+        /* keep probing */
       }
     }
+    return null;
+  }
+  allPass = (await probeWarning("Rhubarb Lip Sync CLI (Tier B, optional)", () => {
+    const bin = resolveRhubarbBin();
+    if (!bin) {
+      throw new Error(
+        "Rhubarb not found. Set RHUBARB_BIN to its absolute path, or place it in bin/ or on PATH. " +
+          "Download: https://github.com/DanielSWolf/rhubarb-lip-sync/releases",
+      );
+    }
+    let ver = "unknown";
+    try {
+      const r = spawnSync(bin, ["--version"], { encoding: "utf8", timeout: 5000 });
+      if (r.stdout) ver = r.stdout.split("\n")[0].trim() || ver;
+    } catch {
+      /* version probe is best-effort */
+    }
+    if (process.env.RHUBARB_BIN) console.log(`      Resolved via RHUBARB_BIN = ${bin}`);
+    console.log(`      Version: ${ver}`);
   })) && allPass;
 
   // 9. meshoptimizer (QEM simplification — optional, degrades gracefully)

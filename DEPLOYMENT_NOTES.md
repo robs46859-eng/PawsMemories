@@ -120,3 +120,47 @@ it's wired separately; the app build/serve path above is for `index.html` → `d
 4. Host runs `npm install && npm run build` → **confirm `dist/index.html` exists** → `npm start`.
 5. Set/verify env vars (esp. `WORKER_SHARED_SECRET` matches the worker; feature flags).
 6. Smoke-test: load `/` (app renders, not blank), hit one `/api/*` route (JSON, not HTML).
+
+## Lip-Sync (Rhubarb / Tier B)
+
+Phase 2 ships a Rhubarb-backed Tier B lip-sync pipeline
+(`server/animator/lipsync.ts` + `src/animator/viseme/*`). Rhubarb is
+**optional** — when it is absent the pipeline degrades Tier B → Tier A
+(amplitude/jaw fallback) and speech audio still plays.
+
+### Environment variable
+- `RHUBARB_BIN` — absolute path to the Rhubarb CLI. If unset, the
+  server resolves in this order: `bin/rhubarb-lipsync`, `bin/rhubarb`,
+  `vendor/rhubarb/rhubarb*`, `/usr/local/bin/rhubarb*`, `/opt/rhubarb/rhubarb`,
+  then bare `rhubarb-lipsync` / `rhubarb` on `PATH`.
+- Invocation uses **no shell** (`spawn` with an argument array); the
+  transcript is passed as a temp dialog file, never interpolated into a command.
+- `ELEVENLABS_API_KEY` — required for the Animator live voice preview.
+- `ELEVENLABS_MODEL_ID` — optional; defaults to `eleven_multilingual_v2`.
+- `ELEVENLABS_DEFAULT_VOICE_ID` — optional; defaults to the documented value
+  in `.env.example`. Non-admin previews cost 25 credits and are capped at 30 seconds.
+
+### Local development
+```
+# macOS (Homebrew)
+brew install rhubarb-lip-sync        # provides `rhubarb-lipsync`
+# or download the release binary and point at it:
+export RHUBARB_BIN="$PWD/vendor/rhubarb/rhubarb-lipsync"
+```
+
+### Hostinger / Linux (production)
+1. Download the Linux build from
+   https://github.com/DanielSWolf/rhubarb-lip-sync/releases and place it at
+   `/opt/rhubarb/rhubarb-lipsync` (or `bin/rhubarb-lipsync` in the repo).
+2. `chmod +x` the binary.
+3. In the Hostinger env / `.env`: `RHUBARB_BIN=/opt/rhubarb/rhubarb-lipsync`.
+4. `node scripts/animator-doctor.mjs` should report
+   `Rhubarb Lip Sync CLI (Tier B, optional): OK` with a version line.
+
+### Absence / degraded behavior
+- No binary → `resolveRhubarbBin()` returns `null`; `POST /animator/lipsync`
+  marks the job `failed` with `errorCode: BIN_NOT_FOUND`; the client
+  automatically falls back to Tier A. The doctor reports Rhubarb as a
+  **warning**, not a hard failure, so the rest of the deployment stays green.
+- The production browser bundle contains **no** Rhubarb binary or Node-only
+  server modules — Rhubarb runs only on the server.

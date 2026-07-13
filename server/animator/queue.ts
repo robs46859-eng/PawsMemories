@@ -21,6 +21,12 @@ export const JobRecordSchema = JobSpecSchema.extend({
   finishedAt: z.string().optional(),
   error: z.string().optional(),
   manifestPath: z.string().optional(),
+  /** Typed, structured result payload (e.g. a validated VisemeTrack). Optional. */
+  result: z.unknown().optional(),
+  /** Machine-readable failure code when the job failed (see RhubarbError codes). */
+  errorCode: z.string().optional(),
+  /** Whether the result was served from the source-hash cache. */
+  cached: z.boolean().optional(),
 });
 
 export type JobSpec = z.infer<typeof JobSpecSchema>;

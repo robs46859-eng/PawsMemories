@@ -1,0 +1,15 @@
+{
+  "meta": {
+    "case": "malformed",
+    "language": "en-US",
+    "transcript": "broken",
+    "recognizer": "pocketSphinx",
+    "fps": 30,
+    "note": "Intentionally invalid Rhubarb JSON output (simulated by fake in 'malformed' mode)."
+  },
+  "rhubarb": {
+    "mouthCues": [
+      { "start": 0.0, "end": 0.1, "value": "X" }
+    ]
+  }
+}

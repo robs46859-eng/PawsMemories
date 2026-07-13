@@ -1,0 +1,19 @@
+{
+  "meta": {
+    "case": "extended",
+    "language": "en-US",
+    "transcript": "very fluffy",
+    "recognizer": "pocketSphinx",
+    "fps": 30,
+    "note": "Exercises extended shapes G, H, and X (GHX set)."
+  },
+  "rhubarb": {
+    "mouthCues": [
+      { "start": 0.0, "end": 0.12, "value": "X" },
+      { "start": 0.12, "end": 0.24, "value": "G" },
+      { "start": 0.24, "end": 0.4, "value": "F" },
+      { "start": 0.4, "end": 0.56, "value": "H" },
+      { "start": 0.56, "end": 0.72, "value": "X" }
+    ]
+  }
+}
