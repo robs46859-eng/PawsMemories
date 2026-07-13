@@ -2,6 +2,7 @@ import React, { useState, lazy, Suspense } from "react";
 import { Screen, UserProfile, Creation, Album, PublicUser } from "./types";
 import SignUp from "./components/SignUp";
 import ResetPassword from "./components/ResetPassword";
+import AnimationStudio from "./components/AnimationStudio";
 import Welcome from "./components/Welcome";
 import Tutorial from "./components/Tutorial";
 import Dashboard from "./components/Dashboard";
@@ -79,6 +80,8 @@ export default function App() {
 
   const [currentScreen, setCurrentScreen] = useState<Screen>(Screen.SIGN_UP);
   const [animatorAssetId, setAnimatorAssetId] = useState<string | null>(null);
+  // "simple" = default Veo image+prompt→video; "pro" = the full 3D in-scene studio.
+  const [animatorMode, setAnimatorMode] = useState<"simple" | "pro">("simple");
   const [userProfile, setUserProfile] = useState<UserProfile>(EMPTY_PROFILE);
 
   const [showOrderSuccessModal, setShowOrderSuccessModal] = useState(false);
@@ -681,6 +684,7 @@ export default function App() {
                   onOpenCreditStore={() => setShowCreditStore(true)}
                   onGoToAnimator={(assetId) => {
                     setAnimatorAssetId(assetId);
+                    setAnimatorMode("simple");
                     setCurrentScreen(Screen.ANIMATOR);
                   }}
                 />
@@ -721,7 +725,7 @@ export default function App() {
 
             {currentScreen === Screen.PAWPRINTS && (
               <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
-                <PawprintsScreen userProfile={userProfile} onOpenCreditStore={() => setShowCreditStore(true)} onUserUpdate={applyUser} />
+                <PawprintsScreen userProfile={userProfile} creations={creations} onOpenCreditStore={() => setShowCreditStore(true)} onUserUpdate={applyUser} />
               </Suspense>
             )}
 
@@ -732,6 +736,7 @@ export default function App() {
                   onUserUpdate={applyUser}
                   onGoToAnimator={(assetId) => {
                     setAnimatorAssetId(assetId);
+                    setAnimatorMode("simple");
                     setCurrentScreen(Screen.ANIMATOR);
                   }}
                   onGoToPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
@@ -745,13 +750,23 @@ export default function App() {
               </Suspense>
             )}
 
-            {currentScreen === Screen.ANIMATOR && (
+            {currentScreen === Screen.ANIMATOR && animatorMode === "pro" && (
               <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
                 <AnimatorScreen
                   initialAssetId={animatorAssetId}
-                  onClose={() => setCurrentScreen(Screen.MODELS)}
+                  onClose={() => setAnimatorMode("simple")}
                 />
               </Suspense>
+            )}
+
+            {currentScreen === Screen.ANIMATOR && animatorMode === "simple" && (
+              <AnimationStudio
+                creations={creations}
+                userProfile={userProfile as PublicUser}
+                onOpenPro={() => setAnimatorMode("pro")}
+                onOpenCreditStore={() => setShowCreditStore(true)}
+                onClose={() => setCurrentScreen(Screen.MODELS)}
+              />
             )}
 
             {/* Safety net: if somehow on SIGN_UP while authed, send to dashboard */}

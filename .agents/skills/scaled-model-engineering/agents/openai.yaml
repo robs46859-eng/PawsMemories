@@ -1,0 +1,4 @@
+interface:
+  display_name: "Scaled Model Engineering"
+  short_description: "Preserve scale and design intent in 3D assets"
+  default_prompt: "Use -model-engineering to review or implement a physically scaled Pawsome3D model workflow."

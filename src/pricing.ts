@@ -22,6 +22,10 @@ export const CREDIT_PRICES = {
   STORAGE_GB_MONTH: 4,
 } as const;
 
+/** Discount applied when a user reuses a previously generated image of the same
+ *  subject (skips the fresh image-generation step). 0.2 = 20% off. */
+export const REUSE_DISCOUNT = 0.2;
+
 export const CREDIT_PACKS = [
   { id: "pack_100", credits: 100, price: 10, label: "Starter", bonusPercent: 0, comingSoon: false },
   { id: "pack_275", credits: 275, price: 25, label: "Creator", bonusPercent: 10, comingSoon: false },

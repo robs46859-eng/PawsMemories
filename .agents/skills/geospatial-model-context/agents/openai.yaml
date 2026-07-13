@@ -1,0 +1,4 @@
+interface:
+  display_name: "Geospatial Model Context"
+  short_description: "Ground scaled models in map coordinates"
+  default_prompt: "Use -model-context to plan geospatial data and coordinate integration for Pawsome3D."

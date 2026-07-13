@@ -1,0 +1,4 @@
+interface:
+  display_name: "BIM and IFC Integration"
+  short_description: "Add IFC semantics to the 3D model builder"
+  default_prompt: "Use -ifc-integration to design or review IFC and BIM support in Pawsome3D."

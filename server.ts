@@ -35,7 +35,7 @@ import { checkBudget, needsRetargetFallback, type BakeStats } from "./server/rig
 import { registerSnapgenRoutes } from "./server/snapgen";
 import { SKELETON_CONTRACTS } from "./skeletonContract";
 import { TERMS_VERSION } from "./src/legal";
-import { avatarGenerationCost, CREDIT_PACKS, CREDIT_PRICES } from "./src/pricing";
+import { avatarGenerationCost, CREDIT_PACKS, CREDIT_PRICES, REUSE_DISCOUNT } from "./src/pricing";
 import { buildReferencePrompt, turnaroundViewsForType, paletteLockClause, extractPaletteInstruction, buildTextPrompt, geometryToTripo, type TextPromptFields, type SubjectClass } from "./avatarPrompts";
 import { triageReferenceImage, triagePasses, correctiveFromTriage, friendlyQualifyError, isClassMismatch, classLabel, type TriageResult } from "./server/imageTriage";
 import { objectBuildProfile, humanRigHints } from "./server/subjectProfiles";
@@ -866,6 +866,7 @@ async function startServer() {
 
   app.post("/api/pawprints/generate", requireAuth, paidLimiter, async (req: AuthedRequest, res) => {
     let debited = false;
+    let pawprintPrice: number = CREDIT_PRICES.PAWPRINT;
     try {
       const idempotencyKey = String(req.header("Idempotency-Key") || req.body?.idempotencyKey || "").trim().slice(0, 120);
       if (!idempotencyKey) return res.status(400).json({ error: "An idempotency key is required." });
@@ -902,11 +903,25 @@ async function startServer() {
         }
       }
 
+      // Subject reuse: if the user picks a prior generated image of the same
+      // subject, reuse it as the background (skip fresh image generation) at 20% off.
+      const reuseCreationId = Number(req.body?.reuseCreationId) || 0;
+      let reuseImageUrl = "";
+      if (reuseCreationId > 0) {
+        const mine = await getCreations(req.user!.phone); // scoped to this user
+        const src = mine.find((c: any) => c.id === reuseCreationId && c.image_url);
+        if (!src) return res.status(400).json({ error: "That image isn't available to reuse." });
+        reuseImageUrl = src.image_url as string;
+      }
+      pawprintPrice = reuseImageUrl
+        ? Math.round(CREDIT_PRICES.PAWPRINT * (1 - REUSE_DISCOUNT))
+        : CREDIT_PRICES.PAWPRINT;
+
       const isAdmin = await isUserAdmin(req.user!.phone);
       if (!isAdmin) {
-        debited = await deductCredits(req.user!.phone, CREDIT_PRICES.PAWPRINT, "pawprint_generation");
+        debited = await deductCredits(req.user!.phone, pawprintPrice, "pawprint_generation");
         if (!debited) {
-          return res.status(402).json({ error: `You need ${CREDIT_PRICES.PAWPRINT} credits to create a Pawprint.` });
+          return res.status(402).json({ error: `You need ${pawprintPrice} credits to create a Pawprint.` });
         }
       }
 
@@ -943,17 +958,22 @@ async function startServer() {
         "Leave quiet space for readable overlaid text. Warm, high-quality, family-friendly."
       ].filter(Boolean).join(" ");
 
-      // Use the SAME image generator as the model/avatar pipeline
-      // (generateImageWithFallback → GEMINI_IMAGE_MODELS chain) so Pawprints
-      // never depends on models that aren't enabled on the API key.
-      const imageParts: any[] = [];
-      if (photoBase64) {
-        const match = /^data:([^;]+);base64,([\s\S]+)$/i.exec(photoBase64);
-        if (!match) throw new Error("Invalid image upload.");
-        imageParts.push({ inlineData: { mimeType: match[1], data: match[2] } });
+      // Reuse a prior generated image (20% off) OR generate a fresh one with the
+      // SAME generator as the model/avatar pipeline (generateImageWithFallback →
+      // GEMINI_IMAGE_MODELS chain) so Pawprints never depends on unavailable models.
+      let generatedImage = "";
+      if (reuseImageUrl) {
+        generatedImage = await fetchUrlAsBase64(reuseImageUrl); // returns a data URL
+      } else {
+        const imageParts: any[] = [];
+        if (photoBase64) {
+          const match = /^data:([^;]+);base64,([\s\S]+)$/i.exec(photoBase64);
+          if (!match) throw new Error("Invalid image upload.");
+          imageParts.push({ inlineData: { mimeType: match[1], data: match[2] } });
+        }
+        imageParts.push({ text: imagePrompt });
+        generatedImage = (await generateImageWithFallback(imageParts, "pawprint")) || "";
       }
-      imageParts.push({ text: imagePrompt });
-      const generatedImage = (await generateImageWithFallback(imageParts, "pawprint")) || "";
       if (!generatedImage) throw new Error("No Pawprint image generated.");
 
       const bgMatch = /^data:([^;]+);base64,([\s\S]+)$/i.exec(generatedImage);
@@ -1002,7 +1022,7 @@ async function startServer() {
       res.status(201).json({ pawprintId: inserted.insertId, url: finalUrl, creationId, user: toPublicUser(user, TERMS_VERSION) });
     } catch (err: any) {
       if (debited) {
-        try { await restoreReservedGenerationCredits(req.user!.phone, CREDIT_PRICES.PAWPRINT); } catch {}
+        try { await restoreReservedGenerationCredits(req.user!.phone, pawprintPrice); } catch {}
       }
       console.error("[POST /api/pawprints/generate] Error:", err?.message || err);
       res.status(500).json({ error: "Could not create the Pawprint. Your credits were returned." });

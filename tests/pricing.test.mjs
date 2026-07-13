@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { avatarGenerationCost, CREDIT_PACKS, CREDIT_PRICES } from "../src/pricing.ts";
+import { avatarGenerationCost, CREDIT_PACKS, CREDIT_PRICES, REUSE_DISCOUNT } from "../src/pricing.ts";
 
 test("authoritative credit prices match the published catalog", () => {
   assert.equal(CREDIT_PRICES.PAWPRINT, 75);
@@ -15,6 +15,11 @@ test("avatar pricing is fixed by product type", () => {
   assert.equal(avatarGenerationCost("human", "text"), 80);
   assert.equal(avatarGenerationCost("object", "text"), 40);
   assert.equal(avatarGenerationCost("object", "image"), 45);
+});
+
+test("pawprint reuse applies the published 20% discount", () => {
+  assert.equal(REUSE_DISCOUNT, 0.2);
+  assert.equal(Math.round(CREDIT_PRICES.PAWPRINT * (1 - REUSE_DISCOUNT)), 60);
 });
 
 test("credit packs match the published wallet packages", () => {
