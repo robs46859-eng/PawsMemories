@@ -57,6 +57,19 @@ export async function buildBim(model: Record<string, unknown>, mode: "shell" | "
   return res.json();
 }
 
+export interface SavedBimBuild {
+  id: string; name: string; mode: "shell" | "ifc"; price: number;
+  glbUrl: string | null; ifcUrl: string | null; sidecarUrl: string | null;
+  elementCount: number; sizeBytes: number; createdAt: string;
+}
+
+export async function listBimBuilds(): Promise<SavedBimBuild[]> {
+  const res = await authedFetch("/api/bim/builds");
+  if (!res.ok) throw new Error(await parseError(res, "Could not load saved models."));
+  const data = await res.json();
+  return Array.isArray(data.builds) ? data.builds : [];
+}
+
 async function parseError(res: Response, fallback: string): Promise<string> {
   try {
     const data = await res.json();

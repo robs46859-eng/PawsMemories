@@ -10,7 +10,7 @@ import sharp from "sharp";
 import { sendSms } from "./server/sms";
 import { sendMail } from "./server/mail";
 import rateLimit from "express-rate-limit";
-import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, restoreReservedGenerationCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor, getStorageUsage, recordStorageAddHot, recordStorageRemoveHot, purchaseColdStorage, updateUserProfile, checkAndGrantProfileBonus, verifyUserPhone, verifyUserEmail, generateReferralCode, recordReferral, creditReferralIfComplete, getPawprintCategories, getPawprintTemplatesSync, acceptTermsVersion, createVoiceCloneAsset, listVoiceCloneAssets, createPasswordReset, consumePasswordReset, setUserPassword } from "./db";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, restoreReservedGenerationCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor, getStorageUsage, recordStorageAddHot, recordStorageRemoveHot, purchaseColdStorage, updateUserProfile, checkAndGrantProfileBonus, verifyUserPhone, verifyUserEmail, generateReferralCode, recordReferral, creditReferralIfComplete, getPawprintCategories, getPawprintTemplatesSync, acceptTermsVersion, createVoiceCloneAsset, listVoiceCloneAssets, createPasswordReset, consumePasswordReset, setUserPassword, insertBimBuild, listBimBuilds } from "./db";
 import { isEndpointEnabled, dailyCapFor, withinDailyCap, type PaidEndpoint } from "./server/paidApiGuards";
 import { classifyPetImage, type GenerateFn } from "./server/petClassify";
 import { semanticScan as runSemanticScan } from "./server/semanticScan";
@@ -281,9 +281,31 @@ async function startServer() {
         creditsDebited = price;
       }
 
+      // Persist verified artifacts to the Backblaze bucket so users can
+      // re-download from "My models". Persistence is best-effort: a storage
+      // outage must never fail a build the user already paid for.
+      const persistBuild = async (artifacts: { glbBase64?: string; ifcBase64?: string; sidecar?: unknown; elementCount: number }) => {
+        try {
+          const glbUrl = artifacts.glbBase64 ? await uploadBase64Binary(artifacts.glbBase64, "model/gltf-binary", "bim/glb") : null;
+          const ifcUrl = artifacts.ifcBase64 ? await uploadBase64Binary(artifacts.ifcBase64, "application/x-step", "bim/ifc") : null;
+          const sidecarUrl = artifacts.sidecar ? await uploadBase64Binary(Buffer.from(JSON.stringify(artifacts.sidecar)).toString("base64"), "application/json", "bim/sidecars") : null;
+          const record = {
+            id: crypto.randomUUID(), userPhone, name: model.name || "Scaled building", mode, price,
+            glbUrl, ifcUrl, sidecarUrl, elementCount: artifacts.elementCount,
+            sizeBytes: Math.round(((artifacts.glbBase64?.length || 0) + (artifacts.ifcBase64?.length || 0)) * 0.75),
+          };
+          await insertBimBuild(record);
+          return record;
+        } catch (persistErr: any) {
+          console.error("[BIM] build persisted delivery-only (storage failed):", persistErr?.message || persistErr);
+          return null;
+        }
+      };
+
       if (mode === "shell") {
         const shell = await buildAndVerifyShell(model);
-        return res.json({ success: true, mode, price, preflight, postBuild: shell.verification, glb_base64: shell.glbBase64, balance: await getCreditBalance(userPhone) });
+        const saved = await persistBuild({ glbBase64: shell.glbBase64, elementCount: model.elements.length });
+        return res.json({ success: true, mode, price, preflight, postBuild: shell.verification, glb_base64: shell.glbBase64, saved, balance: await getCreditBalance(userPhone) });
       }
 
       const result = await getBlenderClient().exportIfc(model as any);
@@ -312,13 +334,25 @@ async function startServer() {
         dimensionsWithinTolerance,
       };
       if (!postBuild.passed) throw new Error("IFC failed post-build semantic verification");
-      res.json({ ...result, mode, price, preflight, postBuild, balance: await getCreditBalance(userPhone) });
+      const saved = await persistBuild({ glbBase64: result.glb_base64, ifcBase64: result.ifc_base64, sidecar: result.sidecar, elementCount: model.elements.length });
+      res.json({ ...result, mode, price, preflight, postBuild, saved, balance: await getCreditBalance(userPhone) });
     } catch (err: any) {
       if (creditsDebited > 0) {
         try { await restoreReservedGenerationCredits(req.user!.phone, creditsDebited); creditsDebited = 0; } catch (refundError) { console.error("[BIM] refund failed:", refundError); }
       }
       console.error("[BIM] verified build failed:", err.message);
       res.status(422).json({ error: `${err.message || "Model build failed."} Credits were returned.` });
+    }
+  });
+
+  // Saved verified builds for the "My models" re-download list.
+  app.get("/api/bim/builds", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const builds = await listBimBuilds(req.user!.phone);
+      res.json({ builds });
+    } catch (err: any) {
+      console.error("[GET /api/bim/builds] Error:", err?.message || err);
+      res.json({ builds: [] }); // degrade gracefully — never block the builder UI
     }
   });
 

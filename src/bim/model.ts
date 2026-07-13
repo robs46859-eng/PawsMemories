@@ -86,6 +86,7 @@ export type BimAction =
   | { type: "replace"; model: BimModel }
   | { type: "add-level"; level: BimLevel }
   | { type: "add-element"; element: BimElement }
+  | { type: "add-elements"; elements: BimElement[] }
   | { type: "remove-element"; id: string }
   | { type: "undo" }
   | { type: "redo" };
@@ -103,6 +104,7 @@ export function bimHistoryReducer(state: BimHistory, action: BimAction): BimHist
   if (action.type === "replace") present = structuredClone(action.model);
   else if (action.type === "add-level") present = { ...state.present, levels: [...state.present.levels, action.level] };
   else if (action.type === "add-element") present = { ...state.present, elements: [...state.present.elements, action.element] };
+  else if (action.type === "add-elements") present = { ...state.present, elements: [...state.present.elements, ...action.elements] };
   else present = { ...state.present, elements: state.present.elements.filter((element) => element.id !== action.id && element.hostId !== action.id && element.openingId !== action.id) };
   return { past: [...state.past.slice(-49), state.present], present, future: [] };
 }

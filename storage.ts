@@ -43,6 +43,8 @@ export function getExtensionFromMime(mimeType: string): string {
     "audio/mpeg": "mp3",
     "audio/mp4": "m4a",
     "audio/wav": "wav",
+    "application/x-step": "ifc",
+    "application/json": "json",
   };
   if (map[mimeType]) return map[mimeType];
   

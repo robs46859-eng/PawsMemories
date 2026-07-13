@@ -752,6 +752,26 @@ export async function initDb(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
+    // Verified BIM builds persisted to object storage for re-download (Scaled
+    // Building Lab "My models"). URLs point at the public Backblaze bucket.
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS bim_builds (
+        id            VARCHAR(64) PRIMARY KEY,
+        user_phone    VARCHAR(32) NOT NULL,
+        name          VARCHAR(160) NOT NULL,
+        mode          VARCHAR(8) NOT NULL,
+        price         INT NOT NULL DEFAULT 0,
+        glb_url       TEXT DEFAULT NULL,
+        ifc_url       TEXT DEFAULT NULL,
+        sidecar_url   TEXT DEFAULT NULL,
+        element_count INT NOT NULL DEFAULT 0,
+        size_bytes    BIGINT NOT NULL DEFAULT 0,
+        created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX (user_phone),
+        FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
     // Email hygiene (guarded — must never abort init): normalize to lower-case,
     // then best-effort enforce uniqueness. The UNIQUE index only applies once any
     // legacy duplicate-email rows have been removed; until then it is skipped.
@@ -2751,4 +2771,43 @@ export async function getSpatialMetadataByHash(
 
 export async function deleteSpatialMetadata(userPhone: string, assetKind: string, assetId: string): Promise<void> {
   await getPool().query("DELETE FROM model_spatial_metadata WHERE user_phone = ? AND asset_kind = ? AND asset_id = ?", [userPhone, assetKind, assetId]);
+}
+
+// ---------------------------------------------------------------------------
+// Verified BIM builds (Scaled Building Lab "My models" re-downloads)
+// ---------------------------------------------------------------------------
+
+export interface BimBuildRecord {
+  id: string;
+  userPhone: string;
+  name: string;
+  mode: "shell" | "ifc";
+  price: number;
+  glbUrl: string | null;
+  ifcUrl: string | null;
+  sidecarUrl: string | null;
+  elementCount: number;
+  sizeBytes: number;
+}
+
+export async function insertBimBuild(record: BimBuildRecord): Promise<void> {
+  await getPool().query(
+    `INSERT INTO bim_builds (id, user_phone, name, mode, price, glb_url, ifc_url, sidecar_url, element_count, size_bytes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [record.id, record.userPhone, record.name, record.mode, record.price,
+     record.glbUrl, record.ifcUrl, record.sidecarUrl, record.elementCount, record.sizeBytes]
+  );
+}
+
+export async function listBimBuilds(userPhone: string, limit = 50): Promise<Array<BimBuildRecord & { createdAt: string }>> {
+  const [rows] = await getPool().query(
+    "SELECT * FROM bim_builds WHERE user_phone = ? ORDER BY created_at DESC LIMIT ?",
+    [userPhone, Math.max(1, Math.min(200, limit))]
+  ) as any;
+  return (rows || []).map((row: any) => ({
+    id: row.id, userPhone: row.user_phone, name: row.name, mode: row.mode, price: row.price,
+    glbUrl: row.glb_url || null, ifcUrl: row.ifc_url || null, sidecarUrl: row.sidecar_url || null,
+    elementCount: row.element_count || 0, sizeBytes: Number(row.size_bytes) || 0,
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
+  }));
 }

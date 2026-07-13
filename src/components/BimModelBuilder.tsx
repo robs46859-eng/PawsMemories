@@ -3,9 +3,10 @@ import { Canvas } from "@react-three/fiber";
 import { Grid, OrbitControls } from "@react-three/drei";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import * as THREE from "three";
-import { Download, FileUp, Plus, Redo2, Trash2, Undo2, X } from "lucide-react";
-import { buildBim, importIfc, preflightBim } from "../api";
+import { Download, FileUp, Home, Plus, Redo2, Trash2, Undo2, X } from "lucide-react";
+import { buildBim, importIfc, listBimBuilds, preflightBim, type SavedBimBuild } from "../api";
 import { BIM_ELEMENT_TYPES, EMPTY_BIM_MODEL, bimHistoryReducer, snap, type BimElement, type BimElementType } from "../bim/model";
+import { BIM_PREFABS, prefabInsertOrigin, type BimPrefab } from "../bim/prefabs";
 import { bimModelCost, type BimBuildMode } from "../pricing";
 import type { UserProfile } from "../types";
 
@@ -70,6 +71,9 @@ export default function BimModelBuilder({ onClose, userProfile, onUpdateUser }: 
   const [buildMode, setBuildMode] = useState<BimBuildMode>("shell");
   const [preflight, setPreflight] = useState<any>(null);
   const [postBuild, setPostBuild] = useState<any>(null);
+  const [savedBuilds, setSavedBuilds] = useState<SavedBimBuild[]>([]);
+  const refreshSavedBuilds = () => listBimBuilds().then(setSavedBuilds).catch(() => setSavedBuilds([]));
+  useEffect(() => { refreshSavedBuilds(); }, []);
   const selectedElement = imported?.sidecar?.elements?.find((item: any) => item.globalId === selected) || history.present.elements.find((item) => item.id === selected);
   const classes = useMemo(() => Array.from(new Set((imported?.sidecar?.elements || []).map((item: any) => item.class))) as string[], [imported]);
   const price = bimModelCost(buildMode);
@@ -82,6 +86,14 @@ export default function BimModelBuilder({ onClose, userProfile, onUpdateUser }: 
     if (type === "opening") element.hostId = history.present.elements.find((item) => item.type === "wall")?.id;
     if (type === "door" || type === "window") element.openingId = history.present.elements.find((item) => item.type === "opening")?.id;
     dispatch({ type: "add-element", element }); setSelected(element.id);
+  };
+
+  const addPrefab = (prefab: BimPrefab) => {
+    const origin = prefabInsertOrigin(history.present.elements);
+    const elements = prefab.build(history.present.levels[0].id, origin, snapIncrement);
+    dispatch({ type: "add-elements", elements });
+    setSelected(elements[0]?.id || "");
+    setMessage(`Inserted ${prefab.label} (${elements.length} related elements) at x = ${origin[0]} m.`);
   };
 
   const handleImport = async (file?: File) => {
@@ -112,6 +124,7 @@ export default function BimModelBuilder({ onClose, userProfile, onUpdateUser }: 
       if (buildMode === "ifc") base64Download(result.ifc_base64, `${filename}.ifc`, "application/x-step");
       else base64Download(result.glb_base64, `${filename}.glb`, "model/gltf-binary");
       setPostBuild(result.postBuild); setImported({ ...result, sidecar: result.sidecar || { elements: [] }, glbUrl: `data:model/gltf-binary;base64,${result.glb_base64}` });
+      refreshSavedBuilds();
       if (!userProfile.isAdmin && Number.isFinite(result.balance)) onUpdateUser({ ...userProfile, credits: result.balance });
       setMessage(`${buildMode === "ifc" ? "IFC/BIM" : "Shell"} model passed post-build verification. ${price} credits charged.`);
     } catch (error: any) { setMessage(error.message); } finally { setBusy(""); }
@@ -129,7 +142,19 @@ export default function BimModelBuilder({ onClose, userProfile, onUpdateUser }: 
         <h3 className="mb-2 text-xs font-black uppercase tracking-wider">Author elements</h3>
         <div className="grid grid-cols-2 gap-2">{BIM_ELEMENT_TYPES.map((type) => <button key={type} onClick={() => addElement(type)} className="flex items-center gap-1 rounded-lg border border-[#28302c]/20 bg-white px-2 py-2 text-xs font-bold capitalize"><Plus size={12}/>{type}</button>)}</div>
         <button onClick={() => dispatch({ type: "add-level", level: { id: crypto.randomUUID(), name: `Level ${history.present.levels.length + 1}`, elevation: history.present.levels.length * 3.2 } })} className="mt-3 w-full rounded-lg border px-3 py-2 text-xs font-bold">Add 3.2 m level</button>
+        <h3 className="mb-2 mt-5 text-xs font-black uppercase tracking-wider">Prefabs</h3>
+        <div className="space-y-2">{BIM_PREFABS.map((prefab) => <button key={prefab.id} onClick={() => addPrefab(prefab)} title={prefab.description} className={`flex w-full items-center gap-2 rounded-lg border px-2 py-2 text-left text-xs font-bold ${prefab.id === "studio-apartment" ? "border-[#234f46] bg-[#234f46]/10" : "border-[#28302c]/20 bg-white"}`}><Home size={12}/>{prefab.label}<span className="ml-auto text-[9px] font-normal text-[#59655f]">{prefab.footprint[0]}×{prefab.footprint[1]} m</span></button>)}</div>
         <div className="mt-5 text-xs"><strong>{history.present.levels.length}</strong> levels · <strong>{history.present.elements.length}</strong> authored elements</div>
+        <h3 className="mb-2 mt-5 border-b pb-2 text-xs font-black uppercase tracking-wider">My models</h3>
+        {savedBuilds.length ? <ul className="space-y-2 text-xs">{savedBuilds.map((build) => <li key={build.id} className="rounded-lg border border-[#28302c]/15 bg-white p-2">
+          <p className="font-bold">{build.name} <span className="rounded bg-[#234f46]/10 px-1 text-[9px] uppercase text-[#234f46]">{build.mode}</span></p>
+          <p className="text-[10px] text-[#59655f]">{new Date(build.createdAt).toLocaleDateString()} · {build.elementCount} elements · {(build.sizeBytes / 1024).toFixed(0)} KB</p>
+          <p className="mt-1 flex gap-3">
+            {build.glbUrl && <a href={build.glbUrl} download className="font-black text-[#c85d3b] underline">GLB</a>}
+            {build.ifcUrl && <a href={build.ifcUrl} download className="font-black text-[#234f46] underline">IFC</a>}
+            {build.sidecarUrl && <a href={build.sidecarUrl} download className="text-[#59655f] underline">Sidecar</a>}
+          </p>
+        </li>)}</ul> : <p className="text-[11px] text-[#59655f]">Verified builds are stored to your account and re-downloadable here.</p>}
       </aside>
       <section className="relative min-h-[55vh] bg-[#d9e0db]">
         <Canvas camera={{ position: [10, 8, 10], fov: 45 }} shadows onPointerMissed={() => setSelected("")}><color attach="background" args={["#d9e0db"]}/><ambientLight intensity={1.4}/><directionalLight position={[6,10,4]} intensity={2}/><Grid args={[80,80]} cellSize={snapIncrement} sectionSize={1} fadeDistance={40}/><AuthoredScene elements={history.present.elements} selected={selected} onSelect={setSelected} filter={imported ? "none" : filter}/>{imported?.glbUrl && <ImportedScene url={imported.glbUrl} elements={imported.sidecar.elements} filter={filter} categoryColors={categoryColors} onSelect={setSelected}/>}<OrbitControls makeDefault/></Canvas>
