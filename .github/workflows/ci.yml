@@ -10,6 +10,10 @@ env:
   NODE_VERSION: "22"
   CI: "true"
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   # ===========================================================================
   # JOB 1: Type Check (gating)
@@ -31,8 +35,9 @@ jobs:
   # ===========================================================================
   # JOB 2: Unit Tests + AR Tests (gating)
   # Unit + AR tests are DB-agnostic (initDb skips when DB vars are absent) and
-  # the contract/auth tests drive an in-process Express app (no port bind, no
-  # real providers). A 15-minute job timeout is a hard backstop against the
+  # contract tests drive an in-process Express app with no real providers. The
+  # full-server auth smoke test binds a free local port and tears down its whole
+  # process group. A 15-minute job timeout is a hard backstop against the
   # historical "unit tests hung in CI" failure (open child-handle / interval).
   # The AR suite is covered by the single `npm test` step below (tests/*.test.mjs
   # already includes tests/ar_*, tests/brain_*, tests/pets_*, and
@@ -141,6 +146,8 @@ jobs:
         # `# gitleaks:allow` comments in this file instead.
         # (The gitleaks-action auto-detects .gitleaks.toml at repo root.)
         uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:

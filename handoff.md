@@ -262,3 +262,26 @@ change their completion labels. Remaining release/merge gates are a pushed fix c
 a pull request with a fully green GitHub Actions run (including Gitleaks), and owner
 configuration of `main` branch protection. Production rigging remains disabled unless
 `PETSIM_RIG_ENABLED=true`; do not enable it as part of this stabilization phase.
+
+### Remote verification note — blocker discovered
+
+- Fix commit `de4a1a0` was pushed to `stabilize/ar-hardening-foundation` and draft PR
+  [#1](https://github.com/robs46859-eng/PawsMemories/pull/1) was opened to obtain real
+  GitHub Actions evidence.
+- Actions run `29350629818` passed Type Check, IFC Tests, and Unit & AR Tests, but its
+  Security Scan job failed. Production Build and Contract Tests were still running when
+  this blocker was recorded.
+- This failed check is a merge/deployment blocker until its log is diagnosed, any real
+  finding is fixed without broad scanner exclusions, and a replacement run is green.
+
+### Fix note — Gitleaks pull-request authentication
+
+- **Diagnosed:** the Security Scan did not report a secret. `gitleaks-action@v2`
+  stopped before scanning because its current release requires `GITHUB_TOKEN` for
+  pull-request events.
+- **Applied:** CI now grants only `contents: read` and `pull-requests: read`, then passes
+  the standard ephemeral `${{ secrets.GITHUB_TOKEN }}` to the Gitleaks step. Default
+  Gitleaks rules remain enabled and no path, value, finding, or fingerprint was
+  allowlisted.
+- **Required evidence:** the replacement GitHub Actions run must complete the actual
+  secret scan successfully before this blocker is closed.
