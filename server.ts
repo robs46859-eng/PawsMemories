@@ -10,8 +10,7 @@ import sharp from "sharp";
 import { sendSms } from "./server/sms";
 import { sendMail } from "./server/mail";
 import rateLimit from "express-rate-limit";
-import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, restoreReservedGenerationCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor, getStorageUsage, recordStorageAddHot, recordStorageRemoveHot, purchaseColdStorage, updateUserProfile, checkAndGrantProfileBonus, verifyUserPhone, verifyUserEmail, generateReferralCode, recordReferral, creditReferralIfComplete, getPawprintCategories, getPawprintTemplatesSync, acceptTermsVersion, createVoiceCloneAsset, listVoiceCloneAssets, createPasswordReset, consumePasswordReset, setUserPassword, insertBimBuild, listBimBuilds } from "./db";
-import { isEndpointEnabled, dailyCapFor, withinDailyCap, type PaidEndpoint } from "./server/paidApiGuards";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, restoreReservedGenerationCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor, getStorageUsage, recordStorageAddHot, recordStorageRemoveHot, purchaseColdStorage, updateUserProfile, checkAndGrantProfileBonus, verifyUserPhone, verifyUserEmail, generateReferralCode, recordReferral, creditReferralIfComplete, getPawprintCategories, getPawprintTemplatesSync, acceptTermsVersion, createVoiceCloneAsset, listVoiceCloneAssets, createPasswordReset, consumePasswordReset, setUserPassword, insertBimBuild, listBimBuilds } from "./db";
 import { classifyPetImage, type GenerateFn } from "./server/petClassify";
 import { semanticScan as runSemanticScan } from "./server/semanticScan";
 import { animatorRouter } from "./server/animator/routes.ts";
@@ -443,29 +442,6 @@ async function startServer() {
     keyGenerator: (req: any) => req.user?.phone || "anon",
     message: { error: "Too many requests. Please slow down and try again in a minute." },
   });
-
-  /**
-   * Kill-switch + per-user daily-cap guard for a paid AR endpoint (H2/H7).
-   * Returns true if the caller may proceed. Call AFTER cache/ownership checks
-   * so cached hits and validation failures never consume paid quota.
-   */
-  const guardPaidCall = async (
-    ep: PaidEndpoint,
-    req: AuthedRequest,
-    res: express.Response,
-  ): Promise<boolean> => {
-    if (!isEndpointEnabled(ep)) {
-      res.status(503).json({ error: "This feature is temporarily unavailable. Please try again later.", endpoint: ep });
-      return false;
-    }
-    const used = await bumpDailyUsage(req.user!.phone, ep);
-    if (!withinDailyCap(ep, used)) {
-      const cap = dailyCapFor(ep);
-      res.status(429).json({ error: `Daily limit reached (${cap}/day for ${ep}). Please try again tomorrow.`, endpoint: ep, cap });
-      return false;
-    }
-    return true;
-  };
 
   // ---------------------------------------------------------------------------
   // Authentication: email/password + session tokens (JWT)
@@ -2474,7 +2450,7 @@ async function startServer() {
       getPetProfileByAvatar: dbMod.getPetProfileByAvatar,
       upsertPetProfile: dbMod.upsertPetProfile,
       getPetProfileById: dbMod.getPetProfileById,
-      bumpDailyUsage: dbMod.bumpDailyUsage,
+      reservePaidUsage: dbMod.reservePaidUsage,
       getSemanticScan: dbMod.getSemanticScan,
       saveSemanticScan: dbMod.saveSemanticScan,
       getAvatarByIdForRig: dbMod.getAvatarById,

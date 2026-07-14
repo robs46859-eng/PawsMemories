@@ -22,7 +22,13 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { requireAuth, type AuthedRequest } from "../auth";
 import rateLimit from "express-rate-limit";
-import { isEndpointEnabled, withinDailyCap, dailyCapFor, type PaidEndpoint } from "./paidApiGuards";
+import {
+  isEndpointEnabled,
+  paidUsageLimitsFor,
+  type PaidEndpoint,
+  type PaidUsageLimits,
+  type PaidUsageReservation,
+} from "./paidApiGuards";
 import { SemanticScanRequestSchema } from "../src/schemas/ar";
 import { ClassifyRequestSchema, RigRequestSchema } from "../src/schemas/pets";
 import { resolveBreedProfile } from "./breedProfiles";
@@ -47,7 +53,11 @@ export interface PetSimDb {
   getPetProfileByAvatar: (id: number, owner: string) => Promise<any>;
   upsertPetProfile: (id: number, owner: string, data: any) => Promise<any>;
   getPetProfileById: (id: number, owner: string) => Promise<any>;
-  bumpDailyUsage: (owner: string, ep: PaidEndpoint) => Promise<number>;
+  reservePaidUsage: (
+    owner: string,
+    ep: PaidEndpoint,
+    limits: PaidUsageLimits,
+  ) => Promise<PaidUsageReservation>;
   getSemanticScan: (owner: string, key: string) => Promise<any>;
   saveSemanticScan: (owner: string, key: string, zones: any) => Promise<void>;
   getAvatarByIdForRig: (id: number, owner: string) => Promise<any>;
@@ -100,10 +110,9 @@ async function parseImageInput(
 }
 
 /**
- * Shared kill-switch + per-user daily cap gate. Mirrors the production
- * `guardPaidCall` semantics exactly: if the endpoint is disabled, respond 503
- * and return false (no DB bump, no provider call). Otherwise bump usage and
- * reject with 429 when over cap. Returns true only when the call may proceed.
+ * Shared kill-switch + atomic user/aggregate budget gate. If the endpoint is
+ * disabled, respond 503 and return false (no DB reservation, no provider call).
+ * Otherwise reserve user count, global count, and estimated cost together.
  * CRITICAL: when this returns false the caller MUST `return` without calling
  * the provider — that is what keeps usage increments and provider calls at zero
  * for rejected requests (H2/H7).
@@ -118,10 +127,18 @@ async function guardPaidCall(
     res.status(503).json({ error: "This feature is temporarily unavailable. Please try again later.", endpoint: ep });
     return false;
   }
-  const used = await db.bumpDailyUsage(req.user!.phone, ep);
-  if (!withinDailyCap(ep, used)) {
-    const cap = dailyCapFor(ep);
-    res.status(429).json({ error: `Daily limit reached (${cap}/day for ${ep}). Please try again tomorrow.`, endpoint: ep, cap });
+  const limits = paidUsageLimitsFor(ep);
+  const reservation = await db.reservePaidUsage(req.user!.phone, ep, limits);
+  if (!reservation.allowed) {
+    const aggregate = reservation.reason !== "user_cap";
+    res.status(aggregate ? 503 : 429).json({
+      error: aggregate
+        ? "This feature has reached its daily service budget. Please try again tomorrow."
+        : `Daily limit reached (${limits.userDailyCap}/day for ${ep}). Please try again tomorrow.`,
+      endpoint: ep,
+      reason: reservation.reason,
+      cap: aggregate ? undefined : limits.userDailyCap,
+    });
     return false;
   }
   return true;

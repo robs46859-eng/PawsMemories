@@ -47,6 +47,7 @@ let scanCalls = 0;
 let rigCalls = 0;
 let uploadCalls = 0;
 let usageCalls = 0;
+let forcedReservationDenial = null;
 // Per-endpoint scriptable daily-usage counts (default within cap).
 const usage = { classify: 1, rig: 1, semantic_scan: 1 };
 
@@ -68,9 +69,17 @@ const db = {
     return p;
   },
   upsertPetProfile: async () => ({ breed: "Pug", breed_confidence: 0.8 }),
-  bumpDailyUsage: async (owner, ep) => {
+  reservePaidUsage: async (owner, ep, limits) => {
     usageCalls++;
-    return usage[ep] ?? 1;
+    const count = usage[ep] ?? 1;
+    const reason = forcedReservationDenial || (count > limits.userDailyCap ? "user_cap" : null);
+    return {
+      allowed: !reason,
+      reason: reason || undefined,
+      userCount: count,
+      globalCount: 1,
+      globalReservedCostMicroUsd: limits.estimatedCostMicroUsd,
+    };
   },
   getSemanticScan: async (owner, key) => semanticScans.get(`${owner}:${key}`) ?? null,
   saveSemanticScan: async (owner, key, zones) => {
@@ -176,6 +185,7 @@ afterEach(() => {
   usage.classify = 1;
   usage.rig = 1;
   usage.semantic_scan = 1;
+  forcedReservationDenial = null;
   semanticScans.clear();
   process.env.PETSIM_RIG_ENABLED = "false";
 });
@@ -313,6 +323,30 @@ test("per-user cap returns 429 and blocks provider", async () => {
     .send({ avatarId: 11, imageBase64: DATA_URL });
   assert.equal(res.status, 429);
   assert.equal(classifyCalls, 0, "provider not called when over cap");
+});
+
+test("aggregate request cap returns 503 and blocks provider", async () => {
+  forcedReservationDenial = "global_cap";
+  const res = await request
+    .post("/api/pets/classify")
+    .set("Authorization", `Bearer ${tokenFor("userA")}`)
+    .send({ avatarId: 11, imageBase64: DATA_URL });
+  assert.equal(res.status, 503);
+  assert.equal(res.body.reason, "global_cap");
+  assert.equal(classifyCalls, 0);
+  assert.equal(usageCalls, 1);
+});
+
+test("aggregate cost cap returns 503 and blocks provider", async () => {
+  forcedReservationDenial = "global_cost_cap";
+  const res = await request
+    .post("/api/ar/semantic-scan")
+    .set("Authorization", `Bearer ${tokenFor("userA")}`)
+    .send({ imageBase64: DATA_URL, anchorHash: "cost-cap-anchor" });
+  assert.equal(res.status, 503);
+  assert.equal(res.body.reason, "global_cost_cap");
+  assert.equal(scanCalls, 0);
+  assert.equal(usageCalls, 1);
 });
 
 // ---- Invalid requests rejected before provider --------------------------

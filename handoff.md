@@ -318,6 +318,29 @@ not mark P0, P1, or P2 complete and does not authorize merge, production deploym
 rigging enablement. Remaining owner actions are review/merge of draft PR #1 and enabling
 `main` branch protection with the six CI jobs required and force-push disabled.
 
+## P0 Atomic Budget Fix Note (2026-07-14)
+
+- **Applied on isolated branch:** `director/p0-atomic-budgets` adds a separate aggregate
+  daily usage table and a single MySQL transaction that locks aggregate then per-user
+  rows before reserving request count and estimated provider cost. A denied reservation
+  changes neither counter and provider calls remain blocked.
+- **Configuration:** user caps retain their existing keys. Aggregate request caps,
+  positive per-call cost reservations, and aggregate cost ceilings use separate
+  `PETSIM_<ENDPOINT>_*` variables documented in `.env.example`. Zero remains a valid hard
+  stop for request/cost caps; a zero or invalid per-call cost estimate falls back to a
+  conservative positive value so it cannot bypass the dollar ceiling.
+- **Containment:** aggregate exhaustion returns 503, user exhaustion returns 429, and
+  `PETSIM_RIG_ENABLED=false` remains the required default. Rig also has zero aggregate
+  request and cost defaults.
+- **Local verification:** TypeScript, production build, 486 unit tests, 139 dedicated AR
+  tests, 23 production paid-route contracts, 8 hostile-input tests, 5 IFC tests, dependency
+  audit, and Animator Doctor pass. IFC was run in an isolated environment containing
+  `ifcopenshell`; Animator Doctor used a temporary runtime workspace. Rhubarb remains an
+  optional degraded-mode warning.
+- **Still open:** do not mark P0 complete. A real MySQL concurrent-abuse run, approved
+  provider price estimates, actual-cost reconciliation, warning/critical alert evidence,
+  redacted staging configuration, and operator kill-switch rehearsal are still required.
+  No production deployment or rig enablement is authorized by this fix.
 ## Production Readiness Swarm Addendum (2026-07-14)
 
 - The requested release scope now includes exact 10-second prompt-to-video outputs using

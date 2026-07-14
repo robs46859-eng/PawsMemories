@@ -5,6 +5,10 @@ import {
   dailyCapFor,
   isEndpointEnabled,
   withinDailyCap,
+  globalDailyCapFor,
+  estimatedCostMicroUsdFor,
+  globalDailyCostMicroUsdFor,
+  paidUsageLimitsFor,
   PAID_ENDPOINTS,
 } from "../server/paidApiGuards.ts";
 
@@ -20,6 +24,41 @@ test("parseBoolFlag: truthy / falsy / default", () => {
   assert.equal(parseBoolFlag("", false), false);
   assert.equal(parseBoolFlag("banana", true), true);
   assert.equal(parseBoolFlag("banana", false), false);
+});
+
+test("aggregate budgets: conservative defaults keep rig closed", () => {
+  assert.equal(globalDailyCapFor("classify", {}), 250);
+  assert.equal(globalDailyCapFor("semantic_scan", {}), 500);
+  assert.equal(globalDailyCapFor("rig", {}), 0);
+  assert.equal(globalDailyCostMicroUsdFor("rig", {}), 0);
+  assert.equal(estimatedCostMicroUsdFor("rig", {}), 1_000_000);
+});
+
+test("aggregate budgets: zero caps are preserved and zero cost estimates fall back", () => {
+  const env = {
+    PETSIM_CLASSIFY_DAILY_CAP: "4",
+    PETSIM_CLASSIFY_GLOBAL_DAILY_CAP: "0",
+    PETSIM_CLASSIFY_ESTIMATED_COST_MICRO_USD: "0",
+    PETSIM_CLASSIFY_GLOBAL_DAILY_COST_MICRO_USD: "0",
+  };
+  assert.deepEqual(paidUsageLimitsFor("classify", env), {
+    userDailyCap: 4,
+    globalDailyCap: 0,
+    estimatedCostMicroUsd: 10_000,
+    globalDailyCostMicroUsd: 0,
+  });
+});
+
+test("aggregate budgets: invalid, negative, fractional, and unsafe values fall back", () => {
+  assert.equal(globalDailyCapFor("classify", { PETSIM_CLASSIFY_GLOBAL_DAILY_CAP: "nope" }), 250);
+  assert.equal(globalDailyCapFor("classify", { PETSIM_CLASSIFY_GLOBAL_DAILY_CAP: "-1" }), 250);
+  assert.equal(globalDailyCapFor("classify", { PETSIM_CLASSIFY_GLOBAL_DAILY_CAP: "1.5" }), 250);
+  assert.equal(
+    globalDailyCostMicroUsdFor("classify", {
+      PETSIM_CLASSIFY_GLOBAL_DAILY_COST_MICRO_USD: String(Number.MAX_SAFE_INTEGER + 1),
+    }),
+    2_500_000,
+  );
 });
 
 test("dailyCapFor: defaults", () => {
