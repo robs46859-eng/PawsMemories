@@ -490,6 +490,25 @@ AR, deployment, or human-approval status. Production rigging remains disabled.
 This is an additive handoff entry. It does not mark staging, deployment, AR human
 acceptance, Rhubarb, private-media migration, or the exact 10-second add-on complete.
 
+## Hostinger Veo Poller Recovery Note (2026-07-14)
+
+- **Observed blocker:** production job 13 failed while polling a persisted Google Veo
+  operation with `operation._fromAPIResponse is not a function`. The operation name was
+  retained correctly, but the app reconstructed it as a plain object after reading it
+  from MySQL; Google GenAI SDK 2.11 requires a `GenerateVideosOperation` instance.
+- **Applied fix:** both the user-request and background pollers now rebuild the typed SDK
+  operation before polling. Temporary SDK, network, or media-storage polling errors stay
+  retryable; validated terminal output failures still fail closed and restore credits.
+- **Existing-job recovery:** startup resumes only failed Google video rows whose error is
+  the exact legacy reconstruction message. It reuses the existing provider operation,
+  submits no second generation request, and clears the already-refunded reservation so
+  another failure cannot issue a second refund.
+- **Release marker:** `hostinger-veo-poller-hotfix-20260714-3`.
+
+This note is additive and does not mark production video acceptance complete. After
+deployment, confirm that the log reports the recovery count, job 13 reaches a terminal
+provider state, its media is durably stored, and the completed video plays for its owner.
+
 ## Hostinger Model Upload 413 Fix Note (2026-07-14)
 
 - **Observed blocker:** release `hostinger-studio-hotfix-20260714-1` reached production,

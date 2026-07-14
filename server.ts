@@ -9,7 +9,7 @@ import fs from "fs";
 import { sendSms } from "./server/sms";
 import { sendMail } from "./server/mail";
 import rateLimit from "express-rate-limit";
-import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, updateJobResultMetadata, getJob, getRunningJobs, restoreReservedGenerationCredits, setCreationVideoUrl, setCreationModelUrl, reservePaidUsage, getMediaObjectForOwner, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor, getStorageUsage, recordStorageAddHot, recordStorageRemoveHot, purchaseColdStorage, updateUserProfile, checkAndGrantProfileBonus, verifyUserPhone, verifyUserEmail, generateReferralCode, recordReferral, creditReferralIfComplete, acceptTermsVersion, createVoiceCloneAsset, listVoiceCloneAssets, createPasswordReset, consumePasswordReset, setUserPassword, insertBimBuild, listBimBuilds } from "./db";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, updateJobResultMetadata, getJob, getRunningJobs, resumeVeoJobsFailedByOperationReconstruction, restoreReservedGenerationCredits, setCreationVideoUrl, setCreationModelUrl, reservePaidUsage, getMediaObjectForOwner, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarRiggedModel, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor, getStorageUsage, recordStorageAddHot, recordStorageRemoveHot, purchaseColdStorage, updateUserProfile, checkAndGrantProfileBonus, verifyUserPhone, verifyUserEmail, generateReferralCode, recordReferral, creditReferralIfComplete, acceptTermsVersion, createVoiceCloneAsset, listVoiceCloneAssets, createPasswordReset, consumePasswordReset, setUserPassword, insertBimBuild, listBimBuilds } from "./db";
 import { classifyPetImage, type GenerateFn } from "./server/petClassify";
 import { semanticScan as runSemanticScan } from "./server/semanticScan";
 import { animatorRouter } from "./server/animator/routes.ts";
@@ -37,6 +37,7 @@ import { mediaIdFromReference, mediaSignedUrlTtlSeconds, resolveOwnedMediaRefere
 import { readMp4DurationSeconds } from "./server/mp4Duration";
 import { readResponseBodyBounded } from "./server/httpBody";
 import { parseVideoGenerationRequest, validateVideoProviderOutput, VideoGenerationValidationError } from "./server/videoGeneration";
+import { getPersistedVeoOperation, LEGACY_VEO_OPERATION_RECONSTRUCTION_ERROR } from "./server/veoOperation";
 import { ImageInputValidationError, validateImageDataUrl } from "./src/security/image-input";
 import { runBuildPipeline } from "./agent/graph/orchestrator";
 import { analyzePetImage, type PetAnalysis } from "./ollama-agent";
@@ -65,7 +66,7 @@ import {
 
 dotenv.config();
 
-const APP_RELEASE = "hostinger-model-upload-hotfix-20260714-2";
+const APP_RELEASE = "hostinger-veo-poller-hotfix-20260714-3";
 
 // Strip a `data:<mime>;base64,<data>` URL prefix, returning { data, mimeType }.
 // Shared by the create-video route and (via a local copy) the pet-sim router.
@@ -102,6 +103,17 @@ async function startServer() {
 
   // Initialize the user database (creates the users table if needed)
   await initDb();
+
+  try {
+    const resumedVeoJobs = await resumeVeoJobsFailedByOperationReconstruction(
+      LEGACY_VEO_OPERATION_RECONSTRUCTION_ERROR,
+    );
+    if (resumedVeoJobs > 0) {
+      console.log(`[Veo] Resumed ${resumedVeoJobs} operation(s) failed by the previous SDK polling bug.`);
+    }
+  } catch (error) {
+    console.error("[Veo] Could not resume operations affected by the previous SDK polling bug:", error);
+  }
 
   // Reaper: recover avatars stranded in an intermediate generation state.
   // The build runs as fire-and-forget work; if the process is recycled mid-build
@@ -4299,7 +4311,7 @@ async function startServer() {
         // --- Veo (Gemini) branch ---
         if (job.operation_name) {
           try {
-            const op: any = await ai.operations.getVideosOperation({ operation: { name: job.operation_name } as any });
+            const op = await getPersistedVeoOperation(ai.operations, job.operation_name);
             if (op.done) {
               if (op.response?.generatedVideos?.[0]?.video) {
                 const videoData: any = op.response.generatedVideos[0].video;
@@ -4326,10 +4338,12 @@ async function startServer() {
             console.error("Video poll error:", pollErr);
             if (pollErr instanceof VideoGenerationValidationError && pollErr.metadata) {
               await updateJobResultMetadata(jobId, pollErr.metadata);
+              await updateJobStatus(jobId, "failed", pollErr.message);
+              await restoreReservedGenerationCredits(req.user!.phone, job.credits_reserved);
+              return res.json({ success: true, status: "failed", error: pollErr.message });
             }
-            await updateJobStatus(jobId, "failed", pollErr.message);
-            await restoreReservedGenerationCredits(req.user!.phone, job.credits_reserved);
-            return res.json({ success: true, status: "failed", error: pollErr.message });
+            await updateJobStatus(jobId, "running");
+            return res.json({ success: true, status: "running", video_url: null });
           }
         }
       }
@@ -4437,7 +4451,7 @@ async function startServer() {
         }
         // --- Veo (Gemini) branch ---
         try {
-          const op: any = await ai.operations.getVideosOperation({ operation: { name: job.operation_name } as any });
+          const op = await getPersistedVeoOperation(ai.operations, job.operation_name);
           if (op.done) {
             if (op.response?.generatedVideos?.[0]?.video) {
               const videoData: any = op.response.generatedVideos[0].video;
@@ -4454,9 +4468,9 @@ async function startServer() {
           console.error(`Background poller error for job ${job.id}:`, err);
           if (err instanceof VideoGenerationValidationError && err.metadata) {
             await updateJobResultMetadata(job.id, err.metadata);
+            await updateJobStatus(job.id, "failed", err.message);
+            await restoreReservedGenerationCredits(job.user_phone, job.credits_reserved);
           }
-          await updateJobStatus(job.id, "failed", err?.message || "Poller error");
-          await restoreReservedGenerationCredits(job.user_phone, job.credits_reserved);
         }
       }
     } catch (e) {

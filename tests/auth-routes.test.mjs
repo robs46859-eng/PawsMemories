@@ -153,7 +153,7 @@ test("Public routes are reachable without a token", async () => {
   const configRes = await fetch(`${apiUrl}/api/config`);
   assert.equal(configRes.status, 200, "GET /api/config must not be intercepted by the Studio proxy");
   const config = await configRes.json();
-  assert.equal(config.releaseId, "hostinger-model-upload-hotfix-20260714-2");
+  assert.equal(config.releaseId, "hostinger-veo-poller-hotfix-20260714-3");
   assert.equal(typeof config.deployTarget, "string");
 
   // Login route should not return 401 Unauthorized (it might return 400 for bad input,

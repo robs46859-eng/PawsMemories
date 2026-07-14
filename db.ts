@@ -1426,6 +1426,29 @@ export async function getRunningJobs(): Promise<JobRow[]> {
   return rows as unknown as JobRow[];
 }
 
+/**
+ * Resume only Veo jobs failed by the pre-hotfix SDK operation reconstruction bug.
+ * Those jobs were already refunded by the old catch path, so clearing the
+ * reservation prevents another refund if their existing provider operation fails.
+ */
+export async function resumeVeoJobsFailedByOperationReconstruction(
+  exactError: string,
+): Promise<number> {
+  if (!dbConfigured()) return 0;
+  const [result] = await getPool().query(
+    `UPDATE generation_jobs
+        SET status = 'running', error = NULL, credits_reserved = 0
+      WHERE status = 'failed'
+        AND kind = 'video'
+        AND provider = 'google'
+        AND operation_name IS NOT NULL
+        AND operation_name <> ''
+        AND error = ?`,
+    [exactError],
+  ) as any;
+  return Number(result?.affectedRows || 0);
+}
+
 /** Restore credits reserved by a failed generation. This is operational recovery,
  * separate from user refund reviews and never accepts user/AI-selected amounts. */
 export async function restoreReservedGenerationCredits(phone: string, amount: number): Promise<void> {
