@@ -6,6 +6,39 @@
 
 ---
 
+## Verified Status on Stabilization Branch
+
+This phase remains **partial**. The current branch wires strict Zod request schemas into
+the production classify, rig, and semantic-scan router. Contract tests prove the covered
+malformed requests, ownership failures, disabled endpoints, and exhausted caps stop
+before deterministic provider fakes are called.
+
+Implemented foundation:
+
+- `src/schemas/pets.ts` and `src/schemas/ar.ts` validate production paid-route requests.
+- Arbitrary `imageUrl` is rejected; classify and semantic scan require image data URLs.
+- `src/security/image-input.ts` validates canonical base64, JPEG/PNG/WebP signatures,
+  declared MIME agreement, encoded/decoded bytes, dimensions, pixels, aspect ratio,
+  truncation, and trailing container data before quota or provider calls.
+- `server/petSimRouter.ts` applies existing Express throttling, feature switches, and
+  per-user daily caps before provider calls.
+- `tests/security/image-input.test.mjs` provides seven focused image validation cases.
+- `tests/contracts/petsim.test.mjs` provides 18 production-router contract cases and
+  deterministic call counters.
+
+Not yet implemented or evidenced:
+
+- A complete adversarial fixture corpus beyond the current focused generated fixtures.
+- Authenticated-user plus hashed-IP route buckets and trusted-proxy tests.
+- Maximum-input memory profile and the remaining provider-zero rejection matrix.
+- Production response-schema enforcement for every success/error variant.
+- Production-safe remote fetch. `safe-fetch.ts` is not wired because DNS resolution,
+  IPv6/reserved-range checks, redirect validation, and streaming limits are incomplete.
+
+Do not mark P2 complete until the exit gate and evidence requirements below all pass.
+
+---
+
 ## P2 Objectives
 
 Phase P2 rejects hostile or excessive input **before** it consumes memory, storage, or paid API capacity.
@@ -224,16 +257,16 @@ Create test fixtures directory: `tests/fixtures/`
 ## P2 Implementation Plan
 
 ### Phase 1: Foundation (Day 1)
-- [ ] Create Zod schemas directory structure
-- [ ] Implement base64 size calculator
-- [ ] Create file signature detector
-- [ ] Write unit tests for each utility
+- [x] Create Zod schemas directory structure
+- [x] Implement base64 size calculator
+- [x] Create file signature detector
+- [x] Write unit tests for each utility
 
 ### Phase 2: Input Validation (Day 2)
-- [ ] Implement MIME validator
-- [ ] Implement dimension checker
-- [ ] Create base64 parser with strict mode
-- [ ] Add validation middleware to Express
+- [x] Implement MIME validator
+- [x] Implement dimension checker
+- [x] Create base64 parser with strict mode
+- [x] Add validation to the production Express router
 
 ### Phase 3: Safe Fetch (Day 3)
 - [ ] Implement network isolation checks
@@ -248,8 +281,8 @@ Create test fixtures directory: `tests/fixtures/`
 - [ ] Test all rate limit scenarios
 
 ### Phase 5: Integration & Testing (Day 5)
-- [ ] Wire all validations into `/api/pets/classify`
-- [ ] Wire all validations into `/api/ar/semantic-scan`
+- [x] Wire all current local-image validations into `/api/pets/classify`
+- [x] Wire all current local-image validations into `/api/ar/semantic-scan`
 - [ ] Run adversarial test corpus
 - [ ] Verify provider fake call counts = 0 for rejected cases
 - [ ] Memory profile max accepted input
@@ -302,7 +335,7 @@ Create test fixtures directory: `tests/fixtures/`
 
 ### Modified Files
 - `server.ts` - Add P2 validation middleware
-- `tests/contract_api.test.mjs` - Add P2 test cases
+- `tests/contracts/petsim.test.mjs` - Extend production-router P2 contract cases
 - `package.json` - Add dependencies if needed
 - `.github/workflows/ci.yml` - Add P2 tests to workflow
 
@@ -321,4 +354,6 @@ Create test fixtures directory: `tests/fixtures/`
 
 ---
 
-**Next:** Begin implementation of P2.1 (Zod schemas) and P2.2 (MIME validation)
+**Next:** Complete P2.4 safe remote fetch and trusted-proxy/user rate buckets, then run
+the full adversarial corpus and maximum-input memory profile. Keep remote URL input
+disabled until those controls pass.

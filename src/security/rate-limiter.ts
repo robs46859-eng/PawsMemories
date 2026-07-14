@@ -105,8 +105,12 @@ class RateLimitStore {
 // Global rate limiter store
 const rateLimitStore = new RateLimitStore();
 
-// Auto-cleanup every 5 minutes
-setInterval(() => rateLimitStore.cleanup(), 5 * 60 * 1000);
+// Auto-cleanup every 5 minutes. Unref'd so this timer can NEVER keep the
+// Node event loop (and therefore a test runner or CLI) alive. Without this,
+// importing the module in a test would leave a live timer and hang `tsx --test`.
+const cleanupTimer = setInterval(() => rateLimitStore.cleanup(), 5 * 60 * 1000);
+// `unref` exists in Node; guard for non-Node/edge runtimes.
+if (typeof cleanupTimer.unref === "function") cleanupTimer.unref();
 
 /**
  * Trusted proxy configuration

@@ -11,6 +11,8 @@ import { z } from 'zod';
  * Pet classification request schema
  */
 export const ClassifyRequestSchema = z.object({
+  avatarId: z.coerce.number().int().positive('avatarId must be a positive integer'),
+
   /**
    * Required: Base64 encoded image data
    * Must be a valid data URL with allowed MIME type
@@ -30,20 +32,15 @@ export const ClassifyRequestSchema = z.object({
    */
   metadata: z.record(z.string(), z.any()).optional(),
 
+  force: z.boolean().optional().default(false),
+
   /**
    * SECURITY: imageUrl parameter is explicitly rejected
    * Removed in P0.3 to prevent SSRF attacks
    * This field exists in the schema to capture and reject attempts to use it
    */
-  imageUrl: z
-    .never()
-    .optional()
-    .catch(undefined)
-    .refine(
-      () => false,
-      'imageUrl parameter is not allowed for security reasons. Use imageBase64 instead.'
-    ),
-});
+  imageUrl: z.never().optional(),
+}).strict();
 
 /**
  * Pet classification response schema
@@ -108,10 +105,7 @@ export const RigRequestSchema = z.object({
   /**
    * Pet ID from path parameter
    */
-  id: z
-    .string()
-    .regex(/^\d+$/, 'Pet ID must be a positive integer')
-    .refine((val) => parseInt(val, 10) > 0, 'Pet ID must be positive'),
+  id: z.coerce.number().int().positive('Pet ID must be positive'),
 
   /**
    * Optional: Force regeneration even if cached result exists
@@ -124,7 +118,7 @@ export const RigRequestSchema = z.object({
    * Currently reserved for future features
    */
   options: z.record(z.string(), z.any()).optional(),
-});
+}).strict();
 
 /**
  * Rig generation response schema

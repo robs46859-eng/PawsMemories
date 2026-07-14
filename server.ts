@@ -18,6 +18,10 @@ import { animatorRouter } from "./server/animator/routes.ts";
 import { studioRouter } from "./server/animator/studio_proxy.ts";
 import { refundRouter } from "./server/refunds.ts";
 import { setRefundReviewGenerate } from "./server/refunds.ts";
+import {
+  createPetSimApp,
+  isPetSimImageRoute,
+} from "./server/petSimApp.ts";
 import { privacyHtml, termsHtml, smsTermsHtml } from "./server/legal.ts";
 import { startWorker as startAnimatorWorker } from "./server/animator/worker.ts";
 import { phraseKey } from "./src/three/ar/voice";
@@ -52,6 +56,14 @@ import {
 } from "./auth";
 
 dotenv.config();
+
+// Strip a `data:<mime>;base64,<data>` URL prefix, returning { data, mimeType }.
+// Shared by the create-video route and (via a local copy) the pet-sim router.
+function splitDataUrl(s: string): { data: string; mimeType: string } {
+  const m = /^data:([^;]+);base64,(.*)$/s.exec(s);
+  if (m) return { mimeType: m[1], data: m[2] };
+  return { mimeType: "image/jpeg", data: s };
+}
 
 async function startServer() {
   const app = express();
@@ -240,7 +252,13 @@ async function startServer() {
     next();
   });
 
-  app.use(express.json({ limit: "1mb" }));
+  const defaultJsonParser = express.json({ limit: "1mb" });
+  app.use((req, res, next) => {
+    // The exact production pet-sim app is mounted after its provider adapters
+    // are constructed. Preserve its request stream for its scoped 6 MiB parser.
+    if (isPetSimImageRoute(req.path)) return next();
+    return defaultJsonParser(req, res, next);
+  });
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
   app.post("/api/bim/import-ifc", requireAuth, async (req: AuthedRequest, res) => {
@@ -2413,6 +2431,10 @@ async function startServer() {
   });
 
   // --- AR virtual-pet simulator (AR_PET_SIM_SPEC, milestone AR2) -------------
+  // The three paid simulator routes (classify / rig / semantic-scan) now live in
+  // the shared `createPetSimRouter` factory (server/petSimRouter.ts) so the
+  // SAME production route handlers are exercised by the contract test suite
+  // with injected fakes. Real providers are wired here.
 
   // Gemini-backed generate fn injected into the (provider-agnostic) classify core.
   const classifyGenerate: GenerateFn = async ({ prompt, imageBase64, mimeType, temperature }) => {
@@ -2426,77 +2448,64 @@ async function startServer() {
   };
   setRefundReviewGenerate(classifyGenerate);
 
-  // Strip a data: URL prefix if present, returning { data, mimeType }.
-  const splitDataUrl = (s: string): { data: string; mimeType: string } => {
-    const m = /^data:([^;]+);base64,(.*)$/s.exec(s);
-    if (m) return { mimeType: m[1], data: m[2] };
-    return { mimeType: "image/jpeg", data: s };
+  // Blender-worker bake-lod adapter (real provider for the rig route).
+  const bakeLod = async (
+    opts: { glbUrl: string; avatarType?: string },
+    headers: Record<string, string>,
+  ): Promise<{ glb_base64?: string; stats?: any; error?: string }> => {
+    const workerUrl = (process.env.BLENDER_WORKER_URL || "http://localhost:10000").replace(/\/render$/, "");
+    const res = await fetch(`${workerUrl}/bake-lod`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ glb_url: opts.glbUrl, avatar_type: opts.avatarType }),
+    });
+    const body: any = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { error: body.error || `worker returned HTTP ${res.status}` };
+    }
+    return body;
   };
 
-  // POST /api/pets/classify — one vision-LLM call → breed/build/temperament,
-  // resolved to a breed profile and persisted onto the avatar's pet_profiles row.
-  app.post("/api/pets/classify", requireAuth, paidLimiter, async (req: AuthedRequest, res) => {
-    try {
-      const { avatarId, imageBase64, imageUrl, force } = req.body || {};
-      const aId = Number(avatarId);
-      if (!Number.isFinite(aId)) {
-        return res.status(400).json({ error: "avatarId required." });
-      }
-      // Ownership check up-front (before any paid LLM call).
-      const owned = await getAvatarById(aId, req.user!.phone);
-      if (!owned) return res.status(404).json({ error: "Avatar not found." });
+  // Production dependency wiring for the shared pet-sim router.
+  const dbMod = await import("./db");
+  const PROD_PETSIM_DEPS = {
+    db: {
+      getAvatarById: dbMod.getAvatarById,
+      getPetProfileByAvatar: dbMod.getPetProfileByAvatar,
+      upsertPetProfile: dbMod.upsertPetProfile,
+      getPetProfileById: dbMod.getPetProfileById,
+      bumpDailyUsage: dbMod.bumpDailyUsage,
+      getSemanticScan: dbMod.getSemanticScan,
+      saveSemanticScan: dbMod.saveSemanticScan,
+      getAvatarByIdForRig: dbMod.getAvatarById,
+      savePetRigUrls: dbMod.savePetRigUrls,
+      setAvatarGenerationFailed: async (id: number, err: string) =>
+        dbMod.getPool().query(
+          `UPDATE avatars SET generation_status = 'failed', generation_error = ? WHERE id = ?`,
+          [err, id],
+        ),
+    } as any,
+    providers: {
+      classify: ({ imageBase64, mimeType }) =>
+        classifyPetImage(classifyGenerate, { imageBase64, mimeType }),
+      semanticScan: ({ imageBase64, mimeType }) =>
+        runSemanticScan(classifyGenerate, { imageBase64, mimeType }),
+      startRig: (genTaskId: string, opts: { avatarType?: string }) =>
+        startRig(genTaskId, opts as any),
+      pollTripoUntilDone: (handle: string, tries?: number, delayMs?: number) =>
+        pollTripoUntilDone(handle, tries, delayMs),
+      uploadBinaryFromUrl: (url: string, mime: string) => uploadBinaryFromUrl(url, mime),
+      uploadBase64Binary: (b64: string, mime: string) => uploadBase64Binary(b64, mime),
+      bakeLod,
+    },
+    paidLimiter,
+  };
 
-      // Cache: never re-classify the same avatar unless force=true (hardening H7).
-      if (!force) {
-        const existing = await getPetProfileByAvatar(aId, req.user!.phone);
-        if (existing && existing.breed) {
-          return res.json({ profile: existing, cached: true });
-        }
-      }
+  // Mount the shared pet-simulator router (classify / rig / semantic-scan).
+  app.use(createPetSimApp(PROD_PETSIM_DEPS));
 
-      let img = "";
-      let mimeType = "image/jpeg";
-      if (typeof imageBase64 === "string" && imageBase64) {
-        const s = splitDataUrl(imageBase64);
-        img = s.data;
-        mimeType = s.mimeType;
-      } else {
-        return res.status(400).json({ error: "imageBase64 required (imageUrl not allowed)." });
-      }
-
-      // H2/H7: kill-switch + per-user daily cap (only paid, non-cached calls count).
-      if (!(await guardPaidCall("classify", req, res))) return;
-
-      const result = await classifyPetImage(classifyGenerate, { imageBase64: img, mimeType });
-      const breedProfile = resolveBreedProfile(result.breed, result.size_class);
-
-      // Seed brain state: weights from temperament, default drives/hormones.
-      const t = result.temperament as Record<string, number>;
-      const temperament = {
-        energy: Number(t.energy) || 0.5,
-        sociability: Number(t.sociability) || 0.5,
-        stubbornness: Number(t.stubbornness) || 0.5,
-        foodMotivation: Number(t.foodMotivation) || 0.5,
-        vocality: Number(t.vocality) || 0.5,
-      };
-      const weights = weightsFromTemperament(temperament);
-      const saved = await upsertPetProfile(aId, req.user!.phone, {
-        breed: result.breed,
-        breed_confidence: result.breed_confidence,
-        size_class: result.size_class,
-        build: result.build,
-        temperament: result.temperament,
-        personality_weights: weights,
-        hormones: { ...DEFAULT_HORMONES },
-        drives: { ...DEFAULT_DRIVES },
-      });
-
-      res.json({ profile: saved, classification: result, breedProfile, cached: false });
-    } catch (err: any) {
-      console.error("[pets/classify] failed:", err?.message || err);
-      res.status(502).json({ error: "Classification failed." });
-    }
-  });
+  // NOTE: POST /api/pets/classify is now served by the shared pet-sim router
+  // mounted through createPetSimApp(PROD_PETSIM_DEPS) above.
 
   // GET /api/pets/:id/state — drives/hormones/weights with offline decay applied.
   app.get("/api/pets/:id/state", requireAuth, async (req: AuthedRequest, res) => {
@@ -2577,136 +2586,13 @@ async function startServer() {
     return { done: false, error: "Tripo task timed out." } as Awaited<ReturnType<typeof pollTripoTask>>;
   };
 
-  // POST /api/pets/:id/rig — Tripo animate_rig → blender-worker bake-lod → B2.
-  // Feature-flagged: when off, avatars keep the current (unrigged) render path.
-  app.post("/api/pets/:id/rig", requireAuth, paidLimiter, async (req: AuthedRequest, res) => {
-    if (process.env.PETSIM_RIG_ENABLED !== "true") {
-      return res.status(501).json({ error: "Rig pipeline disabled.", featureFlag: "PETSIM_RIG_ENABLED" });
-    }
-    try {
-      const petId = Number(req.params.id);
-      const pet = await getPetProfileById(petId, req.user!.phone);
-      if (!pet) return res.status(404).json({ error: "Pet not found." });
-
-      // Source model task id: explicit body, else the avatar's stored Tripo handle.
-      const avatar = await getAvatarById(pet.avatar_id, req.user!.phone);
-      let genTaskId: string = (req.body && req.body.genTaskId) || "";
-      if (!genTaskId) {
-        genTaskId = avatar?.meshy_handle || "";
-      }
-      if (!genTaskId) {
-        return res.status(400).json({ error: "No source model task id (genTaskId) available for this pet." });
-      }
-
-      // H2/H7: master kill-switch + per-user daily cap before any paid Tripo work.
-      if (!(await guardPaidCall("rig", req, res))) return;
-
-      // 1) Kick Tripo auto-rig and poll to completion (bounded).
-      const rigHandle = await startRig(genTaskId, { avatarType: avatar?.avatar_type || 'dog' });
-      const rig = await pollTripoUntilDone(rigHandle, 60, 5000);
-      if (!rig.glbUrl) {
-        return res.status(502).json({ error: rig.error || "Rig did not produce a model." });
-      }
-
-      // 2) Mirror the rigged GLB to B2.
-      const riggedGlbUrl = await uploadBinaryFromUrl(rig.glbUrl, "model/gltf-binary");
-
-      // 3) blender-worker bake-lod → budget LOD GLB bytes.
-      const workerUrl = (process.env.BLENDER_WORKER_URL || "http://localhost:10000").replace(/\/render$/, "");
-      const bakeRes = await fetch(`${workerUrl}/bake-lod`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-worker-secret": process.env.WORKER_SHARED_SECRET || "",
-        },
-        body: JSON.stringify({ glb_url: rig.glbUrl, avatar_type: avatar?.avatar_type }),
-      });
-      const bakeJson: any = await bakeRes.json().catch(() => ({}));
-      if (!bakeRes.ok || !bakeJson.glb_base64) {
-        return res.status(502).json({ error: `bake-lod failed: ${bakeJson.error || bakeRes.status}` });
-      }
-      const stats: BakeStats = bakeJson.stats || {
-        tris: 0, bones: 0, bytes: 0, retarget_confidence: 0, leg_chains_ok: false,
-      };
-      const lodGlbUrl = await uploadBase64Binary(bakeJson.glb_base64, "model/gltf-binary");
-
-      // 4) Persist URLs; report budget + retarget-fallback decision (spec §3.1).
-      await savePetRigUrls(petId, req.user!.phone, {
-        rigged_glb_url: riggedGlbUrl,
-        lod_glb_url: lodGlbUrl,
-      });
-      const budget = checkBudget(stats);
-      const threshold = avatar?.avatar_type === 'human' ? 0.85 : 0.7;
-      let retargetFallbackRecommended = needsRetargetFallback(stats, threshold);
-
-      const bodyType = avatar?.avatar_type === 'human' ? 'biped' : 'quadruped';
-      const contract = SKELETON_CONTRACTS[bodyType];
-      const missingContractBones = (stats.missing_bones || []).filter(b => contract.allBones.includes(b));
-      if (missingContractBones.length > 0) {
-        console.warn(`[pets/rig] Rig is missing contract bones for bodyType ${bodyType}:`, missingContractBones);
-        retargetFallbackRecommended = true;
-      }
-
-      if (retargetFallbackRecommended) {
-        console.warn(
-          `[pets/rig] pet ${petId}: low retarget confidence / missing leg chains — ` +
-          `recommend Tripo preset animations. stats=${JSON.stringify(stats)}`
-        );
-        if (avatar?.avatar_type === 'human') {
-          console.error(`[pets/rig] humanoid retarget below confidence for pet ${petId}`);
-          await getPool().query(
-            `UPDATE avatars SET generation_status = 'failed', generation_error = ? WHERE id = ?`,
-            ["humanoid retarget below confidence", pet.avatar_id]
-          );
-          return res.status(422).json({ error: "humanoid retarget below confidence" });
-        }
-      }
-
-      res.json({ success: true, riggedGlbUrl, lodGlbUrl, stats, budget, retargetFallbackRecommended });
-    } catch (err: any) {
-      console.error("[pets/rig] failed:", err?.message || err);
-      res.status(502).json({ error: "Rig pipeline failed." });
-    }
-  });
+  // NOTE: POST /api/pets/:id/rig is now served by the shared pet-sim router
+  // mounted through createPetSimApp(PROD_PETSIM_DEPS) above.
+  // It stays disabled unless PETSIM_RIG_ENABLED === "true" (P0 containment).
 
   // POST /api/ar/semantic-scan — AR_PET_SIM_SPEC §6.4
-  // One camera frame → vision LLM → zone polygons. Cached per anchor hash so a
-  // session doesn't pay for the LLM twice on the same spot (H7).
-  app.post("/api/ar/semantic-scan", requireAuth, paidLimiter, async (req: AuthedRequest, res) => {
-    try {
-      const { imageBase64, imageUrl, anchorHash, force } = req.body || {};
-
-      let img = "";
-      let mimeType = "image/jpeg";
-      if (typeof imageBase64 === "string" && imageBase64) {
-        const s = splitDataUrl(imageBase64);
-        img = s.data;
-        mimeType = s.mimeType;
-      } else {
-        return res.status(400).json({ error: "imageBase64 required (imageUrl not allowed)." });
-      }
-
-      // Anchor key: client-provided anchor id, else a content hash of the frame.
-      const key: string =
-        (typeof anchorHash === "string" && anchorHash) ||
-        createHash("sha256").update(img).digest("hex").slice(0, 64);
-
-      if (!force) {
-        const cached = await getSemanticScan(req.user!.phone, key);
-        if (cached) return res.json({ anchorHash: key, zones: cached.zones ?? cached, cached: true });
-      }
-
-      // H2/H7: kill-switch + per-user daily cap (only paid, non-cached scans count).
-      if (!(await guardPaidCall("semantic_scan", req, res))) return;
-
-      const result = await runSemanticScan(classifyGenerate, { imageBase64: img, mimeType });
-      await saveSemanticScan(req.user!.phone, key, result);
-      res.json({ anchorHash: key, zones: result.zones, cached: false });
-    } catch (err: any) {
-      console.error("[ar/semantic-scan] failed:", err?.message || err);
-      res.status(502).json({ error: "Semantic scan failed." });
-    }
-  });
+  // NOTE: POST /api/ar/semantic-scan is now served by the shared pet-sim router
+  // mounted through createPetSimApp(PROD_PETSIM_DEPS) above.
 
   // GET /api/pets/:id/commands — learned voice commands, with forgetting decay
   // applied to compliance from last_reinforced (§7.2).
@@ -3545,7 +3431,7 @@ async function startServer() {
   app.post("/api/create-video", requireAuth, async (req: AuthedRequest, res) => {
     let videoCreditsDebited = 0;
     try {
-      const { creationId, motionPrompt, generateAudio } = req.body;
+      const { creationId, motionPrompt } = req.body;
       if (!creationId) return res.status(400).json({ success: false, error: "creationId is required" });
 
       const userPhone = req.user!.phone;
@@ -3600,7 +3486,9 @@ async function startServer() {
         model: "veo-3.1-fast-generate-preview",
         prompt: motionPrompt || "Gentle breeze, subtle motion, cinematic lighting",
         image: { imageBytes, mimeType },
-        config: { aspectRatio: "1:1", generateAudio: generateAudio !== false }, // default true
+        // The Gemini Developer API rejects generateAudio for Veo requests.
+        // Audio behavior is therefore left to the model default.
+        config: { aspectRatio: "1:1" },
       });
 
       const operationName = (op as any).name || (op as any).operation?.name;

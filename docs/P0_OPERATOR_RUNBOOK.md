@@ -57,8 +57,8 @@ export PETSIM_PAID_APIS_ENABLED=false
 ```bash
 # After redeploy completes, test the endpoint
 curl -X POST https://pawsome3d.com/api/pets/1/rig \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json"
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <REDACTED>" # gitleaks:allow - documentation placeholder
 
 # Expected response: 501 with feature flag indicator
 ```

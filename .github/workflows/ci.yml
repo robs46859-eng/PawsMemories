@@ -10,383 +10,187 @@ env:
   NODE_VERSION: "22"
   CI: "true"
 
-jobs:
-  # ============================================================================
-  # JOB 1: Lint & Type Check
-  # ============================================================================
-  lint:
-    name: Lint & Type Check
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+permissions:
+  contents: read
+  pull-requests: read
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+jobs:
+  # ===========================================================================
+  # JOB 1: Type Check (gating)
+  # ===========================================================================
+  lint:
+    name: Type Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Type check
+      - run: npm ci
+      - name: Type check (tsc --noEmit)
         run: npm run lint
 
-      - name: ESLint (if configured)
-        run: npm run lint:eslint || echo "ESLint not configured"
-
-  # ============================================================================
-  # JOB 2: Unit Tests
-  # ============================================================================
+  # ===========================================================================
+  # JOB 2: Unit Tests + AR Tests (gating)
+  # Unit + AR tests are DB-agnostic (initDb skips when DB vars are absent) and
+  # contract tests drive an in-process Express app with no real providers. The
+  # full-server auth smoke test binds a free local port and tears down its whole
+  # process group. A 15-minute job timeout is a hard backstop against the
+  # historical "unit tests hung in CI" failure (open child-handle / interval).
+  # The AR suite is covered by the single `npm test` step below (tests/*.test.mjs
+  # already includes tests/ar_*, tests/brain_*, tests/pets_*, and
+  # tests/paid_guards.test.mjs); the contract suite lives separately under
+  # tests/contracts/ so it is NOT double-executed here.
+  # ===========================================================================
   test:
-    name: Unit Tests
+    name: Unit & AR Tests
     runs-on: ubuntu-latest
     needs: lint
+    timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Initialize test database
-        run: |
-          # Create empty MySQL database for testing
-          # Note: In production CI, use test database with proper schema
-          echo "Test database setup placeholder"
-
+      - run: npm ci
+      # Unit tests (all tests/*.test.mjs) — explicitly DB-disabled so any
+      # spawned server child cannot attempt a MySQL connection.
       - name: Run unit tests
         run: npm test
         env:
           NODE_ENV: test
-          DB_HOST: 127.0.0.1
-          DB_PORT: 3306
-          DB_NAME: pawsmemories_test
-          DB_USER: root
-          DB_PASSWORD: test
-          JWT_SECRET: test-secret-for-ci-only
-          ADMIN_KEY: admin
-          ADMIN_EMAIL: admin@test.com
-          ADMIN_PASSWORD: test
-          MEDIA_BUCKET_NAME: test-bucket
-          MEDIA_BUCKET_URL: http://localhost:9000
-          MEDIA_BUCKET_KEY: minioadmin
-          MEDIA_BUCKET_SECRET: minioadmin
-          TRIPO_API_KEY: test-key
-          GEMINI_API_KEY: test-key
-          BLENDER_WORKER_URL: http://localhost:8000/render
-          WORKER_SHARED_SECRET: test-secret
-
-      - name: Run AR tests
-        run: npm run test:ar
+      - name: Run hostile-input security tests
+        run: npm run test:security
         env:
           NODE_ENV: test
-          DB_HOST: 127.0.0.1
-          DB_PORT: 3306
-          DB_NAME: pawsmemories_test
-          DB_USER: root
-          DB_PASSWORD: test
-          JWT_SECRET: test-secret-for-ci-only
-          ADMIN_KEY: admin
-          ADMIN_EMAIL: admin@test.com
-          ADMIN_PASSWORD: test
-          MEDIA_BUCKET_NAME: test-bucket
-          MEDIA_BUCKET_URL: http://localhost:9000
-          MEDIA_BUCKET_KEY: minioadmin
-          MEDIA_BUCKET_SECRET: minioadmin
-          TRIPO_API_KEY: test-key
-          GEMINI_API_KEY: test-key
-          BLENDER_WORKER_URL: http://localhost:8000/render
-          WORKER_SHARED_SECRET: test-secret
 
-      - name: Run IFC tests
-        run: npm run test:ifc
-        env:
-          PYTHONPATH: blender-worker/ifc_worker
-
-  # ============================================================================
-  # JOB 3: Production Build
-  # ============================================================================
+  # ===========================================================================
+  # JOB 3: Production Build (gating)
+  # ===========================================================================
   build:
     name: Production Build
     runs-on: ubuntu-latest
     needs: [lint, test]
+    timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build Vite frontend
+      - run: npm ci
+      - name: Build Vite frontend + bundle server
         run: npm run build
-
       - name: Verify dist/ exists
         run: |
-          test -d dist && echo "✅ dist/ directory exists" || exit 1
-          test -f dist/index.html && echo "✅ dist/index.html exists" || exit 1
-          test -f dist/server.cjs && echo "✅ dist/server.cjs exists" || exit 1
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+          test -d dist && echo "dist/ directory exists" || exit 1
+          test -f dist/index.html && echo "dist/index.html exists" || exit 1
+          test -f dist/server.cjs && echo "dist/server.cjs exists" || exit 1
+      - uses: actions/upload-artifact@v4
         with:
           name: build-artifacts
-          path: |
-            dist/
+          path: dist/
           retention-days: 7
 
-  # ============================================================================
-  # JOB 4: IFC Tests (Python)
-  # ============================================================================
+  # ===========================================================================
+  # JOB 4: IFC Tests (Python) — single source of truth for IFC discovery.
+  # (The previous duplicate `test:ifc` step inside the unit job was removed
+  # to avoid double execution and a broken discovery path.)
+  # ===========================================================================
   test-ifc:
     name: IFC Tests
     runs-on: ubuntu-latest
     needs: lint
+    timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - name: Install Python dependencies
-        run: |
-          cd blender-worker/ifc_worker
-          pip install -r requirements.txt
-
+        working-directory: blender-worker/ifc_worker
+        run: pip install -r requirements.txt
       - name: Run IFC tests
-        run: |
-          cd blender-worker/ifc_worker
-          PYTHONPATH=ifc_worker python3 -m unittest discover -s ifc_worker/tests -v
+        working-directory: blender-worker/ifc_worker
+        # Correct discovery: run from inside ifc_worker so `tests` is a
+        # top-level package (no double `ifc_worker/tests` path).
+        run: PYTHONPATH=. python3 -m unittest discover -s tests -v
 
-  # ============================================================================
-  # JOB 5: Security Scanning
-  # ============================================================================
+  # ===========================================================================
+  # JOB 5: Security Scanning (gating)
+  # ===========================================================================
   security:
     name: Security Scan
     runs-on: ubuntu-latest
     needs: lint
+    timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+        with:
+          # Gitleaks computes the pull-request commit range. A shallow checkout
+          # can omit its first parent and produce a zero-byte partial scan.
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run npm audit
-        run: npm audit --audit-level=moderate || echo "npm audit complete (check results below)"
-
-      - name: Run dependency check
-        run: npm install -g @npmcli/arborist && npx npm-audit-reporter || echo "Dependency check skipped"
-
+      - run: npm ci
+      # Gating: failures must fail the build (no `|| echo`).
+      - name: npm audit (moderate+)
+        run: npm audit --audit-level=moderate
+      - name: npm audit signatures
+        run: npm audit signatures
       - name: Secret scanning (gitleaks)
+        # Config: .gitleaks.toml extends the gitleaks defaults (useDefault=true)
+        # and contains NO path or broad-value allowlists. The few obviously
+        # non-secret CI placeholder values are suppressed per-line with
+        # `# gitleaks:allow` comments in this file instead.
+        # (The gitleaks-action auto-detects .gitleaks.toml at repo root.)
         uses: gitleaks/gitleaks-action@v2
-        with:
-          args: --report-format=json --report-path=gitleaks-report.json
-
-      - name: Upload security report
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
           name: security-report
-          path: gitleaks-report.json
+          path: results.sarif
+          if-no-files-found: ignore
           retention-days: 30
 
-  # ============================================================================
-  # JOB 6: Code Coverage (Optional)
-  # ============================================================================
-  coverage:
-    name: Code Coverage
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Install coverage tool
-        run: npm install --save-dev c8
-
-      - name: Run tests with coverage
-        run: npx c8 --reporter=lcov npm test
-        env:
-          NODE_ENV: test
-          DB_HOST: 127.0.0.1
-          DB_PORT: 3306
-          DB_NAME: pawsmemories_test
-          DB_USER: root
-          DB_PASSWORD: test
-          JWT_SECRET: test-secret-for-ci-only
-          ADMIN_KEY: admin
-          ADMIN_EMAIL: admin@test.com
-          ADMIN_PASSWORD: test
-          MEDIA_BUCKET_NAME: test-bucket
-          MEDIA_BUCKET_URL: http://localhost:9000
-          MEDIA_BUCKET_KEY: minioadmin
-          MEDIA_BUCKET_SECRET: minioadmin
-          TRIPO_API_KEY: test-key
-          GEMINI_API_KEY: test-key
-          BLENDER_WORKER_URL: http://localhost:8000/render
-          WORKER_SHARED_SECRET: test-secret
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          files: ./coverage/lcov.info
-          flags: unittests
-          name: codecov-pawsome3d
-          fail_ci_if_error: false
-
-  # ============================================================================
-  # JOB 7: Contract Tests (HTTP Route Tests)
-  # ============================================================================
+  # ===========================================================================
+  # JOB 6: Contract Tests (in-process production routes, fakes + counters)
+  # Distinct files (tests/contracts/*.test.mjs) so this does NOT overlap with
+  # the `npm test` job above.
+  # ===========================================================================
   contract-tests:
     name: Contract Tests
     runs-on: ubuntu-latest
     needs: [lint, test]
+    timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
-
-      - name: Install dependencies
-        run: npm ci
-
+      - run: npm ci
       - name: Run contract tests
         run: npm run test:contracts
         env:
           NODE_ENV: test
-          DB_HOST: 127.0.0.1
-          DB_PORT: 3306
-          DB_NAME: pawsmemories_test
-          DB_USER: root
-          DB_PASSWORD: test
-          JWT_SECRET: test-secret-for-ci-only
-          ADMIN_KEY: admin
-          ADMIN_EMAIL: admin@test.com
-          ADMIN_PASSWORD: test
-          MEDIA_BUCKET_NAME: test-bucket
-          MEDIA_BUCKET_URL: http://localhost:9000
-          MEDIA_BUCKET_KEY: minioadmin
-          MEDIA_BUCKET_SECRET: minioadmin
-          TRIPO_API_KEY: test-key
-          GEMINI_API_KEY: test-key
-          BLENDER_WORKER_URL: http://localhost:8000/render
-          WORKER_SHARED_SECRET: test-secret
           PETSIM_RIG_ENABLED: "false"
           PETSIM_CLASSIFY_ENABLED: "true"
           PETSIM_SEMANTIC_SCAN_ENABLED: "true"
 
-  # ============================================================================
-  # JOB 8: Branch Protection Check
-  # ============================================================================
-  branch-protection:
-    name: Branch Protection
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    steps:
-      - name: Check PR is not from fork
-        if: github.event.pull_request.head.repo.fork == true
-        run: |
-          echo "⚠️ PRs from forks are not allowed to run full CI"
-          # Optionally fail the build for fork PRs
-          # exit 1
-
-      - name: Check PR has labels
-        uses: mheap/github-action-required-labels@v5
-        with:
-          mode: minimum
-          count: 1
-          labels: |
-            type:ci
-            type:security
-            type:feature
-            type:bugfix
-
-  # ============================================================================
-  # JOB 9: Staging Deployment (Optional - triggered manually or on main push)
-  # ============================================================================
-  deploy-staging:
-    name: Deploy Staging
-    runs-on: ubuntu-latest
-    needs: [lint, test, build]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    environment:
-      name: staging
-      url: https://staging.pawsome3d.com
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: build-artifacts
-          path: dist
-
-      - name: Build deploy zip
-        run: |
-          bash scripts/build-deploy-zip.sh
-          ls -la pawsome3d-deploy.zip
-
-      - name: Upload to staging
-        run: |
-          # Placeholder for staging deployment
-          # This would typically use Hostinger API or SCP
-          echo "Staging deployment placeholder - implement your deployment method"
-          # Example: scp pawsome3d-deploy.zip staging-user@staging.pawsome3d.com:/var/www/
-
-      - name: Verify deployment
-        run: |
-          # Placeholder for deployment verification
-          # curl -f https://staging.pawsome3d.com || exit 1
-          echo "Deployment verification placeholder"
-
-  # ============================================================================
-  # JOB 10: Notify on Failure
-  # ============================================================================
-  notify:
-    name: Notify on Failure
-    runs-on: ubuntu-latest
-    needs: [lint, test, build]
-    if: failure()
-    steps:
-      - name: Send notification
-        run: |
-          # Placeholder for notification system
-          # This would integrate with Slack, email, or other channels
-          echo "CI pipeline failed - notification placeholder"
+# ---------------------------------------------------------------------------
+# FUTURE / NON-GATING JOBS (intentionally NOT defined here to keep CI honest):
+#   - coverage: requires c8 + a Codecov token; add as a non-gating job once
+#     those are configured.
+#   - deploy-staging / notify: were placeholder echo jobs with no real effect;
+#     removed to avoid implying a deploy or alerting that does not happen.
+#   - branch-protection: is a GITHUB OWNER SETTING (branch protection rules
+#     on `main`), not a CI job. Enable it in repo Settings > Branches.
+# ---------------------------------------------------------------------------

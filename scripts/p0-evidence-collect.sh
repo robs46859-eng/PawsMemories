@@ -29,8 +29,8 @@ cat > "$EVIDENCE_DIR/endpoint_disabled_test.md" << 'EOF'
 ## Test Command (requires valid JWT)
 ```bash
 curl -X POST http://localhost:3000/api/pets/1/rig \
-  -H "Authorization: Bearer YOUR_VALID_JWT_TOKEN" \
-  -H "Content-Type: application/json"
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <REDACTED>" # gitleaks:allow - generated evidence placeholder
 
 # Expected:
 # HTTP/1.1 501

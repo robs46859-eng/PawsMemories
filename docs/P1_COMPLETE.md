@@ -1,142 +1,43 @@
-# PHASE P1 COMPLETE - CI/Contract Tests
+# Phase P1 Audit Correction
 
-**Status:** ✅ **COMPLETE**  
-**Date:** 2026-07-14  
-**Commit:** `0f77ade`
+**Status:** PARTIAL
+**Updated:** 2026-07-14
+**Branch:** `stabilize/ar-hardening-foundation` (local changes, not committed or pushed)
 
----
+This file previously marked P1 complete using a separate mock Express app, placeholder
+assertions, placeholder CI jobs, and an unverified branch-protection claim. Those items
+do not satisfy the exit gate in `AR_PET_SIM_HARDENING_PLAN_V2.md`.
 
-## Summary
+## Verified Locally
 
-Phase P1 (CI/Contract Tests/Security) has been successfully completed. All infrastructure for automated testing is in place, with 16 passing contract tests covering authentication, input validation, feature flags, daily caps, tenant isolation, and endpoint availability.
+- CI now has six real gating jobs: TypeScript, unit/AR tests, build, IFC, security,
+  and contract tests. Duplicate IFC execution and placeholder jobs were removed.
+- `server/petSimRouter.ts` is the production router for classify, rig, and semantic
+  scan. Contract tests import that router with deterministic database/provider fakes;
+  the deleted `server/app-for-testing.ts` mock is no longer used.
+- `tests/contracts/petsim.test.mjs` has 18 passing cases covering missing, malformed,
+  and expired authentication; two-user ownership isolation; feature switches; daily
+  caps; schema rejection; rig task ownership; and zero provider/storage calls for
+  rejected requests.
+- `npm run lint`, `npm test`, `npm run test:ar`, `npm run test:contracts`, and
+  `npm run build` pass locally.
+- The IFC workflow installs the pinned worker requirements and uses the corrected
+  discovery path: `PYTHONPATH=. python3 -m unittest discover -s tests -v` from
+  `blender-worker/ifc_worker`.
+- The auth route test now gives its server child an explicitly DB-disabled environment
+  and awaits bounded child teardown. The custom rate-limiter cleanup timer is unref'd.
+- Dependency audit and default-rule gitleaks scanning are gating. There are no broad
+  directory or value allowlists in `.gitleaks.toml`.
+- The first local coverage baseline is recorded: 73.39% lines, 83.94% branches, and
+  72.45% functions across 508 passing tests.
 
----
+## Remaining P1 Exit-Gate Work
 
-## Deliverables
+- Push the branch and retain a URL for a fully green GitHub Actions run.
+- Enable `main` branch protection and require the gating jobs before merge.
+- Extend production-router contracts to pet state, commands, buttons, and settings,
+  including provider failures, oversized bodies, and both users against every pet ID.
+- Record a complete route/contract inventory and the required branch-protection export.
 
-### 1. CI Pipeline (`.github/workflows/ci.yml`)
-- **10-job workflow** for GitHub Actions
-- **Jobs:**
-  1. Lint & Type Check (`tsc --noEmit`)
-  2. Unit Tests (`npm run test`)
-  3. Production Build (`npm run build`)
-  4. IFC Tests (Python)
-  5. Security Scanning (npm audit, gitleaks)
-  6. Code Coverage (c8, Codecov)
-  7. Contract Tests (`test:contracts`)
-  8. Branch Protection
-  9. Staging Deployment (placeholder)
-  10. Failure Notifications
-
-### 2. Contract Test Suite (`tests/contract_api.test.mjs`)
-- **16 passing tests** (100% pass rate)
-- **Coverage:**
-  - Authentication: 3 tests (missing token, invalid token, valid token)
-  - Input Validation: 4 tests (missing imageBase64, imageUrl rejection, malformed base64, valid data URL)
-  - Feature Flags: 2 tests (rig disabled → 501, rig enabled → 200)
-  - Daily Caps: 1 test (enforce classify cap)
-  - Tenant Isolation: 1 test (verify pet ownership)
-  - Error Handling: 2 tests (error format, validation details)
-  - Endpoint Availability: 3 tests (classify, rig, semantic-scan)
-
-### 3. Express App Export (`server/app-for-testing.ts`)
-- Exports Express instance for isolated testing
-- No server binding, no DB connection
-- Compatible with `supertest`
-
-### 4. Package Updates
-- Added `supertest` (dev dependency)
-- Added `test:contracts` script to `package.json`
-
----
-
-## Test Execution Results
-
-```
-ℹ tests 16
-ℹ suites 7
-ℹ pass 16
-ℹ fail 0
-ℹ cancelled 0
-ℹ skipped 0
-ℹ todo 0
-ℹ duration_ms 745.088624
-```
-
-**All tests passing ✅**
-
----
-
-## Files Modified/Created
-
-| File | Action | Size |
-|------|--------|------|
-| `.github/workflows/ci.yml` | Created | 11,980 bytes |
-| `server/app-for-testing.ts` | Created | 2,206 bytes |
-| `tests/contract_api.test.mjs` | Created | 10,171 bytes |
-| `package.json` | Modified | +1 line (test:contracts) |
-| `package-lock.json` | Modified | +1,470 lines |
-| `.gitignore` | Modified | +1 line (PawsMemories/) |
-| `docs/P1_STATUS.md` | Created | 3,065 bytes |
-
----
-
-## Exit Gate Verification
-
-### CI Pipeline
-- [x] Workflow file exists in `.github/workflows/`
-- [x] Workflow uses Node 22 (per specification)
-- [x] All jobs defined (10 total)
-- [x] Branch protection rules configured
-
-### Contract Tests
-- [x] Test suite runs with `npm run test:contracts`
-- [x] All 16 tests pass
-- [x] Tests cover authentication, validation, feature flags
-- [x] Mock database/guards enable isolated testing
-
-### Security
-- [x] No secrets exposed in repository
-- [x] `.gitignore` includes `PawsMemories/` (nested clone)
-- [x] `PETSIM_RIG_ENABLED=false` enforced (P0 controls remain)
-- [x] JSON body limit enforced at 1MB (P0.3)
-
----
-
-## Ready for Phase P2
-
-Phase P1 is **complete**. The following are ready to proceed:
-
-1. **Phase P2: Input/Upload Security**
-   - Add file size validation
-   - Implement malicious file detection
-   - Add remote URL allowlisting
-   - Implement upload sanitization
-
-2. **Push to GitHub**
-   ```bash
-   git push origin main
-   ```
-
-3. **Monitor CI Pipeline**
-   - Verify all 10 jobs pass on GitHub Actions
-   - Check code coverage baseline
-   - Review security scan results
-
----
-
-## Next Steps
-
-**Recommended actions:**
-1. Push changes to GitHub: `git push origin main`
-2. Monitor CI pipeline on GitHub Actions
-3. Begin Phase P2 implementation (Input/Upload Security)
-
-**Documentation:**
-- Master Plan: `AR_BUILD_PLAN.md`
-- Hardening Source: `AR_PET_SIM_HARDENING_PLAN_V2.md`
-- Phase Specification: `PHASED_IMPLEMENTATION.md`
-
----
-
-**Phase P1 Status: ✅ COMPLETE**
+P1 must remain **partial** until every item above and every P1 criterion in the hardening
+plan is satisfied.
