@@ -10,6 +10,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import httpProxy from 'http-proxy';
 
 const configuredStudioServiceUrl = process.env.STUDIO_SERVICE_URL?.trim() || '';
+const studioProxyEnabled = process.env.STUDIO_PROXY_ENABLED === 'true';
 
 function isLoopbackUrl(value: string): boolean {
   try {
@@ -27,7 +28,7 @@ function isLoopbackUrl(value: string): boolean {
 // A production Hostinger process must never proxy paid requests to its own
 // machine. Local development can opt in explicitly when a FastAPI service is
 // running beside the Node process.
-const STUDIO_SERVICE_URL = configuredStudioServiceUrl
+const STUDIO_SERVICE_URL = studioProxyEnabled && configuredStudioServiceUrl
   && (!isLoopbackUrl(configuredStudioServiceUrl)
     || process.env.ALLOW_LOCAL_STUDIO_PROXY === 'true')
   ? configuredStudioServiceUrl

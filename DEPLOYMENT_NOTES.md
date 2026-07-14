@@ -139,9 +139,11 @@ Phase 2 ships a Rhubarb-backed Tier B lip-sync pipeline
 - `ELEVENLABS_MODEL_ID` — optional; defaults to `eleven_multilingual_v2`.
 - `ELEVENLABS_DEFAULT_VOICE_ID` — optional; defaults to the documented value
   in `.env.example`. Non-admin previews cost 25 credits and are capped at 30 seconds.
-- `STUDIO_SERVICE_URL` — optional URL for the separate Python Studio service. Leave it
-  unset on Hostinger unless that service is deployed; the Node app now fails closed with
-  a clear 503 instead of attempting `localhost:8001`.
+- `STUDIO_PROXY_ENABLED` — keep `false` on Hostinger unless the separate Python Studio
+  service is deployed and reachable.
+- `STUDIO_SERVICE_URL` — optional URL for that Studio service. Leave it unset when the
+  proxy is disabled; the Node app fails closed with a clear 503 instead of attempting
+  `localhost:8001`.
 
 ### Local development
 ```

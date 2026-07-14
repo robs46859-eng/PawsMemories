@@ -55,6 +55,7 @@ before(async () => {
       ...process.env,
       PORT: String(port),
       JWT_SECRET: MOCK_JWT_SECRET,
+      STUDIO_PROXY_ENABLED: "true",
       STUDIO_SERVICE_URL: "http://localhost:8001",
     };
     // Explicitly disable DB so initDb() gracefully skips rather than blocking
@@ -152,6 +153,7 @@ test("Public routes are reachable without a token", async () => {
   const configRes = await fetch(`${apiUrl}/api/config`);
   assert.equal(configRes.status, 200, "GET /api/config must not be intercepted by the Studio proxy");
   const config = await configRes.json();
+  assert.equal(config.releaseId, "hostinger-studio-hotfix-20260714-1");
   assert.equal(typeof config.deployTarget, "string");
 
   // Login route should not return 401 Unauthorized (it might return 400 for bad input,

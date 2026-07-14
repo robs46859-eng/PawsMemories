@@ -65,6 +65,8 @@ import {
 
 dotenv.config();
 
+const APP_RELEASE = "hostinger-studio-hotfix-20260714-1";
+
 // Strip a `data:<mime>;base64,<data>` URL prefix, returning { data, mimeType }.
 // Shared by the create-video route and (via a local copy) the pet-sim router.
 function splitDataUrl(s: string): { data: string; mimeType: string } {
@@ -74,6 +76,7 @@ function splitDataUrl(s: string): { data: string; mimeType: string } {
 }
 
 async function startServer() {
+  console.log(`[Release] ${APP_RELEASE}`);
   const app = express();
   // Gzip/deflate every text response (JSON, JS, CSS, HTML). The main bundle is
   // ~1.7MB raw → ~490KB on the wire. Must be mounted before route/static handlers.
@@ -681,6 +684,7 @@ async function startServer() {
   // this deployment serves: "main" (pawsome3d.com) or "warehouse" (mypets.cc).
   app.get("/api/config", (_req, res) => {
     res.json({
+      releaseId: APP_RELEASE,
       deployTarget: process.env.DEPLOY_TARGET || "main",
       termsVersion: TERMS_VERSION,
       // Address the 3D-print request form emails to. Falls back to the admin email.
