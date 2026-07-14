@@ -240,7 +240,7 @@ async function startServer() {
     next();
   });
 
-  app.use(express.json({ limit: "50mb" }));
+  app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
   app.post("/api/bim/import-ifc", requireAuth, async (req: AuthedRequest, res) => {
@@ -2460,13 +2460,8 @@ async function startServer() {
         const s = splitDataUrl(imageBase64);
         img = s.data;
         mimeType = s.mimeType;
-      } else if (typeof imageUrl === "string" && imageUrl) {
-        const b64 = await fetchUrlAsBase64(imageUrl);
-        const s = splitDataUrl(b64);
-        img = s.data;
-        mimeType = s.mimeType;
       } else {
-        return res.status(400).json({ error: "imageBase64 or imageUrl required." });
+        return res.status(400).json({ error: "imageBase64 required (imageUrl not allowed)." });
       }
 
       // H2/H7: kill-switch + per-user daily cap (only paid, non-cached calls count).
@@ -2687,12 +2682,8 @@ async function startServer() {
         const s = splitDataUrl(imageBase64);
         img = s.data;
         mimeType = s.mimeType;
-      } else if (typeof imageUrl === "string" && imageUrl) {
-        const s = splitDataUrl(await fetchUrlAsBase64(imageUrl));
-        img = s.data;
-        mimeType = s.mimeType;
       } else {
-        return res.status(400).json({ error: "imageBase64 or imageUrl required." });
+        return res.status(400).json({ error: "imageBase64 required (imageUrl not allowed)." });
       }
 
       // Anchor key: client-provided anchor id, else a content hash of the frame.
