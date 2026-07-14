@@ -1,4 +1,5 @@
 import mysql from "mysql2/promise";
+import { randomBytes, randomUUID } from "crypto";
 import { generateUserKey } from "./auth";
 import { CREDIT_PRICES } from "./src/pricing";
 import type { ModelSpatialMetadata } from "./src/three/spatial/types";
@@ -275,6 +276,10 @@ export async function initDb(): Promise<void> {
         kind            ENUM('still','video','model') NOT NULL,
         status          ENUM('queued','running','done','failed') NOT NULL DEFAULT 'queued',
         operation_name  VARCHAR(255) NULL,
+        provider        VARCHAR(32) NULL,
+        model_name      VARCHAR(96) NULL,
+        request_json    JSON NULL,
+        result_json     JSON NULL,
         credits_reserved INT NOT NULL DEFAULT 0,
         error           VARCHAR(512) NULL,
         created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -364,6 +369,24 @@ export async function initDb(): Promise<void> {
       await getPool().query(
         `ALTER TABLE generation_jobs MODIFY COLUMN kind ENUM('still','video','model') NOT NULL`
       );
+
+      const [jobCols] = await getPool().query(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'generation_jobs'`
+      ) as any;
+      const jobColumnNames = new Set((jobCols as any[]).map((column) => column.COLUMN_NAME));
+      const requiredJobColumns: Array<{ name: string; ddl: string }> = [
+        { name: "provider", ddl: "ADD COLUMN provider VARCHAR(32) NULL AFTER operation_name" },
+        { name: "model_name", ddl: "ADD COLUMN model_name VARCHAR(96) NULL AFTER provider" },
+        { name: "request_json", ddl: "ADD COLUMN request_json JSON NULL AFTER model_name" },
+        { name: "result_json", ddl: "ADD COLUMN result_json JSON NULL AFTER request_json" },
+      ];
+      for (const column of requiredJobColumns) {
+        if (!jobColumnNames.has(column.name)) {
+          await getPool().query(`ALTER TABLE generation_jobs ${column.ddl}`);
+          console.log(`Migration: added generation_jobs.${column.name}`);
+        }
+      }
     } catch (migErr) {
       console.warn("⚠️ Schema migration warning (model support):", migErr);
     }
@@ -555,6 +578,26 @@ export async function initDb(): Promise<void> {
         count                    INT         NOT NULL DEFAULT 0,
         reserved_cost_micro_usd  BIGINT      NOT NULL DEFAULT 0,
         PRIMARY KEY (endpoint, day)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // Private object-store index. Object bytes stay in Backblaze; this table is
+    // the ownership boundary used before issuing a short-lived download URL.
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS media_objects (
+        id          CHAR(36)     NOT NULL PRIMARY KEY,
+        user_phone  VARCHAR(32)  NOT NULL,
+        object_key  VARCHAR(512) NOT NULL,
+        media_kind  VARCHAR(32)  NOT NULL,
+        mime_type   VARCHAR(128) NOT NULL,
+        byte_size   BIGINT       NOT NULL,
+        sha256      CHAR(64)     NOT NULL,
+        status      ENUM('ready','deleted','quarantined') NOT NULL DEFAULT 'ready',
+        created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_media_object_key (object_key),
+        INDEX idx_media_owner_created (user_phone, created_at),
+        FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
@@ -1305,6 +1348,10 @@ export interface JobRow {
   kind: 'still' | 'video' | 'model';
   status: 'queued' | 'running' | 'done' | 'failed';
   operation_name: string | null;
+  provider: string | null;
+  model_name: string | null;
+  request_json: Record<string, unknown> | string | null;
+  result_json: Record<string, unknown> | string | null;
   credits_reserved: number;
   error: string | null;
   created_at: string;
@@ -1317,11 +1364,24 @@ export async function createJob(data: {
   kind: 'still' | 'video' | 'model';
   credits_reserved: number;
   operation_name?: string | null;
+  provider?: string | null;
+  model_name?: string | null;
+  request_json?: Record<string, unknown> | null;
 }): Promise<number> {
   const [result] = await getPool().query(
-    `INSERT INTO generation_jobs (user_phone, creation_id, kind, credits_reserved, operation_name, status)
-     VALUES (?, ?, ?, ?, ?, 'queued')`,
-    [data.user_phone, data.creation_id || null, data.kind, data.credits_reserved, data.operation_name || null]
+    `INSERT INTO generation_jobs
+       (user_phone, creation_id, kind, credits_reserved, operation_name, provider, model_name, request_json, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued')`,
+    [
+      data.user_phone,
+      data.creation_id || null,
+      data.kind,
+      data.credits_reserved,
+      data.operation_name || null,
+      data.provider || null,
+      data.model_name || null,
+      data.request_json ? JSON.stringify(data.request_json) : null,
+    ]
   ) as any;
   return result.insertId;
 }
@@ -1337,6 +1397,17 @@ export async function updateJobStatus(
     [status, error || null, operationName || null, jobId]
   ) as any;
   return result.affectedRows === 1;
+}
+
+export async function updateJobResultMetadata(
+  jobId: number,
+  result: Record<string, unknown>,
+): Promise<boolean> {
+  const [update] = await getPool().query(
+    `UPDATE generation_jobs SET result_json = ? WHERE id = ?`,
+    [JSON.stringify(result), jobId],
+  ) as any;
+  return update.affectedRows === 1;
 }
 
 export async function getJob(jobId: number, phone: string): Promise<JobRow | null> {
@@ -1384,6 +1455,69 @@ export async function setCreationModelUrl(creationId: number, phone: string, mod
   const [result] = await getPool().query(
     `UPDATE creations SET model_url = ?, media_type = 'model' WHERE id = ? AND user_phone = ?`,
     [modelUrl, creationId, phone]
+  ) as any;
+  return result.affectedRows === 1;
+}
+
+export interface MediaObjectRow {
+  id: string;
+  user_phone: string;
+  object_key: string;
+  media_kind: string;
+  mime_type: string;
+  byte_size: number;
+  sha256: string;
+  status: "ready" | "deleted" | "quarantined";
+  created_at: string;
+  updated_at: string;
+}
+
+export async function createMediaObject(data: {
+  user_phone: string;
+  object_key: string;
+  media_kind: string;
+  mime_type: string;
+  byte_size: number;
+  sha256: string;
+}): Promise<MediaObjectRow> {
+  const id = randomUUID();
+  await getPool().query(
+    `INSERT INTO media_objects
+       (id, user_phone, object_key, media_kind, mime_type, byte_size, sha256)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      data.user_phone,
+      data.object_key,
+      data.media_kind,
+      data.mime_type,
+      data.byte_size,
+      data.sha256,
+    ],
+  );
+  const row = await getMediaObjectForOwner(id, data.user_phone);
+  if (!row) throw new Error("Media object record was not created.");
+  return row;
+}
+
+export async function getMediaObjectForOwner(
+  id: string,
+  phone: string,
+): Promise<MediaObjectRow | null> {
+  const [rows] = await getPool().query(
+    `SELECT * FROM media_objects
+     WHERE id = ? AND user_phone = ? AND status = 'ready'
+     LIMIT 1`,
+    [id, phone],
+  );
+  const media = rows as unknown as MediaObjectRow[];
+  return media[0] || null;
+}
+
+export async function markMediaObjectDeleted(id: string, phone: string): Promise<boolean> {
+  const [result] = await getPool().query(
+    `UPDATE media_objects SET status = 'deleted' WHERE id = ? AND user_phone = ?`,
+    [id, phone],
   ) as any;
   return result.affectedRows === 1;
 }
@@ -2622,8 +2756,6 @@ export async function verifyUserPhone(phone: string): Promise<void> {
 // ============================================================================
 // Phase 8: Referral
 // ============================================================================
-
-import { randomBytes } from "crypto";
 
 export async function generateReferralCode(phone: string): Promise<string> {
   const [rows] = await getPool().query(`SELECT referral_code FROM users WHERE phone = ?`, [phone]) as any;

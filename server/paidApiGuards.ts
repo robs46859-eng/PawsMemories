@@ -1,72 +1,114 @@
 /**
- * server/paidApiGuards.ts — H2/H7 hardening for the paid AR endpoints
- * (`/api/pets/classify`, `/api/pets/:id/rig`, `/api/ar/semantic-scan`).
+ * server/paidApiGuards.ts - launch limits for production paid operations.
  *
  * Pure config logic only: kill-switches + per-user and aggregate daily budgets
  * derived from env.
- * No DB or express imports, so it is unit-testable in isolation. The daily
- * atomic reservation lives in `db.ts` (`reservePaidUsage`) and the Express
- * wiring - rate limiter + 503/429 responses - lives in `petSimRouter.ts`.
+ * No DB or Express imports, so it is unit-testable in isolation. Atomic daily
+ * reservation lives in `db.ts` (`reservePaidUsage`); route adapters call these
+ * helpers before invoking paid providers.
  *
  * Env contract:
- *   PETSIM_PAID_APIS_ENABLED   master kill-switch for all three (default: on)
- *   PETSIM_CLASSIFY_ENABLED    per-endpoint switch (default: on)
- *   PETSIM_SEMANTIC_SCAN_ENABLED per-endpoint switch (default: on)
- *   PETSIM_RIG_ENABLED         per-endpoint switch (default: OFF, historical)
- *   PETSIM_CLASSIFY_DAILY_CAP  per-user/day cap (default: 25)
- *   PETSIM_RIG_DAILY_CAP       per-user/day cap (default: 5)
- *   PETSIM_SEMANTIC_SCAN_DAILY_CAP per-user/day cap (default: 50)
+ *   PETSIM_PAID_APIS_ENABLED   master kill-switch (default: on)
+ *   PETSIM_<ENDPOINT>_ENABLED  per-endpoint switch (default: on except rig)
+ *   PETSIM_<ENDPOINT>_DAILY_CAP per-user/day request cap
  *   PETSIM_<ENDPOINT>_GLOBAL_DAILY_CAP aggregate request cap
  *   PETSIM_<ENDPOINT>_ESTIMATED_COST_MICRO_USD reserved cost per provider call
  *   PETSIM_<ENDPOINT>_GLOBAL_DAILY_COST_MICRO_USD aggregate reserved-cost cap
  */
 
-export type PaidEndpoint = "classify" | "rig" | "semantic_scan";
+export type PaidEndpoint =
+  | "classify"
+  | "semantic_scan"
+  | "rig"
+  | "video"
+  | "talking_video"
+  | "model_3d"
+  | "image_generation"
+  | "pawprint";
 
-export const PAID_ENDPOINTS: PaidEndpoint[] = ["classify", "rig", "semantic_scan"];
+export const PAID_ENDPOINTS: PaidEndpoint[] = [
+  "classify",
+  "semantic_scan",
+  "rig",
+  "video",
+  "talking_video",
+  "model_3d",
+  "image_generation",
+  "pawprint",
+];
 
 type Env = Record<string, string | undefined>;
 
 /** Uppercase env token for each endpoint (used to build flag/cap keys). */
 const ENV_TOKEN: Record<PaidEndpoint, string> = {
   classify: "CLASSIFY",
-  rig: "RIG",
   semantic_scan: "SEMANTIC_SCAN",
+  rig: "RIG",
+  video: "VIDEO",
+  talking_video: "TALKING_VIDEO",
+  model_3d: "MODEL_3D",
+  image_generation: "IMAGE_GENERATION",
+  pawprint: "PAWPRINT",
 };
 
 /** Default per-user, per-day request caps. */
 const DEFAULT_DAILY_CAPS: Record<PaidEndpoint, number> = {
-  classify: 25,
-  rig: 5,
-  semantic_scan: 50,
+  classify: 10,
+  semantic_scan: 20,
+  rig: 0,
+  video: 2,
+  talking_video: 1,
+  model_3d: 2,
+  image_generation: 5,
+  pawprint: 3,
 };
 
 /** Conservative aggregate request ceilings. Rig remains closed by default. */
 const DEFAULT_GLOBAL_DAILY_CAPS: Record<PaidEndpoint, number> = {
-  classify: 250,
+  classify: 100,
+  semantic_scan: 200,
   rig: 0,
-  semantic_scan: 500,
+  video: 20,
+  talking_video: 10,
+  model_3d: 20,
+  image_generation: 50,
+  pawprint: 50,
 };
 
 /** Upper-bound cost reservations in millionths of one US dollar. */
 const DEFAULT_ESTIMATED_COST_MICRO_USD: Record<PaidEndpoint, number> = {
-  classify: 10_000,
+  classify: 20_000,
+  semantic_scan: 20_000,
   rig: 1_000_000,
-  semantic_scan: 10_000,
+  video: 1_000_000,
+  talking_video: 2_000_000,
+  model_3d: 1_000_000,
+  image_generation: 1_000_000,
+  pawprint: 100_000,
 };
 
 /** Aggregate daily reserved-cost ceilings in millionths of one US dollar. */
 const DEFAULT_GLOBAL_DAILY_COST_MICRO_USD: Record<PaidEndpoint, number> = {
-  classify: 2_500_000,
+  classify: 2_000_000,
+  semantic_scan: 4_000_000,
   rig: 0,
-  semantic_scan: 5_000_000,
+  video: 20_000_000,
+  talking_video: 20_000_000,
+  model_3d: 20_000_000,
+  image_generation: 50_000_000,
+  pawprint: 5_000_000,
 };
 
 /** Per-endpoint default for the enable flag. Rig stays off by default (historical). */
 const DEFAULT_ENABLED: Record<PaidEndpoint, boolean> = {
   classify: true,
-  rig: false,
   semantic_scan: true,
+  rig: false,
+  video: true,
+  talking_video: true,
+  model_3d: true,
+  image_generation: true,
+  pawprint: true,
 };
 
 /**
@@ -88,9 +130,10 @@ export function parseBoolFlag(raw: string | undefined, dflt: boolean): boolean {
  * the built-in default.
  */
 export function dailyCapFor(ep: PaidEndpoint, env: Env = process.env): number {
-  const raw = env[`PETSIM_${ENV_TOKEN[ep]}_DAILY_CAP`];
-  const n = raw == null || String(raw).trim() === "" ? NaN : Number(raw);
-  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_DAILY_CAPS[ep];
+  return nonNegativeInteger(
+    env[`PETSIM_${ENV_TOKEN[ep]}_DAILY_CAP`],
+    DEFAULT_DAILY_CAPS[ep],
+  );
 }
 
 function nonNegativeInteger(raw: string | undefined, fallback: number): number {

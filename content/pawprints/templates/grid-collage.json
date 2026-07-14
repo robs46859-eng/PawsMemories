@@ -1,0 +1,181 @@
+{
+  "id": "grid-collage",
+  "name": "Grid / Collage",
+  "description": "A 2x2 or 3x3 media collage with a solid-color text tile placed at the visual center.",
+  "version": "1.0.0",
+  "status": "publishable",
+  "categoryApplicability": [
+    "grieving_loss",
+    "new_puppy",
+    "veterinarian",
+    "holiday_birthday",
+    "environment",
+    "postcard_travel",
+    "get_well",
+    "miss_you",
+    "pet_business"
+  ],
+  "layout": {
+    "kind": "grid-collage",
+    "canvasAspectRatio": "1:1",
+    "media": {
+      "placement": "grid",
+      "aspectRatio": "mixed",
+      "fit": "cover",
+      "minItems": 4,
+      "maxItems": 8
+    },
+    "text": {
+      "placement": "center-tile",
+      "alignment": "center",
+      "regions": ["headline", "body", "date", "rsvp"]
+    },
+    "background": {
+      "solidColor": true,
+      "gradients": false,
+      "proceduralTextures": []
+    },
+    "gridModes": [
+      {
+        "dimensions": "2x2",
+        "mediaItems": 4,
+        "textTilePlacement": "center-overlay"
+      },
+      {
+        "dimensions": "3x3",
+        "mediaItems": 8,
+        "textTilePlacement": "center-cell"
+      }
+    ]
+  },
+  "customizableFields": {
+    "text": [
+      {
+        "id": "headline",
+        "label": "Center headline",
+        "role": "headline",
+        "required": true,
+        "inputMode": "plain-text",
+        "maxLength": 48,
+        "default": "Best days, together"
+      },
+      {
+        "id": "body",
+        "label": "Center message",
+        "role": "body",
+        "required": false,
+        "inputMode": "plain-text",
+        "maxLength": 120,
+        "default": "A collection of moments we love."
+      }
+    ],
+    "media": [
+      {
+        "id": "collage-media",
+        "label": "Collage media",
+        "required": true,
+        "referenceType": "managed-asset-id",
+        "acceptedMimeTypes": ["image/jpeg", "image/png", "image/webp"],
+        "minItems": 4,
+        "maxItems": 8,
+        "altTextRequired": true
+      }
+    ],
+    "colors": [
+      {
+        "id": "background-color",
+        "label": "Grid background",
+        "role": "background",
+        "format": "hex",
+        "default": "#FFFFFF",
+        "swatches": ["#FFFFFF", "#202124", "#EAF4F1", "#FFF4E2"],
+        "allowCustom": true
+      },
+      {
+        "id": "text-tile-color",
+        "label": "Center tile",
+        "role": "card",
+        "format": "hex",
+        "default": "#2D6F63",
+        "swatches": ["#2D6F63", "#C94F3D", "#D39B2A", "#6D5A8C"],
+        "allowCustom": true
+      },
+      {
+        "id": "text-color",
+        "label": "Center text",
+        "role": "text",
+        "format": "hex",
+        "default": "#FFFFFF",
+        "swatches": ["#FFFFFF", "#202124", "#FFF8EE", "#EAF4F1"],
+        "allowCustom": true
+      }
+    ],
+    "eventDetails": {
+      "date": {
+        "id": "event-date",
+        "label": "Date",
+        "required": false,
+        "inputMode": "iso-date",
+        "includeTime": false
+      },
+      "rsvp": {
+        "id": "rsvp-details",
+        "label": "RSVP details",
+        "required": false,
+        "inputMode": "plain-text",
+        "maxLength": 120,
+        "allowExternalLinks": false
+      }
+    }
+  },
+  "responsive": {
+    "strategy": "fluid",
+    "preserveReadingOrder": true,
+    "safeAreaInsetPercent": 3,
+    "breakpoints": [
+      {
+        "name": "mobile",
+        "minWidthPx": 0,
+        "maxWidthPx": 639,
+        "arrangement": "collage-grid",
+        "columns": 2,
+        "gapPx": 4
+      },
+      {
+        "name": "tablet",
+        "minWidthPx": 640,
+        "maxWidthPx": 1023,
+        "arrangement": "collage-grid",
+        "columns": 3,
+        "gapPx": 6
+      },
+      {
+        "name": "desktop",
+        "minWidthPx": 1024,
+        "maxWidthPx": null,
+        "arrangement": "collage-grid",
+        "columns": 3,
+        "gapPx": 8
+      }
+    ]
+  },
+  "accessibility": {
+    "altTextRequired": true,
+    "defaultAltText": "A collage of pet memories surrounding a centered message.",
+    "contrastTarget": "WCAG-AA",
+    "minimumContrastRatio": 4.5,
+    "readingOrder": ["collage-media", "headline", "body", "event-date", "rsvp-details"],
+    "reducedMotion": "use-poster-frame"
+  },
+  "licensing": {
+    "license": "PawsMemories-proprietary-template",
+    "outputUsage": "personal-and-commercial",
+    "source": {
+      "type": "original",
+      "name": "Paws & Memories design system",
+      "attributionRequired": false
+    },
+    "binaryAssetsIncluded": false,
+    "externalBinaryAssets": []
+  }
+}

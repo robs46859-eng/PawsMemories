@@ -1,33 +1,62 @@
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
-import { v4 as uuidv4 } from "uuid";
+import { randomUUID } from "node:crypto";
+import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  createPrivateMediaStoreFromEnv,
+  type PrivateMediaGetRequest,
+  type PrivateMediaObject,
+  type PrivateMediaStore,
+  type PrivateMediaUpload,
+} from "./server/privateMediaStore.ts";
 
-/**
- * Object Storage Utility for Backblaze B2 / S3-compatible storage.
- * Handles uploading base64 images/videos and returning their public URLs.
- */
+export type {
+  PrivateMediaConfig,
+  PrivateMediaGetRequest,
+  PrivateMediaMimeType,
+  PrivateMediaObject,
+  PrivateMediaStore,
+  PrivateMediaStoreDependencies,
+  PrivateMediaUpload,
+} from "./server/privateMediaStore.ts";
 
-const bucketName = process.env.MEDIA_BUCKET_NAME;
-const bucketEndpoint = process.env.MEDIA_BUCKET_URL;
-const accessKeyId = process.env.MEDIA_BUCKET_KEY;
-const secretAccessKey = process.env.MEDIA_BUCKET_SECRET;
+let defaultPrivateMediaStore: PrivateMediaStore | undefined;
+let legacyPublicClient: S3Client | undefined;
 
-if (!bucketName || !bucketEndpoint || !accessKeyId || !secretAccessKey) {
-  console.warn("⚠️ Object storage environment variables are missing. Uploads will fail.");
+function getDefaultPrivateMediaStore(): PrivateMediaStore {
+  defaultPrivateMediaStore ??= createPrivateMediaStoreFromEnv();
+  return defaultPrivateMediaStore;
 }
 
-const s3Client = new S3Client({
-  region: "us-east-1", // Backblaze B2 ignores this, but AWS SDK requires it
-  endpoint: bucketEndpoint,
-  credentials: {
-    accessKeyId: accessKeyId || "",
-    secretAccessKey: secretAccessKey || "",
-  },
-  forcePathStyle: true, // Required for Backblaze B2 and some S3-compatible endpoints
-});
+function getLegacyPublicClient(): S3Client {
+  const endpoint = process.env.MEDIA_BUCKET_URL;
+  const accessKeyId = process.env.MEDIA_BUCKET_KEY;
+  const secretAccessKey = process.env.MEDIA_BUCKET_SECRET;
+  if (!endpoint || !accessKeyId || !secretAccessKey) {
+    throw new Error("Legacy public object storage is not configured.");
+  }
+  legacyPublicClient ??= new S3Client({
+    region: process.env.MEDIA_BUCKET_REGION || "us-east-1",
+    endpoint,
+    credentials: { accessKeyId, secretAccessKey },
+    forcePathStyle: true,
+  });
+  return legacyPublicClient;
+}
 
 /**
- * Maps a MIME type to an appropriate file extension.
+ * Uploads a validated object privately and returns only its opaque storage
+ * metadata. New owner-aware call sites should use this instead of the legacy
+ * string-returning helpers below.
  */
+export async function uploadPrivateMediaObject(input: PrivateMediaUpload): Promise<PrivateMediaObject> {
+  return getDefaultPrivateMediaStore().uploadObject(input);
+}
+
+/** Creates a short-lived read URL after checking the object's owner scope. */
+export async function createPrivateMediaGetUrl(input: PrivateMediaGetRequest): Promise<string> {
+  return getDefaultPrivateMediaStore().createPresignedGetUrl(input);
+}
+
+/** Maps a MIME type to an appropriate file extension for legacy callers. */
 export function getExtensionFromMime(mimeType: string): string {
   const map: Record<string, string> = {
     "image/png": "png",
@@ -47,19 +76,16 @@ export function getExtensionFromMime(mimeType: string): string {
     "application/json": "json",
   };
   if (map[mimeType]) return map[mimeType];
-  
+
   if (mimeType.startsWith("image/")) return "png";
   if (mimeType.startsWith("video/")) return "mp4";
   if (mimeType.startsWith("model/")) return "glb";
   if (mimeType.startsWith("audio/")) return "mp3";
-  
+
   return "bin";
 }
 
-/**
- * Determines the subfolder based on whether the upload is an image or video,
- * unless overridden.
- */
+/** Selects a legacy object folder unless the caller supplies one. */
 export function getFolderFromMime(mimeType: string, folderOverride?: string): string {
   if (folderOverride) return folderOverride;
   if (mimeType.startsWith("video/")) return "videos";
@@ -68,146 +94,94 @@ export function getFolderFromMime(mimeType: string, folderOverride?: string): st
   return "creations";
 }
 
-/**
- * Uploads a base64 data URL string to the configured S3-compatible bucket.
- * Supports both images and videos.
- * @param base64String The full data URL string (e.g., "data:image/jpeg;base64,..." or "data:video/mp4;base64,...")
- * @returns The public URL of the uploaded object.
- */
-export async function uploadBase64Image(base64String: string, folderOverride?: string): Promise<string> {
-  if (!bucketName || !bucketEndpoint) {
-    throw new Error("Object storage is not configured. Please check MEDIA_BUCKET_* environment variables.");
+function decodeBase64(base64: string): Buffer {
+  const compact = base64.replace(/\s/g, "");
+  if (!compact || !/^[A-Za-z0-9+/]*={0,2}$/.test(compact)) {
+    throw new Error("Invalid base64 media payload.");
+  }
+  return Buffer.from(compact, "base64");
+}
+
+function parseDataUrl(base64String: string): { mimeType: string; body: Buffer } {
+  let value = base64String.trim();
+  if (value.startsWith("Z2xURg")) {
+    value = `data:model/gltf-binary;base64,${value}`;
   }
 
-  // Parse the base64 string. Use [\s\S]+ to tolerate newlines in the base64 payload.
-  let cleanBase64 = base64String.trim();
-  if (cleanBase64.startsWith("Z2xURg")) {
-    cleanBase64 = `data:model/gltf-binary;base64,${cleanBase64}`;
-  }
-  const matches = cleanBase64.match(/^data:([A-Za-z0-9-+\/.]+);base64,([\s\S]+)$/);
-  if (!matches || matches.length !== 3) {
-    const prefix = base64String.substring(0, 100);
-    throw new Error(`Invalid base64 data string provided to uploadBase64Image. Prefix: ${prefix}`);
+  const match = value.match(/^data:([A-Za-z0-9+./-]+);base64,([\s\S]+)$/);
+  if (!match) {
+    throw new Error("Invalid base64 data URL.");
   }
 
-  const mimeType = matches[1];
-  const base64Data = matches[2];
-  const buffer = Buffer.from(base64Data, "base64");
+  return {
+    mimeType: match[1],
+    body: decodeBase64(match[2]),
+  };
+}
 
-  // Determine file extension and folder from MIME type
+async function uploadForLegacyCaller(body: Uint8Array, mimeType: string, folder?: string): Promise<string> {
+  const bucket = process.env.MEDIA_BUCKET_NAME;
+  const endpoint = process.env.MEDIA_BUCKET_URL;
+  if (!bucket || !endpoint) throw new Error("Legacy public object storage is not configured.");
   const extension = getExtensionFromMime(mimeType);
-  const folder = getFolderFromMime(mimeType, folderOverride);
-  const fileName = `${folder}/${Date.now()}-${uuidv4()}.${extension}`;
-
-  try {
-    await s3Client.send(
-      new PutObjectCommand({
-        Bucket: bucketName,
-        Key: fileName,
-        Body: buffer,
-        ContentType: mimeType,
-        // Backblaze B2 public buckets don't strictly need ACL, but this is standard
-        ACL: "public-read",
-      })
-    );
-
-    // Construct the public URL
-    const url = new URL(bucketEndpoint);
-    const publicUrl = `${url.protocol}//${bucketName}.${url.host}/${fileName}`;
-
-    console.log(`✅ Successfully uploaded ${fileName} (${mimeType}) to object storage.`);
-    return publicUrl;
-  } catch (error: any) {
-    console.error("❌ Failed to upload media to object storage:", error);
-    throw new Error(`Object storage upload failed: ${error.message}`);
-  }
+  const objectFolder = getFolderFromMime(mimeType, folder);
+  const storageKey = `${objectFolder}/${Date.now()}-${randomUUID()}.${extension}`;
+  await getLegacyPublicClient().send(new PutObjectCommand({
+    Bucket: bucket,
+    Key: storageKey,
+    Body: body,
+    ContentLength: body.byteLength,
+    ContentType: mimeType,
+    ACL: "public-read",
+  }));
+  const url = new URL(endpoint);
+  return `${url.protocol}//${bucket}.${url.host}/${storageKey}`;
 }
 
 /**
- * Uploads raw base64-encoded binary (e.g. a baked LOD GLB returned by the
- * blender-worker) to the configured bucket. Accepts an optional data: URL.
- * @returns The public URL of the uploaded object.
+ * Compatibility wrapper for server.ts while its URL fields are migrated. It
+ * continues to use the legacy public bucket so persisted URLs do not expire.
+ * New generated media must use uploadPrivateMediaObject instead.
+ */
+export async function uploadBase64Image(base64String: string, folderOverride?: string): Promise<string> {
+  const { mimeType, body } = parseDataUrl(base64String);
+  return uploadForLegacyCaller(body, mimeType, getFolderFromMime(mimeType, folderOverride));
+}
+
+/**
+ * Compatibility wrapper for raw base64 uploads in the legacy public bucket.
  */
 export async function uploadBase64Binary(
   base64: string,
   mimeType: string = "model/gltf-binary",
   folderOverride?: string
 ): Promise<string> {
-  if (!bucketName || !bucketEndpoint) {
-    throw new Error("Object storage is not configured. Please check MEDIA_BUCKET_* environment variables.");
-  }
-  const raw = base64.startsWith("data:") ? base64.split(",")[1] || base64 : base64;
-  const buffer = Buffer.from(raw, "base64");
-
-  const extension = getExtensionFromMime(mimeType);
-  const folder = getFolderFromMime(mimeType, folderOverride);
-  const fileName = `${folder}/${Date.now()}-${uuidv4()}.${extension}`;
-
-  await s3Client.send(
-    new PutObjectCommand({
-      Bucket: bucketName,
-      Key: fileName,
-      Body: buffer,
-      ContentType: mimeType,
-      ACL: "public-read",
-    })
+  const raw = base64.startsWith("data:") ? base64.slice(base64.indexOf(",") + 1) : base64;
+  return uploadForLegacyCaller(
+    decodeBase64(raw),
+    mimeType,
+    getFolderFromMime(mimeType, folderOverride)
   );
-  const url = new URL(bucketEndpoint);
-  return `${url.protocol}//${bucketName}.${url.host}/${fileName}`;
 }
 
 /**
- * Downloads a remote binary (e.g. a Meshy GLB model) and uploads it to the
- * configured bucket. Streams bytes directly without a base64 round-trip, which
- * matters for larger 3D model files.
- * @param sourceUrl Public URL of the remote asset to mirror.
- * @param mimeType  MIME type to store it under (default model/gltf-binary).
- * @returns The public URL of the uploaded object.
+ * Compatibility wrapper for mirroring an existing remote asset. Remote fetch
+ * behavior is intentionally unchanged in this private-storage foundation slice.
  */
 export async function uploadBinaryFromUrl(
   sourceUrl: string,
   mimeType: string = "model/gltf-binary",
   folderOverride?: string
 ): Promise<string> {
-  if (!bucketName || !bucketEndpoint) {
-    throw new Error("Object storage is not configured. Please check MEDIA_BUCKET_* environment variables.");
-  }
-
   const res = await fetch(sourceUrl);
   if (!res.ok) {
     throw new Error(`Failed to download remote asset (${res.status}) from ${sourceUrl}`);
   }
   const buffer = Buffer.from(await res.arrayBuffer());
-
-  const extension = getExtensionFromMime(mimeType);
-  const folder = getFolderFromMime(mimeType, folderOverride);
-  const fileName = `${folder}/${Date.now()}-${uuidv4()}.${extension}`;
-
-  try {
-    await s3Client.send(
-      new PutObjectCommand({
-        Bucket: bucketName,
-        Key: fileName,
-        Body: buffer,
-        ContentType: mimeType,
-        ACL: "public-read",
-      })
-    );
-
-    const url = new URL(bucketEndpoint);
-    const publicUrl = `${url.protocol}//${bucketName}.${url.host}/${fileName}`;
-
-    console.log(`✅ Successfully uploaded ${fileName} (${mimeType}) to object storage.`);
-    return publicUrl;
-  } catch (error: any) {
-    console.error("❌ Failed to upload remote asset to object storage:", error);
-    throw new Error(`Object storage upload failed: ${error.message}`);
-  }
+  return uploadForLegacyCaller(buffer, mimeType, getFolderFromMime(mimeType, folderOverride));
 }
 
-/**
- * Fetches a public URL and converts it to a data URI base64 string.
- */
+/** Fetches a URL and converts it to a data URI base64 string. */
 export async function fetchUrlAsBase64(url: string): Promise<string> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch ${url} for base64 conversion: ${res.status}`);

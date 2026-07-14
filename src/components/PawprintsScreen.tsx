@@ -17,10 +17,58 @@ interface Template {
   category: string;
   layoutId: string;
   name: string;
+  description: string;
   tone: string;
   sampleCopy: string[];
-  fieldSchema: { key: string; type: string; label: string; maxLength?: number }[];
+  fieldSchema: {
+    key: string;
+    type: "text" | "image" | "color" | "date";
+    label: string;
+    required: boolean;
+    maxLength?: number;
+    minItems?: number;
+    maxItems?: number;
+    defaultValue?: string;
+    swatches?: string[];
+  }[];
   imagePromptTemplate: string;
+}
+
+type PawprintFieldValue = string | string[];
+
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+const MAX_MEDIA_EDGE = 1280;
+
+function blobAsDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error || new Error("Could not read image."));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function normalizePawprintImage(file: File): Promise<string> {
+  if (!file.type.startsWith("image/")) throw new Error("Please choose an image file.");
+  if (file.size <= 0 || file.size > MAX_UPLOAD_BYTES) throw new Error("Each image must be smaller than 20 MB.");
+
+  const bitmap = await createImageBitmap(file);
+  try {
+    const scale = Math.min(1, MAX_MEDIA_EDGE / Math.max(bitmap.width, bitmap.height));
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("This browser could not prepare the image.");
+    context.drawImage(bitmap, 0, 0, width, height);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/webp", 0.82));
+    if (!blob) throw new Error("This browser could not prepare the image.");
+    return blobAsDataUrl(blob);
+  } finally {
+    bitmap.close();
+  }
 }
 
 export default function PawprintsScreen({ userProfile, creations, onOpenCreditStore, onUserUpdate, onGoToFurBin }: PawprintsScreenProps) {
@@ -30,7 +78,7 @@ export default function PawprintsScreen({ userProfile, creations, onOpenCreditSt
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
   const [generating, setGenerating] = useState(false);
   const [resultUrl, setResultUrl] = useState<string | null>(null);
-  const [fields, setFields] = useState<Record<string, string>>({});
+  const [fields, setFields] = useState<Record<string, PawprintFieldValue>>({});
   const [fileNames, setFileNames] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [reuseCreationId, setReuseCreationId] = useState<number | null>(null);
@@ -71,13 +119,26 @@ export default function PawprintsScreen({ userProfile, creations, onOpenCreditSt
   };
 
   const filtered = selectedCategory ? templates.filter((t) => t.category === selectedCategory) : [];
-  const readFile = (file: File): Promise<string> =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
+  const chooseTemplate = (template: Template) => {
+    const defaults = Object.fromEntries(
+      template.fieldSchema
+        .filter((field) => field.defaultValue)
+        .map((field) => [field.key, field.defaultValue as string]),
+    );
+    setFields(defaults);
+    setFileNames({});
+    setReuseCreationId(null);
+    setSelectedTemplate(template);
+  };
+
+  const toggleReuseCreation = (creationId: number) => {
+    const nextId = reuseCreationId === creationId ? null : creationId;
+    setReuseCreationId(nextId);
+    if (!nextId || !selectedTemplate) return;
+    const imageKeys = new Set(selectedTemplate.fieldSchema.filter((field) => field.type === "image").map((field) => field.key));
+    setFields((previous) => Object.fromEntries(Object.entries(previous).filter(([key]) => !imageKeys.has(key))));
+    setFileNames((previous) => Object.fromEntries(Object.entries(previous).filter(([key]) => !imageKeys.has(key))));
+  };
 
   const createPawprint = async () => {
     if (!selectedTemplate) return;
@@ -96,8 +157,8 @@ export default function PawprintsScreen({ userProfile, creations, onOpenCreditSt
           category: selectedTemplate.category,
           layoutId: selectedTemplate.layoutId,
           fields,
-          customName: fields.petName || fields.name || "",
-          customMessage: fields.message || "",
+          customName: typeof fields.headline === "string" ? fields.headline : typeof fields.caption === "string" ? fields.caption : "",
+          customMessage: typeof fields.body === "string" ? fields.body : "",
           reuseCreationId: reuseCreationId || undefined,
         }),
       });
@@ -170,11 +231,11 @@ export default function PawprintsScreen({ userProfile, creations, onOpenCreditSt
             {filtered.map((t) => (
               <button
                 key={t.layoutId}
-                onClick={() => setSelectedTemplate(t)}
+                onClick={() => chooseTemplate(t)}
                 className="glass-panel border border-outline-variant/40 rounded-2xl p-4 text-left hover:border-primary/50 transition-all cursor-pointer"
               >
                 <span className="text-sm font-bold text-on-surface">{t.name}</span>
-                <span className="text-[10px] text-on-surface-variant block mt-1 capitalize">{t.tone} tone</span>
+                <span className="text-[10px] text-on-surface-variant block mt-1">{t.description}</span>
                 <span className="text-[10px] text-on-surface-variant block">{t.fieldSchema.length} fields</span>
               </button>
             ))}
@@ -188,7 +249,7 @@ export default function PawprintsScreen({ userProfile, creations, onOpenCreditSt
           <button onClick={() => setSelectedTemplate(null)} className="text-xs text-primary font-bold mb-4 hover:underline cursor-pointer">← Back to layouts</button>
           <div className="glass-panel border border-outline-variant/40 rounded-3xl p-6 mb-6">
             <h3 className="text-sm font-extrabold text-on-surface mb-3">{selectedTemplate.name}</h3>
-            <p className="text-xs text-on-surface-variant mb-3 italic">"{selectedTemplate.sampleCopy[0]}"</p>
+            <p className="text-xs text-on-surface-variant mb-3">{selectedTemplate.description}</p>
 
             {/* Reuse a previous image of the same subject — 20% off */}
             {reusable.length > 0 && (
@@ -206,7 +267,7 @@ export default function PawprintsScreen({ userProfile, creations, onOpenCreditSt
                   {reusable.map((c) => (
                     <button
                       key={c.id}
-                      onClick={() => setReuseCreationId((cur) => (cur === c.id ? null : c.id))}
+                      onClick={() => toggleReuseCreation(c.id)}
                       className={`relative shrink-0 w-16 h-16 rounded-xl overflow-hidden border-2 transition-all ${reuseCreationId === c.id ? "border-secondary ring-2 ring-secondary/30" : "border-transparent hover:border-secondary/40"}`}
                       title={c.name || "Reuse this image"}
                     >
@@ -218,41 +279,82 @@ export default function PawprintsScreen({ userProfile, creations, onOpenCreditSt
             )}
 
             <div className="space-y-3">
-              {selectedTemplate.fieldSchema.map((field) => (
+              {selectedTemplate.fieldSchema.map((field) => {
+                const reusedMediaCount = reuseCreationId && field.type === "image" ? 1 : 0;
+                const minUploads = Math.max(0, (field.minItems || 1) - reusedMediaCount);
+                const maxUploads = Math.max(0, (field.maxItems || 1) - reusedMediaCount);
+                return (
                 <div key={field.key}>
                   <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wide">{field.label}</label>
                   {field.type === "image" ? (
                     <label className="block mt-1 p-8 border-2 border-dashed border-outline-variant/40 rounded-xl text-center text-xs text-on-surface-variant hover:border-primary/40 transition-all cursor-pointer">
                       <Camera size={20} className="mx-auto mb-1 text-primary" />
-                      {fileNames[field.key] || `Upload ${field.label}`}
+                      {maxUploads === 0
+                        ? "Using your selected Fur Bin image"
+                        : fileNames[field.key] || `Upload ${minUploads}${maxUploads > minUploads ? `-${maxUploads}` : ""} image${maxUploads > 1 ? "s" : ""}`}
                       <input
                         type="file"
                         accept="image/*"
+                        multiple={maxUploads > 1}
+                        disabled={maxUploads === 0}
                         className="hidden"
                         onChange={async (e) => {
-                          const file = e.target.files?.[0];
-                          if (!file) return;
-                          if (!file.type.startsWith("image/")) {
-                            setError("Please choose an image file.");
+                          const selected = Array.from(e.target.files || []).slice(0, maxUploads);
+                          if (selected.length === 0) return;
+                          if (selected.length < minUploads) {
+                            setError(`Choose at least ${minUploads} images for this layout.`);
                             return;
                           }
-                          const dataUrl = await readFile(file);
-                          setFields((prev) => ({ ...prev, [field.key]: dataUrl }));
-                          setFileNames((prev) => ({ ...prev, [field.key]: file.name }));
+                          try {
+                            const dataUrls = await Promise.all(selected.map(normalizePawprintImage));
+                            setFields((prev) => ({ ...prev, [field.key]: maxUploads > 1 ? dataUrls : dataUrls[0] }));
+                            setFileNames((prev) => ({ ...prev, [field.key]: selected.map((file) => file.name).join(", ") }));
+                            setError("");
+                          } catch (uploadError: any) {
+                            setError(uploadError?.message || "Could not prepare the selected image.");
+                          }
                         }}
                       />
                     </label>
+                  ) : field.type === "color" ? (
+                    <div className="mt-1 flex min-h-11 items-center gap-2">
+                      {(field.swatches || []).map((swatch) => (
+                        <button
+                          key={swatch}
+                          type="button"
+                          title={swatch}
+                          aria-label={`${field.label} ${swatch}`}
+                          onClick={() => setFields((prev) => ({ ...prev, [field.key]: swatch }))}
+                          className={`h-8 w-8 rounded-full border-2 ${fields[field.key] === swatch ? "border-primary" : "border-outline-variant/40"}`}
+                          style={{ backgroundColor: swatch }}
+                        />
+                      ))}
+                      <input
+                        type="color"
+                        aria-label={`Custom ${field.label}`}
+                        value={typeof fields[field.key] === "string" ? fields[field.key] : field.defaultValue || "#FFFFFF"}
+                        onChange={(e) => setFields((prev) => ({ ...prev, [field.key]: e.target.value.toUpperCase() }))}
+                        className="h-9 w-11 cursor-pointer border-0 bg-transparent"
+                      />
+                    </div>
+                  ) : field.type === "date" ? (
+                    <input
+                      type="date"
+                      value={typeof fields[field.key] === "string" ? fields[field.key] : ""}
+                      onChange={(e) => setFields((prev) => ({ ...prev, [field.key]: e.target.value }))}
+                      className="w-full mt-1 p-2.5 rounded-xl border border-outline-variant/30 bg-surface-container text-xs text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    />
                   ) : (
                     <input
                       placeholder={field.label}
                       maxLength={field.maxLength || 200}
-                      value={fields[field.key] || ""}
+                      value={typeof fields[field.key] === "string" ? fields[field.key] : ""}
                       onChange={(e) => setFields((prev) => ({ ...prev, [field.key]: e.target.value }))}
                       className="w-full mt-1 p-2.5 rounded-xl border border-outline-variant/30 bg-surface-container text-xs text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-2 focus:ring-primary/40"
                     />
                   )}
                 </div>
-              ))}
+              )})}
               {error && <p className="text-xs font-bold text-error">{error}</p>}
               {resultUrl && (
                 <div className="rounded-2xl border border-primary/30 bg-primary/5 p-3">

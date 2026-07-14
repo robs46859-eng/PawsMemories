@@ -1,0 +1,178 @@
+{
+  "id": "hero",
+  "name": "Hero",
+  "description": "Edge-to-edge top media above a structured headline, body, date, RSVP, and footer action area.",
+  "version": "1.0.0",
+  "status": "publishable",
+  "categoryApplicability": [
+    "grieving_loss",
+    "new_puppy",
+    "veterinarian",
+    "holiday_birthday",
+    "environment",
+    "postcard_travel",
+    "get_well",
+    "miss_you",
+    "pet_business"
+  ],
+  "layout": {
+    "kind": "hero",
+    "canvasAspectRatio": "4:5",
+    "media": {
+      "placement": "top-edge-to-edge",
+      "aspectRatio": "16:9",
+      "fit": "cover",
+      "minItems": 1,
+      "maxItems": 1
+    },
+    "text": {
+      "placement": "bottom",
+      "alignment": "left",
+      "regions": ["headline", "body", "date", "rsvp", "footer-action"]
+    },
+    "background": {
+      "solidColor": true,
+      "gradients": false,
+      "proceduralTextures": []
+    }
+  },
+  "customizableFields": {
+    "text": [
+      {
+        "id": "headline",
+        "label": "Headline",
+        "role": "headline",
+        "required": true,
+        "inputMode": "plain-text",
+        "maxLength": 72,
+        "default": "A moment worth remembering"
+      },
+      {
+        "id": "body",
+        "label": "Message",
+        "role": "body",
+        "required": false,
+        "inputMode": "plain-text",
+        "maxLength": 280,
+        "default": "Share the story behind this favorite memory."
+      },
+      {
+        "id": "footer-action",
+        "label": "Footer action",
+        "role": "footer_action",
+        "required": false,
+        "inputMode": "plain-text",
+        "maxLength": 48,
+        "default": "Celebrate with us"
+      }
+    ],
+    "media": [
+      {
+        "id": "hero-media",
+        "label": "Hero media",
+        "required": true,
+        "referenceType": "managed-asset-id",
+        "acceptedMimeTypes": ["image/jpeg", "image/png", "image/webp"],
+        "minItems": 1,
+        "maxItems": 1,
+        "altTextRequired": true
+      }
+    ],
+    "colors": [
+      {
+        "id": "background-color",
+        "label": "Background",
+        "role": "background",
+        "format": "hex",
+        "default": "#FFFFFF",
+        "swatches": ["#FFFFFF", "#FFF8EE", "#EAF4F1", "#202124"],
+        "allowCustom": true
+      },
+      {
+        "id": "text-color",
+        "label": "Text",
+        "role": "text",
+        "format": "hex",
+        "default": "#202124",
+        "swatches": ["#202124", "#FFFFFF", "#24463B", "#593B2B"],
+        "allowCustom": true
+      },
+      {
+        "id": "accent-color",
+        "label": "Accent",
+        "role": "accent",
+        "format": "hex",
+        "default": "#C94F3D",
+        "swatches": ["#C94F3D", "#2D6F63", "#D39B2A", "#6D5A8C"],
+        "allowCustom": true
+      }
+    ],
+    "eventDetails": {
+      "date": {
+        "id": "event-date",
+        "label": "Date",
+        "required": false,
+        "inputMode": "iso-date",
+        "includeTime": true
+      },
+      "rsvp": {
+        "id": "rsvp-details",
+        "label": "RSVP details",
+        "required": false,
+        "inputMode": "plain-text",
+        "maxLength": 160,
+        "allowExternalLinks": false
+      }
+    }
+  },
+  "responsive": {
+    "strategy": "fluid",
+    "preserveReadingOrder": true,
+    "safeAreaInsetPercent": 5,
+    "breakpoints": [
+      {
+        "name": "mobile",
+        "minWidthPx": 0,
+        "maxWidthPx": 639,
+        "arrangement": "edge-to-edge",
+        "columns": 1,
+        "gapPx": 12
+      },
+      {
+        "name": "tablet",
+        "minWidthPx": 640,
+        "maxWidthPx": 1023,
+        "arrangement": "edge-to-edge",
+        "columns": 1,
+        "gapPx": 16
+      },
+      {
+        "name": "desktop",
+        "minWidthPx": 1024,
+        "maxWidthPx": null,
+        "arrangement": "edge-to-edge",
+        "columns": 1,
+        "gapPx": 20
+      }
+    ]
+  },
+  "accessibility": {
+    "altTextRequired": true,
+    "defaultAltText": "A pet memory featured above an announcement.",
+    "contrastTarget": "WCAG-AA",
+    "minimumContrastRatio": 4.5,
+    "readingOrder": ["hero-media", "headline", "body", "event-date", "rsvp-details", "footer-action"],
+    "reducedMotion": "use-poster-frame"
+  },
+  "licensing": {
+    "license": "PawsMemories-proprietary-template",
+    "outputUsage": "personal-and-commercial",
+    "source": {
+      "type": "original",
+      "name": "Paws & Memories design system",
+      "attributionRequired": false
+    },
+    "binaryAssetsIncluded": false,
+    "externalBinaryAssets": []
+  }
+}

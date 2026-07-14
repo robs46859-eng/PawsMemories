@@ -13,9 +13,12 @@
 //
 // Docs: https://docs.heygen.com/  (Photo Avatar / Avatar IV + video_status)
 
+import { readResponseBodyBounded } from "./server/httpBody";
+
 const HEYGEN_BASE = "https://api.heygen.com";
 const HEYGEN_UPLOAD_BASE = "https://upload.heygen.com";
 export const HEYGEN_PREFIX = "heygen:";
+const MAX_HEYGEN_VIDEO_BYTES = 100 * 1024 * 1024;
 
 function apiKey(): string {
   const key = process.env.HEYGEN_API_KEY;
@@ -155,8 +158,15 @@ export async function pollTalkingVideo(operationName: string): Promise<HeyGenPol
  * pushed through the existing uploadBase64Image() storage helper unchanged.
  */
 export async function fetchMp4AsDataUrl(videoUrl: string): Promise<string> {
-  const res = await fetch(videoUrl);
+  let parsed: URL;
+  try {
+    parsed = new URL(videoUrl);
+  } catch {
+    throw new Error("HeyGen returned an invalid video URL.");
+  }
+  if (parsed.protocol !== "https:") throw new Error("HeyGen returned an insecure video URL.");
+  const res = await fetch(parsed, { signal: AbortSignal.timeout(30_000) });
   if (!res.ok) throw new Error(`Failed to download HeyGen mp4 (${res.status})`);
-  const buf = Buffer.from(await res.arrayBuffer());
+  const buf = await readResponseBodyBounded(res, MAX_HEYGEN_VIDEO_BYTES);
   return `data:video/mp4;base64,${buf.toString("base64")}`;
 }

@@ -14,9 +14,10 @@ import { loadScripts, estimateSpeechSeconds } from "./scripts.ts";
 import { PRESET_SCRIPTS } from "./sceneScripts.ts";
 import { CC0_CLIPS } from "./clips.ts";
 import { uploadBase64Binary } from "../../storage.ts";
-import { getCreditBalance, deductCredits, createJob, isUserAdmin, getDailyVideoCount } from "../../db.ts";
+import { getCreditBalance, deductCredits, createJob, updateJobStatus, restoreReservedGenerationCredits, isUserAdmin, reservePaidUsage } from "../../db.ts";
 import { startTalkingVideo } from "../../heygen.ts";
 import { CREDIT_PRICES } from "../../src/pricing.ts";
+import { reservePaidProviderBudget } from "../paidProviderBudget.ts";
 
 export const animatorRouter = express.Router();
 
@@ -452,13 +453,30 @@ animatorRouter.get("/scenes/:id", (req: any, res) => {
 });
 
 animatorRouter.post("/scenes/voiceover", async (req: any, res) => {
+  let creditsDebited = 0;
+  let jobId = 0;
+  let userPhone = "";
   try {
-    const userPhone = req.user!.phone;
+    userPhone = req.user!.phone;
     if (!userPhone) return res.status(401).json({ error: "Unauthorized" });
     
-    const { recordingId, scriptId, text, voiceId } = req.body;
-    if (!recordingId) return res.status(400).json({ error: "recordingId is required" });
+    const { scriptId, text, voiceId } = req.body;
+    const recordingId = String(req.body?.recordingId || "");
+    const safeOwner = userPhone.replace(/[^a-zA-Z0-9]/g, "");
+    if (
+      !/^recording_\d+_[A-Za-z0-9]+\.(mp4|webm)$/.test(recordingId) ||
+      path.basename(recordingId) !== recordingId ||
+      (!recordingId.endsWith(`_${safeOwner}.mp4`) && !recordingId.endsWith(`_${safeOwner}.webm`))
+    ) {
+      return res.status(404).json({ error: "Recording not found" });
+    }
+    const recordingPath = resolveWithinWorkspace(path.join("recordings", recordingId));
+    if (!fs.existsSync(recordingPath)) return res.status(404).json({ error: "Recording not found" });
     
+    if (text != null && typeof text !== "string") return res.status(400).json({ error: "Text must be a string" });
+    if (voiceId != null && (typeof voiceId !== "string" || voiceId.length > 160)) {
+      return res.status(400).json({ error: "voiceId is invalid" });
+    }
     let scriptText = text;
     if (scriptId) {
       const scripts = loadScripts();
@@ -476,19 +494,36 @@ animatorRouter.post("/scenes/voiceover", async (req: any, res) => {
 
     const isAdmin = await isUserAdmin(userPhone);
     const VOICEOVER_COST = CREDIT_PRICES.AI_VOICE_30_SECONDS;
-    const MAX_DAILY_VIDEOS = 5; 
 
     if (!isAdmin) {
-      const dailyCount = await getDailyVideoCount(userPhone);
-      if (dailyCount >= MAX_DAILY_VIDEOS) {
-        return res.status(429).json({ error: `Daily limit reached (${MAX_DAILY_VIDEOS}/day)` });
-      }
       const balance = await getCreditBalance(userPhone);
       if (balance < VOICEOVER_COST) {
         return res.status(402).json({ error: `Insufficient credits. Need ${VOICEOVER_COST}` });
       }
-      await deductCredits(userPhone, VOICEOVER_COST, "ai_voice_generation");
     }
+
+    const budget = await reservePaidProviderBudget(userPhone, "talking_video", reservePaidUsage);
+    if (!budget.allowed) {
+      return res.status("status" in budget ? budget.status : 503).json({
+        error: "message" in budget ? budget.message : "Voice generation is temporarily unavailable.",
+        reason: "reason" in budget ? budget.reason : "disabled",
+      });
+    }
+    if (!isAdmin) {
+      const paid = await deductCredits(userPhone, VOICEOVER_COST, "ai_voice_generation");
+      if (!paid) return res.status(402).json({ error: `Insufficient credits. Need ${VOICEOVER_COST}` });
+      creditsDebited = VOICEOVER_COST;
+    }
+
+    jobId = await createJob({
+      user_phone: userPhone,
+      creation_id: null,
+      kind: "video",
+      credits_reserved: isAdmin ? 0 : VOICEOVER_COST,
+      provider: "heygen",
+      model_name: "photo-avatar-voiceover",
+      request_json: { recordingId, scriptLength: String(scriptText).length },
+    });
 
     // Dummy 1x1 image for HeyGen talking photo
     const dummyImageBuffer = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64");
@@ -502,27 +537,31 @@ animatorRouter.post("/scenes/voiceover", async (req: any, res) => {
         voiceId: voiceId || undefined,
       });
     } catch (genErr: any) {
-      if (!isAdmin) {
-        const { restoreReservedGenerationCredits } = await import("../../db.ts");
-        await restoreReservedGenerationCredits(userPhone, VOICEOVER_COST);
+      await updateJobStatus(jobId, "failed", "Voiceover provider start failed");
+      if (creditsDebited > 0) {
+        await restoreReservedGenerationCredits(userPhone, creditsDebited);
+        creditsDebited = 0;
       }
-      return res.status(502).json({ error: genErr.message || "Failed to start Voiceover generation" });
+      console.error("Voiceover provider start failed:", genErr);
+      return res.status(502).json({ error: "Failed to start Voiceover generation" });
     }
 
     // Attach recordingId to handle so poller knows which file to mux
     const operationName = `${handle}:animator:${recordingId}`;
 
-    const jobId = await createJob({
-      user_phone: userPhone,
-      creation_id: null,
-      kind: "video",
-      credits_reserved: VOICEOVER_COST,
-      operation_name: operationName,
-    });
+    const jobUpdated = await updateJobStatus(jobId, "running", null, operationName);
+    if (!jobUpdated) throw new Error("Voiceover job could not be started.");
 
-    res.status(202).json({ success: true, jobId, status: "queued" });
+    res.status(202).json({ success: true, jobId, status: "running" });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    if (jobId > 0) {
+      try { await updateJobStatus(jobId, "failed", "Voiceover start failed"); } catch {}
+    }
+    if (creditsDebited > 0 && userPhone) {
+      try { await restoreReservedGenerationCredits(userPhone, creditsDebited); } catch {}
+    }
+    console.error("Voiceover route failed:", e);
+    res.status(500).json({ error: "Failed to start Voiceover generation" });
   }
 });
 

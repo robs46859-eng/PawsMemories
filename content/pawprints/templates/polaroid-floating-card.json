@@ -1,0 +1,178 @@
+{
+  "id": "polaroid-floating-card",
+  "name": "Polaroid / Floating Card",
+  "description": "A cream or white floating card with square media, a handwritten caption, and optional event details.",
+  "version": "1.0.0",
+  "status": "publishable",
+  "categoryApplicability": [
+    "grieving_loss",
+    "new_puppy",
+    "veterinarian",
+    "holiday_birthday",
+    "environment",
+    "postcard_travel",
+    "get_well",
+    "miss_you",
+    "pet_business"
+  ],
+  "layout": {
+    "kind": "polaroid-floating-card",
+    "canvasAspectRatio": "4:5",
+    "media": {
+      "placement": "card-square",
+      "aspectRatio": "1:1",
+      "fit": "cover",
+      "minItems": 1,
+      "maxItems": 1
+    },
+    "text": {
+      "placement": "card-bottom",
+      "alignment": "center",
+      "regions": ["caption", "event", "date", "rsvp"]
+    },
+    "background": {
+      "solidColor": true,
+      "gradients": true,
+      "proceduralTextures": ["paper", "linen", "film-grain"]
+    }
+  },
+  "customizableFields": {
+    "text": [
+      {
+        "id": "caption",
+        "label": "Handwritten caption",
+        "role": "caption",
+        "required": true,
+        "inputMode": "plain-text",
+        "maxLength": 96,
+        "default": "The little moments are the big ones"
+      },
+      {
+        "id": "event-note",
+        "label": "Event details",
+        "role": "event_details",
+        "required": false,
+        "inputMode": "plain-text",
+        "maxLength": 180,
+        "default": ""
+      }
+    ],
+    "media": [
+      {
+        "id": "square-media",
+        "label": "Square media",
+        "required": true,
+        "referenceType": "managed-asset-id",
+        "acceptedMimeTypes": ["image/jpeg", "image/png", "image/webp"],
+        "minItems": 1,
+        "maxItems": 1,
+        "altTextRequired": true
+      }
+    ],
+    "colors": [
+      {
+        "id": "background-color",
+        "label": "Backdrop",
+        "role": "background",
+        "format": "hex",
+        "default": "#B9D5CF",
+        "swatches": ["#B9D5CF", "#E7C7C2", "#D8D0E5", "#DDE3C6"],
+        "allowCustom": true
+      },
+      {
+        "id": "card-color",
+        "label": "Card",
+        "role": "card",
+        "format": "hex",
+        "default": "#FFFDF7",
+        "swatches": ["#FFFDF7", "#FFFFFF", "#F4EFE5", "#F8F3EA"],
+        "allowCustom": false
+      },
+      {
+        "id": "text-color",
+        "label": "Ink",
+        "role": "text",
+        "format": "hex",
+        "default": "#303438",
+        "swatches": ["#303438", "#214F45", "#6B3F4B", "#4C456A"],
+        "allowCustom": true
+      },
+      {
+        "id": "accent-color",
+        "label": "Accent",
+        "role": "accent",
+        "format": "hex",
+        "default": "#C94F3D",
+        "swatches": ["#C94F3D", "#2D6F63", "#D39B2A", "#6D5A8C"],
+        "allowCustom": true
+      }
+    ],
+    "eventDetails": {
+      "date": {
+        "id": "event-date",
+        "label": "Date",
+        "required": false,
+        "inputMode": "iso-date",
+        "includeTime": true
+      },
+      "rsvp": {
+        "id": "rsvp-details",
+        "label": "RSVP details",
+        "required": false,
+        "inputMode": "plain-text",
+        "maxLength": 160,
+        "allowExternalLinks": false
+      }
+    }
+  },
+  "responsive": {
+    "strategy": "fluid",
+    "preserveReadingOrder": true,
+    "safeAreaInsetPercent": 7,
+    "breakpoints": [
+      {
+        "name": "mobile",
+        "minWidthPx": 0,
+        "maxWidthPx": 639,
+        "arrangement": "floating-card",
+        "columns": 1,
+        "gapPx": 12
+      },
+      {
+        "name": "tablet",
+        "minWidthPx": 640,
+        "maxWidthPx": 1023,
+        "arrangement": "floating-card",
+        "columns": 1,
+        "gapPx": 16
+      },
+      {
+        "name": "desktop",
+        "minWidthPx": 1024,
+        "maxWidthPx": null,
+        "arrangement": "floating-card",
+        "columns": 1,
+        "gapPx": 20
+      }
+    ]
+  },
+  "accessibility": {
+    "altTextRequired": true,
+    "defaultAltText": "A square pet memory presented on a keepsake card.",
+    "contrastTarget": "WCAG-AA",
+    "minimumContrastRatio": 4.5,
+    "readingOrder": ["square-media", "caption", "event-note", "event-date", "rsvp-details"],
+    "reducedMotion": "use-poster-frame"
+  },
+  "licensing": {
+    "license": "PawsMemories-proprietary-template",
+    "outputUsage": "personal-and-commercial",
+    "source": {
+      "type": "original",
+      "name": "Paws & Memories design system",
+      "attributionRequired": false
+    },
+    "binaryAssetsIncluded": false,
+    "externalBinaryAssets": []
+  }
+}

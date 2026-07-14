@@ -418,3 +418,74 @@ The authoritative future add-on requirements are recorded in
 `docs/PRODUCTION_READINESS_SWARM_PLAN.md`. This scope decision removes only the exact
 10-second requirement; it does not authorize deployment or weaken ownership, cost,
 security, media-validation, AR, or human-approval gates.
+
+## Data, Media, Video, and Pawprints Foundation Note (2026-07-14)
+
+- **Database decision:** retain Hostinger MySQL for this release. The current schema and
+  paid-usage reservations depend on MySQL transaction and row-lock behavior, so a
+  PostgreSQL migration during AR hardening would add risk without removing a launch
+  blocker. Render remains the recommended home for Blender, IFC, and other long-running
+  workers; Backblaze B2 remains the media store.
+- **Paid-operation controls applied:** classification, semantic scan, video, talking
+  video, 3D model, and Pawprints now have conservative per-user request, global request,
+  and global estimated-dollar ceilings. Rigging stays disabled with zero request and cost
+  capacity. The limits and staging-only concurrency test are documented in
+  `docs/DAILY_LIMITS.md`.
+- **Private-media foundation applied:** new generated video and Pawprints outputs use
+  owner-bound MySQL media records, private B2 object keys, and short-lived signed URLs.
+  Legacy public images, models, recordings, and existing creation rows remain a separate
+  migration and must not be described as private yet.
+- **Video contract applied:** the launch route accepts the provider-supported 8-second
+  duration only, supports 16:9 and 9:16, validates source ownership before spending,
+  measures the downloaded MP4 duration, fails closed on mismatch, and records provider,
+  model, request, result, size, and digest metadata. Exact 10-second output remains the
+  previously documented future add-on.
+- **Video completion hardening:** provider downloads are streamed through a 100 MB hard
+  ceiling, malformed or unverifiable MP4 output fails closed, and a per-job MySQL
+  advisory lock prevents the request poller and background poller from publishing or
+  notifying twice for the same completed generation.
+- **Pawprints templates applied:** Hero, Split Screen, Polaroid/Floating Card, and
+  Grid/Collage are source-controlled in `content/pawprints/templates/`. Their registry
+  fails closed on invalid definitions; the editor exposes text, color, date, RSVP, and
+  media fields; and the renderer creates distinct responsive compositions. User media
+  and rendered output belong in private B2, while template definitions stay in Git.
+- **Pawprints launch format:** the current renderer accepts JPEG, PNG, and WebP photos
+  and creates a static PNG card. Animated or looping-video stationery remains future
+  work; unsupported video MIME types were removed from the publishable definitions.
+- **Known coverage boundary:** older paid image, scene, background, and reference-image
+  routes still use legacy credit controls and have not all been moved behind aggregate
+  provider-dollar ceilings. This is now called out in `docs/DAILY_LIMITS.md` and remains
+  release work rather than being silently treated as complete.
+- **Production blockers still open:** configure a dedicated private B2 bucket and
+  restricted key; apply the additive schema in staging; drain or resolve pre-deployment
+  running generation jobs; run and retain the real MySQL concurrency-abuse evidence;
+  generate and inspect one landscape and one portrait video; prove two-user media
+  isolation and signed-link expiry; rehearse global-budget blocking and credit recovery;
+  migrate or explicitly contain legacy public media; and record named human acceptance
+  for video, Pawprints, mobile/desktop playback, prompt safety, and the AR evidence gates.
+
+This note records implementation and blockers without changing any earlier P0, P1, P2,
+AR, deployment, or human-approval status. Production rigging remains disabled.
+
+## Paid Provider Coverage Update (2026-07-14)
+
+- **Step 3 fix:** added the `image_generation` paid endpoint with per-user,
+  aggregate-request, and aggregate-cost limits. It now covers legacy memory-image,
+  scene-background prompt, avatar-reference, and text-to-reference workflows as one
+  logical request with bounded provider fallbacks.
+- **Avatar provider coverage:** avatar creation and avatar retry now reserve the shared
+  `model_3d` budget before starting Tripo. Credit checks remain separate from provider
+  reservations, and administrator credit bypass does not bypass global provider caps.
+- **Documentation:** the authoritative table and staging-only abuse procedure remain in
+  `docs/DAILY_LIMITS.md`. The previous coverage-boundary wording is retained here as
+  history; this update narrows that boundary to non-AI storage/community work and any
+  future provider route not yet added to `PaidEndpoint`.
+- **Verification:** after this change, TypeScript, the complete unit suite (526/526),
+  contracts (23/23), security tests (8/8), production build, dependency audit, pinned
+  IFC discovery (5/5), and Animator Doctor all passed. The local Animator Doctor still
+  reports optional Rhubarb unavailable and duplicate Sharp/libvips versions; both remain
+  visible warnings. A real concurrency-abuse result still requires an isolated staging
+  MySQL database; no production database was touched.
+
+This is an additive handoff entry. It does not mark staging, deployment, AR human
+acceptance, Rhubarb, private-media migration, or the exact 10-second add-on complete.

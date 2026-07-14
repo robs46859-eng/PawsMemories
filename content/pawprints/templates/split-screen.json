@@ -1,0 +1,178 @@
+{
+  "id": "split-screen",
+  "name": "Split Screen",
+  "description": "Vertical media on the left with centered text on the right, stacking media first on small screens.",
+  "version": "1.0.0",
+  "status": "publishable",
+  "categoryApplicability": [
+    "grieving_loss",
+    "new_puppy",
+    "veterinarian",
+    "holiday_birthday",
+    "environment",
+    "postcard_travel",
+    "get_well",
+    "miss_you",
+    "pet_business"
+  ],
+  "layout": {
+    "kind": "split-screen",
+    "canvasAspectRatio": "16:9",
+    "media": {
+      "placement": "left-vertical",
+      "aspectRatio": "4:5",
+      "fit": "cover",
+      "minItems": 1,
+      "maxItems": 1
+    },
+    "text": {
+      "placement": "right-center",
+      "alignment": "center",
+      "regions": ["headline", "body", "event", "date", "rsvp"]
+    },
+    "background": {
+      "solidColor": true,
+      "gradients": false,
+      "proceduralTextures": []
+    }
+  },
+  "customizableFields": {
+    "text": [
+      {
+        "id": "headline",
+        "label": "Headline",
+        "role": "headline",
+        "required": true,
+        "inputMode": "plain-text",
+        "maxLength": 64,
+        "default": "Together is our favorite place"
+      },
+      {
+        "id": "body",
+        "label": "Message",
+        "role": "body",
+        "required": false,
+        "inputMode": "plain-text",
+        "maxLength": 240,
+        "default": "Add a warm note, invitation, or update here."
+      },
+      {
+        "id": "event-note",
+        "label": "Event details",
+        "role": "event_details",
+        "required": false,
+        "inputMode": "plain-text",
+        "maxLength": 140,
+        "default": ""
+      }
+    ],
+    "media": [
+      {
+        "id": "side-media",
+        "label": "Side media",
+        "required": true,
+        "referenceType": "managed-asset-id",
+        "acceptedMimeTypes": ["image/jpeg", "image/png", "image/webp"],
+        "minItems": 1,
+        "maxItems": 1,
+        "altTextRequired": true
+      }
+    ],
+    "colors": [
+      {
+        "id": "background-color",
+        "label": "Background",
+        "role": "background",
+        "format": "hex",
+        "default": "#F5F7F2",
+        "swatches": ["#F5F7F2", "#FFFFFF", "#E7F0F5", "#242A2D"],
+        "allowCustom": true
+      },
+      {
+        "id": "text-color",
+        "label": "Text",
+        "role": "text",
+        "format": "hex",
+        "default": "#242A2D",
+        "swatches": ["#242A2D", "#FFFFFF", "#214F45", "#5D3341"],
+        "allowCustom": true
+      },
+      {
+        "id": "accent-color",
+        "label": "Accent",
+        "role": "accent",
+        "format": "hex",
+        "default": "#2D6F63",
+        "swatches": ["#2D6F63", "#C94F3D", "#D39B2A", "#596B9B"],
+        "allowCustom": true
+      }
+    ],
+    "eventDetails": {
+      "date": {
+        "id": "event-date",
+        "label": "Date",
+        "required": false,
+        "inputMode": "iso-date",
+        "includeTime": true
+      },
+      "rsvp": {
+        "id": "rsvp-details",
+        "label": "RSVP details",
+        "required": false,
+        "inputMode": "plain-text",
+        "maxLength": 160,
+        "allowExternalLinks": false
+      }
+    }
+  },
+  "responsive": {
+    "strategy": "fluid",
+    "preserveReadingOrder": true,
+    "safeAreaInsetPercent": 5,
+    "breakpoints": [
+      {
+        "name": "mobile",
+        "minWidthPx": 0,
+        "maxWidthPx": 639,
+        "arrangement": "stack-media-first",
+        "columns": 1,
+        "gapPx": 16
+      },
+      {
+        "name": "tablet",
+        "minWidthPx": 640,
+        "maxWidthPx": 1023,
+        "arrangement": "two-column",
+        "columns": 2,
+        "gapPx": 20
+      },
+      {
+        "name": "desktop",
+        "minWidthPx": 1024,
+        "maxWidthPx": null,
+        "arrangement": "two-column",
+        "columns": 2,
+        "gapPx": 24
+      }
+    ]
+  },
+  "accessibility": {
+    "altTextRequired": true,
+    "defaultAltText": "A vertical pet memory beside centered announcement text.",
+    "contrastTarget": "WCAG-AA",
+    "minimumContrastRatio": 4.5,
+    "readingOrder": ["side-media", "headline", "body", "event-note", "event-date", "rsvp-details"],
+    "reducedMotion": "use-poster-frame"
+  },
+  "licensing": {
+    "license": "PawsMemories-proprietary-template",
+    "outputUsage": "personal-and-commercial",
+    "source": {
+      "type": "original",
+      "name": "Paws & Memories design system",
+      "attributionRequired": false
+    },
+    "binaryAssetsIncluded": false,
+    "externalBinaryAssets": []
+  }
+}

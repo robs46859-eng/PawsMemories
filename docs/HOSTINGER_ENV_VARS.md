@@ -80,5 +80,20 @@ Set these in the Hostinger **Node.js app → Environment variables** panel (not 
 1. Set all **Section 1** vars in the Hostinger panel (and confirm `VITE_GOOGLE_MAPS_API_KEY_BROWSER` is present **before** the build step).
 2. Confirm `WORKER_SHARED_SECRET` is byte-identical on Hostinger and the Render worker.
 3. Point the Stripe webhook at `https://pawsome3d.com/api/stripe-webhook` (events: `checkout.session.completed`, `checkout.session.async_payment_succeeded`) and paste its `whsec_…` into `STRIPE_WEBHOOK_SECRET`.
+
+### 2026-07-14 paid-provider limits addendum
+
+The current launch defaults are maintained in `.env.example` and
+`docs/DAILY_LIMITS.md`. In addition to the earlier AR flags, configure the
+following endpoint switch when managing paid image workflows:
+
+| Variable | Default | Purpose |
+|---|---:|---|
+| `PETSIM_IMAGE_GENERATION_ENABLED` | `true` | Shared budget switch for memory images, scene prompts, avatar references, and text-to-reference |
+
+The corresponding daily request, aggregate request, and aggregate cost limits
+use the `PETSIM_IMAGE_GENERATION_*` names. Keep `PETSIM_RIG_ENABLED=false`.
+Run the staging-only abuse check from `docs/DAILY_LIMITS.md` before enabling
+paid production traffic.
 4. Build + start: `npm install && npm run build && npm start`. Watch the boot log for `[environments] Loaded N preset(s)` and no DB/storage errors.
 5. Smoke test: sign in, generate one image (Gemini), one 3D model (Tripo), open the studio (environments list), and do one $ purchase (Stripe webhook confirms).
