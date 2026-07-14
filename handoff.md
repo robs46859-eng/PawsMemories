@@ -377,6 +377,15 @@ rigging enablement. Remaining owner actions are review/merge of draft PR #1 and 
   persisted lighting preference have been removed from the live Fido's Styles feature.
 - **Verification:** TypeScript, seven focused shell/viewer tests, the production build,
   and the whitespace check pass locally. Existing large-chunk build warnings remain.
+  A temporary uncommitted harness rendered the real application and repository GLB
+  fixture at 1440x900 and 390x844: both viewports had no horizontal overflow, the canvas
+  rendered, the Edison feature was absent, and no solid slab crossed the model. The
+  harness was removed after the check.
+  Superseding post-merge verification passes TypeScript, 493/493 root tests, 139/139 AR
+  tests, 23/23 production contracts, 8/8 security tests, 5/5 IFC tests in the pinned
+  Python 3.11 environment, the production build, and Animator Doctor in a clean temporary
+  runtime. Rhubarb remains an optional unavailable tier and the duplicate Sharp/libvips
+  warning remains visible; neither was hidden or treated as a completed hardening gate.
   Desktop/mobile browser screenshots with an owned GLB are still required before the
   Shell evidence-register row can be marked verified.
 - **Future work:** add a curated dog-and-human accessory library to Fido's Styles,
