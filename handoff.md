@@ -337,3 +337,31 @@ rigging enablement. Remaining owner actions are review/merge of draft PR #1 and 
   plan. It supplements but does not weaken `AR_PET_SIM_HARDENING_PLAN_V2.md`.
 - Production deployment remains on hold. `PETSIM_RIG_ENABLED=false` is mandatory, and a
   named human AR acceptance record is required before a production GO decision.
+
+## Shell and Fido's Styles Fix Note (2026-07-14)
+
+- **Applied:** the global shell now uses shared typed navigation registries. The top
+  primary destinations are Furball3D, Pawprints, and Fido's Styles; shop and community
+  are top-right icon actions. The desktop left panel contains Home, Fur Bin, Profile,
+  Fido's Styles, and Help / Support. Fur Bin is also reachable from Pawprints.
+- **Shape protection:** the header has a fixed height, the desktop sidebar has a fixed
+  width below the header, the main viewport reserves that width, and the mobile bar uses
+  fixed columns with truncation. Focused tests lock these layout and destination
+  contracts against accidental collapse or reintroduction of removed navigation items.
+- **Viewer fix:** the solid turntable floor that could appear as a horizontal rectangle
+  through the model has been removed. The 360 viewer now uses transparent contact shadows
+  with neutral studio lighting. The Edison bulb control, bulb prop, cord prop, and its
+  persisted lighting preference have been removed from the live Fido's Styles feature.
+- **Verification:** TypeScript, seven focused shell/viewer tests, the production build,
+  and the whitespace check pass locally. Existing large-chunk build warnings remain.
+  Desktop/mobile browser screenshots with an owned GLB are still required before the
+  Shell evidence-register row can be marked verified.
+- **Future work:** add a curated dog-and-human accessory library to Fido's Styles,
+  including clothing, toys, beds, and related ready-to-use assets. The authoritative
+  future-work requirements in `docs/PRODUCTION_READINESS_SWARM_PLAN.md` require explicit
+  open-source license/provenance records and mesh, attachment, security, performance,
+  and visual validation before any asset ships.
+
+This note does not mark the complete UI action map, shell release gate, AR hardening, or
+production deployment complete. It supplements all prior handoff entries without
+superseding their unresolved blockers.
