@@ -51,12 +51,12 @@ export default function ResetPassword() {
           <form onSubmit={submit} className="space-y-3">
             <p className="text-sm text-on-surface-variant mb-2">Choose a new password for your Pawsome3D account.</p>
             <input
-              type="password" autoFocus placeholder="New password (min 8 characters)"
+              type="password" autoFocus autoComplete="new-password" placeholder="New password (min 8 characters)"
               value={password} onChange={(e) => setPassword(e.target.value)}
               className="w-full px-4 py-3 rounded-xl bg-surface border border-outline-variant/50 text-on-surface"
             />
             <input
-              type="password" placeholder="Confirm new password"
+              type="password" autoComplete="new-password" placeholder="Confirm new password"
               value={confirm} onChange={(e) => setConfirm(e.target.value)}
               className="w-full px-4 py-3 rounded-xl bg-surface border border-outline-variant/50 text-on-surface"
             />

@@ -144,6 +144,11 @@ before(() => {
 });
 
 test("Public routes are reachable without a token", async () => {
+  const configRes = await fetch(`${apiUrl}/api/config`);
+  assert.equal(configRes.status, 200, "GET /api/config must not be intercepted by the Studio proxy");
+  const config = await configRes.json();
+  assert.equal(typeof config.deployTarget, "string");
+
   // Login route should not return 401 Unauthorized (it might return 400 for bad input,
   // or 500 for DB error, but NOT the auth middleware's 401)
   const loginRes = await fetch(`${apiUrl}/api/auth/login`, {

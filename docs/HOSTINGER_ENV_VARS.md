@@ -66,6 +66,7 @@ Set these in the Hostinger **Node.js app → Environment variables** panel (not 
 | `PETSIM_CLASSIFY_DAILY_CAP` / `_RIG_` / `_SEMANTIC_SCAN_DAILY_CAP` | 25 / 5 / 50 |
 | `ANIMATOR_WORKER_ENABLED` | enabled (`false` to disable) |
 | `ANIMATOR_DATA_DIR` / `ANIMATOR_WORKER_CONCURRENCY` / `ANIMATOR_STALE_MS` | code defaults |
+| `STUDIO_SERVICE_URL` | leave blank unless the separate Python Studio service is deployed; blank returns a clear 503 instead of proxying to localhost |
 | `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_HTTP_REFERER` / `OPENAI_X_TITLE` | only for the OpenAI-compatible multi-agent pipeline |
 | `TWILIO_VERIFY_SERVICE_SID` | legacy SMS "from" fallback |
 | `DB_PORT` | `3306` |

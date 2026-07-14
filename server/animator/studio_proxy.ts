@@ -9,22 +9,25 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import httpProxy from 'http-proxy';
 
-const STUDIO_SERVICE_URL =
-  process.env.STUDIO_SERVICE_URL || 'http://localhost:8001';
+const STUDIO_SERVICE_URL = process.env.STUDIO_SERVICE_URL?.trim() || '';
 
-const proxy = httpProxy.createProxyServer({
-  target: STUDIO_SERVICE_URL,
-  changeOrigin: true,
-  // Required for SSE (progress stream) — disable buffering
-  selfHandleResponse: false,
-});
+const proxy = STUDIO_SERVICE_URL
+  ? httpProxy.createProxyServer({
+      target: STUDIO_SERVICE_URL,
+      changeOrigin: true,
+      // Required for SSE (progress stream) — disable buffering
+      selfHandleResponse: false,
+    })
+  : null;
 
-proxy.on('error', (err: Error, req: Request, res: Response) => {
-  console.error('[studio-proxy] error:', err.message);
-  if (!res.headersSent) {
-    res.status(502).json({ error: 'Studio service unavailable', detail: err.message });
-  }
-});
+if (proxy) {
+  proxy.on('error', (err: Error, req: Request, res: Response) => {
+    console.error('[studio-proxy] error:', err.message);
+    if (!res.headersSent) {
+      res.status(502).json({ error: 'Studio service unavailable', detail: err.message });
+    }
+  });
+}
 
 export const studioRouter = Router();
 
@@ -33,6 +36,13 @@ export const studioRouter = Router();
  * e.g. POST /api/studio/productions → POST /studio/productions
  */
 studioRouter.use('/', (req: Request, res: Response, next: NextFunction) => {
+  if (!proxy) {
+    return res.status(503).json({
+      error: 'Studio service is not configured on this deployment.',
+      code: 'STUDIO_SERVICE_NOT_CONFIGURED',
+    });
+  }
+
   // Preserve the /studio prefix that FastAPI expects
   req.url = `/studio${req.url}`;
 

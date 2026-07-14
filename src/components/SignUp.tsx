@@ -201,6 +201,7 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
                   <span className={iconWrap}><Mail size={16} /></span>
                   <input
                     id="login-email" type="email" required
+                    autoComplete="username"
                     placeholder="you@example.com"
                     value={email} onChange={(e) => setEmail(e.target.value)}
                     className={inputClass}
@@ -263,6 +264,7 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
                       <span className={iconWrap}><Mail size={16} /></span>
                       <input
                         id="forgot-email" type="email" required
+                        autoComplete="email"
                         placeholder="you@example.com"
                         value={email} onChange={(e) => setEmail(e.target.value)}
                         className={inputClass}
@@ -298,6 +300,7 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
                   <span className={iconWrap}><Mail size={16} /></span>
                   <input
                     id="signup-email" type="email" required
+                    autoComplete="email"
                     placeholder="you@example.com"
                     value={email} onChange={(e) => setEmail(e.target.value)}
                     className={inputClass}
@@ -310,6 +313,7 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
                   <span className={iconWrap}><Lock size={16} /></span>
                   <input
                     id="signup-password" type="password" required minLength={6}
+                    autoComplete="new-password"
                     placeholder="At least 6 characters"
                     value={password} onChange={(e) => setPassword(e.target.value)}
                     className={inputClass}
@@ -322,6 +326,7 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
                   <span className={iconWrap}><Lock size={16} /></span>
                   <input
                     id="signup-confirm" type="password" required minLength={6}
+                    autoComplete="new-password"
                     placeholder="••••••••"
                     value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
                     className={inputClass}
@@ -371,6 +376,7 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
                   <span className={iconWrap}><User size={16} /></span>
                   <input
                     id="full-name" type="text" required
+                    autoComplete="name"
                     placeholder="Enter your name"
                     value={fullName} onChange={(e) => setFullName(e.target.value)}
                     className={inputClass}
@@ -384,6 +390,7 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
                   <span className={iconWrap}><Calendar size={16} /></span>
                   <input
                     id="birthdate" type="date" required
+                    autoComplete="bday"
                     value={birthdate} onChange={(e) => setBirthdate(e.target.value)}
                     className={inputClass}
                   />
@@ -398,6 +405,7 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
                   <input
                     ref={cityInputRef}
                     id="city" type="text" required
+                    autoComplete="address-level2"
                     placeholder="Nearest major city"
                     value={city} onChange={(e) => setCity(e.target.value)}
                     className={inputClass}
