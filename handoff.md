@@ -489,3 +489,22 @@ AR, deployment, or human-approval status. Production rigging remains disabled.
 
 This is an additive handoff entry. It does not mark staging, deployment, AR human
 acceptance, Rhubarb, private-media migration, or the exact 10-second add-on complete.
+
+## Hostinger Model Upload 413 Fix Note (2026-07-14)
+
+- **Observed blocker:** release `hostinger-studio-hotfix-20260714-1` reached production,
+  but avatar and image-to-3D requests carrying base64 photos were rejected by the global
+  1 MiB JSON parser before authentication, validation, credit checks, or provider calls.
+- **Applied fix:** ordinary JSON routes retain the 1 MiB ceiling. Exact media routes now
+  use bounded scoped parsers: avatar creation 40 MiB, image-to-3D 24 MiB, existing
+  Pawprints 16 MiB, binary/IFC uploads 36 MiB, and single-image routes 8 MiB. Oversized
+  bodies return a sanitized `REQUEST_TOO_LARGE` JSON response instead of a stack trace.
+- **Payload reduction:** the browser now consistently resizes/re-encodes reference
+  photos and sends the face image once with a boolean role marker instead of duplicating
+  its base64 data.
+- **Paid-call boundary:** avatar reference images are fully validated and normalized
+  before model caps, credits, storage, or Gemini/Tripo calls.
+- **Verification:** TypeScript, unit tests (528/528), contracts (23/23), security tests
+  (8/8), production build, dependency audit, and diff checks pass. A full production
+  model generation still requires redeploying and human confirmation; this note does
+  not mark that external acceptance complete.

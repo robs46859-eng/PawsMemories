@@ -143,7 +143,9 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
         avatar_type: options.avatarType,
         input_mode: options.inputMode,
         photos: options.photos,
-        face_photo: options.facePhoto ?? null,
+        // `photos` already contains the face image at index 0. Send only its
+        // role marker here so the base64 payload is not duplicated.
+        face_photo: Boolean(options.facePhoto),
         subject: options.subject,
         palette: options.palette ?? null,
         style: options.style,

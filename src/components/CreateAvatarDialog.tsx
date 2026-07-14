@@ -38,14 +38,15 @@ function downscaleImage(dataUrl: string, maxDim = 1536): Promise<string> {
     const img = new Image();
     img.onload = () => {
       const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
-      if (scale >= 1) return resolve(dataUrl);
       const canvas = document.createElement("canvas");
       canvas.width = Math.round(img.width * scale);
       canvas.height = Math.round(img.height * scale);
       const ctx = canvas.getContext("2d");
       if (!ctx) return resolve(dataUrl);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      resolve(canvas.toDataURL("image/jpeg", 0.9));
+      resolve(canvas.toDataURL("image/jpeg", 0.86));
     };
     img.onerror = () => resolve(dataUrl);
     img.src = dataUrl;

@@ -153,7 +153,7 @@ test("Public routes are reachable without a token", async () => {
   const configRes = await fetch(`${apiUrl}/api/config`);
   assert.equal(configRes.status, 200, "GET /api/config must not be intercepted by the Studio proxy");
   const config = await configRes.json();
-  assert.equal(config.releaseId, "hostinger-studio-hotfix-20260714-1");
+  assert.equal(config.releaseId, "hostinger-model-upload-hotfix-20260714-2");
   assert.equal(typeof config.deployTarget, "string");
 
   // Login route should not return 401 Unauthorized (it might return 400 for bad input,
@@ -217,6 +217,26 @@ test("Loopback Studio targets fail closed after authentication", async () => {
   assert.equal(studioRes.status, 503);
   const body = await studioRes.json();
   assert.equal(body.code, "STUDIO_SERVICE_NOT_CONFIGURED");
+});
+
+test("Model image routes use scoped upload limits", async () => {
+  const oversizedForDefaultParser = `data:image/jpeg;base64,${"A".repeat(1_100_000)}`;
+  for (const route of ["/api/avatars", "/api/image-to-3d"]) {
+    const response = await fetch(`${apiUrl}${route}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "parser probe", photos: [oversizedForDefaultParser], image: oversizedForDefaultParser }),
+    });
+    assert.equal(response.status, 401, `${route} should reach auth instead of the 1 MiB parser`);
+  }
+
+  const loginResponse = await fetch(`${apiUrl}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: "x".repeat(1_100_000), password: "y" }),
+  });
+  assert.equal(loginResponse.status, 413, "ordinary API routes must retain the 1 MiB limit");
+  assert.equal((await loginResponse.json()).code, "REQUEST_TOO_LARGE");
 });
 
 test("Protected animator and scenes routes return 401 without a token", async () => {

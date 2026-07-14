@@ -121,6 +121,11 @@ it's wired separately; the app build/serve path above is for `index.html` → `d
 5. Set/verify env vars (esp. `WORKER_SHARED_SECRET` matches the worker; feature flags).
 6. Smoke-test: load `/` (app renders, not blank), hit one `/api/*` route (JSON, not HTML).
 
+Media-carrying JSON routes use explicit bounded parsers rather than the global 1 MiB
+default. Avatar creation accepts a 40 MiB request envelope and image-to-3D accepts
+24 MiB; each individual image is still validated against the stricter image limits
+before storage, credits, or provider calls.
+
 ## Lip-Sync (Rhubarb / Tier B)
 
 Phase 2 ships a Rhubarb-backed Tier B lip-sync pipeline

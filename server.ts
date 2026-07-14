@@ -37,7 +37,7 @@ import { mediaIdFromReference, mediaSignedUrlTtlSeconds, resolveOwnedMediaRefere
 import { readMp4DurationSeconds } from "./server/mp4Duration";
 import { readResponseBodyBounded } from "./server/httpBody";
 import { parseVideoGenerationRequest, validateVideoProviderOutput, VideoGenerationValidationError } from "./server/videoGeneration";
-import { validateImageDataUrl } from "./src/security/image-input";
+import { ImageInputValidationError, validateImageDataUrl } from "./src/security/image-input";
 import { runBuildPipeline } from "./agent/graph/orchestrator";
 import { analyzePetImage, type PetAnalysis } from "./ollama-agent";
 import { getBlenderClient } from "./agent/tools/blender_client";
@@ -65,7 +65,7 @@ import {
 
 dotenv.config();
 
-const APP_RELEASE = "hostinger-studio-hotfix-20260714-1";
+const APP_RELEASE = "hostinger-model-upload-hotfix-20260714-2";
 
 // Strip a `data:<mime>;base64,<data>` URL prefix, returning { data, mimeType }.
 // Shared by the create-video route and (via a local copy) the pet-sim router.
@@ -268,12 +268,39 @@ async function startServer() {
 
   const defaultJsonParser = express.json({ limit: "1mb" });
   const pawprintJsonParser = express.json({ limit: "16mb" });
+  const avatarJsonParser = express.json({ limit: "40mb" });
+  const imageTo3dJsonParser = express.json({ limit: "24mb" });
+  const binaryUploadJsonParser = express.json({ limit: "36mb" });
+  const singleImageJsonParser = express.json({ limit: "8mb" });
+  const scopedJsonParsers = new Map<string, ReturnType<typeof express.json>>([
+    ["/api/avatars", avatarJsonParser],
+    ["/api/image-to-3d", imageTo3dJsonParser],
+    ["/api/pawprints/generate", pawprintJsonParser],
+    ["/api/print-uploads", binaryUploadJsonParser],
+    ["/api/voice-clones", binaryUploadJsonParser],
+    ["/api/bim/import-ifc", binaryUploadJsonParser],
+    ["/api/create-creation", singleImageJsonParser],
+    ["/api/community/memories", singleImageJsonParser],
+    ["/api/scenes/backgrounds", singleImageJsonParser],
+    ["/api/profile/photo", singleImageJsonParser],
+    ["/api/profile/photos", singleImageJsonParser],
+  ]);
   app.use((req, res, next) => {
     // The exact production pet-sim app is mounted after its provider adapters
     // are constructed. Preserve its request stream for its scoped 6 MiB parser.
     if (isPetSimImageRoute(req.path)) return next();
-    if (req.path === "/api/pawprints/generate") return next();
-    return defaultJsonParser(req, res, next);
+    const parser = scopedJsonParsers.get(req.path) || defaultJsonParser;
+    return parser(req, res, next);
+  });
+  app.use((error: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (error?.type === "entity.too.large" || error?.status === 413) {
+      console.warn(`[request-body] rejected oversized payload for ${req.method} ${req.path}`);
+      return res.status(413).json({
+        error: "This upload is too large. Use fewer or smaller files and try again.",
+        code: "REQUEST_TOO_LARGE",
+      });
+    }
+    return next(error);
   });
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
@@ -1048,7 +1075,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/pawprints/generate", pawprintJsonParser, requireAuth, paidLimiter, async (req: AuthedRequest, res) => {
+  app.post("/api/pawprints/generate", requireAuth, paidLimiter, async (req: AuthedRequest, res) => {
     let debited = false;
     let pawprintPrice: number = CREDIT_PRICES.PAWPRINT;
     try {
@@ -1766,13 +1793,14 @@ async function startServer() {
       // Normalize the UI type to a canonical SubjectClass ('dog' == animal).
       let avatarType: SubjectClass = avatarTypeRaw === 'human' ? 'human' : avatarTypeRaw === 'object' ? 'object' : 'dog';
       // Accept new multi-photo payload; keep backward compat with single `photo`.
-      const photoList: string[] = Array.isArray(photos) && photos.length > 0
+      let photoList: string[] = Array.isArray(photos) && photos.length > 0
         ? photos.filter((p: unknown) => typeof p === "string" && p.length > 0)
         : (photo ? [photo] : []);
       // Optional UI-selected accent palette for colour coordination.
       const accent: string | null = typeof palette === "string" && palette ? palette : null;
       // Dedicated face photo from the face upload slot
-      const hasFacePhoto: boolean = typeof facePhotoRaw === "string" && facePhotoRaw.length > 0;
+      const hasFacePhoto: boolean = facePhotoRaw === true
+        || (typeof facePhotoRaw === "string" && facePhotoRaw.length > 0);
 
       if (!name) {
         return res.status(400).json({ error: "Name is required." });
@@ -1793,6 +1821,23 @@ async function startServer() {
         if (photoList.length > 6) {
           return res.status(400).json({ error: "Maximum 6 photos per avatar (1 face + 5 body)." });
         }
+
+        const validatedPhotos: string[] = [];
+        for (const source of photoList) {
+          try {
+            const validated = await validateImageDataUrl(source);
+            validatedPhotos.push(`data:${validated.mimeType};base64,${validated.data.toString("base64")}`);
+          } catch (error) {
+            if (error instanceof ImageInputValidationError) {
+              return res.status(error.status).json({
+                error: error.message,
+                code: error.code,
+              });
+            }
+            return res.status(400).json({ error: "One of the uploaded photos is invalid." });
+          }
+        }
+        photoList = validatedPhotos;
       }
 
       const avatarCost = avatarGenerationCost(avatarType, inputMode);
