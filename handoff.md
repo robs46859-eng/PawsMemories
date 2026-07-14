@@ -297,3 +297,23 @@ configuration of `main` branch protection. Production rigging remains disabled u
   was excluded.
 - **Required evidence:** a new run must show a completed, non-partial Gitleaks scan and
   all six CI jobs green.
+
+### Remote verification note — blockers closed
+
+- Commit `703dcbc` completed GitHub Actions run
+  [29351042405](https://github.com/robs46859-eng/PawsMemories/actions/runs/29351042405)
+  with all six gating jobs green: Type Check, Unit & AR Tests, IFC Tests, Security Scan,
+  Contract Tests, and Production Build.
+- The Security Scan completed `npm audit`, registry-signature verification, and a real
+  full-history Gitleaks scan with default rules. It did not rely on a partial/zero-byte
+  scan or a broad allowlist.
+- The earlier Security Scan failures remain documented above as an audit trail. Their
+  causes were missing pull-request authentication and shallow Git history; both workflow
+  defects are corrected.
+- GitHub's Node 20 action-runtime deprecation messages remain non-gating warnings in
+  upstream `actions/*` dependencies; repository application jobs run on Node 22.
+
+The stabilization fix set is now approved at the code-and-CI level for review. This does
+not mark P0, P1, or P2 complete and does not authorize merge, production deployment, or
+rigging enablement. Remaining owner actions are review/merge of draft PR #1 and enabling
+`main` branch protection with the six CI jobs required and force-push disabled.
