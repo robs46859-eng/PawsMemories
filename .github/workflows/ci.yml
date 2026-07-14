@@ -129,6 +129,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Gitleaks computes the pull-request commit range. A shallow checkout
+          # can omit its first parent and produce a zero-byte partial scan.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}

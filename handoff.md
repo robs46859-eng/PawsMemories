@@ -285,3 +285,15 @@ configuration of `main` branch protection. Production rigging remains disabled u
   allowlisted.
 - **Required evidence:** the replacement GitHub Actions run must complete the actual
   secret scan successfully before this blocker is closed.
+
+### Remote verification note — shallow-history blocker
+
+- Replacement run `29350820825` authenticated Gitleaks, but the scanner failed closed
+  after scanning zero bytes because the security job's default shallow checkout omitted
+  the parent of the pull-request commit range (`50c120a^`). Its SARIF report contained
+  zero findings because no repository content was scanned; this is not a green result.
+- **Applied:** only the security job now uses `actions/checkout` with `fetch-depth: 0`,
+  allowing Gitleaks to inspect the complete PR range. No detection rule or source path
+  was excluded.
+- **Required evidence:** a new run must show a completed, non-partial Gitleaks scan and
+  all six CI jobs green.
