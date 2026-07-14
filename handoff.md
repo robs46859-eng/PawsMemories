@@ -1,6 +1,6 @@
 # Pawsome3D Project Handoff
 
-Updated: 2026-07-13
+Updated: 2026-07-14
 
 ## State
 
@@ -14,8 +14,14 @@ The current Animator plan is a separate phase sequence in `PHASED_IMPLEMENTATION
 
 ### Current verified baseline
 
-- `main`/`origin/main`: `0527711`; the deployed Phase 2 implementation is commit `765b7f5` plus the later documentation-only game-loop commit.
-- Full verification at Phase 2 close: TypeScript clean, production client/server build clean, 471/471 tests passing.
+- Stabilization branch baseline and `origin/main`: `4c4b955`; the branch contains local,
+  uncommitted hardening changes described below.
+- Current stabilization verification: TypeScript and production client/server build clean,
+  with 508/508 tests passing across the combined coverage run.
+- Animator Phase 3 now has a provider-free planning foundation in
+  `server/animator/rigging-profile.ts`: profile selection, bone-contract masking,
+  selective-rig planning, deterministic manifests, and a >=10-mesh corpus acceptance
+  rule. Its 12 focused tests pass. It is not mounted and does not complete Phase 3.
 - Live Animator voice preview calls ElevenLabs, charges non-admin users 25 credits for a maximum 30 seconds, and drives the selected actor through the L2 face layer.
 - `RHUBARB_BIN` is optional. If the executable is absent or invalid, speech remains available with Tier A jaw animation; Tier B visemes require the Linux binary and its adjacent resource directory.
 - `PHASE2_CHECKLIST.html` contains the Phase 2 acceptance evidence.
@@ -92,3 +98,84 @@ Python must have the worker requirements installed. Fixture regeneration is `npm
 ## Manual Review
 
 Open `BIM_PHASE_0_3_CHECKLIST.html`. The only intentionally unchecked exit item is the production browser smoke test against the deployed worker. Notes and comments persist in local storage.
+
+## Stabilization Status (branch: stabilize/ar-hardening-foundation)
+
+Work on this branch stabilizes the repository and establishes a testable AR hardening
+foundation before any Animator Phase 3, Unity/NSDK, private-storage, or production
+rigging work. It does not complete P0, P1, or P2.
+
+### What changed on this branch
+- **Shared pet-sim router** (`server/petSimRouter.ts`): the three AR paid routes
+  (`/api/pets/classify`, `/api/pets/:id/rig`, `/api/ar/semantic-scan`) now live in one
+  factory with injected db/providers. Production `server.ts` mounts the SAME router, so
+  contract tests exercise the real route handlers.
+- **P2 schemas wired into production**: `ClassifyRequestSchema` (`src/schemas/pets.ts`)
+  and `SemanticScanRequestSchema` (`src/schemas/ar.ts`) validate classify/semantic-scan
+  requests; `imageUrl` is rejected by the schema (`.never()`). `paidLimiter` and the
+  `guardPaidCall` kill-switch + per-user daily cap are applied in the router.
+- **Removed artifacts**: `server.ts.bak` and the unused mock `server/app-for-testing.ts`
+  are deleted from tracking.
+- **Contract tests replaced**: `tests/contract_api.test.mjs` (mock app + `assert.ok(true)`)
+  is gone; `tests/contracts/petsim.test.mjs` drives the production router via supertest
+  with deterministic fakes + call counters (18 cases: missing/malformed/expired auth,
+  two-user isolation, disabled rig 501, master kill-switch 503, per-user cap 429,
+  invalid requests rejected before provider calls, MIME mismatch, and rig task-id
+  ownership enforcement).
+- **Image input validation** (`src/security/image-input.ts`): production classify and
+  semantic-scan requests now require canonical JPEG/PNG/WebP data URLs, verified magic
+  signatures and MIME agreement, bounded encoded/decoded bytes, dimensions, pixels,
+  aspect ratio, and terminal container boundaries. Seven focused security tests pass.
+- **Rig side-effect ordering**: the disabled-by-default rig route derives provider task
+  IDs only from the owned avatar, validates and checks budgets before upload/persistence,
+  and returns sanitized worker/provider errors.
+- **CI rewritten**: removed duplicate IFC execution; `npm audit` is now gating (no `|| echo`);
+  placeholder jobs (coverage/deploy/notify/branch-protection) removed; `timeout-minutes`
+  added to every job as a hard backstop against the historical test hang; added
+  `.gitleaks.toml` that extends the default rules without broad path/value allowlists.
+- **Defensive**: `src/security/rate-limiter.ts` interval is `unref()`'d so it cannot keep
+  the event loop (and thus a test runner) alive; `auth.ts` reads `JWT_SECRET` at call
+  time (runtime-injectable, fails closed).
+
+### Honest exit-gate status (do NOT mark complete without every criterion)
+- **P0**: Rig remains disabled, arbitrary `imageUrl` input is rejected, and
+  `server.ts.bak` is removed. Global daily caps, production cap evidence, bucket-policy
+  evidence, secret rotation review, route-specific body ceilings, and staged kill-switch
+  evidence remain open. → P0 **partial**.
+- **P1**: Contract tests use real production route handlers ✅. IFC discovery path corrected ✅.
+  Secret scanning is configured with default rules. The unit-test *hang* is **mitigated**
+  (timeout-minutes + child teardown fixes + DB-disabled CI env) but was **not reproduced
+  inside GitHub Actions**. A local coverage baseline is recorded (73.39% lines, 83.94%
+  branches, 72.45% functions). Remaining route contracts, branch protection, and a green
+  remote run are still missing. → P1 **partial**.
+- **P2**: Request schemas are wired into the three production paid routes, existing
+  Express throttling and per-user daily caps remain in place, and invalid tested inputs
+  stop before provider calls.
+  `rigBudget`/`needsRetargetFallback` wired into the rig route ✅ (rig stays disabled:
+  `PETSIM_RIG_ENABLED=false`). Canonical base64, signature/MIME matching, decoded-size,
+  image dimensions, pixel/aspect ceilings, and malformed/trailing-container rejection are
+  implemented and tested. Trusted-proxy rate buckets, a complete adversarial corpus,
+  maximum-input memory profiling, response-schema enforcement, and safe remote fetch
+  remain open. `safe-fetch.ts` is intentionally not wired because its DNS/IPv6 defenses
+  are incomplete. → P2 **partial**.
+
+### Remaining owner actions before this branch can merge
+1. Enable branch protection on `main` (require passing CI, no force-push).
+2. Review secret-scan results and rotate any real credential exposed outside this repo.
+3. Authorize push + confirm one fully green CI run.
+
+### Local verification on 2026-07-14
+
+- TypeScript: pass.
+- Combined coverage suite: 508/508 pass; exits normally.
+- Coverage baseline: 73.39% lines, 83.94% branches, 72.45% functions.
+- Dedicated AR suite: 136/136 pass.
+- Image-input security suite: 7/7 pass.
+- Production-router contracts: 18/18 pass.
+- Animator Phase 3 profile-planning foundation: 12/12 focused tests pass.
+- Production build: pass (chunk-size warnings only).
+- IFC: 5/5 pass under Python 3.11 with the pinned worker requirements.
+- Dependency audit/signatures: 0 vulnerabilities; 704 registry signatures verified.
+- Gitleaks 8.28 default rules: no leaks found in the working tree.
+- Animator Doctor: required checks pass; Rhubarb remains optional/missing and duplicate
+  Sharp/libvips native versions still produce a warning.

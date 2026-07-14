@@ -17,7 +17,9 @@
     "test:brain": "tsx --test tests/brain_*.test.mjs",
     "test:pets": "tsx --test tests/pets_*.test.mjs",
     "test:ar": "tsx --test tests/brain_*.test.mjs tests/pets_*.test.mjs tests/ar_*.test.mjs tests/paid_guards.test.mjs",
-    "test:contracts": "tsx --test tests/contract_*.test.mjs",
+    "test:contracts": "tsx --test tests/contracts/*.test.mjs",
+    "test:security": "tsx --test tests/security/*.test.mjs",
+    "test:coverage": "node --import tsx --experimental-test-coverage --test tests/*.test.mjs tests/contracts/*.test.mjs tests/security/*.test.mjs",
     "animator:doctor": "node scripts/animator-doctor.mjs"
   },
   "dependencies": {

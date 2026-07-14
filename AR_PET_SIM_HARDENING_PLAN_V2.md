@@ -387,9 +387,9 @@ Update this table as work lands. Do not mark a phase complete without durable ev
 
 | Phase | Owner | Release/commit | Automated evidence | Operational/device evidence | Review date | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| P0 | Unassigned | | | | | Not started |
-| P1 | Unassigned | | | | | Not started |
-| P2 | Unassigned | | | | | Not started |
+| P0 | Unassigned | `stabilize/ar-hardening-foundation` (local, uncommitted) | Rig default off; `imageUrl` rejection and paid-route guard contracts | Production cap/bucket/kill-switch evidence pending | Not run | Partial |
+| P1 | Unassigned | `stabilize/ar-hardening-foundation` (local, uncommitted) | 508 tests; 18 production-router contracts; 73.39% line coverage baseline; typecheck/build; corrected IFC workflow | Green GitHub run, full route inventory, branch protection pending | 2026-07-14 local | Partial |
+| P2 | Unassigned | `stabilize/ar-hardening-foundation` (local, uncommitted) | Paid-route schemas; seven image signature/MIME/size/dimension tests; provider-zero rejection cases | Full adversarial corpus, trusted network/rate-bucket tests, response enforcement, memory profile pending | 2026-07-14 local | Partial |
 | P3 | Unassigned | | | | | Not started |
 | P4 | Unassigned | | | | | Not started |
 | P5 | Unassigned | | | | | Not started |

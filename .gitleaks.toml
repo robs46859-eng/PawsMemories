@@ -1,0 +1,23 @@
+# .gitleaks.toml
+#
+# Narrow secret-scan configuration for PawsMemories CI.
+#
+# Policy (AR_PET_SIM_HARDENING_PLAN_V2.md, P1 security scan):
+#   - EXTEND the gitleaks built-in defaults so standard detection stays on.
+#     A bare config without `useDefault` would disable standard rules — never do that.
+#   - We do NOT allowlist entire directories (.github / docs / tests / fixtures):
+#     those are exactly where accidental credentials appear, so they remain fully scanned.
+#   - For immutable, clearly non-secret test constants that still trip the
+#     scanner, suppress at the line level in the source rather than using broad
+#     value regexes that could hide future mistakes.
+#
+# Remediation order used in this repo:
+#   1. Remove unnecessary credential-like values from CI env blocks.
+#   2. Documentation tokens reference ${ENV_VAR} / <redacted> rather than literals.
+#   3. Line-level `# gitleaks:allow` for confirmed immutable test constants.
+#   4. (last resort) a narrowly scoped .gitleaksignore fingerprint.
+
+title = "PawsMemories gitleaks config"
+
+[extend]
+useDefault = true

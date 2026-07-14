@@ -15,7 +15,16 @@ import type { Request, Response, NextFunction } from "express";
  *   JWT_SECRET
  */
 
-const JWT_SECRET = process.env.JWT_SECRET || "";
+/**
+ * JWT secret is read at call time (not captured at module load) so the same
+ * module works whether the secret is present at import or injected later (e.g.
+ * by tests or by a runtime config step). Falls back to an empty string so a
+ * missing secret fails closed (verifyToken returns null → 401) rather than
+ * silently using a stale captured value.
+ */
+function getJwtSecret(): string {
+  return process.env.JWT_SECRET || "";
+}
 
 /** Lower-case + trim an email for consistent storage and lookups. */
 export function normalizeEmail(input: string): string | null {
@@ -70,12 +79,12 @@ export interface TokenPayload {
 const THIRTY_DAYS_SECONDS = 60 * 60 * 24 * 30;
 
 export function signToken(payload: TokenPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: THIRTY_DAYS_SECONDS });
+  return jwt.sign(payload, getJwtSecret(), { expiresIn: THIRTY_DAYS_SECONDS });
 }
 
 export function verifyToken(token: string): TokenPayload | null {
   try {
-    return jwt.verify(token, JWT_SECRET) as TokenPayload;
+    return jwt.verify(token, getJwtSecret()) as TokenPayload;
   } catch {
     return null;
   }

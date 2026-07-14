@@ -10,7 +10,7 @@ import request from 'supertest';
 import crypto from 'node:crypto';
 import { createWebhookRouter, verifySignature } from '../src/routes/webhooks.js';
 
-const TEST_CONSUMER_SECRET = 'test-consumer-secret-12345';
+const TEST_CONSUMER_SECRET = 'fixture-only-signing-material'; // gitleaks:allow - immutable test fixture
 
 // ---------------------------------------------------------------------------
 // Helper: create a test app with the webhook router mounted

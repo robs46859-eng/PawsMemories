@@ -24,7 +24,7 @@ The active phase definitions are in `PHASED_IMPLEMENTATION.md`; `handoff.md` rec
 | 0 Foundations | Complete | Contracts, availability guards, doctor, skills/personas |
 | 1 Layered runtime | Complete | Layered mixer, masks, blend space, EmoteQueue, behavior bridge |
 | 2 Lip-sync | Complete | Rhubarb Tier B, Tier A fallback, viseme player, live ElevenLabs preview, production UI |
-| 3 Auto-rig | Scaffold | Profiles exist, but `/rig` is still a 501 stub and the acceptance corpus has not run |
+| 3 Auto-rig | Partial foundation | Provider-free profile selection, bone masks, selective-rig planning, deterministic manifests, and corpus acceptance policy are tested; worker/Blender integration, production `/rig`, manual overrides, and the real acceptance corpus remain open |
 | 4 Retargeting | Partial foundation | Existing clip/retarget paths do not satisfy the current plan's expanded library and QA exit gate |
 | 5 Mesh processing | Scaffold | Tested Euler/LOD policy helpers are not wired into production geometry processing |
 | 6 Sequencer/capture | Partial foundation | Theatre/capture modules exist; deterministic export, image sequence, audio lane, and `/bake` do not |
@@ -32,6 +32,32 @@ The active phase definitions are in `PHASED_IMPLEMENTATION.md`; `handoff.md` rec
 | 8 Agentic batch | Scaffold | Manifest validation is dry-run-only; dispatch, retries, and aggregate QA are not implemented |
 
 Older commits labeled “Phase 8/8.1 Animation Studio” use a previous numbering scheme. They provide Theatre/studio foundations but do not complete the current Phase 8 Agentic Operations scope. A phase is complete only when its production path and stated exit fixture pass, not when helper files or unit tests exist.
+
+## Stabilization and AR hardening status
+
+The active stabilization work is on `stabilize/ar-hardening-foundation`. P0, P1,
+P2, and Animator Phase 3 remain **partial** until every exit gate in
+`AR_PET_SIM_HARDENING_PLAN_V2.md` passes. Production rigging remains disabled by
+default with `PETSIM_RIG_ENABLED=false`.
+
+Current local evidence:
+
+- 508/508 tests pass in the combined coverage run.
+- Dedicated AR tests: 136/136; image-input security tests: 7/7; production-router
+  contracts: 18/18; IFC worker tests: 5/5.
+- Coverage baseline: 73.39% lines, 83.94% branches, and 72.45% functions.
+- TypeScript, the production client/server build, dependency audit, and required
+  Animator Doctor checks pass.
+- Classify and semantic-scan routes reject malformed, mismatched, oversized, or
+  structurally unsafe JPEG/PNG/WebP data before quota/provider calls.
+- Rigging derives its provider task from the owned avatar and validates results before
+  upload or persistence, but remains disabled pending the later hardening gates.
+
+Remaining release gates include a green remote CI run, protected `main`, complete
+production-app route coverage, trusted rate buckets, safe remote fetching, the
+maximum-input memory profile, response-schema enforcement, and the real Animator
+ten-mesh acceptance corpus. See `handoff.md`, `docs/P1_STATUS.md`, and
+`docs/P2_IMPLEMENTATION_PLAN.md` for the exact evidence and blockers.
 
 ## Tech stack
 
@@ -133,7 +159,8 @@ The AR mode is a full behavior simulation, not a static model placement. When a 
 - **Interaction**: pointer strokes become gesture reinforcement; a semantic camera scan builds a navmesh with per‑zone movement cost + behaviors; voice commands train recall; disc and agility trials award care points → credits.
 - **Backend**: `POST /api/pets/classify` (Gemini vision), `GET/PATCH /api/pets/:id/state`, `POST /api/pets/:id/rig` (Tripo auto‑rig → Blender bake‑LOD → B2, behind `PETSIM_RIG_ENABLED`), `/commands`, `/buttons`, `/api/ar/semantic-scan`, `/api/trials/:type/result`.
 
-Full spec: `AR_PET_SIM_SPEC.md`. Build status + decisions: `AR_PET_SIM_HANDOFF.md`. Future hardening: `AR_PET_SIM_HARDENING_PLAN.md`.
+Full spec: `AR_PET_SIM_SPEC.md`. Build status + decisions: `AR_PET_SIM_HANDOFF.md`.
+Current hardening plan: `AR_PET_SIM_HARDENING_PLAN_V2.md`.
 
 ## Project structure
 
@@ -152,7 +179,9 @@ dist/              Build output (vite assets + server.cjs)
 .env.example       Documented environment variables
 ```
 
-Test runner is the built-in `node:test` via `tsx` (not Vitest): `npm test`, or scoped `npm run test:brain` / `test:pets` / `test:ar`.
+Test runner is the built-in `node:test` via `tsx` (not Vitest): `npm test`, or scoped
+`npm run test:brain`, `npm run test:pets`, `npm run test:ar`,
+`npm run test:security`, `npm run test:contracts`, and `npm run test:coverage`.
 
 ## Environment variables
 

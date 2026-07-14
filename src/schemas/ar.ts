@@ -34,19 +34,14 @@ export const SemanticScanRequestSchema = z.object({
     .optional()
     .describe('Optional anchor identifier for spatial consistency'),
 
+  force: z.boolean().optional().default(false),
+
   /**
    * SECURITY: imageUrl parameter is explicitly rejected
    * Removed in P0.3 to prevent SSRF attacks
    */
-  imageUrl: z
-    .never()
-    .optional()
-    .catch(undefined)
-    .refine(
-      () => false,
-      'imageUrl parameter is not allowed for security reasons. Use imageBase64 instead.'
-    ),
-});
+  imageUrl: z.never().optional(),
+}).strict();
 
 /**
  * Semantic scan response schema
