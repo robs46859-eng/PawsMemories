@@ -2,13 +2,14 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # scripts/build-deploy-zip.sh
 #
-# Creates a deployment zip that includes EVERY git-tracked file.
+# Creates a deployment zip that includes EVERY git-tracked file plus the
+# freshly compiled dist/ runtime. Including dist/ makes the upload safe for
+# panels that preserve an older build instead of running the build command.
 # Uses `git archive` so nothing can be accidentally omitted — no more
 # hand-picked allow-lists that miss index.html, agent/, etc.
 #
-# Excludes: node_modules, dist, .env (via .gitignore / git tracking)
-# Includes: everything `git ls-files` knows about, including uncommitted
-#           staged changes (we archive from HEAD, so commit first).
+# Excludes: node_modules, .env
+# Includes: everything `git ls-files` knows about, plus the current dist/.
 #
 # Usage:  bash scripts/build-deploy-zip.sh
 # Output: pawsome3d-deploy.zip in the project root
@@ -22,8 +23,19 @@ ZIP_NAME="pawsome3d-deploy.zip"
 # Remove stale zip if present.
 rm -f "$ZIP_NAME"
 
-# ── Archive from HEAD (all tracked files, respects .gitignore) ───────────────
-git archive --format=zip --output="$ZIP_NAME" HEAD
+# ── Build the runtime before archiving it ─────────────────────────────────────
+npm run build
+
+# ── Archive HEAD and overlay the compiled dist/ runtime ──────────────────────
+STAGE_DIR=$(mktemp -d)
+trap 'rm -rf "$STAGE_DIR"' EXIT
+git archive --format=tar HEAD | tar -xf - -C "$STAGE_DIR"
+mkdir -p "$STAGE_DIR/dist"
+cp -R dist/. "$STAGE_DIR/dist/"
+(
+  cd "$STAGE_DIR"
+  zip -qr "$OLDPWD/$ZIP_NAME" .
+)
 
 # ── Sanity check: confirm critical files are present ─────────────────────────
 echo ""

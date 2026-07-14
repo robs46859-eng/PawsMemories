@@ -51,7 +51,12 @@ before(async () => {
   port = await reserveFreePort();
   apiUrl = `http://127.0.0.1:${port}`;
   return new Promise((resolve, reject) => {
-    const env = { ...process.env, PORT: String(port), JWT_SECRET: MOCK_JWT_SECRET };
+    const env = {
+      ...process.env,
+      PORT: String(port),
+      JWT_SECRET: MOCK_JWT_SECRET,
+      STUDIO_SERVICE_URL: "http://localhost:8001",
+    };
     // Explicitly disable DB so initDb() gracefully skips rather than blocking
     // on a connection refused / retry loop when no MySQL is reachable (CI).
     delete env.DB_NAME;
@@ -201,6 +206,15 @@ test("Studio proxy is isolated to /api/studio", async () => {
     401,
     "GET /api/studio/* should remain protected by authentication"
   );
+});
+
+test("Loopback Studio targets fail closed after authentication", async () => {
+  const studioRes = await fetch(`${apiUrl}/api/studio/health`, {
+    headers: { Authorization: `Bearer ${validToken}` },
+  });
+  assert.equal(studioRes.status, 503);
+  const body = await studioRes.json();
+  assert.equal(body.code, "STUDIO_SERVICE_NOT_CONFIGURED");
 });
 
 test("Protected animator and scenes routes return 401 without a token", async () => {
