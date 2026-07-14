@@ -17,6 +17,7 @@
     "test:brain": "tsx --test tests/brain_*.test.mjs",
     "test:pets": "tsx --test tests/pets_*.test.mjs",
     "test:ar": "tsx --test tests/brain_*.test.mjs tests/pets_*.test.mjs tests/ar_*.test.mjs tests/paid_guards.test.mjs",
+    "test:contracts": "tsx --test tests/contract_*.test.mjs",
     "animator:doctor": "node scripts/animator-doctor.mjs"
   },
   "dependencies": {
@@ -79,6 +80,7 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@types/three": "^0.171.0",
+    "supertest": "^7.2.2",
     "tsx": "^4.21.0"
   }
 }
