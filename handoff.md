@@ -179,3 +179,86 @@ rigging work. It does not complete P0, P1, or P2.
 - Gitleaks 8.28 default rules: no leaks found in the working tree.
 - Animator Doctor: required checks pass; Rhubarb remains optional/missing and duplicate
   Sharp/libvips native versions still produce a warning.
+
+## Stabilization Review Addendum (2026-07-14)
+
+The post-push review reproduced two release blockers that were not covered by the
+existing contract harness. This section is append-only; completed fixes and their
+verification evidence will be added below without removing the original status.
+
+- **BLOCKER — image decoding:** `validateImageDataUrl` accepts header-only PNG/JPEG
+  fixtures that Sharp cannot decode. A malformed payload can therefore pass validation,
+  consume quota, and reach a paid provider.
+- **BLOCKER — body-limit mismatch:** production installs the global 1 MB JSON parser
+  before the pet-sim routes, while image validation advertises an encoded limit of 5 MB.
+  Valid image requests above the global limit are rejected before route validation.
+- **BLOCKER — production-app coverage:** contract tests mount `createPetSimRouter` on a
+  separate Express app, so production middleware ordering and startup wiring are not
+  covered. The fixed-port spawned auth test also remains a possible CI child-process
+  teardown risk.
+
+No deployment approval should be inferred from the earlier local verification while
+these blockers remain open.
+
+### Fix note — complete image decoding
+
+- **Applied:** image validation now performs a bounded Sharp metadata check and full
+  decode after the existing encoded-size, signature, container, dimension, pixel, and
+  aspect-ratio checks. Multi-page inputs are rejected. Decoding finishes before
+  ownership usage is incremented or a paid provider is called.
+- **Tests corrected:** positive JPEG/PNG/WebP fixtures are real decodable images. The
+  former header-only PNG/JPEG samples are retained as negative regression fixtures and
+  must return `INVALID_IMAGE`.
+- **Verification:** `npm run test:security` passes 8/8 and `npm run lint` passes.
+
+### Fix note — production parser and contract app
+
+- **Applied:** `server/petSimApp.ts` is now the importable production app for the
+  classify, rig, and semantic-scan routes. It owns the narrowly scoped 6 MiB JSON
+  envelope and mounts the shared production router. `server.ts` preserves those two
+  image request streams from the global 1 MiB parser and mounts that exact app after
+  constructing real provider adapters.
+- **Boundary coverage:** contracts prove that a valid, fully decoded image request above
+  1 MiB succeeds and that a request above the 6 MiB JSON ceiling returns a sanitized
+  413 before quota or provider calls. A trailing slash receives the same parser policy.
+- **Isolation coverage:** the two-user semantic-scan contract now uses the same anchor
+  key for both users. Each user receives a separate first scan, and only the owner can
+  reuse their cached result.
+- **Verification:** production paid-route contracts pass 21/21 and TypeScript passes.
+
+### Fix note — full-server smoke-test lifecycle
+
+- **Applied:** `tests/auth-routes.test.mjs` now starts the repository-local `tsx`
+  executable directly on a dynamically reserved port. On macOS/Linux it creates and
+  terminates a process group, with bounded SIGTERM/SIGKILL fallback, so a wrapper or
+  descendant cannot remain alive after the test.
+- **Verification:** the focused full-server auth/route-order smoke test passes 4/4 and
+  exits normally. This test intentionally binds a port because it checks assembled
+  full-server startup; paid-route contracts remain entirely in-process.
+
+### Superseding verification and remaining gates
+
+Local verification after the fixes:
+
+- TypeScript: pass.
+- Root unit suite: 483/483 pass and exits normally.
+- Dedicated AR suite: 136/136 pass.
+- Image-input security suite: 8/8 pass.
+- Production paid-route contracts: 21/21 pass.
+- Combined coverage: 512/512 pass; 73.55% lines, 83.76% branches, 72.69% functions.
+- Production build: pass; existing chunk-size warnings only.
+- IFC worker: 5/5 pass with the pinned Python 3.11 requirements. The machine's default
+  Python 3.14 lacks `ifcopenshell`, so `npm run test:ifc` fails unless the pinned worker
+  environment is activated; this is an environment prerequisite, not a code failure.
+- Dependency audit: zero vulnerabilities.
+- Animator Doctor: required checks pass; Rhubarb remains optional/missing and the
+  duplicate Sharp/libvips warning remains.
+- Diff whitespace check: pass. The local Gitleaks binary is unavailable, so the remote
+  security-scan job remains required.
+
+The three blockers recorded at the start of this addendum are fixed locally. P0, P1,
+and P2 remain **partial** under `AR_PET_SIM_HARDENING_PLAN_V2.md`; this work does not
+change their completion labels. Remaining release/merge gates are a pushed fix commit,
+a pull request with a fully green GitHub Actions run (including Gitleaks), and owner
+configuration of `main` branch protection. Production rigging remains disabled unless
+`PETSIM_RIG_ENABLED=true`; do not enable it as part of this stabilization phase.

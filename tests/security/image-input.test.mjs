@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { before, test } from "node:test";
+import sharp from "sharp";
 import {
   ImageInputValidationError,
   validateImageDataUrl,
@@ -68,8 +69,8 @@ function webp(type, width, height) {
   return bytes;
 }
 
-function expectCode(code, callback) {
-  assert.throws(callback, (error) => {
+async function expectCode(code, callback) {
+  await assert.rejects(callback, (error) => {
     assert.ok(error instanceof ImageInputValidationError);
     assert.equal(error.code, code);
     assert.ok(!error.message.includes("data:"), "errors must not echo input");
@@ -77,70 +78,91 @@ function expectCode(code, callback) {
   });
 }
 
-test("accepts tiny JPEG, PNG, and each WebP dimension header", () => {
+let validJpeg;
+let validPng;
+let validWebp;
+
+before(async () => {
+  const input = {
+    create: {
+      width: 6,
+      height: 5,
+      channels: 4,
+      background: { r: 24, g: 96, b: 180, alpha: 1 },
+    },
+  };
+  validJpeg = await sharp(input).jpeg().toBuffer();
+  validPng = await sharp(input).png().toBuffer();
+  validWebp = await sharp(input).webp().toBuffer();
+});
+
+test("accepts fully decodable JPEG, PNG, and WebP images", async () => {
   const fixtures = [
-    ["image/jpeg", jpeg(3, 2), 3, 2],
-    ["image/png", png(2, 3), 2, 3],
-    ["image/webp", webp("VP8 ", 4, 3), 4, 3],
-    ["image/webp", webp("VP8L", 5, 4), 5, 4],
-    ["image/webp", webp("VP8X", 6, 5), 6, 5],
+    ["image/jpeg", validJpeg],
+    ["image/png", validPng],
+    ["image/webp", validWebp],
   ];
 
-  for (const [mimeType, bytes, width, height] of fixtures) {
-    const result = validateImageDataUrl(dataUrl(mimeType, bytes));
+  for (const [mimeType, bytes] of fixtures) {
+    const result = await validateImageDataUrl(dataUrl(mimeType, bytes));
     assert.equal(result.mimeType, mimeType);
-    assert.equal(result.width, width);
-    assert.equal(result.height, height);
-    assert.equal(result.pixelCount, width * height);
+    assert.equal(result.width, 6);
+    assert.equal(result.height, 5);
+    assert.equal(result.pixelCount, 30);
     assert.deepEqual(result.data, bytes);
   }
 });
 
-test("rejects a declared MIME that disagrees with the magic signature", () => {
-  expectCode("MIME_MISMATCH", () => validateImageDataUrl(dataUrl("image/jpeg", png(1, 1))));
+test("rejects a declared MIME that disagrees with the magic signature", async () => {
+  await expectCode("MIME_MISMATCH", () => validateImageDataUrl(dataUrl("image/jpeg", validPng)));
 });
 
-test("requires strict data URL and canonical padded base64", () => {
-  expectCode("INVALID_DATA_URL", () => validateImageDataUrl("not-a-data-url"));
-  expectCode("UNSUPPORTED_MIME", () => validateImageDataUrl(dataUrl("image/gif", png(1, 1))));
-  expectCode("INVALID_BASE64", () => validateImageDataUrl("data:image/png;base64,AAAA A=="));
-  expectCode("INVALID_BASE64", () => validateImageDataUrl("data:image/png;base64,AAAA="));
-  expectCode("INVALID_BASE64", () => validateImageDataUrl("data:image/png;base64,AAAA===="));
-  expectCode("INVALID_BASE64", () => validateImageDataUrl("data:image/png;base64,AA==trailing"));
+test("requires strict data URL and canonical padded base64", async () => {
+  await expectCode("INVALID_DATA_URL", () => validateImageDataUrl("not-a-data-url"));
+  await expectCode("UNSUPPORTED_MIME", () => validateImageDataUrl(dataUrl("image/gif", validPng)));
+  await expectCode("INVALID_BASE64", () => validateImageDataUrl("data:image/png;base64,AAAA A=="));
+  await expectCode("INVALID_BASE64", () => validateImageDataUrl("data:image/png;base64,AAAA="));
+  await expectCode("INVALID_BASE64", () => validateImageDataUrl("data:image/png;base64,AAAA===="));
+  await expectCode("INVALID_BASE64", () => validateImageDataUrl("data:image/png;base64,AA==trailing"));
 });
 
-test("enforces encoded and decoded byte ceilings before image parsing", () => {
-  const input = dataUrl("image/png", png(1, 1));
-  expectCode("ENCODED_TOO_LARGE", () => validateImageDataUrl(input, { maxEncodedBytes: 8 }));
-  expectCode("DECODED_TOO_LARGE", () => validateImageDataUrl(input, { maxDecodedBytes: 8 }));
+test("enforces encoded and decoded byte ceilings before image parsing", async () => {
+  const input = dataUrl("image/png", validPng);
+  await expectCode("ENCODED_TOO_LARGE", () => validateImageDataUrl(input, { maxEncodedBytes: 8 }));
+  await expectCode("DECODED_TOO_LARGE", () => validateImageDataUrl(input, { maxDecodedBytes: 8 }));
 });
 
-test("rejects truncated containers and bytes after their terminal boundary", () => {
-  expectCode("TRUNCATED_IMAGE", () => validateImageDataUrl(dataUrl("image/png", png(1, 1).subarray(0, 30))));
-  expectCode("TRUNCATED_IMAGE", () => validateImageDataUrl(dataUrl("image/jpeg", jpeg(1, 1).subarray(0, -1))));
-  expectCode("TRUNCATED_IMAGE", () => validateImageDataUrl(dataUrl("image/webp", webp("VP8X", 1, 1).subarray(0, -1))));
+test("rejects truncated containers and bytes after their terminal boundary", async () => {
+  await expectCode("TRUNCATED_IMAGE", () => validateImageDataUrl(dataUrl("image/png", png(1, 1).subarray(0, 30))));
+  await expectCode("TRUNCATED_IMAGE", () => validateImageDataUrl(dataUrl("image/jpeg", jpeg(1, 1).subarray(0, -1))));
+  await expectCode("TRUNCATED_IMAGE", () => validateImageDataUrl(dataUrl("image/webp", webp("VP8X", 1, 1).subarray(0, -1))));
 
-  expectCode("INVALID_IMAGE", () => validateImageDataUrl(dataUrl("image/png", Buffer.concat([png(1, 1), Buffer.from([0])]))));
-  expectCode("INVALID_IMAGE", () => validateImageDataUrl(dataUrl("image/jpeg", Buffer.concat([jpeg(1, 1), Buffer.from([0])]))));
-  expectCode("INVALID_IMAGE", () => validateImageDataUrl(dataUrl("image/webp", Buffer.concat([webp("VP8X", 1, 1), Buffer.from([0])]))));
+  await expectCode("INVALID_IMAGE", () => validateImageDataUrl(dataUrl("image/png", Buffer.concat([png(1, 1), Buffer.from([0])]))));
+  await expectCode("INVALID_IMAGE", () => validateImageDataUrl(dataUrl("image/jpeg", Buffer.concat([jpeg(1, 1), Buffer.from([0])]))));
+  await expectCode("INVALID_IMAGE", () => validateImageDataUrl(dataUrl("image/webp", Buffer.concat([webp("VP8X", 1, 1), Buffer.from([0])]))));
 });
 
-test("enforces dimension, aspect-ratio, and decompression-bomb limits", () => {
-  expectCode("DIMENSIONS_TOO_LARGE", () =>
+test("rejects header-only containers with no decodable image data", async () => {
+  await expectCode("INVALID_IMAGE", () => validateImageDataUrl(dataUrl("image/png", png(2, 3))));
+  await expectCode("INVALID_IMAGE", () => validateImageDataUrl(dataUrl("image/jpeg", jpeg(3, 2))));
+});
+
+test("enforces dimension, aspect-ratio, and decompression-bomb limits", async () => {
+  await expectCode("DIMENSIONS_TOO_LARGE", () =>
     validateImageDataUrl(dataUrl("image/png", png(101, 1)), { maxWidth: 100 }),
   );
-  expectCode("ASPECT_RATIO_EXCEEDED", () =>
+  await expectCode("ASPECT_RATIO_EXCEEDED", () =>
     validateImageDataUrl(dataUrl("image/jpeg", jpeg(11, 1)), { maxAspectRatio: 10 }),
   );
-  expectCode("PIXEL_LIMIT_EXCEEDED", () =>
+  await expectCode("PIXEL_LIMIT_EXCEEDED", () =>
     validateImageDataUrl(dataUrl("image/webp", webp("VP8X", 100, 100)), { maxPixels: 9_999 }),
   );
 });
 
-test("validation errors expose only typed, sanitized public details", () => {
+test("validation errors expose only typed, sanitized public details", async () => {
   let thrown;
   try {
-    validateImageDataUrl("data:image/png;base64,private-secret!!!");
+    await validateImageDataUrl("data:image/png;base64,private-secret!!!");
   } catch (error) {
     thrown = error;
   }

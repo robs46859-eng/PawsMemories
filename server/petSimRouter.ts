@@ -5,11 +5,11 @@
  * (`/api/pets/classify`, `/api/pets/:id/rig`, `/api/ar/semantic-scan`).
  *
  * It is consumed two ways:
- *   1. Production: `server.ts` calls `createPetSimRouter(PROD_DEPS)` and mounts
- *      the returned `Router` on the real Express app, wiring real DB + real
+ *   1. Production: `server.ts` mounts `createPetSimApp(PROD_DEPS)`, which wraps
+ *      this router with its route-specific body parsing and wires real DB + real
  *      Gemini/Tripo/Blender-worker providers.
- *   2. Tests: the contract suite calls `createPetSimRouter(FAKE_DEPS)` with
- *      deterministic fakes + call counters and mounts the SAME router, so the
+ *   2. Tests: the contract suite calls `createPetSimApp(FAKE_DEPS)` with
+ *      deterministic fakes + call counters and uses the SAME app/router, so the
  *      tests exercise the exact production route registration, auth, ownership,
  *      schema validation, feature flags, caps, and provider-gating logic.
  *
@@ -80,9 +80,12 @@ export interface PetSimDeps {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function parseImageInput(input: unknown, res: Response): { imageBase64: string; mimeType: string } | null {
+async function parseImageInput(
+  input: unknown,
+  res: Response,
+): Promise<{ imageBase64: string; mimeType: string } | null> {
   try {
-    const validated = validateImageDataUrl(input);
+    const validated = await validateImageDataUrl(input);
     return {
       imageBase64: validated.data.toString("base64"),
       mimeType: validated.mimeType,
@@ -156,7 +159,7 @@ export function createPetSimRouter(deps: PetSimDeps): Router {
         });
       }
       const { avatarId: aId, imageBase64, force } = parsed.data;
-      const image = parseImageInput(imageBase64, res);
+      const image = await parseImageInput(imageBase64, res);
       if (!image) return;
 
       // Ownership check up-front (before any paid LLM call).
@@ -295,7 +298,7 @@ export function createPetSimRouter(deps: PetSimDeps): Router {
         });
       }
       const { imageBase64, anchorHash, force } = parsed.data;
-      const image = parseImageInput(imageBase64, res);
+      const image = await parseImageInput(imageBase64, res);
       if (!image) return;
 
       // Anchor key: client-provided anchor id, else a content hash of the frame.

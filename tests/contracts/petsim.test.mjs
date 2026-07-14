@@ -1,8 +1,8 @@
 /**
  * Contract tests for the Pet Simulator paid routes.
  *
- * These exercise the EXACT production route handlers from
- * `server/petSimRouter.ts` (createPetSimRouter) with injected
+ * These exercise the exact production paid-route app from
+ * `server/petSimApp.ts` (createPetSimApp) with injected
  * deterministic fakes + call counters. No real port is bound and no
  * real provider is contacted (supertest drives the in-process app).
  *
@@ -18,9 +18,9 @@
 import assert from "node:assert/strict";
 import { test, before, afterEach } from "node:test";
 import supertest from "supertest";
-import express from "express";
 import jwt from "jsonwebtoken";
-import { createPetSimRouter } from "../../server/petSimRouter.ts";
+import sharp from "sharp";
+import { createPetSimApp } from "../../server/petSimApp.ts";
 
 const JWT_SECRET = "test-secret-contract-0123456789";
 // The real requireAuth() (imported by the router) reads process.env.JWT_SECRET.
@@ -39,6 +39,7 @@ const PETS = {
   202: { id: 202, avatar_id: 22, user_phone: "userB" },
 };
 const petByAvatar = { 11: PETS[101], 22: PETS[202] };
+const semanticScans = new Map();
 
 // ---- Call counters + scriptable usage --------------------------------------
 let classifyCalls = 0;
@@ -71,8 +72,10 @@ const db = {
     usageCalls++;
     return usage[ep] ?? 1;
   },
-  getSemanticScan: async () => null,
-  saveSemanticScan: async () => {},
+  getSemanticScan: async (owner, key) => semanticScans.get(`${owner}:${key}`) ?? null,
+  saveSemanticScan: async (owner, key, zones) => {
+    semanticScans.set(`${owner}:${key}`, zones);
+  },
   savePetRigUrls: async () => {},
   setAvatarGenerationFailed: async () => {},
 };
@@ -128,24 +131,42 @@ const providers = {
 // ---- App under test -------------------------------------------------------
 let app;
 let request;
-before(() => {
-  app = express();
-  // Mirror production body limits (route-specific 1mb JSON).
-  app.use(express.json({ limit: "1mb" }));
-  app.use(createPetSimRouter({ db, providers, paidLimiter: undefined }));
+let DATA_URL;
+let LARGE_DATA_URL;
+before(async () => {
+  const tinyJpeg = await sharp({
+    create: {
+      width: 3,
+      height: 2,
+      channels: 3,
+      background: { r: 120, g: 80, b: 40 },
+    },
+  }).jpeg().toBuffer();
+  DATA_URL = `data:image/jpeg;base64,${tinyJpeg.toString("base64")}`;
+
+  // Deterministic noise keeps the PNG above the full server's 1 MiB global
+  // parser limit while remaining under the paid image route's bounded limit.
+  const width = 600;
+  const height = 600;
+  const pixels = Buffer.allocUnsafe(width * height * 3);
+  let state = 0x12345678;
+  for (let i = 0; i < pixels.length; i += 1) {
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    pixels[i] = state & 0xff;
+  }
+  const largePng = await sharp(pixels, { raw: { width, height, channels: 3 } })
+    .png({ compressionLevel: 0 })
+    .toBuffer();
+  LARGE_DATA_URL = `data:image/png;base64,${largePng.toString("base64")}`;
+
+  app = createPetSimApp({ db, providers, paidLimiter: undefined });
   request = supertest(app);
 });
 
 const tokenFor = (phone) => jwt.sign({ phone, uid: 1 }, JWT_SECRET, { expiresIn: "1h" });
 const EXPIRED = jwt.sign({ phone: "userA", uid: 1 }, JWT_SECRET, { expiresIn: "-1h" });
-const DATA_URL = `data:image/jpeg;base64,${Buffer.from([
-  0xff, 0xd8,
-  0xff, 0xc0, 0x00, 0x0b, 0x08,
-  0x00, 0x02, 0x00, 0x03,
-  0x01, 0x01, 0x11, 0x00,
-  0xff, 0xd9,
-]).toString("base64")}`;
-
 afterEach(() => {
   classifyCalls = 0;
   scanCalls = 0;
@@ -155,6 +176,7 @@ afterEach(() => {
   usage.classify = 1;
   usage.rig = 1;
   usage.semantic_scan = 1;
+  semanticScans.clear();
   process.env.PETSIM_RIG_ENABLED = "false";
 });
 
@@ -207,20 +229,30 @@ test("owner B's pet cannot be classified by userA (404 + no provider call)", asy
 });
 
 test("semantic-scan is isolated per owner", async () => {
+  const anchorHash = "shared-physical-anchor";
   const a = await request
     .post("/api/ar/semantic-scan")
     .set("Authorization", `Bearer ${tokenFor("userA")}`)
-    .send({ imageBase64: DATA_URL });
+    .send({ imageBase64: DATA_URL, anchorHash });
   assert.equal(a.status, 200);
+  assert.equal(a.body.cached, false);
   assert.equal(scanCalls, 1);
 
-  const bWrong = await request
+  const b = await request
     .post("/api/ar/semantic-scan")
     .set("Authorization", `Bearer ${tokenFor("userB")}`)
-    .send({ imageBase64: DATA_URL, anchorHash: "x" });
-  // userB has no cached scan and the route does not filter by pet here,
-  // but it MUST still perform the (fake) provider call only for authed users.
-  assert.equal(bWrong.status, 200);
+    .send({ imageBase64: DATA_URL, anchorHash });
+  assert.equal(b.status, 200);
+  assert.equal(b.body.cached, false, "userB must not receive userA's cached scan");
+  assert.equal(scanCalls, 2);
+
+  const aCached = await request
+    .post("/api/ar/semantic-scan")
+    .set("Authorization", `Bearer ${tokenFor("userA")}`)
+    .send({ imageBase64: DATA_URL, anchorHash });
+  assert.equal(aCached.status, 200);
+  assert.equal(aCached.body.cached, true);
+  assert.equal(scanCalls, 2, "only the owning user's cached result is reused");
 });
 
 // ---- Disabled paid endpoints ---------------------------------------------
@@ -320,6 +352,46 @@ test("malformed base64 data URL rejected before provider", async () => {
     .set("Authorization", `Bearer ${tokenFor("userA")}`)
     .send({ avatarId: 11, imageBase64: "data:image/jpeg;base64,%%%%" });
   assert.equal(res.status, 400);
+  assert.equal(classifyCalls, 0);
+  assert.equal(usageCalls, 0);
+});
+
+test("header-only JPEG is rejected before quota or provider", async () => {
+  const headerOnlyJpeg = Buffer.from([
+    0xff, 0xd8,
+    0xff, 0xc0, 0x00, 0x0b, 0x08,
+    0x00, 0x02, 0x00, 0x03,
+    0x01, 0x01, 0x11, 0x00,
+    0xff, 0xd9,
+  ]);
+  const res = await request
+    .post("/api/pets/classify")
+    .set("Authorization", `Bearer ${tokenFor("userA")}`)
+    .send({ avatarId: 11, imageBase64: `data:image/jpeg;base64,${headerOnlyJpeg.toString("base64")}` });
+  assert.equal(res.status, 400);
+  assert.deepEqual(res.body.validation, ["INVALID_IMAGE"]);
+  assert.equal(classifyCalls, 0);
+  assert.equal(usageCalls, 0);
+});
+
+test("production image parser accepts a valid request above the global 1 MiB limit", async () => {
+  const requestBytes = Buffer.byteLength(JSON.stringify({ avatarId: 11, imageBase64: LARGE_DATA_URL }));
+  assert.ok(requestBytes > 1024 * 1024, "fixture must exercise the route-specific parser");
+  const res = await request
+    .post("/api/pets/classify")
+    .set("Authorization", `Bearer ${tokenFor("userA")}`)
+    .send({ avatarId: 11, imageBase64: LARGE_DATA_URL });
+  assert.equal(res.status, 200);
+  assert.equal(classifyCalls, 1);
+});
+
+test("production image parser rejects requests above its hard JSON ceiling", async () => {
+  const res = await request
+    .post("/api/pets/classify")
+    .set("Authorization", `Bearer ${tokenFor("userA")}`)
+    .send({ avatarId: 11, imageBase64: "x".repeat(6 * 1024 * 1024) });
+  assert.equal(res.status, 413);
+  assert.deepEqual(res.body.validation, ["REQUEST_TOO_LARGE"]);
   assert.equal(classifyCalls, 0);
   assert.equal(usageCalls, 0);
 });

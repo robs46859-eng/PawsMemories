@@ -309,10 +309,10 @@ function readDimensions(data: Buffer, mimeType: SupportedImageMime): Dimensions 
   }
 }
 
-export function validateImageDataUrl(
+export async function validateImageDataUrl(
   input: unknown,
   limitOverrides: Partial<ImageInputLimits> = {},
-): ValidatedImageInput {
+): Promise<ValidatedImageInput> {
   const limits = resolveLimits(limitOverrides);
   const parsed = parseCanonicalDataUrl(input, limits);
   const data = Buffer.from(parsed.base64, "base64");
@@ -336,6 +336,36 @@ export function validateImageDataUrl(
   if (!Number.isSafeInteger(pixelCount) || pixelCount > limits.maxPixels) fail("PIXEL_LIMIT_EXCEEDED");
   if (Math.max(width / height, height / width) > limits.maxAspectRatio) fail("ASPECT_RATIO_EXCEEDED");
 
+  // Container parsing above is deliberately cheap and enforces boundaries before
+  // native decoding. A complete decode is still required: valid-looking headers
+  // alone do not prove that pixel data exists or is readable by paid providers.
+  try {
+    const decoderOptions = {
+      failOn: "warning" as const,
+      limitInputPixels: limits.maxPixels,
+      sequentialRead: true,
+    };
+    const metadata = await sharp(data, decoderOptions).metadata();
+    const expectedFormat = detectedMime.slice("image/".length);
+    if (
+      metadata.format !== expectedFormat ||
+      metadata.width !== width ||
+      metadata.height !== height ||
+      (metadata.pages ?? 1) !== 1
+    ) {
+      fail("INVALID_IMAGE");
+    }
+
+    // Decode the complete source while keeping the output allocation tiny.
+    await sharp(data, decoderOptions)
+      .resize({ width: 1, height: 1, fit: "fill" })
+      .raw()
+      .toBuffer();
+  } catch (error) {
+    if (error instanceof ImageInputValidationError) throw error;
+    fail("INVALID_IMAGE");
+  }
+
   return {
     mimeType: detectedMime,
     data,
@@ -346,3 +376,4 @@ export function validateImageDataUrl(
     pixelCount,
   };
 }
+import sharp from "sharp";

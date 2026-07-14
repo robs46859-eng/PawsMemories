@@ -18,7 +18,10 @@ import { animatorRouter } from "./server/animator/routes.ts";
 import { studioRouter } from "./server/animator/studio_proxy.ts";
 import { refundRouter } from "./server/refunds.ts";
 import { setRefundReviewGenerate } from "./server/refunds.ts";
-import { createPetSimRouter } from "./server/petSimRouter.ts";
+import {
+  createPetSimApp,
+  isPetSimImageRoute,
+} from "./server/petSimApp.ts";
 import { privacyHtml, termsHtml, smsTermsHtml } from "./server/legal.ts";
 import { startWorker as startAnimatorWorker } from "./server/animator/worker.ts";
 import { phraseKey } from "./src/three/ar/voice";
@@ -249,7 +252,13 @@ async function startServer() {
     next();
   });
 
-  app.use(express.json({ limit: "1mb" }));
+  const defaultJsonParser = express.json({ limit: "1mb" });
+  app.use((req, res, next) => {
+    // The exact production pet-sim app is mounted after its provider adapters
+    // are constructed. Preserve its request stream for its scoped 6 MiB parser.
+    if (isPetSimImageRoute(req.path)) return next();
+    return defaultJsonParser(req, res, next);
+  });
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
   app.post("/api/bim/import-ifc", requireAuth, async (req: AuthedRequest, res) => {
@@ -2493,10 +2502,10 @@ async function startServer() {
   };
 
   // Mount the shared pet-simulator router (classify / rig / semantic-scan).
-  app.use(createPetSimRouter(PROD_PETSIM_DEPS));
+  app.use(createPetSimApp(PROD_PETSIM_DEPS));
 
   // NOTE: POST /api/pets/classify is now served by the shared pet-sim router
-  // mounted at createPetSimRouter(PROD_PETSIM_DEPS) above — see server/petSimRouter.ts.
+  // mounted through createPetSimApp(PROD_PETSIM_DEPS) above.
 
   // GET /api/pets/:id/state — drives/hormones/weights with offline decay applied.
   app.get("/api/pets/:id/state", requireAuth, async (req: AuthedRequest, res) => {
@@ -2578,12 +2587,12 @@ async function startServer() {
   };
 
   // NOTE: POST /api/pets/:id/rig is now served by the shared pet-sim router
-  // mounted at createPetSimRouter(PROD_PETSIM_DEPS) above — see server/petSimRouter.ts.
+  // mounted through createPetSimApp(PROD_PETSIM_DEPS) above.
   // It stays disabled unless PETSIM_RIG_ENABLED === "true" (P0 containment).
 
   // POST /api/ar/semantic-scan — AR_PET_SIM_SPEC §6.4
   // NOTE: POST /api/ar/semantic-scan is now served by the shared pet-sim router
-  // mounted at createPetSimRouter(PROD_PETSIM_DEPS) above — see server/petSimRouter.ts.
+  // mounted through createPetSimApp(PROD_PETSIM_DEPS) above.
 
   // GET /api/pets/:id/commands — learned voice commands, with forgetting decay
   // applied to compliance from last_reinforced (§7.2).
