@@ -397,3 +397,24 @@ rigging enablement. Remaining owner actions are review/merge of draft PR #1 and 
 This note does not mark the complete UI action map, shell release gate, AR hardening, or
 production deployment complete. It supplements all prior handoff entries without
 superseding their unresolved blockers.
+
+## Video Duration Scope Decision (2026-07-14)
+
+- **Decision:** exact 10-second video output is deferred to a future add-on and is no
+  longer an initial production release blocker.
+- **Initial release contract:** prompt-to-video remains required, using a documented
+  provider-supported duration selected server-side. The actual duration, codec,
+  dimensions, integrity, ownership, and persistence must be validated and accurately
+  exposed to the user. The release may not claim that a shorter output is 10 seconds.
+- **Branch impact:** the unmerged `swarm/video-pipeline` prototype hardcodes exact
+  10-second normalization. Preserve its work, but do not merge it unchanged; revise the
+  contract around supported durations before opening an integration pull request.
+- **Next dependency:** close P0 staging evidence first, then private-media ownership and
+  signed delivery, followed by the supported-duration video route and provider-fake
+  contracts. Pawprints, complete UI action mapping, AR device evidence/human acceptance,
+  and staging deployment/rollback remain required after those foundations.
+
+The authoritative future add-on requirements are recorded in
+`docs/PRODUCTION_READINESS_SWARM_PLAN.md`. This scope decision removes only the exact
+10-second requirement; it does not authorize deployment or weaken ownership, cost,
+security, media-validation, AR, or human-approval gates.
