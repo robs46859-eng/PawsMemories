@@ -2,10 +2,11 @@
  * server/paidApiGuards.ts — H2/H7 hardening for the paid AR endpoints
  * (`/api/pets/classify`, `/api/pets/:id/rig`, `/api/ar/semantic-scan`).
  *
- * Pure config logic only: kill-switches + per-user daily caps derived from env.
+ * Pure config logic only: kill-switches + per-user and aggregate daily budgets
+ * derived from env.
  * No DB or express imports, so it is unit-testable in isolation. The daily
- * counter lives in `db.ts` (`bumpDailyUsage`) and the express wiring — rate
- * limiter + 503/429 responses — lives in `server.ts`.
+ * atomic reservation lives in `db.ts` (`reservePaidUsage`) and the Express
+ * wiring - rate limiter + 503/429 responses - lives in `petSimRouter.ts`.
  *
  * Env contract:
  *   PETSIM_PAID_APIS_ENABLED   master kill-switch for all three (default: on)
@@ -15,6 +16,9 @@
  *   PETSIM_CLASSIFY_DAILY_CAP  per-user/day cap (default: 25)
  *   PETSIM_RIG_DAILY_CAP       per-user/day cap (default: 5)
  *   PETSIM_SEMANTIC_SCAN_DAILY_CAP per-user/day cap (default: 50)
+ *   PETSIM_<ENDPOINT>_GLOBAL_DAILY_CAP aggregate request cap
+ *   PETSIM_<ENDPOINT>_ESTIMATED_COST_MICRO_USD reserved cost per provider call
+ *   PETSIM_<ENDPOINT>_GLOBAL_DAILY_COST_MICRO_USD aggregate reserved-cost cap
  */
 
 export type PaidEndpoint = "classify" | "rig" | "semantic_scan";
@@ -35,6 +39,27 @@ const DEFAULT_DAILY_CAPS: Record<PaidEndpoint, number> = {
   classify: 25,
   rig: 5,
   semantic_scan: 50,
+};
+
+/** Conservative aggregate request ceilings. Rig remains closed by default. */
+const DEFAULT_GLOBAL_DAILY_CAPS: Record<PaidEndpoint, number> = {
+  classify: 250,
+  rig: 0,
+  semantic_scan: 500,
+};
+
+/** Upper-bound cost reservations in millionths of one US dollar. */
+const DEFAULT_ESTIMATED_COST_MICRO_USD: Record<PaidEndpoint, number> = {
+  classify: 10_000,
+  rig: 1_000_000,
+  semantic_scan: 10_000,
+};
+
+/** Aggregate daily reserved-cost ceilings in millionths of one US dollar. */
+const DEFAULT_GLOBAL_DAILY_COST_MICRO_USD: Record<PaidEndpoint, number> = {
+  classify: 2_500_000,
+  rig: 0,
+  semantic_scan: 5_000_000,
 };
 
 /** Per-endpoint default for the enable flag. Rig stays off by default (historical). */
@@ -66,6 +91,66 @@ export function dailyCapFor(ep: PaidEndpoint, env: Env = process.env): number {
   const raw = env[`PETSIM_${ENV_TOKEN[ep]}_DAILY_CAP`];
   const n = raw == null || String(raw).trim() === "" ? NaN : Number(raw);
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_DAILY_CAPS[ep];
+}
+
+function nonNegativeInteger(raw: string | undefined, fallback: number): number {
+  const n = raw == null || String(raw).trim() === "" ? NaN : Number(raw);
+  return Number.isSafeInteger(n) && n >= 0 ? n : fallback;
+}
+
+function positiveInteger(raw: string | undefined, fallback: number): number {
+  const n = raw == null || String(raw).trim() === "" ? NaN : Number(raw);
+  return Number.isSafeInteger(n) && n > 0 ? n : fallback;
+}
+
+/** Aggregate request cap across all users for this endpoint and UTC database day. */
+export function globalDailyCapFor(ep: PaidEndpoint, env: Env = process.env): number {
+  return nonNegativeInteger(
+    env[`PETSIM_${ENV_TOKEN[ep]}_GLOBAL_DAILY_CAP`],
+    DEFAULT_GLOBAL_DAILY_CAPS[ep],
+  );
+}
+
+/** Cost reserved before one provider call, expressed as integer micro-USD. */
+export function estimatedCostMicroUsdFor(ep: PaidEndpoint, env: Env = process.env): number {
+  return positiveInteger(
+    env[`PETSIM_${ENV_TOKEN[ep]}_ESTIMATED_COST_MICRO_USD`],
+    DEFAULT_ESTIMATED_COST_MICRO_USD[ep],
+  );
+}
+
+/** Aggregate daily cost ceiling, expressed as integer micro-USD. */
+export function globalDailyCostMicroUsdFor(ep: PaidEndpoint, env: Env = process.env): number {
+  return nonNegativeInteger(
+    env[`PETSIM_${ENV_TOKEN[ep]}_GLOBAL_DAILY_COST_MICRO_USD`],
+    DEFAULT_GLOBAL_DAILY_COST_MICRO_USD[ep],
+  );
+}
+
+export interface PaidUsageLimits {
+  userDailyCap: number;
+  globalDailyCap: number;
+  estimatedCostMicroUsd: number;
+  globalDailyCostMicroUsd: number;
+}
+
+export type PaidUsageDenialReason = "user_cap" | "global_cap" | "global_cost_cap";
+
+export interface PaidUsageReservation {
+  allowed: boolean;
+  reason?: PaidUsageDenialReason;
+  userCount: number;
+  globalCount: number;
+  globalReservedCostMicroUsd: number;
+}
+
+export function paidUsageLimitsFor(ep: PaidEndpoint, env: Env = process.env): PaidUsageLimits {
+  return {
+    userDailyCap: dailyCapFor(ep, env),
+    globalDailyCap: globalDailyCapFor(ep, env),
+    estimatedCostMicroUsd: estimatedCostMicroUsdFor(ep, env),
+    globalDailyCostMicroUsd: globalDailyCostMicroUsdFor(ep, env),
+  };
 }
 
 /**
