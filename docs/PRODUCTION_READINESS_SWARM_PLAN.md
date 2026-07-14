@@ -165,3 +165,19 @@ Begin with the P0 atomic budget contract and complete product/route inventories 
 parallel. Video, Pawprints, and shell implementation may start after their inventories are
 reviewed, but no paid provider path or production deployment may be enabled before P0 and
 ownership gates are proven.
+
+## Future Fido's Styles Asset Library
+
+After the shell and production safety gates are closed, expand Fido's Styles with a
+curated library of production-ready assets for both dog and human models. Candidate
+categories include clothing, collars and harnesses, toys, beds, furniture, props, and
+other accessories.
+
+Every asset must have recorded source provenance, license, attribution obligations,
+redistribution rights, permitted commercial use, author, version, checksum, and a local
+license copy before it can enter the catalog. Imported meshes must also pass geometry,
+skeleton/attachment, material, texture, scale, orientation, polygon-budget, accessibility,
+mobile-performance, malware, and visual-QA checks. Assets that are only partially meshed,
+have ambiguous licensing, contain external runtime dependencies, or cannot be safely
+attached to both supported body profiles remain unavailable. This is future work and is
+not part of the current shell completion claim.

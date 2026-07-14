@@ -1,10 +1,10 @@
 import React, { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Bounds, Environment, Html, OrbitControls, useGLTF } from "@react-three/drei";
+import { Bounds, ContactShadows, Environment, Html, OrbitControls, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
 import { clone as skeletonClone } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { UserProfile, Avatar, PublicUser } from "../types";
-import { Brush, Lock, Film, Sparkles, Mic, Upload, CheckCircle2, X, Lightbulb, ZoomIn, RotateCw, Scissors, Save, Trash2, Shirt, Wand2, Move3D, Gauge, Footprints, Grid3X3, Volume2 } from "lucide-react";
+import { Brush, Lock, Film, Sparkles, Mic, Upload, CheckCircle2, X, ZoomIn, RotateCw, Scissors, Save, Trash2, Shirt, Wand2, Move3D, Gauge, Footprints, Grid3X3, Volume2 } from "lucide-react";
 import { createVoiceCloneAsset, fetchAvatars } from "../api";
 import { AnimatorErrorBoundary } from "../animator/components/AnimatorErrorBoundary";
 import { CREDIT_PRICES } from "../pricing";
@@ -16,15 +16,8 @@ interface PawlisherScreenProps {
   onUserUpdate?: (user: PublicUser) => void;
 }
 
-type LightMode = "warm" | "neutral" | "bright";
 type MotionPreset = "idle" | "happy" | "sit" | "walk" | "prance";
 type BodyPreset = "head" | "torso" | "limbs" | "digits";
-
-const lightSettings: Record<LightMode, { color: string; intensity: number; label: string }> = {
-  warm: { color: "#ffd59a", intensity: 1.2, label: "Warm" },
-  neutral: { color: "#fff7df", intensity: 1.55, label: "Neutral" },
-  bright: { color: "#ffffff", intensity: 2.1, label: "Bright" },
-};
 
 function hasWebGL2(): boolean {
   try {
@@ -92,7 +85,6 @@ function SceneTools({ onCanvasReady }: { onCanvasReady: (canvas: HTMLCanvasEleme
 export default function PawlisherScreen({ userProfile, onGoToAnimator, onGoToPawprints, onUserUpdate }: PawlisherScreenProps) {
   const [avatars, setAvatars] = useState<Avatar[]>([]);
   const [selectedId, setSelectedId] = useState<number | "">("");
-  const [lightMode, setLightMode] = useState<LightMode>(() => (localStorage.getItem("pawlisher_light") as LightMode) || "warm");
   const [zoom, setZoom] = useState(100);
   const [turntable, setTurntable] = useState(true);
   const [turntableSpeed, setTurntableSpeed] = useState(0.8);
@@ -123,17 +115,12 @@ export default function PawlisherScreen({ userProfile, onGoToAnimator, onGoToPaw
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("pawlisher_light", lightMode);
-  }, [lightMode]);
-
-  useEffect(() => {
     const id = window.setTimeout(() => setStatus("Autosaved"), 350);
     return () => window.clearTimeout(id);
-  }, [lightMode, zoom, turntable, turntableSpeed, motion, part, microMesh, soften, voiceSpeed, voicePitch, voiceTone]);
+  }, [zoom, turntable, turntableSpeed, motion, part, microMesh, soften, voiceSpeed, voicePitch, voiceTone]);
 
   const selected = avatars.find((avatar) => avatar.id === selectedId);
   const modelUrl = selected?.rigged_model_url || selected?.model_url || "";
-  const light = lightSettings[lightMode];
 
   const readFile = (file: File): Promise<string> =>
     new Promise((resolve, reject) => {
@@ -191,7 +178,7 @@ export default function PawlisherScreen({ userProfile, onGoToAnimator, onGoToPaw
     <div className="w-full max-w-7xl mx-auto px-4 pt-6 pb-28 animate-fade-in">
       <div data-tour="pawlisher-title" className="flex items-center gap-3 mb-4">
         <Brush size={24} className="text-primary" />
-        <h1 className="text-2xl font-extrabold text-on-surface">Pawlisher Studio</h1>
+        <h1 className="text-2xl font-extrabold text-on-surface">Fido's Styles</h1>
         <span className="text-xs font-bold text-on-surface-variant">{status}</span>
         <button
           type="button"
@@ -214,15 +201,6 @@ export default function PawlisherScreen({ userProfile, onGoToAnimator, onGoToPaw
                 </option>
               ))}
             </select>
-          </section>
-
-          <section className="glass-panel border border-outline-variant/40 rounded-2xl p-4">
-            <div className="flex items-center gap-2 mb-3"><Lightbulb size={18} className="text-primary" /><h3 className="font-black">Edison bulb</h3></div>
-            <div className="grid grid-cols-3 gap-2">
-              {(Object.keys(lightSettings) as LightMode[]).map((mode) => (
-                <button key={mode} onClick={() => setLightMode(mode)} className={`min-h-12 rounded-xl text-sm font-black border ${lightMode === mode ? "bg-primary text-on-primary" : "border-outline-variant text-on-surface"}`}>{lightSettings[mode].label}</button>
-              ))}
-            </div>
           </section>
 
           <section className="glass-panel border border-outline-variant/40 rounded-2xl p-4">
@@ -262,16 +240,8 @@ export default function PawlisherScreen({ userProfile, onGoToAnimator, onGoToPaw
               >
                 <SceneTools onCanvasReady={(canvas) => { canvasRef.current = canvas; }} />
                 <color attach="background" args={["#f7f3eb"]} />
-                <ambientLight intensity={0.55} />
-                <pointLight position={[0, 2.8, 0.4]} intensity={light.intensity} color={light.color} castShadow />
-                <mesh position={[0, 2.15, 0.25]}>
-                  <sphereGeometry args={[0.11, 24, 24]} />
-                  <meshStandardMaterial color={light.color} emissive={light.color} emissiveIntensity={0.9} />
-                </mesh>
-                <mesh position={[0, 1.95, 0.25]}>
-                  <cylinderGeometry args={[0.01, 0.01, 0.45, 10]} />
-                  <meshStandardMaterial color="#4a342a" />
-                </mesh>
+                <ambientLight intensity={0.7} />
+                <directionalLight position={[2.5, 4, 3]} intensity={1.45} color="#fff7e8" castShadow />
                 <Suspense fallback={<Html center>Loading GLB...</Html>}>
                   <Bounds fit clip observe margin={1.15}>
                     <group rotation-y={turntable ? performance.now() * 0.0002 * turntableSpeed : 0}>
@@ -279,10 +249,7 @@ export default function PawlisherScreen({ userProfile, onGoToAnimator, onGoToPaw
                     </group>
                   </Bounds>
                 </Suspense>
-                <mesh rotation-x={-Math.PI / 2} receiveShadow>
-                  <circleGeometry args={[1.2, 96]} />
-                  <meshStandardMaterial color="#d8c7aa" roughness={0.8} />
-                </mesh>
+                <ContactShadows position={[0, 0.01, 0]} opacity={0.28} scale={3.2} blur={2.6} far={3} />
                 <Environment preset="studio" />
                 <OrbitControls enablePan={false} minDistance={1.2} maxDistance={5} autoRotate={turntable} autoRotateSpeed={turntableSpeed} />
               </Canvas>

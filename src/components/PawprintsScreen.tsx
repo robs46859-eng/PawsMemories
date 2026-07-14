@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { PublicUser, UserProfile, Creation } from "../types";
-import { Loader2, Sparkles, Camera, ImagePlus, Download, RotateCcw } from "lucide-react";
+import { Loader2, Sparkles, Camera, ImagePlus, Download, RotateCcw, Archive } from "lucide-react";
 import { authedFetch } from "../api";
 import { CREDIT_PRICES, REUSE_DISCOUNT } from "../pricing";
 import PawprintWalkthrough from "./PawprintWalkthrough";
@@ -10,6 +10,7 @@ interface PawprintsScreenProps {
   creations: Creation[];
   onOpenCreditStore: () => void;
   onUserUpdate: (user: PublicUser) => void;
+  onGoToFurBin: () => void;
 }
 
 interface Template {
@@ -22,7 +23,7 @@ interface Template {
   imagePromptTemplate: string;
 }
 
-export default function PawprintsScreen({ userProfile, creations, onOpenCreditStore, onUserUpdate }: PawprintsScreenProps) {
+export default function PawprintsScreen({ userProfile, creations, onOpenCreditStore, onUserUpdate, onGoToFurBin }: PawprintsScreenProps) {
   const [categories, setCategories] = useState<string[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -113,13 +114,20 @@ export default function PawprintsScreen({ userProfile, creations, onOpenCreditSt
 
   return (
     <div className="w-full max-w-3xl mx-auto px-4 pt-6 pb-28 animate-fade-in">
-      <div data-tour="pawprints-title" className="flex items-center gap-3 mb-6">
+      <div data-tour="pawprints-title" className="flex flex-wrap items-center gap-3 mb-6">
         <Sparkles size={22} className="text-primary" />
         <h1 className="text-xl font-extrabold text-on-surface">Pawprints — Digital Stationery</h1>
         <button
           type="button"
+          onClick={onGoToFurBin}
+          className="ml-auto inline-flex min-h-11 items-center gap-2 rounded-xl border border-outline-variant/50 px-3 text-sm font-black text-on-surface-variant hover:border-primary/40 hover:text-primary"
+        >
+          <Archive size={17} /> Fur Bin©️
+        </button>
+        <button
+          type="button"
           onClick={() => setShowWalkthrough(true)}
-          className="ml-auto min-h-11 rounded-xl border border-primary/30 px-3 text-sm font-black text-primary hover:bg-primary/5"
+          className="min-h-11 rounded-xl border border-primary/30 px-3 text-sm font-black text-primary hover:bg-primary/5"
         >
           Show me how
         </button>
