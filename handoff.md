@@ -317,3 +317,23 @@ The stabilization fix set is now approved at the code-and-CI level for review. T
 not mark P0, P1, or P2 complete and does not authorize merge, production deployment, or
 rigging enablement. Remaining owner actions are review/merge of draft PR #1 and enabling
 `main` branch protection with the six CI jobs required and force-push disabled.
+
+## Production Readiness Swarm Addendum (2026-07-14)
+
+- The requested release scope now includes exact 10-second prompt-to-video outputs using
+  owned models, objects, and optional BIM building models; full AR hardening with explicit
+  human confirmation; production Pawprints templates/customization; global shell cleanup;
+  and a complete route/action map for visible buttons and cards.
+- The stabilization and hardening-plan changes are merged on protected `main` at
+  `5085d0b`. The earlier branch-protection and CI owner actions in this handoff are closed.
+- A first delegated P0 implementation on `swarm/p0-containment` was rejected during review
+  because it replaced large production modules, mixed database access into pure guard
+  configuration, broke zero-cap semantics, and did not reserve user/global capacity
+  atomically. The branch is quarantined and must not be merged or cherry-picked. Canonical
+  source and `main` were not modified by that patch.
+- Clean isolated discovery lanes now exist for video, Pawprints/UI, and shell/release/AR
+  evidence. Their output must be reviewed before implementation is accepted.
+- `docs/PRODUCTION_READINESS_SWARM_PLAN.md` is the authoritative cross-workstream release
+  plan. It supplements but does not weaken `AR_PET_SIM_HARDENING_PLAN_V2.md`.
+- Production deployment remains on hold. `PETSIM_RIG_ENABLED=false` is mandatory, and a
+  named human AR acceptance record is required before a production GO decision.
