@@ -21,6 +21,7 @@ import {
   createPetSimApp,
   isPetSimImageRoute,
 } from "./server/petSimApp.ts";
+import { createProductionHermesApp } from "./server/hermes/app.ts";
 import { privacyHtml, termsHtml, smsTermsHtml } from "./server/legal.ts";
 import { startWorker as startAnimatorWorker } from "./server/animator/worker.ts";
 import { phraseKey } from "./src/three/ar/voice";
@@ -116,7 +117,8 @@ async function startServer() {
     }
   }
   reapStuckAvatars();
-  setInterval(reapStuckAvatars, 5 * 60 * 1000);
+  const reaperTimer = setInterval(reapStuckAvatars, 5 * 60 * 1000);
+  if (typeof reaperTimer.unref === "function") reaperTimer.unref();
 
   // Initialize Stripe client safely
   const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
@@ -250,6 +252,8 @@ async function startServer() {
     );
     next();
   });
+
+  app.use(await createProductionHermesApp());
 
   const defaultJsonParser = express.json({ limit: "1mb" });
   app.use((req, res, next) => {
@@ -4295,4 +4299,7 @@ CRITICAL RULES:
   });
 }
 
-startServer();
+startServer().catch((error) => {
+  console.error("[FATAL] Server startup failed:", error);
+  process.exit(1);
+});

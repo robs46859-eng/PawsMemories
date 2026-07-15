@@ -49,16 +49,12 @@ test("server.ts GLB uploads never use uploadBase64Image", () => {
     );
   }
 
-  // Ensure uploadBase64Binary is actually used in those places
+  // The remaining production base64 GLB path must use the binary uploader.
+  // Phase 5 clip baking formerly had a second standalone `riggedGlbBase64`
+  // path, but that unreliable feature is intentionally retired.
   assert.match(
     SERVER_CODE,
     /uploadBase64Binary\s*\(\s*buildState\.riggedGlbBase64\s*,\s*["']model\/gltf-binary["']\s*\)/,
     "Expected uploadBase64Binary for buildState.riggedGlbBase64"
-  );
-  
-  assert.match(
-    SERVER_CODE,
-    /uploadBase64Binary\s*\(\s*riggedGlbBase64\s*,\s*["']model\/gltf-binary["']\s*\)/,
-    "Expected uploadBase64Binary for riggedGlbBase64"
   );
 });

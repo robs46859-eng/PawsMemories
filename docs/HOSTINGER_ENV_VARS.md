@@ -82,3 +82,24 @@ Set these in the Hostinger **Node.js app → Environment variables** panel (not 
 3. Point the Stripe webhook at `https://pawsome3d.com/api/stripe-webhook` (events: `checkout.session.completed`, `checkout.session.async_payment_succeeded`) and paste its `whsec_…` into `STRIPE_WEBHOOK_SECRET`.
 4. Build + start: `npm install && npm run build && npm start`. Watch the boot log for `[environments] Loaded N preset(s)` and no DB/storage errors.
 5. Smoke test: sign in, generate one image (Gemini), one 3D model (Tripo), open the studio (environments list), and do one $ purchase (Stripe webhook confirms).
+
+---
+
+## Hermes implementation note (2026-07-15)
+
+Hermes is server-only and defaults off. Leave `HERMES_ENABLED=false` until the edge
+producer relay is ready, then set all of the following in the Hostinger Node.js
+environment and restart the app:
+
+| Var | Required value / effect |
+|---|---|
+| `HERMES_ENABLED` | `true` enables the authenticated `/api/hermes/*` routes; default is `false`. |
+| `HERMES_EDGE_BRIDGE_URL` | HTTPS producer-relay base URL. Production rejects HTTP URLs. |
+| `HERMES_EDGE_PRODUCER_SECRET` | Server-only Bearer secret for the producer relay. Never use a `VITE_` prefix. |
+| `HERMES_TIMEOUT_MS` | Optional request timeout, `100`-`60000` ms; default `10000`. |
+
+The server creates the dedicated `hermes_jobs` table idempotently at boot when MySQL
+is configured; migration `server/migrations/009_hermes_jobs.sql` is also available for
+managed migration runs. Fixed controls are 5 create requests/user/minute, 30/IP/minute,
+60 status requests/user/minute, 60/IP/minute, and daily per-user caps of 20 translation
+and 10 knowledge jobs.

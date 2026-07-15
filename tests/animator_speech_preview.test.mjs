@@ -64,6 +64,10 @@ test("live actor speech uses the server track and authoritative audio clock", as
   };
   let audioInstance = null;
 
+  globalThis.localStorage = {
+    getItem: () => "fake-token"
+  };
+
   class FakeAudio {
     currentTime = 0;
     listeners = new Map();
@@ -106,6 +110,7 @@ test("live actor speech uses the server track and authoritative audio clock", as
   } finally {
     globalThis.fetch = previousFetch;
     globalThis.Audio = previousAudio;
+    delete globalThis.localStorage;
   }
 });
 
