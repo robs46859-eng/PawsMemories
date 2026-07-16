@@ -91,3 +91,49 @@ test('avatar playpen does not go blank when sprite preview cannot load', () => {
   assert.match(playpen, /showFallbackImage/);
   assert.match(playpen, /src=\{avatar\.image_url\}/);
 });
+
+test('newly built avatars have no unwanted default arm motion', () => {
+  const humanClips = read('blender-worker/skeletal-clips-human.js');
+  const avatarModel = read('src/three/AvatarModel.tsx');
+
+  // 1. the default avatar has no automatic arm-action clip
+  const idleMatch = humanClips.match(/def clip_idle\(\):[\s\S]*?(?=def clip_[a-z]+\(\):)/);
+  assert.ok(idleMatch, 'clip_idle function found');
+  const idleCode = idleMatch[0];
+  assert.doesNotMatch(idleCode, /upperarm/, 'idle animation should not move arms');
+  
+  // 2. arm bones remain present and weighted
+  assert.match(humanClips, /upperarm\.L/, 'upperarm.L must still exist for other animations');
+  assert.match(humanClips, /upperarm\.R/, 'upperarm.R must still exist for other animations');
+  
+  // 3. unrelated idle breathing/head movement remains valid
+  assert.match(idleCode, /key\("chest"/, 'chest breathing should remain in idle');
+  assert.match(idleCode, /key\("head"/, 'head movement should remain in idle');
+
+  // 4. reduced-motion mode contains no procedural arm movement (checking AvatarModel.tsx)
+  const humanProcMatch = avatarModel.match(/export function applyHumanProcedural[\s\S]*?}\n/);
+  assert.ok(humanProcMatch, 'applyHumanProcedural found');
+  assert.doesNotMatch(humanProcMatch[0], /upperarm/, 'no procedural arm movement in AvatarModel');
+});
+
+test('Blender worker synthesizes a jaw bone if none exists', () => {
+  const bakeLod = read('blender-worker/jobs/bake_lod.py');
+  assert.match(bakeLod, /def synthesize_jaw/);
+  assert.match(bakeLod, /jaw_b = ebones\.new\("jaw"\)/);
+  assert.match(bakeLod, /vg\.add\(\[v\.index\], 1\.0, 'REPLACE'\)/);
+  assert.match(bakeLod, /head_vg\.add\(\[v\.index\], 0\.0, 'REPLACE'\)/);
+});
+
+test('GLB validator builds facial rig map', () => {
+  const gltf = read('server/animator/gltf.ts');
+  assert.match(gltf, /export interface FacialRigMap/);
+  assert.match(gltf, /validateRiggedGlb/);
+  assert.match(gltf, /lipCornerLeftBone/);
+  assert.match(gltf, /jawBone/);
+});
+
+test('LipSyncPlayer consumes facial rig map', () => {
+  const player = read('src/animator/viseme/LipSyncPlayer.ts');
+  assert.match(player, /facialRigMap\?: FacialRigMap/);
+  assert.doesNotMatch(player, /morphPrefix\?: string/);
+});

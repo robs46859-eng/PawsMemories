@@ -164,6 +164,21 @@ export interface RigValidationRule {
   detail: string;
 }
 
+export interface FacialRigMap {
+  headBone: string;
+  jawBone?: string;
+  lipCornerLeftBone?: string;
+  lipCornerRightBone?: string;
+
+  visemes: Record<
+    "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "X",
+    Array<{
+      morphTarget: string;
+      weight: number;
+    }>
+  >;
+}
+
 export interface RigManifest {
   version: 1;
   jobId: string;
@@ -175,6 +190,7 @@ export interface RigManifest {
     skinnedVerts: number;
     rigidAttachments: number;
   };
+  facialRig?: FacialRigMap;
 }
 
 export interface LodEntry {

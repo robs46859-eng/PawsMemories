@@ -222,3 +222,23 @@ body {
   opacity: 0.1;
   pointer-events: none;
 }
+
+@keyframes flow-sand {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.flowing-sand {
+  background: linear-gradient(270deg, #9A4F32, #d4a373, #9A4F32, #bc6c25);
+  background-size: 800% 800%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .flowing-sand {
+    animation: flow-sand 8s ease infinite;
+  }
+}

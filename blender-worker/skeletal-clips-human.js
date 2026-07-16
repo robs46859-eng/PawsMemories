@@ -89,8 +89,6 @@ def clip_idle():
         key("spine", f, rot=(amt * 0.5, 0, 0))
     for f, amt in [(1, 0), (24, -1), (48, 0)]:
         key("head", f, rot=(amt, 0, 0))
-        key("upperarm.L", f, rot=(0, 0, 2 + amt))
-        key("upperarm.R", f, rot=(0, 0, -2 - amt))
     stash(a)
 
 def clip_walk():

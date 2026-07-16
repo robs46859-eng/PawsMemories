@@ -45,6 +45,18 @@ export interface LocationParams {
   placeLabel: string;
 }
 
+export type AssetType = 'user_photo' | 'avatar_source' | 'avatar_render' | 'animation_render' | 'pawprint_render';
+
+export interface AnimatorEligibleAsset {
+  id: string;
+  assetType: AssetType;
+  mediaType: "image" | "model";
+  previewUrl: string;
+  sourceUrl?: string;
+  modelUrl?: string;
+  createdAt: string;
+}
+
 export interface Creation {
   id: number;
   user_phone: string;
@@ -63,6 +75,7 @@ export interface Creation {
   video_url: string | null;
   model_url: string | null;
   sort_order: number;
+  asset_type?: AssetType;
   created_at: string;
   // Legacy / frontend-only fields
   name?: string;
@@ -326,3 +339,32 @@ export interface PhotoRequest {
   user_full_name?: string | null;
   user_email?: string | null;
 }
+
+export type PawprintField = {
+  key: string;
+  kind: "short_text" | "long_text" | "date" | "image";
+  label: string;
+  placeholder?: string;
+  required: boolean;
+  defaultValue?: string;
+  maxLength?: number;
+};
+
+export type PawprintTemplateManifest = {
+  id: string;
+  version: number;
+  name: string;
+  category: string;
+  aspectRatio: string;
+  printSpec: { widthIn: number; heightIn: number; dpi: number; bleedIn: number };
+  fields: PawprintField[];
+  slots: Array<{ fieldKey: string; x: number; y: number; width: number; height: number; styleToken: string }>;
+};
+
+export type PawprintDraft = {
+  id?: string;
+  manifestId: string;
+  fields: Record<string, string>;
+  status: "draft" | "rendered" | "ordered";
+  previewUrl?: string;
+};

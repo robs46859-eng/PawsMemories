@@ -168,6 +168,83 @@ def resample_actions(fps=CLIP_FPS):
     bpy.context.scene.render.fps_base = 1.0
 
 
+def synthesize_jaw():
+    """If there's a head bone but no jaw bone or facial morphs, generate one."""
+    arm = _armature()
+    if not arm:
+        return
+    
+    b_names = {b.name.lower(): b.name for b in arm.data.bones}
+    jaw = next((b_names[k] for k in b_names if 'jaw' in k), None)
+    if jaw:
+        return
+        
+    has_morphs = False
+    for o in _meshes():
+        if o.data.shape_keys:
+            has_morphs = True
+            break
+            
+    if has_morphs:
+        return
+        
+    head = next((b_names[k] for k in b_names if 'head' in k or 'mixamorighead' in k or 'cc_base_head' in k), None)
+    if not head:
+        return
+        
+    bpy.context.view_layer.objects.active = arm
+    bpy.ops.object.mode_set(mode='EDIT')
+    
+    ebones = arm.data.edit_bones
+    head_b = ebones[head]
+    
+    jaw_b = ebones.new("jaw")
+    jaw_b.parent = head_b
+    jaw_b.use_connect = False
+    
+    jaw_b.head = head_b.head.copy()
+    dz = head_b.tail.z - head_b.head.z
+    dy = head_b.tail.y - head_b.head.y
+    length = max(0.01, abs(dz) if abs(dz) > abs(dy) else abs(dy))
+    
+    jaw_b.head.z -= length * 0.2
+    jaw_b.head.y -= length * 0.1
+    jaw_b.tail = jaw_b.head.copy()
+    jaw_b.tail.y -= length * 0.5
+    
+    bpy.ops.object.mode_set(mode='OBJECT')
+    
+    for o in _meshes():
+        vg = o.vertex_groups.get("jaw")
+        if not vg:
+            vg = o.vertex_groups.new(name="jaw")
+            
+        head_vg = o.vertex_groups.get(head)
+        if not head_vg:
+            continue
+            
+        head_vg_idx = head_vg.index
+        head_verts = []
+        for v in o.data.vertices:
+            for g in v.groups:
+                if g.group == head_vg_idx and g.weight > 0.1:
+                    head_verts.append(v)
+                    
+        if not head_verts:
+            continue
+            
+        z_coords = [v.co.z for v in head_verts]
+        min_z = min(z_coords)
+        max_z = max(z_coords)
+        mid_z = (min_z + max_z) / 2.0
+        
+        for v in head_verts:
+            # lower half, and roughly front half
+            if v.co.z < mid_z and v.co.y < head_b.head.y:
+                vg.add([v.index], 1.0, 'REPLACE')
+                head_vg.add([v.index], 0.0, 'REPLACE')
+
+
 def export_glb(path):
     bpy.ops.export_scene.gltf(
         filepath=path,
@@ -190,6 +267,7 @@ def run_bake_lod(params):
     tris = decimate_to(MAX_TRIS)
     matched, total, missing_map = rename_bones(bonemap)
     legs_ok, missing_legs = validate_leg_chains(bonemap)
+    synthesize_jaw()
     resample_actions(CLIP_FPS)
 
     size = export_glb(out_path)

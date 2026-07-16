@@ -1,12 +1,11 @@
 import React, { useState, useMemo } from "react";
 import { Film, Sparkles, Download, RefreshCw, Wand2, Music, Music2, X, Wrench } from "lucide-react";
-import { Creation, PublicUser } from "../types";
+import { Creation, PublicUser, AnimatorEligibleAsset } from "../types";
 import { createVideo, pollJob } from "../api";
 import { MOTION_PRESETS, DEFAULT_MOTION_PRESET } from "../motionPresets";
 import { CREDIT_PRICES } from "../pricing";
 
 interface AnimationStudioProps {
-  creations: Creation[];
   userProfile: PublicUser;
   onOpenPro: () => void;
   onOpenCreditStore: () => void;
@@ -18,9 +17,27 @@ interface AnimationStudioProps {
  * prompt → Veo generates a short video. Simple, low-friction path. The full 3D
  * "in-scene" studio is available via "Pro / 3D Studio".
  */
-export default function AnimationStudio({ creations, userProfile, onOpenPro, onOpenCreditStore, onClose }: AnimationStudioProps) {
-  const images = useMemo(() => creations.filter((c) => c.image_url), [creations]);
-  const [selectedId, setSelectedId] = useState<number | null>(images[0]?.id ?? null);
+export default function AnimationStudio({ userProfile, onOpenPro, onOpenCreditStore, onClose }: AnimationStudioProps) {
+  const [images, setImages] = React.useState<AnimatorEligibleAsset[]>([]);
+  const [loadingAssets, setLoadingAssets] = React.useState(true);
+  
+  React.useEffect(() => {
+    import("../api").then((api) => {
+      api.fetchAnimatorEligibleAssets().then(assets => {
+        setImages(assets.filter(a => a.mediaType === "image"));
+        setLoadingAssets(false);
+      });
+    });
+  }, []);
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  
+  React.useEffect(() => {
+    if (!selectedId && images.length > 0) {
+      setSelectedId(images[0].id);
+    }
+  }, [images, selectedId]);
+  
   const [presetValue, setPresetValue] = useState<string>(DEFAULT_MOTION_PRESET.value);
   const [customPrompt, setCustomPrompt] = useState("");
   const [addSound, setAddSound] = useState(true);
@@ -95,25 +112,32 @@ export default function AnimationStudio({ creations, userProfile, onOpenPro, onO
         <>
           {/* 1. Pick an image */}
           <h2 className="text-sm font-bold text-on-surface mb-2">1. Choose an image</h2>
-          {images.length === 0 ? (
+          {loadingAssets ? (
+            <div className="flex justify-center p-8"><RefreshCw className="animate-spin text-primary" size={24} /></div>
+          ) : images.length === 0 ? (
             <div className="rounded-xl border border-outline-variant/40 p-6 text-center text-sm text-on-surface-variant mb-6">
-              You don't have any images yet. Create an avatar or memory first, then come back to animate it.
+              You don't have any images yet. Create an avatar or upload a photo first, then come back to animate it.
             </div>
           ) : (
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5 mb-6">
-              {images.map((c) => (
+            <div className="flex gap-3 overflow-x-auto pb-4 mb-6 custom-scrollbar snap-x">
+              {images.map((img) => (
                 <button
-                  key={c.id}
-                  onClick={() => setSelectedId(c.id)}
-                  className={`relative aspect-square rounded-xl overflow-hidden border-2 transition-all ${selectedId === c.id ? "border-primary ring-2 ring-primary/30" : "border-transparent hover:border-primary/40"}`}
+                  key={img.id}
+                  onClick={() => setSelectedId(img.id)}
+                  className={`relative flex-none w-24 h-24 rounded-xl overflow-hidden border-2 transition-all snap-start ${
+                    selectedId === img.id ? "border-primary shadow-[0_0_15px_rgba(208,188,255,0.4)] scale-105 z-10" : "border-transparent opacity-70 hover:opacity-100"
+                  }`}
                 >
-                  <img src={c.image_url as string} alt={c.name || c.place_label || "Creation"} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  <img src={img.previewUrl} className="w-full h-full object-cover" alt="Creation" />
+                  {selectedId === img.id && (
+                    <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
+                      <div className="bg-primary text-on-primary rounded-full p-1"><Sparkles size={14} /></div>
+                    </div>
+                  )}
                 </button>
               ))}
             </div>
           )}
-
-          {/* 2. Motion */}
           <h2 className="text-sm font-bold text-on-surface mb-2">2. How should it move?</h2>
           <div className="flex flex-wrap gap-2 mb-3">
             {MOTION_PRESETS.map((p) => (

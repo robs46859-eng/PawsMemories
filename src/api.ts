@@ -1,4 +1,4 @@
-import { PublicUser, Creation, Album, LocationParams, Avatar, PhotoRequest, RequestType, AvatarNeeds, BehaviorAction, PlacedObject, VoiceCloneAsset } from "./types";
+import { PublicUser, Creation, Album, LocationParams, Avatar, PhotoRequest, RequestType, AvatarNeeds, BehaviorAction, PlacedObject, VoiceCloneAsset, AnimatorEligibleAsset, AssetType } from "./types";
 
 /**
  * Lightweight API client that manages the session token and auth flow.
@@ -231,9 +231,9 @@ export async function confirmCreditsSession(sessionId: string): Promise<{ credit
   return { credited: d.credited ?? 0, balance: d.balance ?? 0 };
 }
 
-// --- User photo library ----------------------------------------------------
 
-export interface UserPhoto { id: number; image_url: string; source: string; created_at?: string; }
+
+export interface UserPhoto { id: number; image_url: string; source: string; asset_type?: AssetType; created_at?: string; }
 
 export async function uploadProfilePhoto(image: string): Promise<PublicUser> {
   const res = await authedFetch("/api/profile/photo", {
@@ -335,12 +335,25 @@ export async function checkStreetViewCoverage(lat: number, lng: number): Promise
   return data.data;
 }
 
-export async function fetchCreations(): Promise<Creation[]> {
+export async function fetchCreations(assetType?: AssetType): Promise<Creation[]> {
   try {
-    const res = await authedFetch("/api/creations");
+    const url = assetType ? `/api/creations?asset_type=${assetType}` : "/api/creations";
+    const res = await authedFetch(url);
     if (!res.ok) throw new Error("Failed to fetch creations");
     const data = await res.json();
     return data.creations || [];
+  } catch (err) {
+    console.error(err);
+    return [];
+  }
+}
+
+export async function fetchAnimatorEligibleAssets(): Promise<AnimatorEligibleAsset[]> {
+  try {
+    const res = await authedFetch("/api/animator/eligible-assets");
+    if (!res.ok) throw new Error("Failed to fetch eligible assets");
+    const data = await res.json();
+    return data.assets || [];
   } catch (err) {
     console.error(err);
     return [];
@@ -383,7 +396,7 @@ export async function updateCreationOrder(id: number, sortOrder: number): Promis
 }
 
 export async function createVideo(
-  creationId: number,
+  assetId: string | number,
   motionPrompt?: string,
   generateAudio: boolean = true,
   aspectRatio: "16:9" | "9:16" = "16:9"
@@ -391,7 +404,7 @@ export async function createVideo(
   const res = await authedFetch("/api/create-video", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ creationId, motionPrompt, generateAudio, aspectRatio }),
+    body: JSON.stringify({ assetId, motionPrompt, generateAudio, aspectRatio }),
   });
   if (!res.ok) throw new Error(await parseError(res, "Failed to start video generation."));
   return await res.json();

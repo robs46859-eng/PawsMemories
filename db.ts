@@ -258,11 +258,13 @@ export async function initDb(): Promise<void> {
         video_url     TEXT NULL,
         model_url     TEXT NULL,
         sort_order    INT NOT NULL DEFAULT 0,
+        asset_type    VARCHAR(32) NOT NULL DEFAULT 'animation_render',
         pet_name      VARCHAR(120) NULL,
         pet_breed     VARCHAR(120) NULL,
         created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         INDEX (user_phone), 
         INDEX (album_id),
+        INDEX (asset_type),
         FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
@@ -382,6 +384,7 @@ export async function initDb(): Promise<void> {
       // Rigged skeletal model + clip manifest (Phase 5).
       { name: "rigged_model_url",   ddl: "ADD COLUMN rigged_model_url LONGTEXT NULL" },
       { name: "clips_json",         ddl: "ADD COLUMN clips_json JSON NULL" },
+      { name: "facial_rig_json",    ddl: "ADD COLUMN facial_rig_json JSON NULL" },
       // Multiview turnaround view URLs ({left,back,right}) so retry/resume can
       // re-run Tripo multiview without regenerating the images.
       { name: "multiview_json",     ddl: "ADD COLUMN multiview_json JSON NULL" },
@@ -615,9 +618,11 @@ export async function initDb(): Promise<void> {
         user_phone  VARCHAR(32) NOT NULL,
         image_url   TEXT NOT NULL,
         source      VARCHAR(32) NOT NULL DEFAULT 'upload',
+        asset_type  VARCHAR(32) NOT NULL DEFAULT 'user_photo',
         created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         INDEX (user_phone),
-        INDEX (created_at)
+        INDEX (created_at),
+        INDEX (asset_type)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
@@ -631,15 +636,46 @@ export async function initDb(): Promise<void> {
     const requiredCreationsColumns: { name: string; ddl: string }[] = [
       { name: "pet_name",  ddl: "ADD COLUMN pet_name VARCHAR(120) NULL" },
       { name: "pet_breed", ddl: "ADD COLUMN pet_breed VARCHAR(120) NULL" },
+      { name: "asset_type", ddl: "ADD COLUMN asset_type VARCHAR(32) NOT NULL DEFAULT 'animation_render'" },
     ];
     for (const col of requiredCreationsColumns) {
       if (!creationsColumnNames.includes(col.name)) {
         try {
           await getPool().query(`ALTER TABLE creations ${col.ddl}`);
           console.log(`✅ Migrated creations: added column ${col.name}.`);
+          if (col.name === "asset_type") {
+            await getPool().query(`ALTER TABLE creations ADD INDEX (asset_type)`);
+            console.log(`✅ Migrated creations: added index on asset_type.`);
+            
+            // Backfill Phase 1: Pawprints and avatars
+            await getPool().query(`UPDATE creations SET asset_type = 'pawprint_render' WHERE preset_name = 'pawprint' OR id IN (SELECT creation_id FROM pawprint_assets WHERE creation_id IS NOT NULL)`);
+            await getPool().query(`UPDATE creations SET asset_type = 'avatar_render' WHERE media_type = 'model'`);
+            console.log(`✅ Migrated creations: backfilled asset_type.`);
+          }
         } catch (colErr) {
           console.warn(`⚠️ Could not add column ${col.name} to creations:`, colErr);
         }
+      }
+    }
+    
+    // Migration check for user_photos table
+    const [userPhotosCols] = await getPool().query(
+      `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'user_photos'`,
+      [dbName]
+    ) as any;
+    const userPhotosColumnNames = userPhotosCols.map((c: any) => c.COLUMN_NAME);
+    
+    if (!userPhotosColumnNames.includes("asset_type")) {
+      try {
+        await getPool().query(`ALTER TABLE user_photos ADD COLUMN asset_type VARCHAR(32) NOT NULL DEFAULT 'user_photo'`);
+        await getPool().query(`ALTER TABLE user_photos ADD INDEX (asset_type)`);
+        console.log(`✅ Migrated user_photos: added column asset_type.`);
+        
+        // Backfill Phase 1
+        await getPool().query(`UPDATE user_photos SET asset_type = 'avatar_source' WHERE source = 'avatar_builder'`);
+        console.log(`✅ Migrated user_photos: backfilled asset_type.`);
+      } catch (err) {
+        console.warn(`⚠️ Could not add column asset_type to user_photos:`, err);
       }
     }
 
@@ -724,6 +760,35 @@ export async function initDb(): Promise<void> {
         UNIQUE KEY uniq_pawprint_request (user_phone, idempotency_key),
         INDEX (user_phone),
         FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS orders (
+        id VARCHAR(36) PRIMARY KEY,
+        user_phone VARCHAR(32) NOT NULL,
+        pawprint_id INT NOT NULL,
+        stripe_session_id VARCHAR(120) NULL,
+        provider VARCHAR(32) NOT NULL,
+        provider_order_reference VARCHAR(120) NULL,
+        state ENUM('draft', 'payment_pending', 'paid', 'submitted', 'accepted', 'in_production', 'shipped', 'delivered', 'manual_review', 'failed', 'canceled', 'refunded') NOT NULL DEFAULT 'draft',
+        encrypted_address TEXT NULL,
+        address_redacted_at TIMESTAMP NULL,
+        redacted_city VARCHAR(100) NULL,
+        redacted_region VARCHAR(100) NULL,
+        redacted_country VARCHAR(100) NULL,
+        redacted_postal_suffix VARCHAR(20) NULL,
+        cost INT NOT NULL DEFAULT 0,
+        margin INT NOT NULL DEFAULT 0,
+        shipping_cost INT NOT NULL DEFAULT 0,
+        tax INT NOT NULL DEFAULT 0,
+        total_price INT NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX (user_phone),
+        INDEX (state),
+        FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE,
+        FOREIGN KEY (pawprint_id) REFERENCES pawprint_assets(id) ON DELETE RESTRICT
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
@@ -1093,6 +1158,7 @@ export interface UserPhoto {
   id: number;
   image_url: string;
   source: string;
+  asset_type?: string;
   created_at: string;
 }
 
@@ -1100,20 +1166,27 @@ export async function setProfilePhoto(phone: string, url: string): Promise<void>
   await getPool().query(`UPDATE users SET profile_photo_url = ? WHERE phone = ?`, [url, phone]);
 }
 
-export async function addUserPhoto(phone: string, url: string, source: string = "upload"): Promise<number> {
+export async function addUserPhoto(phone: string, url: string, source: string = "upload", assetType: string = "user_photo"): Promise<number> {
   const [r] = await getPool().query(
-    `INSERT INTO user_photos (user_phone, image_url, source) VALUES (?, ?, ?)`,
-    [phone, url, source.slice(0, 32)]
+    `INSERT INTO user_photos (user_phone, image_url, source, asset_type) VALUES (?, ?, ?, ?)`,
+    [phone, url, source.slice(0, 32), assetType]
   ) as any;
   return r.insertId;
 }
 
-export async function getUserPhotos(phone: string, limit: number = 60): Promise<UserPhoto[]> {
-  const [rows] = await getPool().query(
-    `SELECT id, image_url, source, created_at FROM user_photos
-      WHERE user_phone = ? ORDER BY id DESC LIMIT ?`,
-    [phone, Math.max(1, Math.min(200, limit))]
-  ) as any;
+export async function getUserPhotos(phone: string, limit: number = 60, assetTypes?: string[]): Promise<UserPhoto[]> {
+  let query = `SELECT id, image_url, source, asset_type, created_at FROM user_photos WHERE user_phone = ?`;
+  const params: any[] = [phone];
+  
+  if (assetTypes && assetTypes.length > 0) {
+    query += ` AND asset_type IN (?)`;
+    params.push(assetTypes);
+  }
+  
+  query += ` ORDER BY id DESC LIMIT ?`;
+  params.push(Math.max(1, Math.min(200, limit)));
+
+  const [rows] = await getPool().query(query, params) as any;
   return rows as UserPhoto[];
 }
 
@@ -1189,6 +1262,7 @@ export interface CreationRow {
   video_url: string | null;
   model_url: string | null;
   sort_order: number;
+  asset_type?: string;
   created_at: string;
   pet_name?: string | null;
   pet_breed?: string | null;
@@ -1210,14 +1284,15 @@ export async function saveCreation(data: {
   image_url?: string | null;
   video_url?: string | null;
   sort_order?: number;
+  asset_type?: string;
   pet_name?: string | null;
   pet_breed?: string | null;
 }): Promise<number> {
   const [result] = await getPool().query(
     `INSERT INTO creations (
       user_phone, album_id, media_type, style, backdrop_kind, preset_name,
-      sv_lat, sv_lng, sv_heading, sv_pitch, sv_fov, place_label, image_url, video_url, sort_order, pet_name, pet_breed
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      sv_lat, sv_lng, sv_heading, sv_pitch, sv_fov, place_label, image_url, video_url, sort_order, asset_type, pet_name, pet_breed
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       data.user_phone,
       data.album_id || null,
@@ -1234,6 +1309,7 @@ export async function saveCreation(data: {
       data.image_url || null,
       data.video_url || null,
       data.sort_order || 0,
+      data.asset_type || 'animation_render',
       data.pet_name || null,
       data.pet_breed || null,
     ]
@@ -1241,11 +1317,18 @@ export async function saveCreation(data: {
   return result.insertId;
 }
 
-export async function getCreations(phone: string): Promise<CreationRow[]> {
-  const [rows] = await getPool().query(
-    `SELECT * FROM creations WHERE user_phone = ? ORDER BY sort_order ASC, created_at DESC`,
-    [phone]
-  );
+export async function getCreations(phone: string, assetType?: string): Promise<CreationRow[]> {
+  let query = `SELECT * FROM creations WHERE user_phone = ?`;
+  const params: any[] = [phone];
+  
+  if (assetType) {
+    query += ` AND asset_type = ?`;
+    params.push(assetType);
+  }
+  
+  query += ` ORDER BY sort_order ASC, created_at DESC`;
+  
+  const [rows] = await getPool().query(query, params);
   return rows as unknown as CreationRow[];
 }
 
@@ -1649,11 +1732,12 @@ export async function updateAvatarRiggedModel(
   id: number,
   phone: string,
   riggedModelUrl: string,
-  clips: { name: string; loop: boolean; durationSec: number }[]
+  clips: { name: string; loop: boolean; durationSec: number }[],
+  facialRigJson?: any
 ): Promise<boolean> {
   const [result] = (await getPool().query(
-    `UPDATE avatars SET rigged_model_url = ?, clips_json = ? WHERE id = ? AND user_phone = ?`,
-    [riggedModelUrl, JSON.stringify(clips || []), id, phone]
+    `UPDATE avatars SET rigged_model_url = ?, clips_json = ?, facial_rig_json = ? WHERE id = ? AND user_phone = ?`,
+    [riggedModelUrl, JSON.stringify(clips || []), facialRigJson ? JSON.stringify(facialRigJson) : null, id, phone]
   )) as any;
   return result.affectedRows === 1;
 }
@@ -2667,49 +2751,17 @@ export async function creditReferralIfComplete(referredPhone: string): Promise<v
 }
 
 // ============================================================================
-// Phase 8: Pawprint templates
+// Phase 8: Pawprint templates (Phase 2 Deterministic Expansion)
 // ============================================================================
 
-export interface PawprintTemplate {
-  category: string; layoutId: string; name: string; tone: string;
-  sampleCopy: string[];
-  fieldSchema: { key: string; type: "text" | "image" | "name" | "message"; label: string; maxLength?: number }[];
-  imagePromptTemplate: string;
-}
-
-const PAWPRINT_CATEGORIES = [
-  "grieving_loss", "new_puppy", "veterinarian", "holiday_birthday",
-  "environment", "postcard_travel", "get_well", "miss_you", "pet_business",
-];
-
-const PAWPRINT_TEMPLATES: PawprintTemplate[] = [
-  { category: "grieving_loss", layoutId: "portrait_card", name: "Portrait Card", tone: "gentle", sampleCopy: ["Forever in our hearts.", "Until we meet again at the Rainbow Bridge."], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }, { key: "petName", type: "name", label: "Pet Name" }], imagePromptTemplate: "A soft watercolor-style memorial portrait of a pet, gentle warm lighting" },
-  { category: "grieving_loss", layoutId: "landscape_postcard", name: "Landscape Postcard", tone: "gentle", sampleCopy: ["You left pawprints on our hearts.", "Run free, sweet friend."], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }, { key: "message", type: "message", label: "Your Message", maxLength: 200 }], imagePromptTemplate: "A peaceful meadow scene with a rainbow, soft golden hour" },
-  { category: "grieving_loss", layoutId: "photo_top", name: "Photo Top", tone: "warm", sampleCopy: ["Remembering the good times.", "A life well loved."], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }, { key: "petName", type: "name", label: "Pet Name" }], imagePromptTemplate: "A warm-toned photo frame with a sleeping pet, surrounded by soft flowers" },
-  { category: "grieving_loss", layoutId: "framed_quote", name: "Framed Quote", tone: "gentle", sampleCopy: ["\"Dogs' lives are too short. Their only fault, really.\" — Agnes Sligh Turnbull", "Gone but never forgotten."], fieldSchema: [{ key: "petName", type: "name", label: "Pet Name" }, { key: "message", type: "message", label: "Your Quote", maxLength: 300 }], imagePromptTemplate: "An elegant framed calligraphy quote with subtle pawprint watermark" },
-  { category: "new_puppy", layoutId: "portrait_card", name: "Portrait Card", tone: "excited", sampleCopy: ["Welcome home, little one!", "Our newest family member."], fieldSchema: [{ key: "petPhoto", type: "image", label: "Puppy Photo" }, { key: "petName", type: "name", label: "Puppy Name" }], imagePromptTemplate: "A cute puppy portrait with bright playful colors, confetti" },
-  { category: "new_puppy", layoutId: "landscape_postcard", name: "Landscape Postcard", tone: "excited", sampleCopy: ["Pawsitively thrilled to meet you!", "A new chapter begins."], fieldSchema: [{ key: "petPhoto", type: "image", label: "Puppy Photo" }, { key: "message", type: "message", label: "Your Message", maxLength: 200 }], imagePromptTemplate: "A puppy playing in a sunny garden, vibrant colors" },
-  { category: "new_puppy", layoutId: "photo_top", name: "Photo Top", tone: "playful", sampleCopy: ["Life just got cuter!", "New best friend alert!"], fieldSchema: [{ key: "petPhoto", type: "image", label: "Puppy Photo" }], imagePromptTemplate: "A puppy with a big smile, surrounded by toys and treats" },
-  { category: "new_puppy", layoutId: "framed_quote", name: "Framed Quote", tone: "warm", sampleCopy: ["\"A puppy is the only thing that loves you more than you love yourself.\"", "Small paws, big love."], fieldSchema: [{ key: "petName", type: "name", label: "Puppy Name" }, { key: "message", type: "message", label: "Your Message", maxLength: 200 }], imagePromptTemplate: "A decorative border with puppy pawprints and hearts, warm pastel background" },
-  { category: "veterinarian", layoutId: "portrait_card", name: "Portrait Card", tone: "grateful", sampleCopy: ["Thanks for taking such good care of our fur baby!", "You're pawsome!"], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }, { key: "petName", type: "name", label: "Pet Name" }], imagePromptTemplate: "A professional warm-toned thank you card with a pet portrait" },
-  { category: "veterinarian", layoutId: "landscape_postcard", name: "Landscape Postcard", tone: "grateful", sampleCopy: ["Our furry friend says thank you!", "Grateful for your care."], fieldSchema: [{ key: "message", type: "message", label: "Your Message", maxLength: 300 }], imagePromptTemplate: "A cozy vet clinic with a happy pet on an exam table" },
-  { category: "veterinarian", layoutId: "photo_top", name: "Photo Top", tone: "cheerful", sampleCopy: ["Healthy and happy, thanks to you!", "Best vet ever!"], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }], imagePromptTemplate: "A cheerful pet at the vet, bright clinic lighting" },
-  { category: "veterinarian", layoutId: "framed_quote", name: "Framed Quote", tone: "warm", sampleCopy: ["\"The vet is the true hero of every pet's story.\"", "Thank you for your gentle hands."], fieldSchema: [{ key: "petName", type: "name", label: "Pet Name" }, { key: "message", type: "message", label: "Your Message", maxLength: 200 }], imagePromptTemplate: "A stethoscope heart shape with pawprints, clean medical aesthetic" },
-  { category: "holiday_birthday", layoutId: "portrait_card", name: "Portrait Card", tone: "festive", sampleCopy: ["Happy Birthday, fur baby!", "Wishing you a tail-wagging celebration!"], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }, { key: "petName", type: "name", label: "Pet Name" }], imagePromptTemplate: "A birthday celebration scene with party hats and balloons" },
-  { category: "holiday_birthday", layoutId: "landscape_postcard", name: "Landscape Postcard", tone: "festive", sampleCopy: ["Merry Christmas from our pack to yours!", "Happy Howl-oween!"], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }, { key: "message", type: "message", label: "Your Holiday Message", maxLength: 200 }], imagePromptTemplate: "Seasonal holiday background with pets and decorations" },
-  { category: "environment", layoutId: "portrait_card", name: "Portrait Card", tone: "eco_conscious", sampleCopy: ["Love nature, love pets.", "Green paws for a greener planet."], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }], imagePromptTemplate: "A pet in a lush natural setting, eco-friendly aesthetic" },
-  { category: "postcard_travel", layoutId: "landscape_postcard", name: "Landscape Postcard", tone: "adventurous", sampleCopy: ["Wish you were here!", "Paws on the go!"], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }, { key: "petName", type: "name", label: "Pet Name" }, { key: "message", type: "message", label: "Travel Message", maxLength: 200 }], imagePromptTemplate: "A scenic travel destination with a happy pet exploring" },
-  { category: "get_well", layoutId: "portrait_card", name: "Portrait Card", tone: "caring", sampleCopy: ["Get well soon, sweet one!", "Sending healing vibes!"], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }, { key: "petName", type: "name", label: "Pet Name" }], imagePromptTemplate: "A comforting scene with soft blankets and gentle healing light" },
-  { category: "miss_you", layoutId: "portrait_card", name: "Portrait Card", tone: "nostalgic", sampleCopy: ["Missing you from my paws to my heart.", "Wish you were here!"], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }, { key: "message", type: "message", label: "Your Message", maxLength: 200 }], imagePromptTemplate: "A nostalgic sunset with a silhouette of a pet looking into the distance" },
-  { category: "pet_business", layoutId: "portrait_card", name: "Portrait Card", tone: "professional", sampleCopy: ["Trust us with your fur babies!", "Pawsitively the best care in town."], fieldSchema: [{ key: "petPhoto", type: "image", label: "Business Logo" }, { key: "message", type: "message", label: "Business Message", maxLength: 300 }], imagePromptTemplate: "Professional pet business branding, clean modern aesthetic" },
-  { category: "pet_business", layoutId: "landscape_postcard", name: "Landscape Postcard", tone: "friendly", sampleCopy: ["Your pet's home away from home.", "Pet-sitting with love."], fieldSchema: [{ key: "petPhoto", type: "image", label: "Business Photo" }, { key: "message", type: "message", label: "Offer Details", maxLength: 300 }], imagePromptTemplate: "A welcoming pet care facility with happy animals" },
-];
+import { PAWPRINT_CATEGORIES, PAWPRINT_MANIFESTS } from "./src/pawprintManifests";
+import { PawprintTemplateManifest } from "./src/types";
 
 export function getPawprintCategories(): string[] { return PAWPRINT_CATEGORIES; }
 
-export function getPawprintTemplatesSync(category?: string): PawprintTemplate[] {
-  if (category) return PAWPRINT_TEMPLATES.filter(t => t.category === category);
-  return PAWPRINT_TEMPLATES;
+export function getPawprintTemplatesSync(category?: string): PawprintTemplateManifest[] {
+  if (category) return PAWPRINT_MANIFESTS.filter(t => t.category === category);
+  return PAWPRINT_MANIFESTS;
 }
 
 // ---------------------------------------------------------------------------
@@ -2916,4 +2968,63 @@ export async function listBimBuilds(userPhone: string, limit = 50): Promise<Arra
     elementCount: row.element_count || 0, sizeBytes: Number(row.size_bytes) || 0,
     createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Physical Print Orders
+// ---------------------------------------------------------------------------
+
+export async function createOrder(
+  id: string,
+  userPhone: string,
+  pawprintId: number,
+  provider: string,
+  cost: number,
+  margin: number,
+  shippingCost: number,
+  tax: number,
+  totalPrice: number
+): Promise<void> {
+  await getPool().query(`
+    INSERT INTO orders (id, user_phone, pawprint_id, provider, cost, margin, shipping_cost, tax, total_price, state)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')
+  `, [id, userPhone, pawprintId, provider, cost, margin, shippingCost, tax, totalPrice]);
+}
+
+export async function updateOrderStripeSession(id: string, sessionId: string): Promise<void> {
+  await getPool().query(`
+    UPDATE orders SET stripe_session_id = ?, state = 'payment_pending' WHERE id = ?
+  `, [sessionId, id]);
+}
+
+export async function getOrderByStripeSession(sessionId: string): Promise<any> {
+  const [rows] = await getPool().query("SELECT * FROM orders WHERE stripe_session_id = ? LIMIT 1", [sessionId]) as any;
+  return rows?.[0] || null;
+}
+
+export async function updateOrderState(id: string, state: string): Promise<void> {
+  await getPool().query("UPDATE orders SET state = ? WHERE id = ?", [state, id]);
+}
+
+export async function updateOrderWithProvider(id: string, providerOrderRef: string, state: string, encryptedAddress: string | null = null, redactedAddress: any = null): Promise<void> {
+  if (encryptedAddress && redactedAddress) {
+    await getPool().query(`
+      UPDATE orders 
+      SET provider_order_reference = ?, state = ?, encrypted_address = ?, redacted_city = ?, redacted_region = ?, redacted_country = ?, redacted_postal_suffix = ?
+      WHERE id = ?
+    `, [providerOrderRef, state, encryptedAddress, redactedAddress.city, redactedAddress.region, redactedAddress.country, redactedAddress.postalSuffix, id]);
+  } else {
+    await getPool().query(`
+      UPDATE orders SET provider_order_reference = ?, state = ? WHERE id = ?
+    `, [providerOrderRef, state, id]);
+  }
+}
+
+export async function scrubOrderAddress(id: string): Promise<void> {
+  await getPool().query("UPDATE orders SET encrypted_address = NULL, address_redacted_at = NOW() WHERE id = ?", [id]);
+}
+
+export async function getOrderByProviderRef(ref: string): Promise<any> {
+  const [rows] = await getPool().query("SELECT * FROM orders WHERE provider_order_reference = ? LIMIT 1", [ref]) as any;
+  return rows?.[0] || null;
 }

@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { PublicUser, UserProfile, Creation } from "../types";
-import { Loader2, Sparkles, Camera, ImagePlus, Download, RotateCcw, Archive } from "lucide-react";
+import { PublicUser, UserProfile, Creation, PawprintTemplateManifest, PawprintField } from "../types";
+import { Loader2, Sparkles, Camera, Download, RotateCcw, ImagePlus, Check } from "lucide-react";
 import { authedFetch } from "../api";
 import { CREDIT_PRICES, REUSE_DISCOUNT } from "../pricing";
-import PawprintWalkthrough from "./PawprintWalkthrough";
 
 interface PawprintsScreenProps {
   userProfile: UserProfile;
@@ -13,47 +12,20 @@ interface PawprintsScreenProps {
   onGoToFurBin: () => void;
 }
 
-interface Template {
-  category: string;
-  layoutId: string;
-  name: string;
-  tone: string;
-  sampleCopy: string[];
-  fieldSchema: { key: string; type: string; label: string; maxLength?: number }[];
-  imagePromptTemplate: string;
-}
-
 export default function PawprintsScreen({ userProfile, creations, onOpenCreditStore, onUserUpdate, onGoToFurBin }: PawprintsScreenProps) {
   const [categories, setCategories] = useState<string[]>([]);
-  const [templates, setTemplates] = useState<Template[]>([]);
+  const [templates, setTemplates] = useState<PawprintTemplateManifest[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<PawprintTemplateManifest | null>(null);
+  
   const [generating, setGenerating] = useState(false);
   const [resultUrl, setResultUrl] = useState<string | null>(null);
   const [fields, setFields] = useState<Record<string, string>>({});
   const [fileNames, setFileNames] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
-  const [reuseCreationId, setReuseCreationId] = useState<number | null>(null);
-  const [showWalkthrough, setShowWalkthrough] = useState(false);
-
-  // Themed graphic + gradient per category (watermark shown at low opacity on the cards).
-  const categoryGraphic: Record<string, string> = {
-    grieving_loss: "🕊️", new_puppy: "🐶", veterinarian: "🩺", holiday_birthday: "🎂",
-    environment: "🌿", postcard_travel: "✈️", get_well: "💐", miss_you: "💌", pet_business: "🏪",
-  };
-  const categoryGradient: Record<string, string> = {
-    grieving_loss: "from-slate-400/20 to-slate-600/10", new_puppy: "from-amber-300/25 to-orange-400/10",
-    veterinarian: "from-teal-300/25 to-cyan-500/10", holiday_birthday: "from-pink-400/25 to-fuchsia-500/10",
-    environment: "from-green-400/25 to-emerald-600/10", postcard_travel: "from-sky-400/25 to-blue-500/10",
-    get_well: "from-rose-300/25 to-red-400/10", miss_you: "from-violet-400/25 to-purple-500/10",
-    pet_business: "from-indigo-300/25 to-indigo-500/10",
-  };
-
-  // Prior generated images the user can reuse (skip fresh gen for 20% off).
-  const reusable = useMemo(() => creations.filter((c) => c.image_url), [creations]);
-  const reusePrice = Math.round(CREDIT_PRICES.PAWPRINT * (1 - REUSE_DISCOUNT));
-  const effectivePrice = reuseCreationId ? reusePrice : CREDIT_PRICES.PAWPRINT;
-
+  const [pawprintId, setPawprintId] = useState<number | null>(null);
+  const [ordering, setOrdering] = useState(false);
+  
   useEffect(() => {
     fetch("/api/pawprints/templates")
       .then((r) => r.json())
@@ -64,13 +36,8 @@ export default function PawprintsScreen({ userProfile, creations, onOpenCreditSt
       .catch(() => {});
   }, []);
 
-  const categoryLabels: Record<string, string> = {
-    grieving_loss: "Grieving Loss", new_puppy: "New Puppy", veterinarian: "Veterinarian",
-    holiday_birthday: "Holiday & Birthday", environment: "Environment", postcard_travel: "Postcard & Travel",
-    get_well: "Get Well", miss_you: "Miss You", pet_business: "Pet Business",
-  };
-
   const filtered = selectedCategory ? templates.filter((t) => t.category === selectedCategory) : [];
+
   const readFile = (file: File): Promise<string> =>
     new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -78,6 +45,20 @@ export default function PawprintsScreen({ userProfile, creations, onOpenCreditSt
       reader.onerror = reject;
       reader.readAsDataURL(file);
     });
+
+  const handleFieldChange = async (key: string, value: string, file?: File) => {
+    if (file) {
+      try {
+        const base64 = await readFile(file);
+        setFields(p => ({ ...p, [key]: base64 }));
+        setFileNames(p => ({ ...p, [key]: file.name }));
+      } catch {
+        setError("Could not read image file.");
+      }
+    } else {
+      setFields(p => ({ ...p, [key]: value }));
+    }
+  };
 
   const createPawprint = async () => {
     if (!selectedTemplate) return;
@@ -88,205 +69,285 @@ export default function PawprintsScreen({ userProfile, creations, onOpenCreditSt
       const idempotencyKey = typeof crypto !== "undefined" && "randomUUID" in crypto
         ? crypto.randomUUID()
         : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      
       const res = await authedFetch("/api/pawprints/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
         body: JSON.stringify({
-          templateId: selectedTemplate.layoutId,
+          templateId: selectedTemplate.id,
           category: selectedTemplate.category,
-          layoutId: selectedTemplate.layoutId,
-          fields,
-          customName: fields.petName || fields.name || "",
-          customMessage: fields.message || "",
-          reuseCreationId: reuseCreationId || undefined,
-        }),
+          fields
+        })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Could not create your Pawprint.");
+      if (!res.ok) throw new Error(data.error || "Failed to generate Pawprint");
+      if (data.user) onUserUpdate(data.user);
       setResultUrl(data.url);
-      if (data.user) onUserUpdate(data.user as PublicUser);
+      setPawprintId(data.pawprintId);
     } catch (err: any) {
-      setError(err.message || "Could not create your Pawprint.");
+      setError(err.message || "Failed to generate Pawprint.");
     } finally {
       setGenerating(false);
     }
   };
 
-  return (
-    <div className="w-full max-w-3xl mx-auto px-4 pt-6 pb-28 animate-fade-in">
-      <div data-tour="pawprints-title" className="flex flex-wrap items-center gap-3 mb-6">
-        <Sparkles size={22} className="text-primary" />
-        <h1 className="text-xl font-extrabold text-on-surface">Pawprints — Digital Stationery</h1>
-        <button
-          type="button"
-          onClick={onGoToFurBin}
-          className="ml-auto inline-flex min-h-11 items-center gap-2 rounded-xl border border-outline-variant/50 px-3 text-sm font-black text-on-surface-variant hover:border-primary/40 hover:text-primary"
-        >
-          <Archive size={17} /> Fur Bin©️
-        </button>
-        <button
-          type="button"
-          onClick={() => setShowWalkthrough(true)}
-          className="min-h-11 rounded-xl border border-primary/30 px-3 text-sm font-black text-primary hover:bg-primary/5"
-        >
-          Show me how
-        </button>
-      </div>
-      <p className="text-base text-on-surface-variant mb-4 leading-relaxed">
-        Create custom stationery from smart templates. Each creation costs <strong>{CREDIT_PRICES.PAWPRINT} credits</strong>.
-        You have <strong className="text-secondary">{userProfile.credits} credits</strong>.
-      </p>
+  const handleOrderPrint = async () => {
+    if (!pawprintId) return;
+    setOrdering(true);
+    try {
+      const res = await authedFetch("/api/orders/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pawprintId, provider: "printful" })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to initiate order");
+      
+      // Redirect to Stripe Checkout
+      window.location.href = data.url;
+    } catch (err: any) {
+      setError(err.message || "Could not start checkout.");
+      setOrdering(false);
+    }
+  };
 
-      {/* Category picker — larger vertical cards with a themed graphic watermark */}
-      {!selectedCategory && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {categories.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setSelectedCategory(cat)}
-              className={`group relative overflow-hidden rounded-3xl border border-outline-variant/40 hover:border-primary/60 transition-all cursor-pointer aspect-[3/4] flex flex-col justify-end p-4 text-left bg-gradient-to-br ${categoryGradient[cat] || "from-primary/15 to-primary/5"}`}
-            >
-              {/* Themed graphic watermark at ~18% opacity */}
-              <span
-                aria-hidden
-                className="pointer-events-none absolute -top-2 right-1 text-[7rem] leading-none select-none opacity-[0.18] group-hover:opacity-25 group-hover:scale-105 transition-all duration-300"
+  const renderLivePreview = () => {
+    if (!selectedTemplate) return null;
+    const { widthIn, heightIn, dpi } = selectedTemplate.printSpec;
+    const totalWidth = widthIn * dpi;
+    const totalHeight = heightIn * dpi;
+    const aspect = `${widthIn}/${heightIn}`;
+
+    return (
+      <div 
+        className="relative w-full overflow-hidden bg-surface shadow-[0_12px_40px_rgba(68,42,34,0.12)] rounded-xl"
+        style={{ aspectRatio: aspect }}
+      >
+        {selectedTemplate.slots.map((slot, i) => {
+          const field = selectedTemplate.fields.find(f => f.key === slot.fieldKey);
+          if (!field) return null;
+          
+          const val = fields[slot.fieldKey] || field.defaultValue || "";
+          const top = (slot.y / totalHeight) * 100;
+          const left = (slot.x / totalWidth) * 100;
+          const width = (slot.width / totalWidth) * 100;
+          const height = (slot.height / totalHeight) * 100;
+
+          if (field.kind === "image") {
+            return (
+              <div
+                key={i}
+                className="absolute bg-surface-dim flex items-center justify-center overflow-hidden"
+                style={{ top: `${top}%`, left: `${left}%`, width: `${width}%`, height: `${height}%`, borderRadius: slot.styleToken === "circle_crop" ? '50%' : '0' }}
               >
-                {categoryGraphic[cat] || "🐾"}
-              </span>
-              <div className="relative z-10">
-                <span className="text-base font-extrabold text-on-surface block leading-tight">{categoryLabels[cat] || cat}</span>
-                <span className="text-[11px] text-on-surface-variant block mt-1">{templates.filter((t) => t.category === cat).length} layouts</span>
+                {val ? (
+                  <img src={val} alt="preview" className="w-full h-full object-cover" />
+                ) : (
+                  <ImagePlus className="w-8 h-8 text-secondary/30" />
+                )}
               </div>
-            </button>
-          ))}
-        </div>
-      )}
+            );
+          }
 
-      {/* Layout picker */}
-      {selectedCategory && !selectedTemplate && (
-        <div>
-          <button onClick={() => setSelectedCategory(null)} className="text-xs text-primary font-bold mb-4 hover:underline cursor-pointer">← Back to categories</button>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {filtered.map((t) => (
+          // Text overlay preview (approximate rendering)
+          let twClass = "absolute whitespace-normal overflow-hidden leading-tight p-2 flex ";
+          let color = "text-primary";
+          if (slot.styleToken === "header_text") twClass += " font-headline-xl text-3xl font-bold justify-center";
+          else if (slot.styleToken === "handwritten_text") twClass += " font-headline-xl text-xl justify-center items-end pb-4";
+          else if (slot.styleToken === "timeline_date") twClass += " font-headline-lg text-lg font-bold";
+          else if (slot.styleToken === "timeline_desc") { twClass += " font-body-md text-base"; color = "text-on-surface-variant"; }
+          else if (slot.styleToken === "quote_overlay") { twClass += " font-body-md text-xl italic text-center"; color = "text-secondary"; }
+          
+          if (slot.styleToken === "glass_text_box") {
+            twClass += " bg-surface/80 backdrop-blur-md rounded-xl justify-center items-center text-center p-6 text-xl";
+          }
+
+          return (
+            <div
+              key={i}
+              className={`${twClass} ${color}`}
+              style={{ top: `${top}%`, left: `${left}%`, width: `${width}%`, height: `${height}%` }}
+            >
+              {val || field.placeholder || field.label}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  return (
+    <div className="flex-1 overflow-y-auto bg-background text-on-background font-body-md">
+      <div className="max-w-[1200px] mx-auto px-5 py-8 md:py-16">
+        
+        <header className="mb-12">
+          <h1 className="font-headline-xl text-4xl text-primary font-extrabold mb-4">Pawprints Studio</h1>
+          <p className="text-on-surface-variant text-lg max-w-2xl">
+            Design beautiful, high-quality physical mementos. Choose a category, fill in your details, and preview your composition in real-time.
+          </p>
+        </header>
+
+        {!selectedCategory ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
+            {categories.map((cat) => (
               <button
-                key={t.layoutId}
-                onClick={() => setSelectedTemplate(t)}
-                className="glass-panel border border-outline-variant/40 rounded-2xl p-4 text-left hover:border-primary/50 transition-all cursor-pointer"
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                className="group relative flex flex-col items-center justify-center p-6 rounded-xl bg-surface-container hover:bg-surface-container-high transition-all shadow-[0_4px_12px_rgba(68,42,34,0.06)] hover:-translate-y-1 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
               >
-                <span className="text-sm font-bold text-on-surface">{t.name}</span>
-                <span className="text-[10px] text-on-surface-variant block mt-1 capitalize">{t.tone} tone</span>
-                <span className="text-[10px] text-on-surface-variant block">{t.fieldSchema.length} fields</span>
+                <div className="w-16 h-16 rounded-full bg-surface-container-highest flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                   <Sparkles className="w-8 h-8 text-primary opacity-60" />
+                </div>
+                <span className="font-headline-lg-mobile text-lg text-primary capitalize font-bold text-center">
+                  {cat.replace(/_/g, " ")}
+                </span>
               </button>
             ))}
           </div>
-        </div>
-      )}
-
-      {/* Template editor */}
-      {selectedTemplate && (
-        <div>
-          <button onClick={() => setSelectedTemplate(null)} className="text-xs text-primary font-bold mb-4 hover:underline cursor-pointer">← Back to layouts</button>
-          <div className="glass-panel border border-outline-variant/40 rounded-3xl p-6 mb-6">
-            <h3 className="text-sm font-extrabold text-on-surface mb-3">{selectedTemplate.name}</h3>
-            <p className="text-xs text-on-surface-variant mb-3 italic">"{selectedTemplate.sampleCopy[0]}"</p>
-
-            {/* Reuse a previous image of the same subject — 20% off */}
-            {reusable.length > 0 && (
-              <div className="mb-4 rounded-2xl border border-secondary/30 bg-secondary/5 p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[11px] font-black uppercase tracking-wide text-secondary">Reuse a photo you made — save 20%</span>
-                  {reuseCreationId && (
-                    <button onClick={() => setReuseCreationId(null)} className="text-[10px] font-bold text-on-surface-variant hover:text-primary flex items-center gap-1">
-                      <RotateCcw size={11} /> Generate fresh instead
-                    </button>
-                  )}
-                </div>
-                <p className="text-[10px] text-on-surface-variant mb-2">Same pet? Pick one of your earlier images and we'll skip the redraw — <strong>{reusePrice} cr instead of {CREDIT_PRICES.PAWPRINT}</strong>.</p>
-                <div className="flex gap-2 overflow-x-auto pb-1">
-                  {reusable.map((c) => (
-                    <button
-                      key={c.id}
-                      onClick={() => setReuseCreationId((cur) => (cur === c.id ? null : c.id))}
-                      className={`relative shrink-0 w-16 h-16 rounded-xl overflow-hidden border-2 transition-all ${reuseCreationId === c.id ? "border-secondary ring-2 ring-secondary/30" : "border-transparent hover:border-secondary/40"}`}
-                      title={c.name || "Reuse this image"}
-                    >
-                      <img src={c.image_url as string} alt={c.name || "Creation"} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                    </button>
-                  ))}
-                </div>
+        ) : !selectedTemplate ? (
+          <div>
+            <div className="flex items-center gap-4 mb-8">
+              <button onClick={() => setSelectedCategory(null)} className="text-secondary hover:text-primary font-semibold flex items-center gap-2">
+                &larr; Categories
+              </button>
+              <h2 className="font-headline-lg text-3xl text-primary capitalize font-bold">{selectedCategory.replace(/_/g, " ")} Templates</h2>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              {filtered.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => { setSelectedTemplate(t); setFields({}); setFileNames({}); setResultUrl(null); }}
+                  className="flex flex-col text-left rounded-xl bg-surface-container overflow-hidden hover:shadow-[0_12px_32px_rgba(68,42,34,0.1)] transition-all border-2 border-transparent hover:border-primary-fixed-dim focus:outline-none"
+                >
+                  <div className="aspect-[5/7] bg-surface-container-high relative w-full flex items-center justify-center">
+                    <span className="font-label-caps text-secondary uppercase tracking-widest">{t.aspectRatio} Layout</span>
+                  </div>
+                  <div className="p-5">
+                    <h3 className="font-headline-lg-mobile text-xl font-bold text-primary mb-1">{t.name}</h3>
+                    <p className="text-sm text-on-surface-variant font-body-sm">{t.fields.length} editable regions</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col lg:flex-row gap-12">
+            
+            {/* Editor Sidebar */}
+            <div className="w-full lg:w-1/3 flex flex-col gap-6">
+              <div className="flex items-center gap-4 mb-2">
+                <button onClick={() => { setSelectedTemplate(null); setResultUrl(null); }} className="text-secondary hover:text-primary font-semibold flex items-center gap-2">
+                  &larr; Templates
+                </button>
               </div>
-            )}
+              <h2 className="font-headline-lg text-2xl text-primary font-bold">{selectedTemplate.name}</h2>
+              <p className="text-on-surface-variant mb-4">Customize your template below. Changes appear instantly in the preview.</p>
 
-            <div className="space-y-3">
-              {selectedTemplate.fieldSchema.map((field) => (
-                <div key={field.key}>
-                  <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wide">{field.label}</label>
-                  {field.type === "image" ? (
-                    <label className="block mt-1 p-8 border-2 border-dashed border-outline-variant/40 rounded-xl text-center text-xs text-on-surface-variant hover:border-primary/40 transition-all cursor-pointer">
-                      <Camera size={20} className="mx-auto mb-1 text-primary" />
-                      {fileNames[field.key] || `Upload ${field.label}`}
-                      <input
+              {selectedTemplate.fields.map((f) => (
+                <div key={f.key} className="flex flex-col gap-2">
+                  <label className="font-label-caps text-sm text-primary font-bold uppercase tracking-wider">{f.label}</label>
+                  {f.kind === "image" ? (
+                    <div className="relative">
+                       <input
                         type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={async (e) => {
+                        accept="image/png, image/jpeg, image/webp"
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        onChange={(e) => {
                           const file = e.target.files?.[0];
-                          if (!file) return;
-                          if (!file.type.startsWith("image/")) {
-                            setError("Please choose an image file.");
-                            return;
-                          }
-                          const dataUrl = await readFile(file);
-                          setFields((prev) => ({ ...prev, [field.key]: dataUrl }));
-                          setFileNames((prev) => ({ ...prev, [field.key]: file.name }));
+                          if (file) handleFieldChange(f.key, "", file);
                         }}
                       />
-                    </label>
+                      <div className="w-full bg-surface-container-high rounded-lg p-4 flex items-center justify-center gap-3 border-2 border-dashed border-outline-variant hover:border-primary transition-colors cursor-pointer">
+                        <Camera className="w-5 h-5 text-secondary" />
+                        <span className="text-primary font-semibold">
+                          {fileNames[f.key] || "Upload Photo..."}
+                        </span>
+                      </div>
+                    </div>
+                  ) : f.kind === "long_text" ? (
+                    <textarea
+                      placeholder={f.placeholder || f.defaultValue}
+                      maxLength={f.maxLength}
+                      rows={4}
+                      className="w-full bg-surface-container p-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary resize-none text-primary"
+                      value={fields[f.key] || ""}
+                      onChange={(e) => handleFieldChange(f.key, e.target.value)}
+                    />
                   ) : (
                     <input
-                      placeholder={field.label}
-                      maxLength={field.maxLength || 200}
-                      value={fields[field.key] || ""}
-                      onChange={(e) => setFields((prev) => ({ ...prev, [field.key]: e.target.value }))}
-                      className="w-full mt-1 p-2.5 rounded-xl border border-outline-variant/30 bg-surface-container text-xs text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                      type={f.kind === "date" ? "date" : "text"}
+                      placeholder={f.placeholder || f.defaultValue}
+                      maxLength={f.maxLength}
+                      className="w-full bg-surface-container p-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-primary"
+                      value={fields[f.key] || ""}
+                      onChange={(e) => handleFieldChange(f.key, e.target.value)}
                     />
                   )}
                 </div>
               ))}
-              {error && <p className="text-xs font-bold text-error">{error}</p>}
-              {resultUrl && (
-                <div className="rounded-2xl border border-primary/30 bg-primary/5 p-3">
-                  <img src={resultUrl} alt="Generated Pawprint" className="w-full rounded-xl border border-outline-variant/30" />
-                  <a href={resultUrl} target="_blank" rel="noopener noreferrer" className="mt-3 min-h-11 rounded-xl bg-primary text-on-primary text-xs font-black uppercase tracking-wide flex items-center justify-center gap-2">
-                    <Download size={14} /> Open Pawprint
-                  </a>
+
+              <div className="mt-6 p-5 rounded-xl bg-secondary-container text-on-secondary-container">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="font-bold">Generation Cost</span>
+                  <span className="font-label-caps tracking-widest">{CREDIT_PRICES.PAWPRINT} Credits</span>
+                </div>
+                <p className="text-sm mb-6">Generates a high-resolution, print-ready file composite.</p>
+                
+                {error && <div className="text-error font-bold mb-4">{error}</div>}
+                
+                <button
+                  disabled={generating}
+                  onClick={createPawprint}
+                  className="w-full bg-primary text-on-primary py-4 rounded-lg font-bold hover:bg-primary-container transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {generating ? (
+                    <><Loader2 className="w-5 h-5 animate-spin" /> Compositing...</>
+                  ) : (
+                    <><Check className="w-5 h-5" /> Export High-Res</>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Live Preview Area */}
+            <div className="w-full lg:w-2/3 flex flex-col items-center justify-start bg-surface-container-low p-8 md:p-12 rounded-xl border border-surface-variant shadow-inner">
+              {resultUrl ? (
+                <div className="w-full max-w-2xl flex flex-col items-center animate-in fade-in zoom-in duration-500">
+                  <h3 className="font-headline-lg text-2xl text-primary mb-6">Your Print-Ready Pawprint!</h3>
+                  <img src={resultUrl} alt="Generated Pawprint" className="w-full h-auto rounded-xl shadow-[0_24px_60px_rgba(68,42,34,0.2)] mb-8" />
+                  <div className="flex items-center gap-4">
+                    <a
+                      href={resultUrl}
+                      download="pawprint_export.png"
+                      target="_blank" rel="noreferrer"
+                      className="flex items-center gap-2 bg-secondary text-on-secondary px-6 py-3 rounded-lg font-bold hover:bg-secondary-fixed-variant transition-colors"
+                    >
+                      <Download className="w-5 h-5" /> Download Asset
+                    </a>
+                    <button
+                      onClick={handleOrderPrint}
+                      disabled={ordering}
+                      className="flex items-center gap-2 bg-primary text-on-primary px-6 py-3 rounded-lg font-bold hover:bg-primary-container transition-colors disabled:opacity-50"
+                    >
+                      {ordering ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+                      Order Physical Print
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="w-full max-w-[500px]">
+                  <div className="flex justify-between items-center w-full mb-6 text-on-surface-variant font-label-caps uppercase tracking-widest text-sm">
+                    <span>Live Preview</span>
+                    <span>{selectedTemplate.printSpec.widthIn}" x {selectedTemplate.printSpec.heightIn}" @ {selectedTemplate.printSpec.dpi} DPI</span>
+                  </div>
+                  {renderLivePreview()}
                 </div>
               )}
             </div>
-            <button
-              data-tour="pawprints-create"
-              onClick={createPawprint}
-              disabled={generating || (!userProfile.isAdmin && userProfile.credits < effectivePrice)}
-              className="mt-4 w-full py-3 bg-primary text-on-primary rounded-xl text-xs font-black uppercase tracking-wide hover:opacity-90 active:scale-95 transition-all cursor-pointer disabled:opacity-40 flex items-center justify-center gap-2"
-            >
-              {generating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-              {generating ? "Generating..." : reuseCreationId ? `Create Pawprint (${effectivePrice} credits · 20% off)` : `Create Pawprint (${effectivePrice} credits)`}
-            </button>
-            {!userProfile.isAdmin && userProfile.credits < effectivePrice && (
-              <button type="button" onClick={onOpenCreditStore} className="mt-3 w-full py-3 rounded-xl border border-primary/30 text-primary text-xs font-black uppercase tracking-wide">
-                Buy credits
-              </button>
-            )}
+            
           </div>
-        </div>
-      )}
-
-      {showWalkthrough && (
-        <PawprintWalkthrough
-          onClose={() => setShowWalkthrough(false)}
-          onStart={() => { setSelectedTemplate(null); setSelectedCategory("holiday_birthday"); }}
-        />
-      )}
+        )}
+      </div>
     </div>
   );
 }
