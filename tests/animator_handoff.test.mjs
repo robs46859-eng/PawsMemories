@@ -16,7 +16,7 @@ test("Scene controller wrapper is memoized so initial asset loading cannot loop"
   assert.match(source, /const wrappedController = useMemo/);
 });
 
-test("3D Animation Builder uses the workstation interface while text-to-video remains separate", () => {
+test("Video Creator is the Animate parent screen and contains the 3D Animation Builder", () => {
   const builder = fs.readFileSync("src/animator/components/AnimatorScreen.tsx", "utf8");
   const videoCreator = fs.readFileSync("src/components/AnimationStudio.tsx", "utf8");
   const app = fs.readFileSync("src/App.tsx", "utf8");
@@ -25,7 +25,12 @@ test("3D Animation Builder uses the workstation interface while text-to-video re
   assert.match(builder, /workspaceTool/);
   assert.match(builder, /MousePointer2[\s\S]*Move3D[\s\S]*Bone/);
   assert.match(builder, /onOpenVideoCreator/);
-  assert.match(videoCreator, /Text to Video Creator/);
-  assert.match(videoCreator, /separate from the 3D Animation Builder/);
+  assert.match(videoCreator, /Video Creator/);
+  assert.match(videoCreator, /Open 3D Animation Builder/);
+  assert.match(app, /useState<"simple" \| "pro">\("simple"\)/);
+  assert.match(app, /const openAnimationStudio = \(\) => \{[\s\S]*setAnimatorMode\("simple"\)/);
   assert.match(app, /onOpenVideoCreator=\{\(\) => setAnimatorMode\("simple"\)\}/);
+  assert.match(app, /onClose=\{openAnimationStudio\}/);
+  const mobileNavigation = app.slice(app.indexOf("{MOBILE_NAV.map"));
+  assert.match(mobileNavigation, /item\.screen === Screen\.ANIMATOR \? openAnimationStudio\(\)/);
 });

@@ -101,8 +101,9 @@ export default function App() {
 
   const [currentScreen, setCurrentScreen] = useState<Screen>(Screen.SIGN_UP);
   const [animatorAssetId, setAnimatorAssetId] = useState<string | null>(null);
-  // "simple" = default Veo image+prompt→video; "pro" = the full 3D in-scene studio.
-  const [animatorMode, setAnimatorMode] = useState<"simple" | "pro">("pro");
+  // Video Creator is the Animate landing screen; the full 3D builder is its
+  // advanced workspace, opened from within that parent module.
+  const [animatorMode, setAnimatorMode] = useState<"simple" | "pro">("simple");
   const [userProfile, setUserProfile] = useState<UserProfile>(EMPTY_PROFILE);
 
   const [showOrderSuccessModal, setShowOrderSuccessModal] = useState(false);
@@ -117,6 +118,12 @@ export default function App() {
   const [creations, setCreations] = useState<Creation[]>([]);
   const [activeAlbum, setActiveAlbum] = useState<Album | null>(null);
   const [selectedCreationForShare, setSelectedCreationForShare] = useState<Creation | null>(null);
+
+  const openAnimationStudio = () => {
+    setAnimatorAssetId(null);
+    setAnimatorMode("simple");
+    setCurrentScreen(Screen.ANIMATOR);
+  };
 
   // Dynamic Theme state
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
@@ -462,7 +469,7 @@ export default function App() {
                 <button
                   key={item.id}
                   data-tour={item.screen === Screen.MODELS ? "nav-models" : undefined}
-                  onClick={() => setCurrentScreen(item.screen)}
+                  onClick={() => item.screen === Screen.ANIMATOR ? openAnimationStudio() : setCurrentScreen(item.screen)}
                   className={`min-h-10 px-2.5 text-sm font-medium transition-colors xl:px-3 ${currentScreen === item.screen ? "border-b-2 border-primary font-bold text-primary" : "text-on-surface-variant hover:text-primary"}`}
                 >
                   {item.label}
@@ -548,7 +555,7 @@ export default function App() {
               {SIDEBAR_NAV.map((item) => (
                 <button
                   key={item.id}
-                  onClick={() => setCurrentScreen(item.screen)}
+                  onClick={() => item.screen === Screen.ANIMATOR ? openAnimationStudio() : setCurrentScreen(item.screen)}
                   className={`flex min-h-12 w-full items-center gap-4 rounded-lg px-4 py-3 text-left transition-all ${currentScreen === item.screen ? "bg-primary text-on-primary shadow-sm" : "text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30"}`}
                 >
                   <span className="material-symbols-outlined shrink-0 font-sans" style={{ fontVariationSettings: currentScreen === item.screen ? "'FILL' 1" : "'FILL' 0" }}>{item.materialIcon}</span>
@@ -607,11 +614,7 @@ export default function App() {
                 }}
                 onCreateAlbum={handleCreateAlbum}
                 onOpenAdminPanel={userProfile.isAdmin ? () => setShowAdminPanel(true) : undefined}
-                onOpenAnimator={() => {
-                  setAnimatorAssetId(null);
-                  setAnimatorMode("pro");
-                  setCurrentScreen(Screen.ANIMATOR);
-                }}
+                onOpenAnimator={openAnimationStudio}
                 onOpenFurball={() => setCurrentScreen(Screen.MODELS)}
                 onOpenPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
                 onOpenFidos={() => setCurrentScreen(Screen.PAWLISHER)}
@@ -758,7 +761,7 @@ export default function App() {
               <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
                 <AnimatorScreen
                   initialAssetId={animatorAssetId}
-                  onClose={() => setCurrentScreen(Screen.MODELS)}
+                  onClose={openAnimationStudio}
                   onOpenVideoCreator={() => setAnimatorMode("simple")}
                 />
               </Suspense>
@@ -796,11 +799,7 @@ export default function App() {
                 }}
                 onCreateAlbum={handleCreateAlbum}
                 onOpenAdminPanel={userProfile.isAdmin ? () => setShowAdminPanel(true) : undefined}
-                onOpenAnimator={() => {
-                  setAnimatorAssetId(null);
-                  setAnimatorMode("pro");
-                  setCurrentScreen(Screen.ANIMATOR);
-                }}
+                onOpenAnimator={openAnimationStudio}
                 onOpenFurball={() => setCurrentScreen(Screen.MODELS)}
                 onOpenPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
                 onOpenFidos={() => setCurrentScreen(Screen.PAWLISHER)}
@@ -842,7 +841,7 @@ export default function App() {
           {MOBILE_NAV.map((item) => (
             <button
               key={item.id}
-              onClick={() => setCurrentScreen(item.screen)}
+              onClick={() => item.screen === Screen.ANIMATOR ? openAnimationStudio() : setCurrentScreen(item.screen)}
               className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 py-2 transition-colors ${currentScreen === item.screen ? "bg-primary text-on-primary" : "text-on-surface-variant hover:bg-surface-variant/50"}`}
             >
               <span className="material-symbols-outlined shrink-0 font-sans" style={{ fontVariationSettings: currentScreen === item.screen ? "'FILL' 1" : "'FILL' 0" }}>{item.materialIcon}</span>

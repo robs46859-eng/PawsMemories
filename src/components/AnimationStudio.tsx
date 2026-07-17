@@ -14,9 +14,8 @@ interface AnimationStudioProps {
 }
 
 /**
- * Standalone text-to-video creator: pick one of your generated images + a motion
- * prompt → Veo generates a short video. This intentionally remains separate
- * from the timeline-based 3D Animation Builder.
+ * Animate landing screen: pick one of your generated images + a motion prompt
+ * to make a video, or open the contained advanced 3D Animation Builder.
  */
 export default function AnimationStudio({ creations, userProfile, onOpenPro, onOpenCreditStore, onClose }: AnimationStudioProps) {
   const images = useMemo(() => creations.filter((c) => c.image_url), [creations]);
@@ -66,12 +65,12 @@ export default function AnimationStudio({ creations, userProfile, onOpenPro, onO
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-3">
           <Film size={22} className="text-primary" />
-          <h1 className="text-xl font-extrabold text-on-surface">Text to Video Creator</h1>
+          <h1 className="text-xl font-extrabold text-on-surface">Video Creator</h1>
         </div>
         <button onClick={onClose} className="text-on-surface-variant hover:text-primary p-2 rounded-full" aria-label="Close"><X size={20} /></button>
       </div>
       <p className="text-sm text-on-surface-variant mb-5">
-        Create a generated video from one image and a motion prompt. This module is separate from the 3D Animation Builder. <strong>{cost} credits</strong> per video.
+        Create a generated video from one image and a motion prompt. Need a full scene, cast, and timeline? Open the 3D Animation Builder below. <strong>{cost} credits</strong> per video.
       </p>
 
       {/* Result */}
@@ -155,9 +154,9 @@ export default function AnimationStudio({ creations, userProfile, onOpenPro, onO
             <Wand2 size={18} /> {canAfford ? `Create Animation · ${cost} cr` : `Get credits to animate (${cost} cr)`}
           </button>
 
-          {/* Separate 3D timeline studio */}
+          {/* Advanced workspace contained under the Video Creator entry point. */}
           <button onClick={onOpenPro} className="w-full mt-3 py-2.5 rounded-full text-sm text-on-surface-variant hover:text-primary flex items-center justify-center gap-2">
-            <Wrench size={15} /> Open the 3D Animation Builder
+            <Wrench size={15} /> Open 3D Animation Builder
           </button>
           <p className="text-[11px] text-center text-on-surface-variant mt-1 flex items-center justify-center gap-1">
             <Sparkles size={11} /> Pose rigged models, add scenes, lights &amp; multiple pets

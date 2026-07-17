@@ -703,8 +703,8 @@ export default function AnimatorScreen({
             </div>
 
             {onOpenVideoCreator && (
-              <button type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onOpenVideoCreator(); }} aria-label="Open Text to Video Creator" title="Text to Video Creator" className="relative z-40 flex h-9 min-w-9 items-center justify-center gap-1.5 rounded-lg border border-white/15 px-2 text-[10px] font-black uppercase tracking-wider text-white/70 hover:border-primary hover:text-primary md:px-3">
-                <Wand2 size={13} /><span className="hidden md:inline">Text to Video</span>
+              <button type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onOpenVideoCreator(); }} aria-label="Back to Video Creator" title="Back to Video Creator" className="relative z-40 flex h-9 min-w-9 items-center justify-center gap-1.5 rounded-lg border border-white/15 px-2 text-[10px] font-black uppercase tracking-wider text-white/70 hover:border-primary hover:text-primary md:px-3">
+                <Wand2 size={13} /><span className="hidden md:inline">Video Creator</span>
               </button>
             )}
             <button
@@ -715,7 +715,7 @@ export default function AnimatorScreen({
             >
               {captureSession.isRecording ? "Stop" : "Render"}
             </button>
-            <button onClick={onClose} aria-label="Close Animation Builder" className="grid h-9 w-9 place-items-center rounded-lg hover:bg-white/10">
+            <button onClick={onClose} aria-label="Back to Video Creator" title="Back to Video Creator" className="grid h-9 w-9 place-items-center rounded-lg hover:bg-white/10">
               <X size={18} />
             </button>
           </div>

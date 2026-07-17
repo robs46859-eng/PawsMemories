@@ -38,6 +38,7 @@ import { getBlenderClient } from "./agent/tools/blender_client";
 import { startTalkingVideo, pollTalkingVideo, fetchMp4AsDataUrl, isHeyGenHandle } from "./heygen";
 import { startImageTo3D, pollImageTo3D, isTripoHandle, startRig, pollTripoTask, isTripoInsufficientCredit } from "./tripo";
 import { checkBudget, needsRetargetFallback, type BakeStats } from "./server/rigBudget";
+import { normalizeVideoAspectRatio } from "./server/videoAspectRatio";
 import { registerSnapgenRoutes } from "./server/snapgen";
 import { SKELETON_CONTRACTS } from "./skeletonContract";
 import { TERMS_VERSION } from "./src/legal";
@@ -3485,7 +3486,8 @@ async function startServer() {
   app.post("/api/create-video", requireAuth, async (req: AuthedRequest, res) => {
     let videoCreditsDebited = 0;
     try {
-      const { creationId, motionPrompt } = req.body;
+      const { creationId, motionPrompt } = req.body || {};
+      const aspectRatio = normalizeVideoAspectRatio(req.body?.aspectRatio);
       if (!creationId) return res.status(400).json({ success: false, error: "creationId is required" });
 
       const userPhone = req.user!.phone;
@@ -3531,6 +3533,14 @@ async function startServer() {
       } else {
         // Fetch from object storage URL
         const imgRes = await fetch(creation.image_url);
+        if (!imgRes.ok) {
+          throw new Error(`Could not fetch the source image (${imgRes.status}). Please try another image.`);
+        }
+        const fetchedMimeType = imgRes.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase();
+        if (!fetchedMimeType?.startsWith("image/")) {
+          throw new Error("The selected creation is not a usable image. Please choose a PNG, JPEG, or WebP image.");
+        }
+        mimeType = fetchedMimeType;
         const buffer = await imgRes.arrayBuffer();
         imageBytes = Buffer.from(buffer).toString("base64");
       }
@@ -3542,7 +3552,7 @@ async function startServer() {
         image: { imageBytes, mimeType },
         // The Gemini Developer API rejects generateAudio for Veo requests.
         // Audio behavior is therefore left to the model default.
-        config: { aspectRatio: "1:1" },
+        config: { aspectRatio },
       });
 
       const operationName = (op as any).name || (op as any).operation?.name;
