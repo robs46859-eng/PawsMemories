@@ -44,6 +44,11 @@ function Ground() {
 export default function PetScene({ avatar, modelUrl, onRemoveObject, className = "" }: PetSceneProps) {
   // Prefer a rigged skeletal model (Phase 5) so real clips play; fall back to the plain mesh.
   const url = modelUrl || avatar.rigged_model_url || avatar.model_url || "";
+  // A persisted "Fix the vibe" restyle preset (softer look) applied to materials.
+  const ga = typeof avatar.generation_analysis === "string"
+    ? (() => { try { return JSON.parse(avatar.generation_analysis as string); } catch { return null; } })()
+    : avatar.generation_analysis;
+  const stylePreset = ga && typeof ga === "object" ? (ga as { stylePreset?: string }).stylePreset : undefined;
   const isHuman = avatar.avatar_type === "human";
   const cameraPos: [number, number, number] = isHuman ? [3.0, 2.5, 3.5] : [2.2, 1.6, 2.6];
   const controlsTarget: [number, number, number] = isHuman ? [0, 0.9, 0] : [0, 0.4, 0];
@@ -61,7 +66,7 @@ export default function PetScene({ avatar, modelUrl, onRemoveObject, className =
           shadow-mapSize={[1024, 1024]}
         />
         <Suspense fallback={null}>
-          {url ? <AvatarModel url={url} avatarType={avatar.avatar_type} /> : null}
+          {url ? <AvatarModel url={url} avatarType={avatar.avatar_type} stylePreset={stylePreset} /> : null}
           <PlacedObjects onRemoveObject={onRemoveObject} />
           <Ground />
           <ContactShadows position={[0, 0.01, 0]} opacity={0.35} scale={12} blur={2.4} far={4} />

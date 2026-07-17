@@ -4,12 +4,13 @@ import { Bounds, Environment, Html, OrbitControls, useGLTF } from "@react-three/
 import * as THREE from "three";
 import { clone as skeletonClone } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { UserProfile, Avatar, PublicUser } from "../types";
-import { Brush, Lock, Film, Sparkles, Mic, Upload, CheckCircle2, X, Lightbulb, ZoomIn, RotateCw, Scissors, Save, Trash2, Shirt, Wand2, Move3D, Gauge, Footprints, Grid3X3, Volume2 } from "lucide-react";
-import { createVoiceCloneAsset, fetchAvatars } from "../api";
+import { Brush, Film, Sparkles, Mic, Upload, CheckCircle2, X, Lightbulb, ZoomIn, RotateCw, Scissors, Save, Shirt, Move3D, Footprints, Grid3X3, Maximize2, RotateCcw } from "lucide-react";
+import { authedFetch, createVoiceCloneAsset, fetchAvatars } from "../api";
 import { AnimatorErrorBoundary } from "../animator/components/AnimatorErrorBoundary";
 import { CREDIT_PRICES } from "../pricing";
+import { WARDROBE_CATALOG, type WardrobeItem } from "../wardrobe/catalog";
 
-interface PawlisherScreenProps {
+interface FidosStylesScreenProps {
   userProfile: UserProfile;
   onGoToAnimator?: (assetId: string) => void;
   onGoToPawprints?: () => void;
@@ -39,7 +40,7 @@ function isMobile(): boolean {
   return window.matchMedia?.("(max-width: 760px), (pointer: coarse)").matches ?? false;
 }
 
-function PawlisherModel({ url, motion, part, microMesh, soften }: { url: string; motion: MotionPreset; part: BodyPreset; microMesh: boolean; soften: boolean }) {
+function FidosStylesModel({ url, motion, part, microMesh, soften }: { url: string; motion: MotionPreset; part: BodyPreset; microMesh: boolean; soften: boolean }) {
   const group = useRef<THREE.Group>(null);
   const { scene } = useGLTF(url);
   const model = useMemo(() => {
@@ -89,7 +90,38 @@ function SceneTools({ onCanvasReady }: { onCanvasReady: (canvas: HTMLCanvasEleme
   return null;
 }
 
-export default function PawlisherScreen({ userProfile, onGoToAnimator, onGoToPawprints, onUserUpdate }: PawlisherScreenProps) {
+function CameraZoom({ zoom }: { zoom: number }) {
+  const camera = useThree((state) => state.camera);
+  useEffect(() => {
+    camera.position.set(0, 1.2, 3.2 / Math.max(0.25, zoom / 100));
+    camera.updateProjectionMatrix();
+  }, [camera, zoom]);
+  return null;
+}
+
+function WardrobeAccessory({ item }: { item: WardrobeItem }) {
+  const [x, y, z] = item.anchorMeters;
+  const material = <meshStandardMaterial color={item.color} roughness={0.72} metalness={item.id.includes("gold") ? 0.55 : 0.04} />;
+  if (item.kind === "neck") {
+    return <group position={[x, y, z]}><mesh rotation={[Math.PI / 2, 0, 0]}>{item.id.includes("medallion") ? <sphereGeometry args={[0.09, 24, 18]} /> : <torusGeometry args={[0.19, 0.025, 12, 48]} />}{material}</mesh></group>;
+  }
+  if (item.kind === "head") {
+    return <group position={[x, y, z]}><mesh>{item.id.includes("crown") ? <cylinderGeometry args={[0.16, 0.22, 0.24, 6]} /> : <coneGeometry args={[item.id.includes("wizard") ? 0.23 : 0.17, item.id.includes("wizard") ? 0.52 : 0.34, 28]} />}{material}</mesh></group>;
+  }
+  if (item.kind === "face") {
+    return <group position={[x, y, z]}><mesh position={[-0.11, 0, 0]}><torusGeometry args={[0.09, 0.012, 10, 32]} />{material}</mesh><mesh position={[0.11, 0, 0]}><torusGeometry args={[0.09, 0.012, 10, 32]} />{material}</mesh><mesh><boxGeometry args={[0.08, 0.018, 0.018]} />{material}</mesh></group>;
+  }
+  if (item.kind === "back") {
+    return <mesh position={[x, y, z]} rotation={[0.15, 0, 0]}><boxGeometry args={[0.54, 0.68, 0.035]} />{material}</mesh>;
+  }
+  return <mesh position={[x, y, z]}><sphereGeometry args={[0.34, 28, 20]} />{material}</mesh>;
+}
+
+function WardrobeLayer({ selectedIds }: { selectedIds: string[] }) {
+  return <group>{WARDROBE_CATALOG.filter((item) => selectedIds.includes(item.id)).map((item) => <WardrobeAccessory key={item.id} item={item} />)}</group>;
+}
+
+export default function FidosStylesScreen({ userProfile, onGoToAnimator, onGoToPawprints, onUserUpdate }: FidosStylesScreenProps) {
   const [avatars, setAvatars] = useState<Avatar[]>([]);
   const [selectedId, setSelectedId] = useState<number | "">("");
   const [lightMode, setLightMode] = useState<LightMode>(() => (localStorage.getItem("pawlisher_light") as LightMode) || "warm");
@@ -109,10 +141,15 @@ export default function PawlisherScreen({ userProfile, onGoToAnimator, onGoToPaw
   const [voiceBusy, setVoiceBusy] = useState(false);
   const [voiceMessage, setVoiceMessage] = useState("");
   const [status, setStatus] = useState("Autosaved");
+  const [background, setBackground] = useState("#f7f3eb");
+  const [viewResetKey, setViewResetKey] = useState(0);
+  const [wardrobeIds, setWardrobeIds] = useState<string[]>([]);
+  const [wardrobeMessage, setWardrobeMessage] = useState("");
   const [webgl2] = useState(() => hasWebGL2());
   const [mobile] = useState(() => isMobile());
   const voiceInputRef = useRef<HTMLInputElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const viewerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     fetchAvatars().then((items) => {
@@ -120,6 +157,16 @@ export default function PawlisherScreen({ userProfile, onGoToAnimator, onGoToPaw
       const firstReady = items.find((a) => a.rigged_model_url || a.model_url);
       if (firstReady) setSelectedId(firstReady.id);
     });
+  }, []);
+
+  useEffect(() => {
+    authedFetch("/api/wardrobe")
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("Could not load wardrobe")))
+      .then((data) => {
+        const selected = Array.isArray(data?.selected) ? data.selected : [];
+        setWardrobeIds(selected.filter((id: unknown): id is string => typeof id === "string" && WARDROBE_CATALOG.some((item) => item.id === id)).slice(0, 15));
+      })
+      .catch(() => setWardrobeMessage("Wardrobe selections could not be loaded."));
   }, []);
 
   useEffect(() => {
@@ -183,15 +230,43 @@ export default function PawlisherScreen({ userProfile, onGoToAnimator, onGoToPaw
   };
 
   const saveState = () => {
+    localStorage.setItem("pawlisher_controls", JSON.stringify({ lightMode, zoom, turntable, turntableSpeed, motion, part, microMesh, soften, background }));
     setStatus("Saved");
     window.setTimeout(() => setStatus("Autosaved"), 1600);
+  };
+
+  const resetView = () => {
+    setZoom(100);
+    setTurntable(true);
+    setTurntableSpeed(0.8);
+    setBackground("#f7f3eb");
+    setViewResetKey((value) => value + 1);
+    setStatus("View reset");
+  };
+
+  const toggleWardrobe = async (id: string) => {
+    const next = wardrobeIds.includes(id) ? wardrobeIds.filter((itemId) => itemId !== id) : [...wardrobeIds, id].slice(0, 15);
+    setWardrobeIds(next);
+    setWardrobeMessage("Saving wardrobe…");
+    try {
+      const response = await authedFetch("/api/wardrobe", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ selected: next }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not save wardrobe");
+      const saved = Array.isArray(data?.selected)
+        ? data.selected.filter((itemId: unknown): itemId is string => typeof itemId === "string").slice(0, 15)
+        : next;
+      setWardrobeIds(saved);
+      setWardrobeMessage(`Saved ${saved.length} of 15 items.`);
+    } catch (error: any) {
+      setWardrobeMessage(error.message || "Could not save wardrobe.");
+    }
   };
 
   return (
     <div className="w-full max-w-7xl mx-auto px-4 pt-6 pb-28 animate-fade-in">
       <div data-tour="pawlisher-title" className="flex items-center gap-3 mb-4">
         <Brush size={24} className="text-primary" />
-        <h1 className="text-2xl font-extrabold text-on-surface">Pawlisher Studio</h1>
+        <h1 className="text-2xl font-extrabold text-on-surface">Fido's Styles Studio</h1>
         <span className="text-xs font-bold text-on-surface-variant">{status}</span>
         <button
           type="button"
@@ -226,7 +301,7 @@ export default function PawlisherScreen({ userProfile, onGoToAnimator, onGoToPaw
           </section>
 
           <section className="glass-panel border border-outline-variant/40 rounded-2xl p-4">
-            <div className="flex items-center gap-2 mb-3"><ZoomIn size={18} className="text-primary" /><h3 className="font-black">Zoom</h3></div>
+            <div className="flex items-center gap-2 mb-3"><ZoomIn size={18} className="text-primary" /><h3 className="font-black">Viewer Control Panel</h3></div>
             <input type="range" min={25} max={400} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} className="w-full" />
             <div className="text-sm font-black text-primary mt-1">{zoom}%</div>
             <label className="mt-4 flex items-center justify-between gap-3 text-sm font-bold">
@@ -234,6 +309,14 @@ export default function PawlisherScreen({ userProfile, onGoToAnimator, onGoToPaw
               <input type="checkbox" checked={turntable} onChange={(e) => setTurntable(e.target.checked)} className="h-5 w-5 accent-primary" />
             </label>
             <input type="range" min={0.1} max={2} step={0.1} value={turntableSpeed} onChange={(e) => setTurntableSpeed(Number(e.target.value))} className="w-full mt-3" />
+            <label className="block mt-3 text-xs font-bold">Background</label>
+            <div className="mt-2 grid grid-cols-4 gap-2">
+              {["#f7f3eb", "#dbeafe", "#dcfce7", "#171717"].map((color) => <button key={color} onClick={() => setBackground(color)} aria-label={`Background ${color}`} className={`h-10 rounded-lg border-2 ${background === color ? "border-primary" : "border-transparent"}`} style={{ background: color }} />)}
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button onClick={resetView} className="min-h-11 rounded-xl border border-outline-variant flex items-center justify-center gap-2 text-xs font-black"><RotateCcw size={15} /> Reset</button>
+              <button onClick={() => viewerRef.current?.requestFullscreen?.()} className="min-h-11 rounded-xl border border-outline-variant flex items-center justify-center gap-2 text-xs font-black"><Maximize2 size={15} /> Fullscreen</button>
+            </div>
           </section>
 
           <section className="glass-panel border border-outline-variant/40 rounded-2xl p-4">
@@ -242,13 +325,13 @@ export default function PawlisherScreen({ userProfile, onGoToAnimator, onGoToPaw
               <button title="Screenshot" onClick={downloadScreenshot} className="min-h-12 rounded-xl bg-primary text-on-primary flex items-center justify-center"><Scissors size={18} /></button>
               <button title="Save" onClick={saveState} className="min-h-12 rounded-xl border border-outline-variant flex items-center justify-center"><Save size={18} /></button>
               <button title="Upload" onClick={() => setShowVoiceConsent(true)} className="min-h-12 rounded-xl border border-outline-variant flex items-center justify-center"><Upload size={18} /></button>
-              <button title="Delete" className="min-h-12 rounded-xl border border-error/40 text-error flex items-center justify-center"><Trash2 size={18} /></button>
+              <button title="Reset view" onClick={resetView} className="min-h-12 rounded-xl border border-outline-variant flex items-center justify-center"><RotateCcw size={18} /></button>
             </div>
           </section>
         </aside>
 
         <AnimatorErrorBoundary onClose={() => {}} hasWebGL2={webgl2}>
-          <section className="relative min-h-[560px] overflow-hidden rounded-2xl border border-outline-variant/40 bg-[#f7f3eb]">
+          <section ref={viewerRef} className="relative min-h-[560px] overflow-hidden rounded-2xl border border-outline-variant/40" style={{ background }}>
             {!webgl2 ? (
               <div className="h-full min-h-[560px] flex items-center justify-center p-8 text-center text-on-surface">This editor needs a browser with WebGL2.</div>
             ) : !modelUrl ? (
@@ -261,7 +344,8 @@ export default function PawlisherScreen({ userProfile, onGoToAnimator, onGoToPaw
                 gl={{ preserveDrawingBuffer: true, powerPreference: "high-performance", failIfMajorPerformanceCaveat: false }}
               >
                 <SceneTools onCanvasReady={(canvas) => { canvasRef.current = canvas; }} />
-                <color attach="background" args={["#f7f3eb"]} />
+                <CameraZoom zoom={zoom} />
+                <color attach="background" args={[background]} />
                 <ambientLight intensity={0.55} />
                 <pointLight position={[0, 2.8, 0.4]} intensity={light.intensity} color={light.color} castShadow />
                 <mesh position={[0, 2.15, 0.25]}>
@@ -275,7 +359,8 @@ export default function PawlisherScreen({ userProfile, onGoToAnimator, onGoToPaw
                 <Suspense fallback={<Html center>Loading GLB...</Html>}>
                   <Bounds fit clip observe margin={1.15}>
                     <group rotation-y={turntable ? performance.now() * 0.0002 * turntableSpeed : 0}>
-                      <PawlisherModel url={modelUrl} motion={motion} part={part} microMesh={microMesh} soften={soften} />
+                      <FidosStylesModel url={modelUrl} motion={motion} part={part} microMesh={microMesh} soften={soften} />
+                      <WardrobeLayer selectedIds={wardrobeIds} />
                     </group>
                   </Bounds>
                 </Suspense>
@@ -284,7 +369,7 @@ export default function PawlisherScreen({ userProfile, onGoToAnimator, onGoToPaw
                   <meshStandardMaterial color="#d8c7aa" roughness={0.8} />
                 </mesh>
                 <Environment preset="studio" />
-                <OrbitControls enablePan={false} minDistance={1.2} maxDistance={5} autoRotate={turntable} autoRotateSpeed={turntableSpeed} />
+                <OrbitControls key={viewResetKey} enablePan minDistance={0.7} maxDistance={8} autoRotate={turntable} autoRotateSpeed={turntableSpeed} />
               </Canvas>
             )}
           </section>
@@ -345,11 +430,16 @@ export default function PawlisherScreen({ userProfile, onGoToAnimator, onGoToPaw
         </aside>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-5">
-        <button disabled className="glass-panel border border-outline-variant/40 rounded-2xl p-5 text-left opacity-70 cursor-not-allowed">
-          <div className="flex items-center gap-2"><Shirt size={18} /><h3 className="font-black">Wardrobe</h3><Lock size={14} className="ml-auto" /></div>
-          <p className="text-xs text-on-surface-variant mt-2">Coming soon.</p>
-        </button>
+      <section className="glass-panel border border-outline-variant/40 rounded-2xl p-5 mt-5">
+        <div className="flex items-center gap-2"><Shirt size={18} className="text-primary" /><h3 className="font-black">Wardrobe — choose up to 15</h3><span className="ml-auto text-xs font-black text-primary">{wardrobeIds.length}/15</span></div>
+        <p className="mt-1 text-xs text-on-surface-variant">CC0 modular outfit derivatives from Quaternius. Stored per user; canonical units are meters.</p>
+        <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+          {WARDROBE_CATALOG.map((item) => <button key={item.id} onClick={() => void toggleWardrobe(item.id)} className={`min-h-16 rounded-xl border p-2 text-left text-xs font-black ${wardrobeIds.includes(item.id) ? "border-primary bg-primary/10 text-primary" : "border-outline-variant"}`}><span className="mb-1 block h-3 w-3 rounded-full" style={{ background: item.color }} />{item.name}</button>)}
+        </div>
+        {wardrobeMessage && <p className="mt-3 text-xs font-bold text-primary">{wardrobeMessage}</p>}
+      </section>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-5">
         <button onClick={() => modelUrl && onGoToAnimator?.(modelUrl)} disabled={!modelUrl} className="glass-panel border border-outline-variant/40 rounded-2xl p-5 text-left hover:border-primary/50 disabled:opacity-50">
           <div className="flex items-center gap-2"><Film size={18} className="text-primary" /><h3 className="font-black">Animation Creator</h3></div>
           <p className="text-xs text-on-surface-variant mt-2">Send this model to Animator.</p>

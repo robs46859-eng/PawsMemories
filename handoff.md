@@ -317,3 +317,114 @@ The stabilization fix set is now approved at the code-and-CI level for review. T
 not mark P0, P1, or P2 complete and does not authorize merge, production deployment, or
 rigging enablement. Remaining owner actions are review/merge of draft PR #1 and enabling
 `main` branch protection with the six CI jobs required and force-push disabled.
+
+## Hermes server integration note (2026-07-15)
+
+- Added a disabled-by-default, authenticated Hermes producer relay under
+  `/api/hermes/translate`, `/api/hermes/knowledge`, and `/api/hermes/jobs/:id`.
+- The integration uses local UUIDs at the API boundary and keeps edge bridge job IDs
+  private in the dedicated `hermes_jobs` table. Owner-scoped lookups return the same
+  404 for missing and foreign jobs.
+- Requests and bridge responses use strict schemas. The edge client requires HTTPS in
+  production, sends the producer Bearer secret and local UUID idempotency key, forbids
+  redirects, applies a bounded timeout, and returns only sanitized failures.
+- Per-user and per-IP minute limits are stacked with the existing atomic daily usage
+  counter. Authentication and validation complete before daily usage or provider work.
+- Added deterministic production-router contracts for auth, ownership, disabled mode,
+  all minute and daily limits, provider gating, timeout/error sanitization, response
+  validation, and bridge-ID non-disclosure. The focused Hermes contract file passes
+  15/15 locally; broader repository verification follows separately.
+
+### Hermes verification note
+
+- TypeScript passes, focused Hermes contracts pass 15/15, all production-router
+  contracts pass 36/36, security tests pass 8/8, and the assembled full-server auth
+  smoke test passes 4/4.
+- The production frontend and bundled Node server both build successfully. Vite reports
+  only the repository's existing large-chunk advisory.
+- The full root unit run reports 482/483 passing. Its sole failure is the pre-existing
+  `tests/model-url-durability.test.mjs` assertion that expects the staged server code to
+  persist `riggedGlbBase64`; the already-staged avatar change intentionally removed that
+  path. Hermes does not touch that behavior, and the staged change was preserved.
+
+### Model durability guard reconciliation (2026-07-15)
+
+- The stale unit-test assertion above was corrected without restoring Phase 5 clip
+  baking. The durability guard still rejects raw provider URL persistence and any GLB
+  upload through the image uploader, and it still proves the remaining
+  `buildState.riggedGlbBase64` path uses `uploadBase64Binary(...,
+  "model/gltf-binary")`.
+- The removed assertion required a second standalone `riggedGlbBase64` upload path that
+  no longer exists after the intentional Phase 5 retirement. Requiring deleted behavior
+  made a safe removal look like a regression; no production runtime behavior was changed
+  by this test-only fix.
+- Full verification must be rerun before deployment. Keep Hermes disabled until the
+  hardened relay is live and its end-to-end smoke tests pass.
+
+## Hermes end-to-end hardening evidence (2026-07-15)
+
+This note appends the completed relay and Pixel evidence without changing the earlier
+blocker history.
+
+- The public relay at `https://hermes.pawsome3d.com` is healthy and uses separate
+  worker, Judy, and Pawsome3D credentials. Producer cross-tenant job reads return the
+  same `404` as missing jobs, and the public worker path returns `404`.
+- Pause/resume, Wi-Fi loss/recovery, and severe thermal throttling were exercised on the
+  Pixel. Work remained queued while the device was unavailable or thermally paused and
+  completed after recovery. Pixel shell battery overrides do not propagate to Android's
+  capacity API, so the battery policy remains unit-tested rather than falsely claimed as
+  hardware-validated.
+- Translation job `ccde7fd7-224f-43f2-9ae2-ec94c908c00b` was force-stopped while
+  processing. The relay retained the lease with no result, the relaunched worker resumed
+  the same job, and it completed in 9,304 ms. The production database contains one job
+  row, one create event, one claim event, one completion event, and `attempt_count=1`.
+- A normal post-restart knowledge job (`8ebec073-0fc8-494c-a1d9-24965ac3d712`)
+  completed with grounded AR citations. The earlier oversized restart failures remain
+  recorded in the worker test log; relay, Android, Paws, and Judy validation now enforce
+  matching UTF-8 input budgets of 6,000 bytes for translation and 8,000 bytes for
+  knowledge.
+- Relay verification passes 55 tests and Ruff. A post-deployment Judy smoke job
+  (`6a6cebd5-b4a8-4c6f-9dfb-a5bf63b13878`) completed successfully.
+- Paws verification now passes lint, 483/483 root tests, 36/36 production contracts,
+  8/8 security tests, and the production build. IFC passes 5/5 with the pinned
+  requirements in an isolated Python 3.12 environment; this supersedes the earlier local
+  note that referenced Python 3.11. Animator Doctor passes every required check.
+- Animator Doctor still reports an optional missing Rhubarb executable and a macOS
+  duplicate Sharp/libvips warning. Neither fails the required checks. Rhubarb affects
+  automatic phoneme-quality lip sync only; its absence degrades to the supported
+  fallback and does not block the Hermes/Paws integration.
+
+### Remaining production enablement blockers
+
+- Do not deploy the current dirty Paws working tree. It contains paused UI work mixed
+  with the Hermes integration. Build any release from an isolated, reviewed source tree
+  containing only the approved integration files.
+- Before setting `HERMES_ENABLED=true`, apply `server/migrations/009_hermes_jobs.sql`
+  to the production database and configure the Paws producer relay variables in
+  Hostinger. Then run an authenticated owner-scoped live smoke test and confirm daily
+  quota behavior.
+- The signed Android release APK installs and cold-launches, but it intentionally does
+  not inherit the debug app's encrypted bridge secret or selected model. The configured
+  debug worker remains the validated active worker; provisioning the release package is
+  a separate human-on-device production step.
+- UI changes remain paused by owner direction and are outside this deployment scope.
+
+## Signed Hermes worker scope close-out (2026-07-15)
+
+- The owner set the stopping boundary at a privately signed Android release. The signed
+  APK verifies with APK Signature Scheme v2, installed on the Pixel, and cold-launched
+  without a crash.
+- APK SHA-256:
+  `680a4a3cfd06df7f1b3168b933d4341540c6f073c36462493df9484e5231ff6a`.
+- Signer certificate SHA-256:
+  `0336899672a6d12ec41e0eb876cd9b7aa084726a5b004125893b719a12a8f91a`.
+- The complete signed-worker handoff is
+  `/Users/robert/Projects/HermesEdgeWorker/handoff.md`.
+- Paws and Judy environment provisioning, migrations, deployment, and live site smoke
+  tests are explicitly deferred. `HERMES_ENABLED` remains `false`; paused UI changes
+  remain untouched.
+- A clean future Paws integration worktree is preserved at
+  `/Users/robert/Desktop/claude7126/PawsMemories-hermes-prod`. It is uncommitted and must
+  complete its remaining build/CI/live gates before deployment.
+
+`FINAL FINISH MARKER: HERMES_EDGE_SIGNED_RELEASE_READY`

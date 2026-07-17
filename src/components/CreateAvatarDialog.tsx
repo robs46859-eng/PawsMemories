@@ -23,6 +23,7 @@ interface CreateAvatarDialogProps {
 }
 
 const MAX_PHOTOS = 5;
+const MAX_PHOTO_BYTES = 15 * 1024 * 1024;
 
 const PALETTES = [
   { id: "auto",       label: "Auto",       swatch: "linear-gradient(135deg,#a3a3a3,#e5e5e5)" },
@@ -33,7 +34,7 @@ const PALETTES = [
   { id: "monochrome", label: "Mono",       swatch: "linear-gradient(135deg,#525252,#d4d4d4)" },
 ];
 
-function downscaleImage(dataUrl: string, maxDim = 1536): Promise<string> {
+function downscaleImage(dataUrl: string, maxDim = 2048): Promise<string> {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
@@ -92,6 +93,7 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
   const [facePhoto, setFacePhoto] = useState<string | null>(null);
   const [photos, setPhotos] = useState<string[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [photoError, setPhotoError] = useState("");
   
   // Text mode state
   const [subject, setSubject] = useState("");
@@ -104,36 +106,43 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
   const fileInputRef = useRef<HTMLInputElement>(null);
   const faceInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFilesSelect = (files: FileList | File[]) => {
-    const list = Array.from(files);
-    for (const file of list) {
-      if (!file.type.startsWith("image/")) {
-        alert("Please select image files only (jpg, png, webp).");
-        return;
-      }
-    }
-    const remaining = MAX_PHOTOS - photos.length;
-    list.slice(0, remaining).forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        const raw = e.target?.result as string;
-        const optimized = await downscaleImage(raw);
-        setPhotos((prev) => (prev.length >= MAX_PHOTOS ? prev : [...prev, optimized]));
-      };
-      reader.readAsDataURL(file);
-    });
+  const validatePhoto = (file: File): string | null => {
+    if (!/^image\/(jpeg|png|webp|heic|heif)$/i.test(file.type)) return "Choose JPG, PNG, WebP, HEIC, or HEIF images.";
+    if (file.size > MAX_PHOTO_BYTES) return `${file.name} is larger than 15 MB.`;
+    return null;
   };
 
-  const handleFaceFileSelect = (files: FileList | File[]) => {
-    const file = Array.from(files)[0];
-    if (!file || !file.type.startsWith("image/")) return;
+  const optimizeFile = (file: File): Promise<string> => new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = async (e) => {
-      const raw = e.target?.result as string;
-      const optimized = await downscaleImage(raw);
-      setFacePhoto(optimized);
-    };
+    reader.onerror = () => reject(new Error(`Could not read ${file.name}.`));
+    reader.onload = async (event) => resolve(await downscaleImage(String(event.target?.result || "")));
     reader.readAsDataURL(file);
+  });
+
+  const handleFilesSelect = async (files: FileList | File[]) => {
+    const list = Array.from(files);
+    for (const file of list) {
+      const issue = validatePhoto(file);
+      if (issue) { setPhotoError(issue); return; }
+    }
+    const remaining = MAX_PHOTOS - photos.length;
+    setPhotoError("");
+    try {
+      const optimized = await Promise.all(list.slice(0, remaining).map(optimizeFile));
+      setPhotos((previous) => [...previous, ...optimized].slice(0, MAX_PHOTOS));
+    } catch (error: any) {
+      setPhotoError(error.message || "One of the photos could not be read.");
+    }
+  };
+
+  const handleFaceFileSelect = async (files: FileList | File[]) => {
+    const file = Array.from(files)[0];
+    if (!file) return;
+    const issue = validatePhoto(file);
+    if (issue) { setPhotoError(issue); return; }
+    setPhotoError("");
+    try { setFacePhoto(await optimizeFile(file)); }
+    catch (error: any) { setPhotoError(error.message || "The face photo could not be read."); }
   };
 
   const removePhoto = (index: number) => setPhotos((prev) => prev.filter((_, i) => i !== index));
@@ -267,16 +276,17 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
                   {typeIcon} Face Close-Up (recommended)
                 </label>
                 {facePhoto ? (
-                  <div className="relative w-full max-w-[150px] aspect-square rounded-2xl overflow-hidden border-2 border-primary/40 bg-surface">
+                  <div className="relative w-full min-h-56 aspect-[4/3] rounded-2xl overflow-hidden border-2 border-primary/40 bg-surface">
                     <img src={facePhoto} alt="Face" className="w-full h-full object-cover" />
                     <button onClick={() => setFacePhoto(null)} className="absolute top-1 right-1 bg-red-500 text-white w-6 h-6 rounded-full flex items-center justify-center">
                       <X size={12} />
                     </button>
                   </div>
                 ) : (
-                  <button onClick={() => faceInputRef.current?.click()} className="w-full max-w-[150px] aspect-square rounded-2xl border-2 border-dashed border-primary/40 flex flex-col items-center justify-center gap-2 hover:bg-primary/5 transition-all">
-                    <User size={20} className="text-primary" />
-                    <span className="text-[10px] font-bold text-on-surface">Upload face</span>
+                  <button type="button" onClick={() => faceInputRef.current?.click()} className="w-full min-h-56 rounded-2xl border-2 border-dashed border-primary/40 flex flex-col items-center justify-center gap-2 hover:bg-primary/5 transition-all">
+                    <User size={32} className="text-primary" />
+                    <span className="text-sm font-bold text-on-surface">Choose a clear face photo</span>
+                    <span className="text-xs text-on-surface-variant">JPG, PNG, WebP or HEIC · up to 15 MB</span>
                   </button>
                 )}
                 <input ref={faceInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.length && handleFaceFileSelect(e.target.files)} />
@@ -306,12 +316,21 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
                   )}
                 </div>
               ) : (
-                <div onClick={() => fileInputRef.current?.click()} className="cursor-pointer rounded-2xl border-2 border-dashed flex flex-col items-center p-4 hover:bg-surface-variant/50 transition-all border-outline-variant/40 text-center">
-                  <Upload size={20} className="text-on-surface-variant mb-2" />
-                  <span className="text-xs font-bold text-on-surface">Upload {avatarType === 'object' ? 'photos of the object' : 'body/angle photos'}</span>
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragEnter={(event) => { event.preventDefault(); setIsDragging(true); }}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDragLeave={() => setIsDragging(false)}
+                  onDrop={(event) => { event.preventDefault(); setIsDragging(false); void handleFilesSelect(event.dataTransfer.files); }}
+                  className={`cursor-pointer min-h-56 rounded-2xl border-2 border-dashed flex flex-col items-center justify-center p-8 transition-all text-center ${isDragging ? "border-primary bg-primary/10" : "border-outline-variant/40 hover:bg-surface-variant/50"}`}
+                >
+                  <Upload size={32} className="text-primary mb-3" />
+                  <span className="text-sm font-bold text-on-surface">Drop or choose {avatarType === 'object' ? 'object photos' : 'body and angle photos'}</span>
+                  <span className="mt-1 text-xs text-on-surface-variant">Up to 5 images, 15 MB each</span>
                 </div>
               )}
               <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => e.target.files?.length && handleFilesSelect(e.target.files)} />
+              {photoError && <p role="alert" className="mt-2 text-xs font-bold text-error">{photoError}</p>}
             </div>
           </>
         ) : (

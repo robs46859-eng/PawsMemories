@@ -8,16 +8,30 @@ import { PublicUser, Creation, Album, LocationParams, Avatar, PhotoRequest, Requ
 const TOKEN_KEY = "paws_auth_token";
 
 export function getToken(): string | null {
-  if (typeof localStorage === "undefined") return null;
-  return localStorage.getItem(TOKEN_KEY);
+  if (typeof localStorage === "undefined" || typeof localStorage.getItem !== "function") return null;
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
 }
 
 export function setToken(token: string): void {
-  localStorage.setItem(TOKEN_KEY, token);
+  if (typeof localStorage === "undefined" || typeof localStorage.setItem !== "function") return;
+  try {
+    localStorage.setItem(TOKEN_KEY, token);
+  } catch {
+    // Storage can be denied in private or embedded browser contexts.
+  }
 }
 
 export function clearToken(): void {
-  localStorage.removeItem(TOKEN_KEY);
+  if (typeof localStorage === "undefined" || typeof localStorage.removeItem !== "function") return;
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // Treat an inaccessible token store as already cleared.
+  }
 }
 
 export function isAuthenticated(): boolean {
@@ -466,9 +480,11 @@ export async function pollAvatarStatus(avatarId: number): Promise<{
 }
 
 /** Retry a failed avatar generation. Resets status and re-triggers the 3D pipeline. */
-export async function retryAvatarGeneration(avatarId: number): Promise<{ success: boolean; status: string; chargedCredits?: number; user?: PublicUser }> {
+export async function retryAvatarGeneration(avatarId: number, stylePreset?: string): Promise<{ success: boolean; status: string; chargedCredits?: number; user?: PublicUser }> {
   const res = await authedFetch(`/api/avatars/${avatarId}/retry`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(stylePreset ? { stylePreset } : {}),
   });
   if (!res.ok) throw new Error(await parseError(res, "Failed to retry avatar generation."));
   return await res.json();

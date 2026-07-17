@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Plus, Sparkles, Activity, Heart, ArrowRight } from "lucide-react";
+import { Plus, Sparkles, ArrowRight, Clapperboard, PawPrint, BookOpen, Shirt } from "lucide-react";
 import { Album, Creation, UserProfile } from "../types";
 import { Achievement } from "./AchievementsPanel";
 
@@ -20,9 +20,17 @@ interface DashboardProps {
   onSelectAlbum: (album: Album) => void;
   onCreateAlbum: (name: string) => Promise<void>;
   onOpenAdminPanel?: () => void;
+  /** Navigate to the animation studio. */
+  onOpenAnimator?: () => void;
+  /** Navigate to the Furball3D avatar builder. */
+  onOpenFurball?: () => void;
+  /** Navigate to Pawprints. */
+  onOpenPawprints?: () => void;
+  /** Navigate to Fido's Styles. */
+  onOpenFidos?: () => void;
 }
 
-export default function Dashboard({ userProfile, streak, dailyStreakClaimed, onClaimDailyStreak, onCreate }: DashboardProps) {
+export default function Dashboard({ userProfile, streak, dailyStreakClaimed, onClaimDailyStreak, onCreate, onOpenAnimator, onOpenFurball, onOpenPawprints, onOpenFidos }: DashboardProps) {
   const [isHoveringAR, setIsHoveringAR] = useState(false);
   const petName = userProfile.fullName.split(" ")[0] + "'s Pet"; // Defaulting to something nice
 
@@ -71,48 +79,84 @@ export default function Dashboard({ userProfile, streak, dailyStreakClaimed, onC
         </button>
       </div>
 
-      {/* Bottom: Bento Stats & Tips */}
-      <div className="w-full max-w-5xl grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 z-10">
-        
-        {/* Happiness Card */}
-        <div className="glass-card p-5 rounded-3xl flex items-center justify-between border-t border-white/20">
+      {/* Bottom: Quick-access action cards */}
+      <div className="w-full max-w-6xl grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 md:gap-6 z-10">
+
+        {/* Animation Card → Animation Studio */}
+        <button
+          type="button"
+          onClick={() => onOpenAnimator?.()}
+          className="glass-card p-5 rounded-3xl flex items-center justify-between border-t border-white/20 group cursor-pointer text-left hover:scale-[1.02] active:scale-95 transition-transform"
+        >
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <Heart size={16} className="text-secondary" fill="currentColor" />
-              <span className="text-xs font-extrabold uppercase tracking-widest opacity-70">Happiness</span>
+              <Clapperboard size={16} className="text-primary" />
+              <span className="text-xs font-extrabold uppercase tracking-widest opacity-70">Animation</span>
             </div>
-            <h3 className="font-headline-lg text-2xl font-bold">98%</h3>
+            <h3 className="font-headline-lg text-lg font-bold">Open Studio</h3>
+            <div className="mt-1 flex items-center gap-1 text-primary text-xs font-bold group-hover:underline">
+              Animate {petName} <ArrowRight size={12} />
+            </div>
           </div>
-          <div className="w-14 h-14 rounded-full border-4 border-secondary/20 border-t-secondary border-r-secondary flex items-center justify-center rotate-45 shadow-inner">
-            <div className="w-10 h-10 bg-surface rounded-full flex items-center justify-center -rotate-45 font-bold text-secondary text-sm">:)</div>
-          </div>
-        </div>
+          <span className="w-14 h-14 bg-primary-container rounded-2xl flex items-center justify-center text-primary-fixed shadow-inner group-hover:scale-110 transition-transform">
+            <Clapperboard size={22} />
+          </span>
+        </button>
 
-        {/* Activity Card */}
-        <div className="glass-card p-5 rounded-3xl flex items-center justify-between border-t border-white/20">
+        <button
+          type="button"
+          onClick={() => onOpenFidos?.()}
+          className="glass-card p-5 rounded-3xl flex items-center justify-between border-t border-white/20 group cursor-pointer text-left hover:scale-[1.02] active:scale-95 transition-transform"
+        >
+          <div>
+            <div className="flex items-center gap-2 mb-1"><Shirt size={16} className="text-primary" /><span className="text-xs font-extrabold uppercase tracking-widest opacity-70">Fido's Styles</span></div>
+            <h3 className="font-headline-lg text-lg font-bold">Style & Wardrobe</h3>
+            <div className="mt-1 flex items-center gap-1 text-primary text-xs font-bold group-hover:underline">Open control panel <ArrowRight size={12} /></div>
+          </div>
+          <span className="w-14 h-14 bg-primary-container rounded-2xl flex items-center justify-center text-primary-fixed shadow-inner group-hover:scale-110 transition-transform"><Shirt size={22} /></span>
+        </button>
+
+        {/* Furball Card → Avatar builder */}
+        <button
+          type="button"
+          onClick={() => (onOpenFurball ? onOpenFurball() : onCreate())}
+          className="glass-card p-5 rounded-3xl flex items-center justify-between border-t border-white/20 group cursor-pointer text-left hover:scale-[1.02] active:scale-95 transition-transform"
+        >
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <Activity size={16} className="text-primary" />
-              <span className="text-xs font-extrabold uppercase tracking-widest opacity-70">Daily Steps</span>
+              <PawPrint size={16} className="text-primary" />
+              <span className="text-xs font-extrabold uppercase tracking-widest opacity-70">Furball3D</span>
             </div>
-            <h3 className="font-headline-lg text-2xl font-bold">4,280</h3>
+            <h3 className="font-headline-lg text-lg font-bold">Build Avatar</h3>
+            <div className="mt-1 flex items-center gap-1 text-primary text-xs font-bold group-hover:underline">
+              Create a 3D pet <ArrowRight size={12} />
+            </div>
           </div>
-          <div className="w-14 h-14 bg-primary-container rounded-2xl flex items-center justify-center text-primary-fixed font-bold shadow-inner">
-             <span className="material-symbols-outlined">pets</span>
-          </div>
-        </div>
+          <span className="w-14 h-14 bg-primary-container rounded-2xl flex items-center justify-center text-primary-fixed shadow-inner group-hover:scale-110 transition-transform">
+            <PawPrint size={22} />
+          </span>
+        </button>
 
-        {/* Tip Card */}
-        <div className="glass-card p-5 rounded-3xl bg-gradient-to-br from-primary/10 to-transparent flex flex-col justify-center relative overflow-hidden group cursor-pointer border-t border-white/20">
-          <div className="absolute -right-4 -top-4 opacity-10 group-hover:opacity-20 transition-opacity">
-            <Sparkles size={80} />
+        {/* Pawprints Card */}
+        <button
+          type="button"
+          onClick={() => onOpenPawprints?.()}
+          className="glass-card p-5 rounded-3xl flex items-center justify-between border-t border-white/20 group cursor-pointer text-left hover:scale-[1.02] active:scale-95 transition-transform"
+        >
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <BookOpen size={16} className="text-primary" />
+              <span className="text-xs font-extrabold uppercase tracking-widest opacity-70">Pawprints</span>
+            </div>
+            <h3 className="font-headline-lg text-lg font-bold">Storybooks</h3>
+            <div className="mt-1 flex items-center gap-1 text-primary text-xs font-bold group-hover:underline">
+              Open Pawprints <ArrowRight size={12} />
+            </div>
           </div>
-          <span className="text-xs font-extrabold uppercase tracking-widest text-primary mb-1">Pro Tip</span>
-          <p className="font-medium text-sm text-on-surface-variant line-clamp-2">Capture {petName} in the backyard during golden hour for stunning lighting effects.</p>
-          <div className="mt-2 flex items-center gap-1 text-primary text-xs font-bold group-hover:underline">
-            Read more <ArrowRight size={12} />
-          </div>
-        </div>
+          <span className="w-14 h-14 bg-primary-container rounded-2xl flex items-center justify-center text-primary-fixed shadow-inner group-hover:scale-110 transition-transform">
+            <BookOpen size={22} />
+          </span>
+        </button>
 
       </div>
       

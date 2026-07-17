@@ -17,7 +17,7 @@ const RandyChat = lazy(() => import("./components/RandyChat"));
 import AlbumView from "./components/AlbumView";
 import AlbumsPage from "./components/AlbumsPage";
 import { fetchMe, fetchCreations, fetchAlbums, createAlbum, clearToken, claimAchievement, claimDailyStreak, claimShareReward, confirmCreditsSession, acceptCurrentTerms } from "./api";
-import { Sparkles, User, History, FolderOpen, Sun, Moon, LogOut, RefreshCw, Zap, Dog, ClipboardList, Bell, ShoppingBag, Users, Home, Layers, HelpCircle } from "lucide-react";
+import { Sun, Moon, LogOut, RefreshCw, Zap, Bell, ShoppingCart, Users, HelpCircle } from "lucide-react";
 import CreditStore from "./components/CreditStore";
 const AvatarDashboard = lazy(() => import("./components/AvatarDashboard"));
 import Store from "./components/Store";
@@ -25,12 +25,33 @@ import ProfileScreen from "./components/ProfileScreen";
 import Community from "./components/Community";
 import HelpModal from "./components/HelpModal";
 const PawprintsScreen = lazy(() => import("./components/PawprintsScreen"));
-const PawlisherScreen = lazy(() => import("./components/PawlisherScreen"));
+const FidosStylesScreen = lazy(() => import("./components/FidosStylesScreen"));
 const FurBinScreen = lazy(() => import("./components/FurBinScreen"));
 const AnimatorScreen = lazy(() => import("./animator/components/AnimatorScreen"));
 import WarehouseMode from "./components/WarehouseMode";
+import { MOBILE_NAV, SIDEBAR_NAV, TOP_PRIMARY_NAV } from "./shellNavigation";
 
 const EMPTY_PROFILE: UserProfile = { fullName: "", email: "", credits: 0, treats: 0, isAdmin: false, city: "", ageVerified: false, acceptedTermsVersion: null, currentTermsVersion: undefined, requiresTermsAcceptance: false };
+
+const SCREEN_PATHS: Partial<Record<Screen, string>> = {
+  [Screen.DASHBOARD]: "/home",
+  [Screen.MODELS]: "/furball3d",
+  [Screen.ANIMATOR]: "/animator",
+  [Screen.PAWPRINTS]: "/pawprints",
+  [Screen.PAWLISHER]: "/fidos-styles",
+  [Screen.FURBIN]: "/fur-bin",
+  [Screen.STORE]: "/store",
+  [Screen.COMMUNITY]: "/community",
+  [Screen.PROFILE]: "/profile",
+  [Screen.ALBUMS]: "/albums",
+  [Screen.REQUEST_MEMORY]: "/request-memory",
+};
+
+function screenFromPath(pathname: string): Screen | null {
+  const normalized = pathname.replace(/\/+$/, "") || "/";
+  const entry = Object.entries(SCREEN_PATHS).find(([, path]) => path === normalized);
+  return entry ? entry[0] as Screen : null;
+}
 
 const getBackgroundImage = (screen: Screen) => {
   switch (screen) {
@@ -81,7 +102,7 @@ export default function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>(Screen.SIGN_UP);
   const [animatorAssetId, setAnimatorAssetId] = useState<string | null>(null);
   // "simple" = default Veo image+prompt→video; "pro" = the full 3D in-scene studio.
-  const [animatorMode, setAnimatorMode] = useState<"simple" | "pro">("simple");
+  const [animatorMode, setAnimatorMode] = useState<"simple" | "pro">("pro");
   const [userProfile, setUserProfile] = useState<UserProfile>(EMPTY_PROFILE);
 
   const [showOrderSuccessModal, setShowOrderSuccessModal] = useState(false);
@@ -122,7 +143,7 @@ export default function App() {
       if (user && user.profileComplete) {
         applyUser(user);
         setIsAuthed(true);
-        setCurrentScreen(Screen.DASHBOARD);
+        setCurrentScreen(screenFromPath(window.location.pathname) || Screen.DASHBOARD);
         // Phase 1.7: Fetch persistent creations from backend
         const serverCreations = await fetchCreations();
         setCreations(serverCreations);
@@ -137,6 +158,22 @@ export default function App() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // Keep state-driven navigation addressable and make browser back/forward work.
+  React.useEffect(() => {
+    if (!authChecked || !isAuthed) return;
+    const path = SCREEN_PATHS[currentScreen];
+    if (path && window.location.pathname !== path) window.history.pushState({ screen: currentScreen }, "", path);
+  }, [authChecked, isAuthed, currentScreen]);
+
+  React.useEffect(() => {
+    const onPopState = () => {
+      const screen = screenFromPath(window.location.pathname);
+      if (screen) setCurrentScreen(screen);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
   // Per-site mode: "main" (pawsome3d.com) vs "warehouse" (mypets.cc). Read from
@@ -411,170 +448,130 @@ export default function App() {
       </div>
 
       {/* Dynamic Upper Header Bar */}
-      <header className="fixed top-0 w-full z-50 bg-surface/40 backdrop-blur-xl shadow-[0_8px_32px_0_rgba(68,42,34,0.08)]">
-        <nav className="flex justify-between items-center px-6 md:px-16 py-4 w-full max-w-7xl mx-auto">
-          <div className="flex items-center gap-2">
-            <span className="text-headline-lg font-headline-xl font-extrabold text-primary tracking-tight">Pawsome3D</span>
+      <header className="fixed inset-x-0 top-0 z-50 h-16 bg-surface/85 backdrop-blur-xl shadow-[0_8px_32px_0_rgba(68,42,34,0.08)]">
+        <nav className="mx-auto grid h-16 w-full max-w-[96rem] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 px-3 sm:px-5 lg:px-8">
+          <div className="flex min-w-0 items-center gap-2">
+            <img src="/brand/pawsome-logo.png" alt="Pawsome3D" className="h-9 w-9 shrink-0 rounded-lg object-contain" />
+            <span className="block truncate text-lg font-extrabold text-primary sm:text-xl">Pawsome3D</span>
           </div>
 
-          <div className="hidden md:flex items-center gap-8">
-            <button onClick={() => setCurrentScreen(Screen.DASHBOARD)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.DASHBOARD ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Home</button>
-            <button data-tour="nav-models" onClick={() => setCurrentScreen(Screen.MODELS)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.MODELS ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Furball3D©️</button>
-            <button onClick={() => setCurrentScreen(Screen.STORE)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.STORE ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Avatars-R-Us</button>
-            <button onClick={() => setCurrentScreen(Screen.COMMUNITY)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.COMMUNITY ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Community</button>
-            <button onClick={() => setCurrentScreen(Screen.PAWPRINTS)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.PAWPRINTS ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Pawprints</button>
-            <button onClick={() => setCurrentScreen(Screen.PAWLISHER)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.PAWLISHER ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Pawlisher</button>
-            <button onClick={() => setCurrentScreen(Screen.FURBIN)} className={`font-medium transition-colors px-3 py-1 rounded-lg ${currentScreen === Screen.FURBIN ? 'text-primary font-bold border-b-2 border-primary' : 'text-on-surface-variant hover:bg-primary/5'}`}>Fur Bin©️</button>
+          <div className="min-w-0">
+            <div className="hidden items-center justify-center gap-1 whitespace-nowrap lg:flex xl:gap-3">
+              {isAuthed && (
+                <>
+              {TOP_PRIMARY_NAV.map((item) => (
+                <button
+                  key={item.id}
+                  data-tour={item.screen === Screen.MODELS ? "nav-models" : undefined}
+                  onClick={() => setCurrentScreen(item.screen)}
+                  className={`min-h-10 px-2.5 text-sm font-medium transition-colors xl:px-3 ${currentScreen === item.screen ? "border-b-2 border-primary font-bold text-primary" : "text-on-surface-variant hover:text-primary"}`}
+                >
+                  {item.label}
+                </button>
+              ))}
+                </>
+              )}
+            </div>
           </div>
 
-          <div className="flex items-center gap-2 md:gap-4">
-          {/* Theme Mode trigger button */}
-          <button
-            onClick={toggleDarkMode}
-            className="w-8 h-8 rounded-full bg-surface-container hover:bg-outline-variant/35 text-on-surface flex items-center justify-center border border-outline-variant/20 transition-all cursor-pointer shadow-sm"
-            title={isDarkMode ? "Turn on Light Mode" : "Turn on Dark Mode"}
-          >
-            {isDarkMode ? <Sun size={14} className="text-amber-400" /> : <Moon size={14} className="text-slate-600" />}
-          </button>
+          <div className="flex min-w-0 items-center justify-end gap-1 sm:gap-2">
+            {isAuthed && (
+              <>
+                <button
+                  onClick={() => setCurrentScreen(Screen.STORE)}
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition-colors ${currentScreen === Screen.STORE ? "border-primary bg-primary text-on-primary" : "border-outline-variant/30 bg-surface-container text-on-surface-variant hover:text-primary"}`}
+                  title="Shop"
+                  aria-label="Open shop"
+                >
+                  <ShoppingCart size={18} />
+                </button>
+                <button
+                  onClick={() => setCurrentScreen(Screen.COMMUNITY)}
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition-colors ${currentScreen === Screen.COMMUNITY ? "border-primary bg-primary text-on-primary" : "border-outline-variant/30 bg-surface-container text-on-surface-variant hover:text-primary"}`}
+                  title="Community"
+                  aria-label="Open community"
+                >
+                  <Users size={18} />
+                </button>
+              </>
+            )}
+            <button
+              onClick={toggleDarkMode}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-outline-variant/30 bg-surface-container text-on-surface hover:bg-outline-variant/35"
+              title={isDarkMode ? "Turn on Light Mode" : "Turn on Dark Mode"}
+              aria-label={isDarkMode ? "Turn on light mode" : "Turn on dark mode"}
+            >
+              {isDarkMode ? <Sun size={14} className="text-amber-400" /> : <Moon size={14} className="text-slate-600" />}
+            </button>
 
-          {/* User Profile and Credits display (only when signed in) */}
-          {isAuthed && userProfile.fullName && (
-            <>
-              <button
-                onClick={() => setCurrentScreen(Screen.PROFILE)}
-                title="View profile"
-                className={`flex items-center gap-2.5 bg-surface-container-high py-1.5 px-3 rounded-full border shadow-sm transition-all cursor-pointer hover:bg-surface-container-highest ${currentScreen === Screen.PROFILE ? 'border-primary' : 'border-outline-variant/40'}`}
-              >
-                {userProfile.profilePhotoUrl ? (
-                  <img src={userProfile.profilePhotoUrl} alt="" className="w-5 h-5 rounded-full object-cover" />
-                ) : (
-                  <div className="w-5 h-5 rounded-full bg-primary text-on-primary flex items-center justify-center text-[9px] font-black leading-none">
-                    {userProfile.fullName.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase() || "U"}
-                  </div>
-                )}
-                <span className="text-xs font-bold text-on-surface leading-none font-sans max-w-[80px] truncate md:max-w-none">
-                  {userProfile.fullName.split(" ")[0]}
-                </span>
-                <div className="h-3 w-px bg-outline-variant"></div>
-                <div className="flex items-center gap-1">
-                  <span className="text-xs">🪙</span>
-                  <span className="text-xs font-bold text-secondary font-mono leading-none">
-                    {userProfile.credits}cr
-                  </span>
-                </div>
-              </button>
-              {/* Buy Credits button */}
-              <button
-                data-tour="buy-credits"
-                onClick={() => setShowCreditStore(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm"
-                title="Buy more credits"
-              >
-                <Zap size={11} className="fill-primary" />
-                <span className="hidden sm:inline">Buy</span> Credits
-              </button>
-              <button
-                onClick={() => setShowHelpModal(true)}
-                className="w-10 h-10 rounded-full bg-surface-container hover:bg-primary/10 hover:text-primary text-on-surface-variant flex items-center justify-center border border-outline-variant/20 transition-all cursor-pointer shadow-sm"
-                title="Help & Support"
-              >
-                <HelpCircle size={18} />
-              </button>
-              <button
-                onClick={handleLogout}
-                className="w-10 h-10 rounded-full bg-surface-container hover:bg-error/10 hover:text-error text-on-surface-variant flex items-center justify-center border border-outline-variant/20 transition-all cursor-pointer shadow-sm"
-                title="Log out"
-              >
-                <LogOut size={18} />
-              </button>
-            </>
-          )}
-        </div>
+            {isAuthed && userProfile.fullName && (
+              <>
+                <button
+                  onClick={() => setCurrentScreen(Screen.PROFILE)}
+                  title="View profile"
+                  className={`hidden h-10 min-w-10 shrink-0 items-center justify-center gap-2 rounded-full border bg-surface-container-high px-2.5 shadow-sm transition-all hover:bg-surface-container-highest md:flex ${currentScreen === Screen.PROFILE ? "border-primary" : "border-outline-variant/40"}`}
+                >
+                  {userProfile.profilePhotoUrl ? (
+                    <img src={userProfile.profilePhotoUrl} alt="" className="h-5 w-5 rounded-full object-cover" />
+                  ) : (
+                    <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[9px] font-black text-on-primary">
+                      {userProfile.fullName.split(" ").map((name) => name[0]).join("").slice(0, 2).toUpperCase() || "U"}
+                    </div>
+                  )}
+                  <span className="hidden max-w-[72px] truncate text-xs font-bold text-on-surface xl:block">{userProfile.fullName.split(" ")[0]}</span>
+                  <span className="hidden text-xs font-bold text-secondary xl:block">{userProfile.credits}cr</span>
+                </button>
+                <button
+                  data-tour="buy-credits"
+                  onClick={() => setShowCreditStore(true)}
+                  className="hidden h-10 shrink-0 items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-2.5 text-[10px] font-black uppercase text-primary hover:bg-primary/20 xl:flex"
+                  title="Buy more credits"
+                >
+                  <Zap size={11} className="fill-primary" /> Credits
+                </button>
+                <button onClick={() => setShowHelpModal(true)} className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full border border-outline-variant/30 bg-surface-container text-on-surface-variant hover:text-primary sm:flex" title="Help & Support" aria-label="Help and support">
+                  <HelpCircle size={18} />
+                </button>
+                <button onClick={handleLogout} className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full border border-outline-variant/30 bg-surface-container text-on-surface-variant hover:bg-error/10 hover:text-error sm:flex" title="Log out" aria-label="Log out">
+                  <LogOut size={18} />
+                </button>
+              </>
+            )}
+          </div>
         </nav>
       </header>
 
       <div className="flex-grow flex w-full relative">
         {/* Desktop Sidebar */}
         {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN].includes(currentScreen) && (
-          <aside className="fixed left-0 top-0 h-full z-40 hidden md:flex flex-col py-8 w-64 bg-surface/80 dark:bg-surface-dim/80 backdrop-blur-xl shadow-xl border-r border-outline-variant/20 pt-24">
-            <div className="px-6 mb-8">
-              <button
-                onClick={() => setCurrentScreen(Screen.PROFILE)}
-                title="View profile"
-                className="w-full flex flex-col items-center p-4 bg-primary-container rounded-xl gap-2 text-center shadow-inner hover:brightness-95 transition-all cursor-pointer"
-              >
-                <div className="w-16 h-16 rounded-full border-4 border-primary-fixed-dim overflow-hidden bg-primary text-on-primary flex items-center justify-center text-xl font-black">
-                  {userProfile.profilePhotoUrl ? (
-                    <img src={userProfile.profilePhotoUrl} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    userProfile.fullName.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase() || "U"
-                  )}
-                </div>
-                <div>
-                  <h3 className="font-headline-lg text-[18px] leading-tight text-on-primary-container font-bold">{userProfile.fullName.split(" ")[0]}'s Pet</h3>
-                </div>
-              </button>
-            </div>
-            
-            <nav className="flex-1 space-y-2">
-              <button onClick={() => setCurrentScreen(Screen.DASHBOARD)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${currentScreen === Screen.DASHBOARD ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
-                <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.DASHBOARD ? "'FILL' 1" : "'FILL' 0" }}>home</span>
-                <span className="font-medium">Home</span>
-              </button>
-              <button data-tour="nav-models" onClick={() => setCurrentScreen(Screen.MODELS)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${currentScreen === Screen.MODELS ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
-                <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.MODELS ? "'FILL' 1" : "'FILL' 0" }}>pets</span>
-                <span className="font-medium">Furball3D©️</span>
-              </button>
-              <button onClick={() => setCurrentScreen(Screen.STORE)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${currentScreen === Screen.STORE ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
-                <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.STORE ? "'FILL' 1" : "'FILL' 0" }}>storefront</span>
-                <span className="font-medium">Avatars-R-Us</span>
-              </button>
-              <button onClick={() => setCurrentScreen(Screen.COMMUNITY)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${currentScreen === Screen.COMMUNITY ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
-                <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.COMMUNITY ? "'FILL' 1" : "'FILL' 0" }}>groups</span>
-                <span className="font-medium">Community</span>
-              </button>
-              <button onClick={() => setCurrentScreen(Screen.PAWPRINTS)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${currentScreen === Screen.PAWPRINTS ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
-                <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.PAWPRINTS ? "'FILL' 1" : "'FILL' 0" }}>auto_stories</span>
-                <span className="font-medium">Pawprints</span>
-              </button>
-              <button onClick={() => setCurrentScreen(Screen.PAWLISHER)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${currentScreen === Screen.PAWLISHER ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
-                <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.PAWLISHER ? "'FILL' 1" : "'FILL' 0" }}>brush</span>
-                <span className="font-medium">Pawlisher</span>
-              </button>
-              <button onClick={() => setCurrentScreen(Screen.FURBIN)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${currentScreen === Screen.FURBIN ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
-                <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.FURBIN ? "'FILL' 1" : "'FILL' 0" }}>inventory_2</span>
-                <span className="font-medium">Fur Bin©️</span>
-              </button>
-              <button onClick={() => setCurrentScreen(Screen.MODELS)} className="w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30">
-                <span className="material-symbols-outlined font-sans">view_in_ar</span>
-                <span className="font-medium">AR Mode</span>
-              </button>
-              <button onClick={() => setCurrentScreen(Screen.PROFILE)} className={`w-full flex items-center gap-4 px-4 py-3 mx-4 rounded-lg transition-all duration-300 ${currentScreen === Screen.PROFILE ? 'bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]' : 'text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30'}`}>
-                <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.PROFILE ? "'FILL' 1" : "'FILL' 0" }}>person</span>
-                <span className="font-medium">Profile</span>
-              </button>
+          <aside className="fixed bottom-0 left-0 top-16 z-40 hidden w-64 shrink-0 flex-col overflow-x-hidden overflow-y-auto border-r border-outline-variant/20 bg-surface/85 py-5 shadow-xl backdrop-blur-xl dark:bg-surface-dim/85 md:flex">
+            <nav className="mt-4 flex-1 space-y-2 px-4">
+              {SIDEBAR_NAV.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => setCurrentScreen(item.screen)}
+                  className={`flex min-h-12 w-full items-center gap-4 rounded-lg px-4 py-3 text-left transition-all ${currentScreen === item.screen ? "bg-primary text-on-primary shadow-sm" : "text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30"}`}
+                >
+                  <span className="material-symbols-outlined shrink-0 font-sans" style={{ fontVariationSettings: currentScreen === item.screen ? "'FILL' 1" : "'FILL' 0" }}>{item.materialIcon}</span>
+                  <span className="min-w-0 truncate font-medium">{item.label}</span>
+                </button>
+              ))}
             </nav>
-            
-            <div className="px-4 py-6 mt-auto border-t border-outline-variant/20 mx-4">
-              <button data-tour="avatar-create" onClick={() => setCurrentScreen(Screen.MODELS)} className="w-full bg-primary text-on-primary py-3 rounded-lg font-bold hover:scale-[1.02] transition-transform active:scale-95 shadow-lg shadow-primary/20">
-                Generate Model
+            <div className="mx-4 mt-auto space-y-2 border-t border-outline-variant/20 px-4 py-6">
+              <button onClick={() => setShowHelpModal(true)} className="flex w-full items-center gap-4 rounded-lg px-4 py-2 text-on-surface-variant transition-all hover:bg-secondary-container/30">
+                <span className="material-symbols-outlined shrink-0 font-sans">help</span>
+                <span className="text-body-sm">Help / Support</span>
               </button>
-              <div className="mt-6 space-y-2">
-                <button className="w-full flex items-center gap-4 text-on-surface-variant hover:bg-secondary-container/30 rounded-lg px-4 py-2 transition-all">
-                  <span className="material-symbols-outlined font-sans">help</span>
-                  <span className="text-body-sm">Support</span>
-                </button>
-                <button onClick={handleLogout} className="w-full flex items-center gap-4 text-on-surface-variant hover:bg-secondary-container/30 rounded-lg px-4 py-2 transition-all">
-                  <span className="material-symbols-outlined font-sans">logout</span>
-                  <span className="text-body-sm">Logout</span>
-                </button>
-              </div>
+              <button onClick={handleLogout} className="flex w-full items-center gap-4 rounded-lg px-4 py-2 text-on-surface-variant transition-all hover:bg-secondary-container/30">
+                <span className="material-symbols-outlined shrink-0 font-sans">logout</span>
+                <span className="text-body-sm">Logout</span>
+              </button>
             </div>
           </aside>
         )}
 
       {/* Main Content Router viewport */}
-      <main className={`flex-grow flex flex-col justify-center items-center ${isAuthed ? 'md:ml-64 w-full relative' : 'w-full'}`}>
+      <main className={`flex min-w-0 flex-grow flex-col items-center justify-center pt-16 pb-24 md:pb-0 ${isAuthed ? 'relative w-full md:ml-64 md:w-[calc(100%-16rem)]' : 'w-full'}`}>
         {/* When not authenticated, the only reachable screen is sign-up. */}
         {!isAuthed ? (
           <SignUp onAuthenticated={handleAuthenticated} />
@@ -611,6 +608,14 @@ export default function App() {
                 }}
                 onCreateAlbum={handleCreateAlbum}
                 onOpenAdminPanel={userProfile.isAdmin ? () => setShowAdminPanel(true) : undefined}
+                onOpenAnimator={() => {
+                  setAnimatorAssetId(null);
+                  setAnimatorMode("pro");
+                  setCurrentScreen(Screen.ANIMATOR);
+                }}
+                onOpenFurball={() => setCurrentScreen(Screen.MODELS)}
+                onOpenPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
+                onOpenFidos={() => setCurrentScreen(Screen.PAWLISHER)}
               />
             )}
 
@@ -684,7 +689,7 @@ export default function App() {
                   onOpenCreditStore={() => setShowCreditStore(true)}
                   onGoToAnimator={(assetId) => {
                     setAnimatorAssetId(assetId);
-                    setAnimatorMode("simple");
+                    setAnimatorMode("pro");
                     setCurrentScreen(Screen.ANIMATOR);
                   }}
                 />
@@ -731,12 +736,12 @@ export default function App() {
 
             {currentScreen === Screen.PAWLISHER && (
               <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
-                <PawlisherScreen
+                <FidosStylesScreen
                   userProfile={userProfile}
                   onUserUpdate={applyUser}
                   onGoToAnimator={(assetId) => {
                     setAnimatorAssetId(assetId);
-                    setAnimatorMode("simple");
+                    setAnimatorMode("pro");
                     setCurrentScreen(Screen.ANIMATOR);
                   }}
                   onGoToPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
@@ -754,7 +759,7 @@ export default function App() {
               <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
                 <AnimatorScreen
                   initialAssetId={animatorAssetId}
-                  onClose={() => setAnimatorMode("simple")}
+                  onClose={() => setCurrentScreen(Screen.MODELS)}
                 />
               </Suspense>
             )}
@@ -791,6 +796,14 @@ export default function App() {
                 }}
                 onCreateAlbum={handleCreateAlbum}
                 onOpenAdminPanel={userProfile.isAdmin ? () => setShowAdminPanel(true) : undefined}
+                onOpenAnimator={() => {
+                  setAnimatorAssetId(null);
+                  setAnimatorMode("pro");
+                  setCurrentScreen(Screen.ANIMATOR);
+                }}
+                onOpenFurball={() => setCurrentScreen(Screen.MODELS)}
+                onOpenPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
+                onOpenFidos={() => setCurrentScreen(Screen.PAWLISHER)}
               />
             )}
           </>
@@ -825,57 +838,20 @@ export default function App() {
 
       {/* Floating Bottom Navigator (only when signed in and past onboarding) */}
       {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN].includes(currentScreen) && (
-        <div className="fixed md:hidden bottom-0 left-0 right-0 bg-surface-container-lowest/90 dark:bg-surface-dim/90 backdrop-blur-xl border-t border-outline-variant/30 py-2 px-4 flex justify-around items-center z-40 rounded-t-2xl shadow-[0_-8px_32px_0_rgba(68,42,34,0.08)]">
-          <button
-            onClick={() => setCurrentScreen(Screen.DASHBOARD)}
-            className={`flex flex-col items-center justify-center gap-1 py-2 px-4 rounded-xl transition-all duration-300 ${
-              currentScreen === Screen.DASHBOARD ? "bg-primary text-on-primary scale-105" : "text-on-surface-variant hover:bg-surface-variant/50"
-            }`}
-          >
-            <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.DASHBOARD ? "'FILL' 1" : "'FILL' 0" }}>home</span>
-            <span className="text-[10px] font-bold">Home</span>
-          </button>
-
-          <button
-            onClick={() => setCurrentScreen(Screen.STORE)}
-            className={`flex flex-col items-center justify-center gap-1 py-2 px-4 rounded-xl transition-all duration-300 ${
-              currentScreen === Screen.STORE ? "bg-primary text-on-primary scale-105" : "text-on-surface-variant hover:bg-surface-variant/50"
-            }`}
-          >
-            <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.STORE ? "'FILL' 1" : "'FILL' 0" }}>storefront</span>
-            <span className="text-[10px] font-bold">Avatars-R-Us</span>
-          </button>
-
-          <button
-            onClick={() => setCurrentScreen(Screen.COMMUNITY)}
-            className={`flex flex-col items-center justify-center gap-1 py-2 px-3 rounded-xl transition-all duration-300 ${
-              currentScreen === Screen.COMMUNITY ? "bg-primary text-on-primary scale-105" : "text-on-surface-variant hover:bg-surface-variant/50"
-            }`}
-          >
-            <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.COMMUNITY ? "'FILL' 1" : "'FILL' 0" }}>groups</span>
-            <span className="text-[10px] font-bold">Community</span>
-          </button>
-
-          <button
-            onClick={() => setCurrentScreen(Screen.MODELS)}
-            className={`flex flex-col items-center justify-center gap-1 py-2 px-4 rounded-xl transition-all duration-300 ${
-              currentScreen === Screen.MODELS ? "bg-primary text-on-primary scale-105" : "text-on-surface-variant hover:bg-surface-variant/50"
-            }`}
-          >
-            <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.MODELS ? "'FILL' 1" : "'FILL' 0" }}>pets</span>
-            <span className="text-[10px] font-bold">Furball3D©️</span>
-          </button>
-
-          <button
-            onClick={() => setCurrentScreen(Screen.PROFILE)}
-            className={`flex flex-col items-center justify-center gap-1 py-2 px-4 rounded-xl transition-all duration-300 ${
-              currentScreen === Screen.PROFILE
-                ? "bg-primary text-on-primary scale-105"
-                : "text-on-surface-variant hover:bg-surface-variant/50"
-            }`}
-          >
-            <span className="material-symbols-outlined font-sans" style={{ fontVariationSettings: currentScreen === Screen.PROFILE ? "'FILL' 1" : "'FILL' 0" }}>person</span>
-            <span className="text-[10px] font-bold">Profile</span>
+        <div className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 gap-1 rounded-t-2xl border-t border-outline-variant/30 bg-surface-container-lowest/90 px-1 py-2 shadow-[0_-8px_32px_0_rgba(68,42,34,0.08)] backdrop-blur-xl dark:bg-surface-dim/90 md:hidden">
+          {MOBILE_NAV.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => setCurrentScreen(item.screen)}
+              className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 py-2 transition-colors ${currentScreen === item.screen ? "bg-primary text-on-primary" : "text-on-surface-variant hover:bg-surface-variant/50"}`}
+            >
+              <span className="material-symbols-outlined shrink-0 font-sans" style={{ fontVariationSettings: currentScreen === item.screen ? "'FILL' 1" : "'FILL' 0" }}>{item.materialIcon}</span>
+              <span className="w-full truncate text-center text-[9px] font-bold">{item.label}</span>
+            </button>
+          ))}
+          <button onClick={() => setShowHelpModal(true)} className="flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 py-2 text-on-surface-variant hover:bg-surface-variant/50">
+            <span className="material-symbols-outlined shrink-0 font-sans">help</span>
+            <span className="w-full truncate text-center text-[9px] font-bold">Help</span>
           </button>
         </div>
       )}

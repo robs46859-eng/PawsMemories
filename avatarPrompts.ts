@@ -126,6 +126,12 @@ export function humanStyleClause(styleId?: string | null): string {
   return STYLE_CLAUSES[id] || STYLE_CLAUSES["hyperrealistic"];
 }
 
+/** Selected output finish for pet/object reference renders. */
+export function selectedStyleClause(styleId?: string | null): string {
+  const id = styleId && styleId !== "auto" ? styleId : "pixar";
+  return STYLE_CLAUSES[id] || STYLE_CLAUSES.pixar;
+}
+
 /**
  * Build the human REFERENCE-IMAGE style block for a given render style.
  * The look/finish varies by style; anatomy, proportions and full-body framing
@@ -192,7 +198,9 @@ export function buildReferencePrompt(
     return (
       `You are given one or more reference photos, all of the SAME object. ` + multi +
       `Generate ONE image of this exact object seen DIRECTLY FROM THE FRONT (standard front-facing view), showing its overall shape clearly. ` +
-      REFERENCE_STYLE_OBJECT + ` Respond with only the generated image.`
+      REFERENCE_STYLE_OBJECT +
+      ` SELECTED OUTPUT STYLE (authoritative): render the object as ${selectedStyleClause(style)}. ` +
+      `Keep its dimensions and recognizable construction unchanged while applying that finish. Respond with only the generated image.`
     );
   }
 
@@ -221,7 +229,10 @@ export function buildReferencePrompt(
       `You are given one or more reference photos, all of the SAME pet. ` +
       faceClause + multiPhotoClause +
       `Generate ONE image of this exact pet seen DIRECTLY FROM THE FRONT (head and body facing straight toward the camera). ` +
-      REFERENCE_STYLE_DOG + accentClause + ` Respond with only the generated image.`
+      REFERENCE_STYLE_DOG +
+      ` SELECTED OUTPUT STYLE (authoritative and overrides the default Pixar finish above): render the pet as ${selectedStyleClause(style)}. ` +
+      `Preserve the pet's identity, markings, body proportions, neutral rigging pose, and reconstruction-safe framing. ` +
+      accentClause + ` Respond with only the generated image.`
     );
   }
 }

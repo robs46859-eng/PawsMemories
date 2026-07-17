@@ -196,6 +196,8 @@ export interface Avatar {
   avatar_type?: 'dog' | 'human';
   generation_status: 'pending' | 'generating_mesh' | 'rigging' | 'retargeting' | 'baking_clips' | 'baking_sprites' | 'done' | 'failed';
   generation_error?: string | null;
+  /** Build analysis JSON; may carry a "Fix the vibe" restyle preset chosen on regeneration. */
+  generation_analysis?: { stylePreset?: string; styleHint?: string; [k: string]: unknown } | string | null;
   food_level: number;
   water_level: number;
   last_fed: string;

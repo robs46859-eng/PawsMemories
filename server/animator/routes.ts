@@ -10,8 +10,8 @@ import { createScene, getScene } from "./scenes.ts";
 import { handleLipsyncPost, handleLipsyncGet } from "./lipsync.ts";
 import { createSpeechPreview, SpeechPreviewSchema } from "./speechPreview.ts";
 import { loadEnvironments } from "./environments.ts";
-import { loadScripts, estimateSpeechSeconds } from "./scripts.ts";
-import { PRESET_SCRIPTS } from "./sceneScripts.ts";
+import { loadScripts, getVoiceoverScripts, estimateSpeechSeconds } from "./scripts.ts";
+import { getDirectorScripts } from "./sceneScripts.ts";
 import { CC0_CLIPS } from "./clips.ts";
 import { uploadBase64Binary } from "../../storage.ts";
 import { getCreditBalance, deductCredits, createJob, isUserAdmin, getDailyVideoCount } from "../../db.ts";
@@ -375,7 +375,9 @@ animatorRouter.get("/scenes/scripts", (req: any, res) => {
     if (!req.user || !req.user.phone) {
       return res.status(401).json({ error: "Unauthorized" });
     }
-    const scripts = loadScripts();
+    const seed = typeof req.query.seed === "string" ? req.query.seed : `${req.user.phone}:${Date.now()}`;
+    const requestedLimit = Number.parseInt(String(req.query.limit || "120"), 10);
+    const scripts = getVoiceoverScripts(seed, Number.isFinite(requestedLimit) ? requestedLimit : 120);
     res.json(scripts);
   } catch (e: any) {
     handleReadError(res, e);
@@ -387,7 +389,9 @@ animatorRouter.get("/scenes/director-scripts", (req: any, res) => {
     if (!req.user || !req.user.phone) {
       return res.status(401).json({ error: "Unauthorized" });
     }
-    res.json(PRESET_SCRIPTS);
+    const seed = typeof req.query.seed === "string" ? req.query.seed : `${req.user.phone}:${Date.now()}`;
+    const requestedLimit = Number.parseInt(String(req.query.limit || "108"), 10);
+    res.json(getDirectorScripts(seed, Number.isFinite(requestedLimit) ? requestedLimit : 108));
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }

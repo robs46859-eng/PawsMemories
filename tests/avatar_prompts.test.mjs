@@ -84,3 +84,13 @@ test("humanStyleClause maps auto/undefined to hyper-realistic", () => {
   assert.match(humanStyleClause("auto"), /hyper-realistic|photoreal/i);
   assert.match(humanStyleClause("chibi"), /chibi/i);
 });
+
+test("pet and object prompts honor distinct selected output styles", () => {
+  const petClay = buildReferencePrompt("dog", null, false, 1, "claymation").toLowerCase();
+  const petVoxel = buildReferencePrompt("dog", null, false, 1, "voxel").toLowerCase();
+  const objectWood = buildReferencePrompt("object", null, false, 1, "wood").toLowerCase();
+  assert.match(petClay, /claymation|modeling-clay/);
+  assert.match(petVoxel, /voxel|cubic blocks/);
+  assert.match(objectWood, /wood grain|wooden/);
+  assert.notEqual(petClay, petVoxel);
+});

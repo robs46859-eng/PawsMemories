@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useMemo } from "react";
 import * as THREE from "three";
 import { Canvas, useThree, useFrame } from "@react-three/fiber";
 import { OrbitControls, Environment, ContactShadows } from "@react-three/drei";
-import { Play, Pause, FastForward, Video, Plus, X, List, Clapperboard, Download, Square, Sun, CloudRain, Volume2, VolumeX, Mic } from "lucide-react";
+import { Play, Pause, FastForward, Video, Plus, X, List, Clapperboard, Download, Square, Sun, CloudRain, Volume2, VolumeX, Mic, Shuffle } from "lucide-react";
 import { useSceneController, SceneTicker } from "../controller/useSceneController.ts";
 import { useCaptureSession } from "../capture/useCaptureSession.ts";
 import { ANIMATOR_DEFAULTS } from "../defaults.ts";
@@ -222,6 +222,7 @@ export default function AnimatorScreen({
   const [userAvatars, setUserAvatars] = useState<any[]>([]);
   const [libraryClips, setLibraryClips] = useState<any[]>([]);
   const [activeDirectorScript, setActiveDirectorScript] = useState<any>(null);
+  const [directorSearch, setDirectorSearch] = useState("");
   const [castAssignments, setCastAssignments] = useState<Record<string, string>>({});
   const [mappedRoles, setMappedRoles] = useState<Record<string, string>>({});
   const [ikOptions, setIkOptions] = useState<Record<string, { groundIK: boolean, lookAtCamera: boolean }>>({});
@@ -259,6 +260,11 @@ export default function AnimatorScreen({
   const captureSession = useCaptureSession(canvasRef);
   const voicePreviewRef = useRef<LiveSpeechHandle | null>(null);
   const voicePreviewAbortRef = useRef<AbortController | null>(null);
+  const directorRuntimeRef = useRef<{ scriptId: string; lastTime: number; clips: Record<string, string> }>({
+    scriptId: "",
+    lastTime: 0,
+    clips: {},
+  });
 
   const actors = sceneController.listActors();
   const activeActorId = sceneController.getActiveActorId();
@@ -268,6 +274,13 @@ export default function AnimatorScreen({
   
   const activeEnv = environments.find(e => e.id === activeEnvId);
   const activeSequence = ANIMATOR_DEFAULTS.sequences.find(s => s.id === activeSequenceId) as SceneSequence | undefined;
+  const visibleDirectorScripts = useMemo(() => {
+    const query = directorSearch.trim().toLowerCase();
+    if (!query) return directorScripts;
+    return directorScripts.filter((script) =>
+      [script.name, script.category, script.description].some((value) => String(value || "").toLowerCase().includes(query))
+    );
+  }, [directorScripts, directorSearch]);
   
   const [cameraState, setCameraState] = useState({ 
     position: ANIMATOR_DEFAULTS.camera.position as [number, number, number], 
@@ -366,6 +379,12 @@ export default function AnimatorScreen({
       }
       
       if (activeDirectorScript) {
+        const runtime = directorRuntimeRef.current;
+        if (runtime.scriptId !== activeDirectorScript.id || currentTime + 0.05 < runtime.lastTime) {
+          runtime.scriptId = activeDirectorScript.id;
+          runtime.clips = {};
+        }
+        runtime.lastTime = currentTime;
         const state = runScript(activeDirectorScript, currentTime);
         if (state.cameraTarget) setCameraState(state.cameraTarget);
         if (state.weatherTarget) setWeather(state.weatherTarget as WeatherType);
@@ -376,13 +395,14 @@ export default function AnimatorScreen({
           const actorId = mappedRoles[roleId];
           if (actorId) {
             const controller = sceneController.getActorController(actorId);
-            if (controller) {
+            if (controller && runtime.clips[roleId] !== clipTarget.name) {
               const blend = clipTarget.blend || 0;
               if (blend > 0) {
                 controller.crossFadeTo(clipTarget.name, blend);
               } else {
                 controller.selectClip(clipTarget.name, 0);
               }
+              runtime.clips[roleId] = clipTarget.name;
             }
           }
         }
@@ -392,7 +412,7 @@ export default function AnimatorScreen({
     };
     rafRef.current = requestAnimationFrame(updateTimeline);
     return () => cancelAnimationFrame(rafRef.current!);
-  }, [activeController, activeSequence, activeDirectorScript]);
+  }, [activeController, activeSequence, activeDirectorScript, mappedRoles, sceneController]);
 
   // Load initial asset
   useEffect(() => {
@@ -543,7 +563,39 @@ export default function AnimatorScreen({
       }
     }
     setMappedRoles(newMappedRoles);
+    directorRuntimeRef.current = { scriptId: activeDirectorScript.id, lastTime: 0, clips: {} };
+    sceneController.seekAll(0);
+    sceneController.playAll();
+    setTimeline(0);
     setIsPlaying(true);
+  };
+
+  const selectDirectorScript = (script: any) => {
+    setActiveDirectorScript(script);
+    setActiveSequenceId("");
+    directorRuntimeRef.current = { scriptId: script.id, lastTime: 0, clips: {} };
+    if (script.recommendedEnvironment) {
+      const environment = environments.find((candidate) => candidate.id === script.recommendedEnvironment);
+      if (environment) setActiveEnvId(environment.id);
+    }
+    const initialCast: Record<string, string> = {};
+    (script.roles || []).forEach((role: any, index: number) => {
+      if (userAvatars[index]) initialCast[role.id] = String(userAvatars[index].id);
+    });
+    setCastAssignments(initialCast);
+  };
+
+  const selectRandomVoiceScript = () => {
+    if (scripts.length === 0) return;
+    const script = scripts[Math.floor(Math.random() * scripts.length)];
+    setVoiceoverText(script.text);
+    if (activeController && script.suggestedClip) activeController.crossFadeTo(script.suggestedClip, 0.35);
+  };
+
+  const selectRandomDirectorScript = () => {
+    const choices = visibleDirectorScripts.length > 0 ? visibleDirectorScripts : directorScripts;
+    if (choices.length === 0) return;
+    selectDirectorScript(choices[Math.floor(Math.random() * choices.length)]);
   };
 
   const handleApplyLibraryClip = async (clipData: any) => {
@@ -573,7 +625,7 @@ export default function AnimatorScreen({
 
   return (
     <AnimatorErrorBoundary hasWebGL2={webGL2} onClose={onClose}>
-      <div className="fixed inset-0 z-50 bg-black text-white flex flex-col font-sans">
+      <div className="relative z-0 flex h-[calc(100dvh-10rem)] min-h-[40rem] w-full flex-col overflow-hidden bg-black font-sans text-white md:h-[calc(100dvh-4rem)]">
           {actorLoadError && (
             <div role="status" className="absolute top-16 left-1/2 -translate-x-1/2 z-20 rounded-xl bg-amber-500/90 px-4 py-2 text-sm text-black shadow-lg">
               Couldn't load the selected model — the studio is still available
@@ -925,6 +977,15 @@ export default function AnimatorScreen({
                         <option key={s.id} value={s.text}>{s.title}</option>
                       ))}
                     </select>
+                    <button
+                      type="button"
+                      onClick={selectRandomVoiceScript}
+                      disabled={scripts.length === 0}
+                      title="Choose a different voice script"
+                      className="bg-white/10 text-white text-[10px] font-bold px-2.5 py-1.5 rounded-full disabled:opacity-50 hover:bg-white/20 transition-colors"
+                    >
+                      <Shuffle size={11} className="inline mr-1" /> Surprise me
+                    </button>
                     <div className="flex gap-1.5">
                       <button
                         onClick={isVoicePreviewRunning ? stopVoicePreview : handlePreviewVoice}
@@ -970,32 +1031,36 @@ export default function AnimatorScreen({
                 {/* Director Scripts Panel */}
                 <div className="bg-black/60 backdrop-blur-md rounded-2xl border border-white/10 p-4 flex flex-col gap-3 pointer-events-auto min-w-[200px]">
                   <h3 className="text-xs font-bold text-white/60 uppercase tracking-wider flex items-center gap-1">
-                    <Play size={12} /> Director Scripts
+                    <Play size={12} /> Director Scripts ({directorScripts.length})
                   </h3>
+                  <div className="flex gap-2">
+                    <input
+                      value={directorSearch}
+                      onChange={(event) => setDirectorSearch(event.target.value)}
+                      placeholder="Find a scene..."
+                      aria-label="Search director scripts"
+                      className="min-w-0 flex-1 bg-black/50 border border-white/20 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-primary"
+                    />
+                    <button
+                      type="button"
+                      onClick={selectRandomDirectorScript}
+                      disabled={directorScripts.length === 0}
+                      title="Choose a fresh scene"
+                      className="rounded-lg bg-primary/20 px-2 text-primary hover:bg-primary/40 disabled:opacity-50"
+                    >
+                      <Shuffle size={14} />
+                    </button>
+                  </div>
                   <div className="flex flex-col gap-1 max-h-[30vh] overflow-y-auto">
-                    {directorScripts.length === 0 && <span className="text-xs text-white/40 italic">No scripts found.</span>}
-                    {directorScripts.map(script => (
+                    {visibleDirectorScripts.length === 0 && <span className="text-xs text-white/40 italic">No scripts found.</span>}
+                    {visibleDirectorScripts.map(script => (
                       <div 
                         key={script.id}
-                        onClick={() => {
-                          setActiveDirectorScript(script);
-                          setActiveSequenceId("");
-                          if (script.recommendedEnvironment) {
-                            const env = environments.find(e => e.id === script.recommendedEnvironment);
-                            if (env) setActiveEnvId(env.id);
-                          }
-                          // Pre-fill castAssignments if possible
-                          const initialCast: Record<string, string> = {};
-                          (script.roles || []).forEach((r: any, i: number) => {
-                             if (userAvatars[i]) {
-                               initialCast[r.id] = String(userAvatars[i].id);
-                             }
-                          });
-                          setCastAssignments(initialCast);
-                        }}
+                        onClick={() => selectDirectorScript(script)}
                         className={`p-2 rounded-lg cursor-pointer text-sm font-medium transition-colors ${activeDirectorScript?.id === script.id ? 'bg-primary/20 text-primary border border-primary/50' : 'hover:bg-white/5 border border-transparent'}`}
                       >
-                        {script.name}
+                        <div>{script.name}</div>
+                        <div className="text-[10px] font-normal text-white/40 mt-0.5">{script.category}</div>
                       </div>
                     ))}
                   </div>

@@ -604,6 +604,18 @@ export async function initDb(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
+    // Per-user wardrobe choices. Geometry remains an immutable catalog derivative;
+    // this table stores only stable item IDs selected by the user.
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS wardrobe_selections (
+        user_phone VARCHAR(32) NOT NULL,
+        item_id    VARCHAR(64) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_phone, item_id),
+        INDEX (user_phone)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
     // Migration check for creations table
     const [creationsCols] = await getPool().query(
       `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'creations'`,
@@ -2569,6 +2581,9 @@ export interface PawprintTemplate {
   sampleCopy: string[];
   fieldSchema: { key: string; type: "text" | "image" | "name" | "message"; label: string; maxLength?: number }[];
   imagePromptTemplate: string;
+  sourceUrl?: string;
+  sourceLicense?: "CC0-1.0";
+  sourceName?: string;
 }
 
 const PAWPRINT_CATEGORIES = [
@@ -2576,7 +2591,7 @@ const PAWPRINT_CATEGORIES = [
   "environment", "postcard_travel", "get_well", "miss_you", "pet_business",
 ];
 
-const PAWPRINT_TEMPLATES: PawprintTemplate[] = [
+const CURATED_PAWPRINT_TEMPLATES: PawprintTemplate[] = [
   { category: "grieving_loss", layoutId: "portrait_card", name: "Portrait Card", tone: "gentle", sampleCopy: ["Forever in our hearts.", "Until we meet again at the Rainbow Bridge."], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }, { key: "petName", type: "name", label: "Pet Name" }], imagePromptTemplate: "A soft watercolor-style memorial portrait of a pet, gentle warm lighting" },
   { category: "grieving_loss", layoutId: "landscape_postcard", name: "Landscape Postcard", tone: "gentle", sampleCopy: ["You left pawprints on our hearts.", "Run free, sweet friend."], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }, { key: "message", type: "message", label: "Your Message", maxLength: 200 }], imagePromptTemplate: "A peaceful meadow scene with a rainbow, soft golden hour" },
   { category: "grieving_loss", layoutId: "photo_top", name: "Photo Top", tone: "warm", sampleCopy: ["Remembering the good times.", "A life well loved."], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }, { key: "petName", type: "name", label: "Pet Name" }], imagePromptTemplate: "A warm-toned photo frame with a sleeping pet, surrounded by soft flowers" },
@@ -2597,6 +2612,53 @@ const PAWPRINT_TEMPLATES: PawprintTemplate[] = [
   { category: "miss_you", layoutId: "portrait_card", name: "Portrait Card", tone: "nostalgic", sampleCopy: ["Missing you from my paws to my heart.", "Wish you were here!"], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }, { key: "message", type: "message", label: "Your Message", maxLength: 200 }], imagePromptTemplate: "A nostalgic sunset with a silhouette of a pet looking into the distance" },
   { category: "pet_business", layoutId: "portrait_card", name: "Portrait Card", tone: "professional", sampleCopy: ["Trust us with your fur babies!", "Pawsitively the best care in town."], fieldSchema: [{ key: "petPhoto", type: "image", label: "Business Logo" }, { key: "message", type: "message", label: "Business Message", maxLength: 300 }], imagePromptTemplate: "Professional pet business branding, clean modern aesthetic" },
   { category: "pet_business", layoutId: "landscape_postcard", name: "Landscape Postcard", tone: "friendly", sampleCopy: ["Your pet's home away from home.", "Pet-sitting with love."], fieldSchema: [{ key: "petPhoto", type: "image", label: "Business Photo" }, { key: "message", type: "message", label: "Offer Details", maxLength: 300 }], imagePromptTemplate: "A welcoming pet care facility with happy animals" },
+];
+
+const CC0_CARD_SOURCE = {
+  sourceUrl: "https://www.svgrepo.com/svg/23989/greeting-card",
+  sourceLicense: "CC0-1.0" as const,
+  sourceName: "SVG Repo CC0 Greeting Card",
+};
+
+const CATEGORY_COPY: Record<string, { tone: string; subject: string; samples: [string, string] }> = {
+  grieving_loss: { tone: "gentle", subject: "a peaceful pet memorial with soft botanicals and a subtle pawprint", samples: ["Always loved, never forgotten.", "Your pawprints remain with us."] },
+  new_puppy: { tone: "playful", subject: "a cheerful new-puppy announcement with toys and confetti", samples: ["Our family just grew by four paws!", "Welcome home, little friend!"] },
+  veterinarian: { tone: "grateful", subject: "a warm veterinary thank-you design with a heart-shaped stethoscope", samples: ["Thank you for caring with kindness.", "Our whole pack appreciates you!"] },
+  holiday_birthday: { tone: "festive", subject: "a pet celebration card with balloons, bunting, and seasonal accents", samples: ["Time to celebrate with extra treats!", "Have a pawsitively wonderful day!"] },
+  environment: { tone: "hopeful", subject: "an eco-conscious pet card with leaves, clean water, and a green landscape", samples: ["Small paws can make a greener world.", "Love pets. Protect their planet."] },
+  postcard_travel: { tone: "adventurous", subject: "a vintage travel postcard with room for a pet portrait and destination title", samples: ["Adventure looks better with muddy paws.", "Greetings from our latest walk!"] },
+  get_well: { tone: "caring", subject: "a comforting get-well card with blankets, flowers, and gentle daylight", samples: ["Sending soft cuddles and healing wishes.", "Rest, recover, and feel better soon."] },
+  miss_you: { tone: "nostalgic", subject: "a warm miss-you card with a sunset, envelope, and subtle pawprints", samples: ["Every room misses your happy paws.", "Counting the naps until you are home."] },
+  pet_business: { tone: "professional", subject: "a clean pet-business promotion with modern shapes and a photo area", samples: ["Trusted care for every tail and whisker.", "Friendly service for your best friend."] },
+};
+
+const STANDARD_LAYOUTS = [
+  { id: "portrait_card", name: "Portrait Card", prompt: "vertical portrait layout" },
+  { id: "landscape_postcard", name: "Landscape Postcard", prompt: "wide postcard layout" },
+  { id: "photo_top", name: "Photo Top", prompt: "large photo area above a message panel" },
+  { id: "framed_quote", name: "Framed Quote", prompt: "decorative framed quotation layout" },
+] as const;
+
+const generatedTemplates: PawprintTemplate[] = PAWPRINT_CATEGORIES.flatMap((category) => {
+  const copy = CATEGORY_COPY[category];
+  return STANDARD_LAYOUTS.map((layout) => ({
+    category,
+    layoutId: layout.id,
+    name: layout.name,
+    tone: copy.tone,
+    sampleCopy: [...copy.samples],
+    fieldSchema: layout.id === "framed_quote"
+      ? [{ key: "petName", type: "name" as const, label: "Pet Name" }, { key: "message", type: "message" as const, label: "Your Message", maxLength: 260 }]
+      : [{ key: "petPhoto", type: "image" as const, label: "Pet Photo" }, { key: "petName", type: "name" as const, label: "Pet Name" }, { key: "message", type: "message" as const, label: "Your Message", maxLength: 220 }],
+    imagePromptTemplate: `${copy.subject}, ${layout.prompt}, original editable stationery composition`,
+    ...CC0_CARD_SOURCE,
+  }));
+});
+
+const curatedKeys = new Set(CURATED_PAWPRINT_TEMPLATES.map((template) => `${template.category}:${template.layoutId}`));
+const PAWPRINT_TEMPLATES: PawprintTemplate[] = [
+  ...CURATED_PAWPRINT_TEMPLATES.map((template) => ({ ...CC0_CARD_SOURCE, ...template })),
+  ...generatedTemplates.filter((template) => !curatedKeys.has(`${template.category}:${template.layoutId}`)),
 ];
 
 export function getPawprintCategories(): string[] { return PAWPRINT_CATEGORIES; }

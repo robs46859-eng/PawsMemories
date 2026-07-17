@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { test } from "node:test";
 
 test("Animator entry points hand off GLB URLs instead of avatar database ids", () => {
-  const pawlisher = fs.readFileSync("src/components/PawlisherScreen.tsx", "utf8");
+  const pawlisher = fs.readFileSync("src/components/FidosStylesScreen.tsx", "utf8");
   const models = fs.readFileSync("src/components/AvatarDashboard.tsx", "utf8");
   assert.match(pawlisher, /onGoToAnimator\?\.\(modelUrl\)/);
   assert.doesNotMatch(pawlisher, /onGoToAnimator\?\.\(String\(selected\.id\)\)/);

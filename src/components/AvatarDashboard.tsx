@@ -6,7 +6,7 @@ import Avatar3DPlaypen from "./Avatar3DPlaypen";
 import LivingAvatarView from "./LivingAvatarView";
 import RefundReview from "./RefundReview";
 import BimModelBuilder from "./BimModelBuilder";
-import { buildUncannyRegenerationHint, uncannyPresets } from "../avatar/uncannyPresets";
+import { uncannyPresets } from "../avatar/uncannyPresets";
 import { avatarGenerationCost } from "../pricing";
 import { resolveAvatarGlbUrl } from "../animator/utils/avatarUtils";
 import {
@@ -49,7 +49,8 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
   const [presetByAvatar, setPresetByAvatar] = useState<Record<number, string>>({});
   const [vibeMessage, setVibeMessage] = useState("");
   const [showBimBuilder, setShowBimBuilder] = useState(false);
-  const holdTimerRef = useRef<number | null>(null);
+  const [restyleConfirm, setRestyleConfirm] = useState<{ avatarId: number; presetId: string; presetName: string } | null>(null);
+  const [restylingAvatarId, setRestylingAvatarId] = useState<number | null>(null);
 
   // Tracks active action animation for each avatar
   const [activeActions, setActiveActions] = useState<Record<number, AvatarAction | null>>({});
@@ -226,29 +227,33 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
 
   const applyVibePreset = (avatarId: number, presetId: string) => {
     setPresetByAvatar((prev) => ({ ...prev, [avatarId]: presetId }));
-    const hint = buildUncannyRegenerationHint(presetId);
-    setVibeMessage(hint || "Lighter styling hint saved for the next restyle.");
-    window.setTimeout(() => setVibeMessage(""), 3500);
   };
 
-  const startLighterHold = (avatarId: number) => {
-    if (holdTimerRef.current) window.clearTimeout(holdTimerRef.current);
-    holdTimerRef.current = window.setTimeout(async () => {
-      applyVibePreset(avatarId, "pixar_soft");
-      setVibeMessage("🐶 Lighter retry started.");
-      try {
-        const result = await retryAvatarGeneration(avatarId);
-        if (result.user) onUpdateUser({ ...userProfile, credits: result.user.credits });
-        await loadAvatars();
-      } catch (err: any) {
-        setVibeMessage(err.message || "Could not start the lighter retry.");
-      }
-    }, 4000);
+  // Open the confirm dialog for a softer-look restyle (regeneration costs a credit).
+  const requestRestyle = (avatarId: number, presetId: string) => {
+    const preset = uncannyPresets.find((p) => p.id === presetId);
+    setPresetByAvatar((prev) => ({ ...prev, [avatarId]: presetId }));
+    setRestyleConfirm({ avatarId, presetId, presetName: preset?.name || "softer look" });
   };
 
-  const cancelLighterHold = () => {
-    if (holdTimerRef.current) window.clearTimeout(holdTimerRef.current);
-    holdTimerRef.current = null;
+  // Confirmed: apply the preset and start a regeneration that carries the style.
+  const confirmRestyle = async () => {
+    if (!restyleConfirm) return;
+    const { avatarId, presetId } = restyleConfirm;
+    setRestyleConfirm(null);
+    setRestylingAvatarId(avatarId);
+    applyVibePreset(avatarId, presetId);
+    setVibeMessage("🎨 Restyling — regenerating with a softer look…");
+    try {
+      const result = await retryAvatarGeneration(avatarId, presetId);
+      if (result.user) onUpdateUser({ ...userProfile, credits: result.user.credits });
+      await loadAvatars();
+    } catch (err: any) {
+      setVibeMessage(err.message || "Could not start the restyle.");
+      window.setTimeout(() => setVibeMessage(""), 3500);
+    } finally {
+      setRestylingAvatarId(null);
+    }
   };
 
   const calculateDecay = (timestamp: string, currentLevel: number) => {
@@ -394,33 +399,24 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
                       </div>
                       <button
                         type="button"
-                        onClick={() => {
-                          applyVibePreset(avatar.id, "pixar_soft");
-                          setVibeMessage("😛 Lighter styling hint saved. Hold for 4 seconds to retry.");
-                        }}
-                        onPointerDown={() => startLighterHold(avatar.id)}
-                        onPointerUp={cancelLighterHold}
-                        onPointerLeave={cancelLighterHold}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") startLighterHold(avatar.id);
-                        }}
-                        onKeyUp={cancelLighterHold}
+                        onClick={() => requestRestyle(avatar.id, "pixar_soft")}
                         className="min-h-11 min-w-11 rounded-full bg-primary/10 text-primary text-xl font-black"
-                        aria-label="Lighter styling. Hold for four seconds to retry."
+                        aria-label="Regenerate with a softer Pixar-style look"
                       >
                         {presetByAvatar[avatar.id] === "pixar_soft" ? "🐶" : "😛"}
                       </button>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
-                      {uncannyPresets.slice(0, 4).map((preset) => (
+                      {uncannyPresets.map((preset) => (
                         <button
                           key={preset.id}
                           type="button"
-                          onClick={() => applyVibePreset(avatar.id, preset.id)}
+                          onClick={() => requestRestyle(avatar.id, preset.id)}
+                          disabled={restylingAvatarId === avatar.id}
                           className={`min-h-10 rounded-xl text-[11px] font-black border ${presetByAvatar[avatar.id] === preset.id ? "bg-primary text-on-primary" : "border-outline-variant text-on-surface"}`}
                           title={preset.hint}
                         >
-                          {preset.name}
+                          {restylingAvatarId === avatar.id ? "Remaking…" : `Remake · ${preset.name}`}
                         </button>
                       ))}
                     </div>
@@ -575,6 +571,32 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
         </div>
       )}
       {refundAvatarId && <RefundReview avatarId={refundAvatarId} onClose={() => setRefundAvatarId(null)} />}
+      {restyleConfirm && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setRestyleConfirm(null)}>
+          <div className="w-full max-w-sm rounded-3xl bg-surface p-6 shadow-2xl border border-outline-variant/30" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-black text-on-surface mb-1">Regenerate with the {restyleConfirm.presetName} look?</h3>
+            <p className="text-sm text-on-surface-variant mb-5">
+              This creates a fresh, softer version of your model and uses one regeneration credit.
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setRestyleConfirm(null)}
+                className="flex-1 min-h-11 rounded-xl border border-outline-variant text-on-surface text-sm font-black"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmRestyle}
+                className="flex-1 min-h-11 rounded-xl bg-primary text-on-primary text-sm font-black"
+              >
+                Regenerate
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {showBimBuilder && <BimModelBuilder onClose={() => setShowBimBuilder(false)} userProfile={userProfile} onUpdateUser={onUpdateUser} />}
     </div>
   );
