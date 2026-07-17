@@ -24,11 +24,14 @@ test("lip-sync drives an aliased provider blendshape instead of falling back to 
   assert.ok(mesh.morphTargetInfluences[0] > 0.9);
 });
 
-test("the Blender bake worker exports canonical facial morphs and records validation", async () => {
+test("the Blender bake worker only canonicalizes authored facial morphs and records validation", async () => {
   const source = await readFile(new URL("../blender-worker/jobs/bake_lod.py", import.meta.url), "utf8");
   assert.match(source, /ensure_viseme_blendshapes/);
   assert.match(source, /"viseme_" \+ shape/);
   assert.match(source, /ANIM-LIP-03-viseme-contract/);
+  assert.match(source, /Never synthesize geometry/);
+  assert.match(source, /mode": "bone_fallback/);
+  assert.doesNotMatch(source, /point\.z = source\.z -/);
 });
 
 test("the normal Furball3D export runs facial viseme synthesis before its GLB is written", async () => {
@@ -38,5 +41,8 @@ test("the normal Furball3D export runs facial viseme synthesis before its GLB is
   assert.match(finalize, /execute_bpy/);
   assert.match(finalize, /facialVisemeBpyScript/);
   assert.match(act, /facialVisemeBpyScript\(\)/);
+  assert.match(script, /Never fabricate a mouth shape/);
+  assert.match(script, /Provider targets preserved; otherwise jaw fallback/);
+  assert.doesNotMatch(script, /point\.z = base\.z -/);
   for (const name of ["viseme_A", "viseme_D", "viseme_G", "viseme_H", "viseme_X"]) assert.match(script, new RegExp(name));
 });

@@ -1,16 +1,22 @@
 /**
  * Deterministic Blender payload run immediately before a generated organic
- * avatar is exported. It preserves provider morphs and fills missing canonical
- * A–X targets with restrained lower-face deformations around the head rig.
+ * avatar is exported. It preserves provider morphs and canonicalizes their
+ * names without ever moving generated avatar geometry.
  */
 export const FACIAL_VISEME_NAMES = ["A", "B", "C", "D", "E", "F", "G", "H", "X"] as const;
 
 export function facialVisemeBpyScript(): string {
   return `
 import bpy
+import json
 
 VIS = ("A", "B", "C", "D", "E", "F", "G", "H", "X")
-OPEN = {"A": 0.0, "B": 0.15, "C": 0.55, "D": 1.0, "E": 0.35, "F": 0.3, "G": 0.25, "H": 0.65, "X": 0.0}
+ALIASES = {
+    "A": ("viseme_A", "viseme_MBP", "mouthClose"), "B": ("viseme_B", "viseme_EE"),
+    "C": ("viseme_C", "viseme_EH"), "D": ("viseme_D", "viseme_AA", "jawOpen", "mouthOpen"),
+    "E": ("viseme_E", "viseme_OH"), "F": ("viseme_F", "viseme_OO", "mouthPucker"),
+    "G": ("viseme_G", "viseme_FV"), "H": ("viseme_H", "viseme_L"), "X": ("viseme_X",),
+}
 
 def _norm(value):
     return "".join(ch.lower() for ch in value if ch.isalnum())
@@ -24,44 +30,30 @@ def _find_face_mesh():
     return max(weighted, key=lambda obj: len(obj.data.vertices)) if weighted else None
 
 mesh = _find_face_mesh()
-arm = next((obj for obj in bpy.context.scene.objects if obj.type == "ARMATURE"), None)
 if mesh is None:
-    print("VISEME_RESULT:{\\"available\\":false,\\"detail\\":\\"No face mesh found; jaw fallback remains active.\\"}")
+    print("VISEME_RESULT:" + json.dumps({"available": False, "detail": "No face mesh found; jaw fallback remains active."}))
 else:
     if not mesh.data.shape_keys or not mesh.data.shape_keys.key_blocks.get("Basis"):
         mesh.shape_key_add(name="Basis", from_mix=False)
     keys = mesh.data.shape_keys.key_blocks
-    existing = {_norm(key.name) for key in keys}
+    existing = {_norm(key.name): key for key in keys}
+    canonical = []
     for shape in VIS:
         name = "viseme_" + shape
-        if not keys.get(name):
-            mesh.shape_key_add(name=name, from_mix=False)
-    # Shape-key synthesis is intentionally conservative: only a head-weighted
-    # organic mesh receives visible lower-face deformation. A jaw bone remains
-    # the safe runtime fallback if a provider did not expose suitable geometry.
-    if arm and arm.pose.bones.get("head"):
-        head_world = arm.matrix_world @ arm.pose.bones["head"].head
-        head = mesh.matrix_world.inverted() @ head_world
-        verts = [vertex.co.copy() for vertex in mesh.data.vertices]
-        radius = max((vertex - head).length for vertex in verts) * 0.28
-        region = [index for index, vertex in enumerate(verts) if (vertex - head).length <= radius]
-        if len(region) >= 12:
-            min_z = min(verts[index].z for index in region)
-            max_z = max(verts[index].z for index in region)
-            height = max(0.001, max_z - min_z)
-            for shape in VIS:
-                target = keys["viseme_" + shape]
-                if _norm(target.name) in existing:
-                    continue
-                for index in region:
-                    base = keys["Basis"].data[index].co
-                    lower = max(0.0, min(1.0, (head.z - base.z + height * 0.5) / height))
-                    if not lower:
-                        continue
-                    point = target.data[index].co
-                    point.z = base.z - height * 0.16 * OPEN[shape] * lower
-                    if shape in ("A", "E", "F"):
-                        point.x = head.x + (base.x - head.x) * (0.97 if shape == "A" else 0.94)
-    print("VISEME_RESULT:{\\"available\\":true,\\"shapes\\":[\\"viseme_A\\",\\"viseme_B\\",\\"viseme_C\\",\\"viseme_D\\",\\"viseme_E\\",\\"viseme_F\\",\\"viseme_G\\",\\"viseme_H\\",\\"viseme_X\\"]}")
+        target = keys.get(name)
+        source = next((existing.get(_norm(alias)) for alias in ALIASES[shape] if existing.get(_norm(alias))), None)
+        # Never fabricate a mouth shape by reshaping the head/neck mesh. Only
+        # copy an authored provider target into our stable A–X contract.
+        if target or source:
+            if not target:
+                target = mesh.shape_key_add(name=name, from_mix=False)
+                for index, point in enumerate(source.data):
+                    target.data[index].co = point.co.copy()
+            canonical.append(name)
+    print("VISEME_RESULT:" + json.dumps({
+        "available": bool(canonical),
+        "shapes": canonical,
+        "detail": "Provider targets preserved; otherwise jaw fallback.",
+    }))
 `;
 }

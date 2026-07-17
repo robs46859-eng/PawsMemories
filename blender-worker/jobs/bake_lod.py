@@ -21,7 +21,6 @@ interpreter in server/rigBudget.ts is what the app unit-tests.
 import bpy  # type: ignore
 import json
 import os
-from mathutils import Vector  # type: ignore
 
 # --- Hard budget (spec §3.3) ------------------------------------------------
 MAX_TRIS = 30_000
@@ -30,7 +29,6 @@ TEXTURE_SIZE = 1024
 MAX_GLB_BYTES = 4 * 1024 * 1024
 CLIP_FPS = 24
 VISEME_NAMES = ("A", "B", "C", "D", "E", "F", "G", "H", "X")
-VISEME_OPENNESS = {"A": 0.0, "B": 0.15, "C": 0.55, "D": 1.0, "E": 0.35, "F": 0.3, "G": 0.25, "H": 0.65, "X": 0.0}
 VISEME_ALIASES = {
     "A": ("viseme_A", "viseme_MBP", "mouthClose"),
     "B": ("viseme_B", "viseme_EE"),
@@ -210,10 +208,9 @@ def _copy_shape_key(source, target):
 
 def ensure_viseme_blendshapes(avatar_type):
     """
-    Preserve high-quality provider morphs when they exist. For a rigged organic
-    mesh that exposes a head vertex group, create a small, reversible lower-face
-    deformation set so every canonical A–X shape is functional. Objects are
-    intentionally excluded — a talking-object workflow must provide a face.
+    Preserve high-quality provider morphs when they exist and canonicalize their
+    names. Never synthesize geometry from a generated mesh: that can deform the
+    neck, torso, or arms when the provider's head weights are imperfect.
     """
     if avatar_type == "object":
         return {"available": False, "mode": "not_applicable", "shapes": [], "detail": "Static objects do not receive a synthetic face."}
@@ -222,61 +219,25 @@ def ensure_viseme_blendshapes(avatar_type):
     if mesh is None or len(mesh.data.vertices) < 16:
         return {"available": False, "mode": "bone_fallback", "shapes": [], "detail": "No face mesh or head-weighted geometry was found; jaw-bone lip sync remains available."}
 
-    basis = mesh.data.shape_keys.key_blocks.get("Basis") if mesh.data.shape_keys else None
-    if basis is None:
-        basis = mesh.shape_key_add(name="Basis", from_mix=False)
+    if not mesh.data.shape_keys or not mesh.data.shape_keys.key_blocks.get("Basis"):
+        mesh.shape_key_add(name="Basis", from_mix=False)
     keys = mesh.data.shape_keys.key_blocks
     existing = {_normalise_name(key.name): key for key in keys}
     canonical = {}
-    provider_count = 0
-    provider_shapes = set()
     for shape in VISEME_NAMES:
         key_name = "viseme_" + shape
         target = keys.get(key_name)
         source = next((existing.get(_normalise_name(alias)) for alias in VISEME_ALIASES[shape] if existing.get(_normalise_name(alias))), None)
-        if source is not None:
-            provider_shapes.add(shape)
-        if target is None:
+        if target is None and source is not None:
             target = mesh.shape_key_add(name=key_name, from_mix=False)
-            if source is not None and source != target:
-                _copy_shape_key(source, target)
-                provider_count += 1
-        canonical[shape] = target
+            _copy_shape_key(source, target)
+        if target is not None:
+            canonical[shape] = target
 
-    # Existing provider morphs are already the best possible result. Otherwise
-    # synthesize a restrained lower-face aperture around the head-weighted area.
-    if len(provider_shapes) == len(VISEME_NAMES):
-        return {"available": True, "mode": "provider", "shapes": ["viseme_" + shape for shape in VISEME_NAMES], "mesh": mesh.name, "detail": "Preserved and canonicalized provider facial morphs."}
-
-    if arm is None or arm.pose.bones.get("head") is None:
-        return {"available": True, "mode": "partial", "shapes": ["viseme_" + shape for shape in VISEME_NAMES], "mesh": mesh.name, "detail": "Canonical morph names were added; jaw fallback drives models without a named head bone."}
-    head_world = arm.matrix_world @ arm.pose.bones["head"].head
-    head_local = mesh.matrix_world.inverted() @ head_world
-    vertices = [vertex.co.copy() for vertex in mesh.data.vertices]
-    radius = max((vertex - head_local).length for vertex in vertices) * 0.28
-    region = [index for index, vertex in enumerate(vertices) if (vertex - head_local).length <= radius]
-    if len(region) < 12:
-        return {"available": True, "mode": "partial", "shapes": ["viseme_" + shape for shape in VISEME_NAMES], "mesh": mesh.name, "detail": "Canonical morph names were added; insufficient face vertices for synthesis."}
-    min_z = min(vertices[index].z for index in region)
-    max_z = max(vertices[index].z for index in region)
-    face_height = max(0.001, max_z - min_z)
-    face_width = max(0.001, max(vertices[index].x for index in region) - min(vertices[index].x for index in region))
-    for shape, target in canonical.items():
-        if shape in ("A", "X") or shape in provider_shapes or _normalise_name(target.name) in existing:
-            continue
-        openness = VISEME_OPENNESS[shape]
-        for index in region:
-            source = basis.data[index].co
-            lower = max(0.0, min(1.0, (head_local.z - source.z + face_height * 0.5) / face_height))
-            if lower <= 0:
-                continue
-            point = target.data[index].co
-            point.z = source.z - (face_height * 0.16 * openness * lower)
-            if shape in ("E", "F"):
-                point.x = head_local.x + (source.x - head_local.x) * (1.0 - 0.16 * openness * lower)
-            elif shape == "A":
-                point.x = head_local.x + (source.x - head_local.x) * 0.97
-    return {"available": True, "mode": "synthesized", "shapes": ["viseme_" + shape for shape in VISEME_NAMES], "mesh": mesh.name, "detail": "Generated restrained lower-face viseme morphs; existing provider shapes were kept where available."}
+    shapes = ["viseme_" + shape for shape in canonical]
+    if shapes:
+        return {"available": True, "mode": "provider", "shapes": shapes, "mesh": mesh.name, "detail": "Preserved and canonicalized provider facial morphs."}
+    return {"available": False, "mode": "bone_fallback", "shapes": [], "mesh": mesh.name, "detail": "No authored facial morphs were found; jaw-bone lip sync is used without changing mesh geometry."}
 
 
 def export_glb(path):
