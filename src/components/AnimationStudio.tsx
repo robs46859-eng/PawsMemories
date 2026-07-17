@@ -11,13 +11,14 @@ interface AnimationStudioProps {
   onOpenPro: () => void;
   onOpenCreditStore: () => void;
   onClose: () => void;
+  onCreationsChanged?: () => Promise<void> | void;
 }
 
 /**
  * Animate landing screen: pick one of your generated images + a motion prompt
  * to make a video, or open the contained advanced 3D Animation Builder.
  */
-export default function AnimationStudio({ creations, userProfile, onOpenPro, onOpenCreditStore, onClose }: AnimationStudioProps) {
+export default function AnimationStudio({ creations, userProfile, onOpenPro, onOpenCreditStore, onClose, onCreationsChanged }: AnimationStudioProps) {
   const images = useMemo(() => creations.filter((c) => c.image_url), [creations]);
   const [selectedId, setSelectedId] = useState<number | null>(images[0]?.id ?? null);
   const [presetValue, setPresetValue] = useState<string>(DEFAULT_MOTION_PRESET.value);
@@ -46,7 +47,12 @@ export default function AnimationStudio({ creations, userProfile, onOpenPro, onO
         await new Promise((r) => setTimeout(r, 4000));
         try {
           const job = await pollJob(jobId);
-          if (job.status === "done" && job.video_url) { setResultUrl(job.video_url); setStatus("done"); return; }
+          if (job.status === "done" && job.video_url) {
+            setResultUrl(job.video_url);
+            setStatus("done");
+            await onCreationsChanged?.();
+            return;
+          }
           if (job.status === "failed") { throw new Error(job.error || "Video generation failed."); }
         } catch (pollErr: any) {
           if (pollErr?.message && /failed/i.test(pollErr.message)) throw pollErr;

@@ -27,6 +27,7 @@ import HelpModal from "./components/HelpModal";
 const PawprintsScreen = lazy(() => import("./components/PawprintsScreen"));
 const FidosStylesScreen = lazy(() => import("./components/FidosStylesScreen"));
 const FurBinScreen = lazy(() => import("./components/FurBinScreen"));
+const CreationsScreen = lazy(() => import("./components/CreationsScreen"));
 const AnimatorScreen = lazy(() => import("./animator/components/AnimatorScreen"));
 import WarehouseMode from "./components/WarehouseMode";
 import { MOBILE_NAV, SIDEBAR_NAV, TOP_PRIMARY_NAV } from "./shellNavigation";
@@ -41,6 +42,7 @@ const SCREEN_PATHS: Partial<Record<Screen, string>> = {
   [Screen.PAWPRINTS]: "/pawprints",
   [Screen.PAWLISHER]: "/fidos-styles",
   [Screen.FURBIN]: "/fur-bin",
+  [Screen.CREATIONS]: "/creations",
   [Screen.STORE]: "/store",
   [Screen.COMMUNITY]: "/community",
   [Screen.PROFILE]: "/profile",
@@ -72,6 +74,7 @@ const getBackgroundImage = (screen: Screen) => {
     case Screen.PAWPRINTS:
     case Screen.PAWLISHER:
     case Screen.FURBIN:
+    case Screen.CREATIONS:
       return {
         url: "/MAIN2.jpg",
         className: "opacity-45 blur-[1px]"
@@ -120,6 +123,11 @@ export default function App() {
   const [activeAlbum, setActiveAlbum] = useState<Album | null>(null);
   const [selectedCreationForShare, setSelectedCreationForShare] = useState<Creation | null>(null);
 
+  const refreshCreations = async () => {
+    const serverCreations = await fetchCreations();
+    setCreations(serverCreations);
+  };
+
   const openAnimationStudio = () => {
     setAnimatorAssetId(null);
     setAnimatorMode("simple");
@@ -153,8 +161,7 @@ export default function App() {
         setIsAuthed(true);
         setCurrentScreen(screenFromPath(window.location.pathname) || Screen.DASHBOARD);
         // Phase 1.7: Fetch persistent creations from backend
-        const serverCreations = await fetchCreations();
-        setCreations(serverCreations);
+        await refreshCreations();
         const serverAlbums = await fetchAlbums();
         setAlbums(serverAlbums);
       } else {
@@ -327,7 +334,7 @@ export default function App() {
       setCurrentScreen(Screen.WELCOME);
     } else {
       setCurrentScreen(Screen.DASHBOARD);
-      fetchCreations().then(setCreations);
+      refreshCreations().catch(() => {});
       fetchAlbums().then(setAlbums);
     }
   };
@@ -466,6 +473,11 @@ export default function App() {
         <nav className="mx-auto grid h-16 w-full max-w-[96rem] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 px-3 sm:px-5 lg:px-8">
           <div className="flex min-w-0 items-center gap-2">
             <img src="/brand/pawsome-logo.png" alt="Pawsome3D" className="h-9 w-9 shrink-0 rounded-lg object-contain" />
+            {isAuthed && (
+              <button onClick={() => setCurrentScreen(Screen.CREATIONS)} className={`flex h-9 w-9 items-center justify-center rounded-full border transition lg:hidden ${currentScreen === Screen.CREATIONS ? "border-primary bg-primary text-on-primary" : "border-outline-variant/30 bg-surface-container text-on-surface-variant hover:text-primary"}`} title="Creations" aria-label="Open creations">
+                <span className="material-symbols-outlined text-[19px]">photo_library</span>
+              </button>
+            )}
           </div>
 
           <div className="min-w-0">
@@ -556,7 +568,7 @@ export default function App() {
 
       <div className="flex-grow flex w-full relative">
         {/* Desktop Sidebar */}
-        {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN].includes(currentScreen) && (
+        {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN, Screen.CREATIONS].includes(currentScreen) && (
           <aside className="fixed bottom-0 left-0 top-16 z-40 hidden w-64 shrink-0 flex-col overflow-x-hidden overflow-y-auto border-r border-outline-variant/20 bg-surface/85 py-5 shadow-xl backdrop-blur-xl dark:bg-surface-dim/85 md:flex">
             <nav className="mt-4 flex-1 space-y-2 px-4">
               {SIDEBAR_NAV.map((item) => (
@@ -739,7 +751,18 @@ export default function App() {
 
             {currentScreen === Screen.PAWPRINTS && (
               <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
-                <PawprintsScreen userProfile={userProfile} creations={creations} onOpenCreditStore={() => setShowCreditStore(true)} onUserUpdate={applyUser} />
+                <PawprintsScreen userProfile={userProfile} creations={creations} onOpenCreditStore={() => setShowCreditStore(true)} onUserUpdate={applyUser} onCreationSaved={refreshCreations} />
+              </Suspense>
+            )}
+
+            {currentScreen === Screen.CREATIONS && (
+              <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
+                <CreationsScreen
+                  creations={creations}
+                  onRefresh={refreshCreations}
+                  onOpenVideoCreator={openAnimationStudio}
+                  onOpenPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
+                />
               </Suspense>
             )}
 
@@ -781,6 +804,7 @@ export default function App() {
                 onOpenPro={() => setAnimatorMode("pro")}
                 onOpenCreditStore={() => setShowCreditStore(true)}
                 onClose={() => setCurrentScreen(Screen.MODELS)}
+                onCreationsChanged={refreshCreations}
               />
             )}
 
@@ -843,7 +867,7 @@ export default function App() {
       )}
 
       {/* Floating Bottom Navigator (only when signed in and past onboarding) */}
-      {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN].includes(currentScreen) && (
+      {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN, Screen.CREATIONS].includes(currentScreen) && (
         <div className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 gap-1 rounded-t-2xl border-t border-outline-variant/30 bg-surface-container-lowest/90 px-1 py-2 shadow-[0_-8px_32px_0_rgba(68,42,34,0.08)] backdrop-blur-xl dark:bg-surface-dim/90 md:hidden">
           {MOBILE_NAV.map((item) => (
             <button

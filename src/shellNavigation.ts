@@ -11,6 +11,7 @@ export const TOP_PRIMARY_NAV: ShellNavigationItem[] = [
   { id: "furball", label: "Furball3D©️", screen: Screen.MODELS, materialIcon: "pets" },
   { id: "pawprints", label: "Pawprints", screen: Screen.PAWPRINTS, materialIcon: "auto_stories" },
   { id: "fidos-styles", label: "Fido's Styles", screen: Screen.PAWLISHER, materialIcon: "brush" },
+  { id: "creations", label: "Creations", screen: Screen.CREATIONS, materialIcon: "photo_library" },
 ];
 
 export const SIDEBAR_NAV: ShellNavigationItem[] = [

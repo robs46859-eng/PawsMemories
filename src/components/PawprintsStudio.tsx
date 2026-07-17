@@ -11,6 +11,7 @@ interface PawprintsStudioProps {
   creations: Creation[];
   onOpenCreditStore: () => void;
   onUserUpdate: (user: PublicUser) => void;
+  onCreationSaved?: () => Promise<void> | void;
 }
 
 interface TemplateField {
@@ -358,7 +359,7 @@ function VariationPreview({ variation, selected, photos, title, message, categor
   );
 }
 
-export default function PawprintsStudio({ userProfile, onOpenCreditStore, onUserUpdate }: PawprintsStudioProps) {
+export default function PawprintsStudio({ userProfile, onOpenCreditStore, onUserUpdate, onCreationSaved }: PawprintsStudioProps) {
   const [categories, setCategories] = useState<string[]>([]);
   const [templates, setTemplates] = useState<PawprintTemplate[]>([]);
   const [category, setCategory] = useState("");
@@ -436,6 +437,7 @@ export default function PawprintsStudio({ userProfile, onOpenCreditStore, onUser
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "The Pawprint could not be saved.");
       setResultUrl(data.url);
+      await onCreationSaved?.();
       if (data.user) onUserUpdate(data.user);
     } catch (caught: any) {
       setError(caught.message || "The Pawprint could not be saved.");

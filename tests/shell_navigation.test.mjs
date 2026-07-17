@@ -8,6 +8,7 @@ test("top panel exposes only the primary creation destinations", () => {
     Screen.MODELS,
     Screen.PAWPRINTS,
     Screen.PAWLISHER,
+    Screen.CREATIONS,
   ]);
 });
 
