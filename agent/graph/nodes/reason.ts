@@ -11,7 +11,7 @@
 import type { BuildState, NextAction, BuildStep } from "./types";
 import { lookupBreedAnatomy } from "../../knowledge/breed-anatomy";
 
-const REASON_SYSTEM_PROMPT = `You are an expert 3D artist and Blender pipeline architect. Your role is to plan and orchestrate the construction of rigged, animated 3D pet avatars in Blender 5.1.
+const REASON_SYSTEM_PROMPT = `You are an expert 3D artist and Blender pipeline architect. Your role is to plan and orchestrate the construction of static, rig-ready 3D pet avatars in Blender 5.1.
 
 You receive:
 1. Pet analysis (species, breed, anatomy)
@@ -37,21 +37,13 @@ BUILD ORDER for pet avatars:
 4. Parent mesh to armature — use automatic weights (ARMATURE_AUTO)
 5. Test deformations — rotate key bones slightly, verify no distortion
 6. Enhance Material — locate mesh material, add Bump node using Image Texture as height, plug into Normal, set Roughness to 0.8
-7. Create eat animation — head/neck dip cycle, jaw rotates open/closed rhythmically (24 frames)
-8. Create drink animation — head stays low, jaw bobbing (24 frames)
-9. Create run animation — gallop/trot leg cycle (24 frames)
-10. Create play animation — bounce/jump cycle, rapid tail wag (24 frames)
-11. Create sleep animation — curled up, breathing (24 frames)
-12. Create photo animation — alert pose, head tilt, ear twitches, eye scale down (blink) (12 frames)
-13. Setup camera + lighting — orthographic side view, 3-point light rig
-14. Render sprite sheet — 128×128 per frame, 6 rows
+7. Remove any inherited animation actions and reset the armature to its neutral rest pose
+8. Export one static rig-ready GLB. Motion is authored separately in the Animation Builder.
 
 CONSTRAINTS:
 - ALWAYS use .get() for bone access, NEVER direct indexing
 - Keep rotations within anatomical limits (±60° legs, ±45° spine, ±60° tail)
-- Use Bezier interpolation for all animation keyframes to ensure smooth, realistic movement
 - Use BLENDER_EEVEE engine for fast realistic PBR rendering
-- Film transparent = True for sprite sheets
 - Bone names: hips, spine, chest, neck, head, jaw, ear.L, ear.R, eye.L, eye.R, front_leg_upper.L/R, front_leg_lower.L/R, front_paw.L/R, back_leg_upper.L/R, back_leg_lower.L/R, back_paw.L/R, tail_01/02/03
 
 ADAPTATION:
@@ -71,7 +63,6 @@ export function generateBuildPlan(state: BuildState): BuildStep[] {
   // Look up breed-specific anatomy for constraint context
   const anatomy = lookupBreedAnatomy(petAnalysis.species, petAnalysis.breed);
   const boneProps = anatomy.sections;
-  const animMods = anatomy.animationModifiers;
 
   const steps: BuildStep[] = [
     {
@@ -134,86 +125,28 @@ export function generateBuildPlan(state: BuildState): BuildStep[] {
     },
   ];
 
-  // Add animation steps with breed-specific gait info
-  const gaitDesc: Record<string, string> = {
-    gallop: "full gallop cycle, alternating diagonal leg pairs",
-    trot: "smooth trot cycle, alternating diagonal leg pairs",
-    waddle: "short waddle cycle, body sways side-to-side with short leg strides",
-    hop: "hopping cycle, legs move synchronously",
-  };
-
-  const animations = [
-    { name: "eating", frames: 24, desc: `Head/neck dip down (reach multiplier: ${animMods.eatingReach.toFixed(1)}x), jaw bone opens and closes rhythmically, slight forward lean, smooth transitions` },
-    { name: "drinking", frames: 24, desc: `Head at consistent low level (reach: ${animMods.eatingReach.toFixed(1)}x), jaw bobbing, rhythmic continuous looping` },
-    { name: "running", frames: 24, desc: `${gaitDesc[animMods.runGaitType] || "trot cycle"}, body bob (spine flex: ${animMods.spineFlexMultiplier.toFixed(1)}x), max leg angle: ${boneProps.frontLegs.jointAngleMax}°, large expressive leg arcs` },
-    { name: "playing", frames: 24, desc: `Playful bounce/jump (bounce: ${animMods.playBounce.toFixed(1)}x), front paws lift, energetic full-body movement, rapid tail wag` },
-    { name: "sleeping", frames: 24, desc: "Body lowered, slow continuous breathing (scale chest), head resting, very subtle smooth motion" },
-    { name: "photo", frames: 12, desc: "Alert sitting, head tilts, ear twitches, eye blinks (scale Z to 0.1 briefly), natural idle" },
-  ];
-
-  for (const anim of animations) {
-    steps.push({
-      id: steps.length + 1,
-      phase: "animation",
-      description: `Create ${anim.name} animation (${anim.frames} frames)`,
-      bpyIntent: `Create a bpy.data.actions entry named "${anim.name}" with ${anim.frames} keyframes. ` +
-        `Animation for ${petAnalysis.breed}: ${anim.desc}. ` +
-        (petAnalysis.hasTail && (anim.name === "running" || anim.name === "playing")
-          ? `Include tail wagging (amplitude: ${animMods.tailWagAmplitude.toFixed(1)}x).`
-          : "") +
-        " Use pose.bones.get() for safe bone access. Use relative data_path for keyframe_insert.",
-      constraints: [
-        "Use armature_obj.pose.bones.get('name') — NEVER direct indexing",
-        "Set bone.rotation_mode = 'XYZ' before setting rotation_euler",
-        "Use keyframe_insert(data_path='rotation_euler') — relative path only",
-        `Keep rotations within breed-specific limits (legs: ±${boneProps.frontLegs.jointAngleMax}°, tail: ±${boneProps.tail?.jointAngleMax ?? 30}°)`,
-        "Create animation_data if not exists",
-      ],
-      completed: false,
-      retryCount: 0,
-    });
-  }
-
-  // Camera, lighting, render steps
+  // Keep model generation static. Animation and video assets are authored in
+  // their own studios and must never be uploaded as model reference images.
   steps.push(
     {
       id: steps.length + 1,
-      phase: "camera",
-      description: "Setup orthographic camera and 3-point lighting",
-      bpyIntent: "Create an orthographic camera positioned to the side, with ortho_scale fitting the model. " +
-        "Add 3-point lighting: key (SUN, energy 2.0), fill (POINT, energy 0.5), rim (SUN, energy 1.0). " +
-        "Set film_transparent = True.",
+      phase: "rigging",
+      description: "Clear inherited animation and restore neutral pose",
+      bpyIntent: "Remove all bpy.data.actions, clear animation_data from every object and armature, and reset pose bones to their neutral transforms.",
       constraints: [
-        "Camera type = ORTHO",
-        "Use Damped Track or manual rotation to point at model center",
-        "15% margin so ears/tail aren't clipped",
+        "Do not alter mesh geometry or materials",
+        "Leave the armature in its neutral rest pose",
+        "The exported GLB must contain zero animation clips",
       ],
       completed: false,
       retryCount: 0,
     },
     {
       id: steps.length + 2,
-      phase: "render",
-      description: "Render sprite sheet (6 animations × max frames)",
-      bpyIntent: "Set render engine to BLENDER_WORKBENCH, resolution 128×128, RGBA PNG. " +
-        "For each animation action, set it active, render each frame to temp file, " +
-        "then composite into a sprite sheet using numpy. " +
-        "Save sprite sheet and animation metadata JSON.",
-      constraints: [
-        "Use BLENDER_WORKBENCH — do NOT use Cycles or EEVEE",
-        "Render to temp files first, then composite",
-        "Do NOT read from 'Render Result' directly",
-        "Sprite sheet: 6 columns × 6 rows, 128×128 per cell",
-      ],
-      completed: false,
-      retryCount: 0,
-    },
-    {
-      id: steps.length + 3,
       phase: "export",
-      description: "Export final rigged GLB",
-      bpyIntent: "Export the scene as GLB with animations and skins enabled",
-      constraints: [],
+      description: "Export final static rig-ready GLB",
+      bpyIntent: "Export the scene as GLB with skins enabled and animations disabled",
+      constraints: ["Export exactly one static model asset", "Do not render or export a sprite sheet"],
       completed: false,
       retryCount: 0,
     }

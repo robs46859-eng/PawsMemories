@@ -10,6 +10,7 @@ const {
   buildReferencePrompt,
   buildHumanReferenceStyle,
   humanStyleClause,
+  selectedStyleClause,
 } = await import("../avatarPrompts.ts");
 
 test("CLASS_DEFINITIONS states canonical human anatomy counts", () => {
@@ -93,4 +94,12 @@ test("pet and object prompts honor distinct selected output styles", () => {
   assert.match(petVoxel, /voxel|cubic blocks/);
   assert.match(objectWood, /wood grain|wooden/);
   assert.notEqual(petClay, petVoxel);
+});
+
+test("pet Auto is neutral and does not silently force a glossy cartoon finish", () => {
+  const automatic = selectedStyleClause("auto").toLowerCase();
+  const prompt = buildReferencePrompt("dog", null, false, 1, "auto").toLowerCase();
+  assert.match(automatic, /reconstruction|accurate proportions|surface details/);
+  assert.doesNotMatch(automatic, /pixar|vinyl|glossy/);
+  assert.match(prompt, /do not impose.*cartoon.*glossy.*pixar/);
 });

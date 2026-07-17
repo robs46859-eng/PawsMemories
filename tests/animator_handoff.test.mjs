@@ -15,3 +15,17 @@ test("Scene controller wrapper is memoized so initial asset loading cannot loop"
   const source = fs.readFileSync("src/animator/controller/useSceneController.ts", "utf8");
   assert.match(source, /const wrappedController = useMemo/);
 });
+
+test("3D Animation Builder uses the workstation interface while text-to-video remains separate", () => {
+  const builder = fs.readFileSync("src/animator/components/AnimatorScreen.tsx", "utf8");
+  const videoCreator = fs.readFileSync("src/components/AnimationStudio.tsx", "utf8");
+  const app = fs.readFileSync("src/App.tsx", "utf8");
+  assert.match(builder, /3D Animation Builder/);
+  assert.match(builder, /Timeline[\s\S]*Dope Sheet[\s\S]*X-Sheet/);
+  assert.match(builder, /workspaceTool/);
+  assert.match(builder, /MousePointer2[\s\S]*Move3D[\s\S]*Bone/);
+  assert.match(builder, /onOpenVideoCreator/);
+  assert.match(videoCreator, /Text to Video Creator/);
+  assert.match(videoCreator, /separate from the 3D Animation Builder/);
+  assert.match(app, /onOpenVideoCreator=\{\(\) => setAnimatorMode\("simple"\)\}/);
+});

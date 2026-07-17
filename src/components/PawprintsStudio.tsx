@@ -193,22 +193,79 @@ function cover(ctx: CanvasRenderingContext2D, image: HTMLImageElement, x: number
   ctx.restore();
 }
 
-function wrapText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth: number, lineHeight: number, maxLines: number) {
-  const words = text.trim().split(/\s+/).filter(Boolean);
+function wrapTextLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+  const paragraphs = text.replace(/\r/g, "").split("\n");
   const lines: string[] = [];
-  let line = "";
-  for (const word of words) {
-    const next = line ? `${line} ${word}` : word;
-    if (ctx.measureText(next).width > maxWidth && line) {
-      lines.push(line);
-      line = word;
-      if (lines.length === maxLines - 1) break;
-    } else {
-      line = next;
+  for (const paragraph of paragraphs) {
+    const words = paragraph.trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) {
+      if (paragraphs.length > 1) lines.push("");
+      continue;
     }
+    let line = "";
+    for (const word of words) {
+      const next = line ? `${line} ${word}` : word;
+      if (!line || ctx.measureText(next).width <= maxWidth) line = next;
+      else { lines.push(line); line = word; }
+    }
+    if (line) lines.push(line);
   }
-  if (line && lines.length < maxLines) lines.push(line);
-  lines.forEach((value, index) => ctx.fillText(value, x, y + index * lineHeight, maxWidth));
+  return lines;
+}
+
+function drawFittedTextBlock(
+  ctx: CanvasRenderingContext2D,
+  input: { title: string; message: string; x: number; y: number; width: number; height: number; color: string },
+) {
+  const padding = Math.max(10, Math.min(28, input.width * 0.045));
+  const maxWidth = Math.max(40, input.width - padding * 2);
+  const maxHeight = Math.max(40, input.height - padding * 2);
+  const compact = input.width < 520 || input.height < 230;
+  const baseTitleSize = compact ? 54 : 76;
+  const baseMessageSize = compact ? 34 : 43;
+  let scale = 1;
+  let titleLines: string[] = [];
+  let messageLines: string[] = [];
+  let titleSize = baseTitleSize;
+  let messageSize = baseMessageSize;
+  let titleLineHeight = titleSize * 1.08;
+  let messageLineHeight = messageSize * 1.25;
+  let gap = 0;
+
+  for (; scale >= 0.28; scale -= 0.04) {
+    titleSize = Math.max(14, Math.round(baseTitleSize * scale));
+    messageSize = Math.max(11, Math.round(baseMessageSize * scale));
+    titleLineHeight = titleSize * 1.08;
+    messageLineHeight = messageSize * 1.25;
+    gap = input.title.trim() && input.message.trim() ? Math.max(6, messageSize * 0.45) : 0;
+    ctx.font = `700 ${titleSize}px Georgia, serif`;
+    titleLines = input.title.trim() ? wrapTextLines(ctx, input.title, maxWidth) : [];
+    ctx.font = `500 ${messageSize}px Arial, sans-serif`;
+    messageLines = input.message.trim() ? wrapTextLines(ctx, input.message, maxWidth) : [];
+    const needed = titleLines.length * titleLineHeight + gap + messageLines.length * messageLineHeight;
+    if (needed <= maxHeight) break;
+  }
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(input.x, input.y, input.width, input.height);
+  ctx.clip();
+  ctx.fillStyle = input.color;
+  ctx.textBaseline = "top";
+  let cursorY = input.y + padding;
+  ctx.font = `700 ${titleSize}px Georgia, serif`;
+  for (const line of titleLines) {
+    ctx.fillText(line, input.x + padding, cursorY, maxWidth);
+    cursorY += titleLineHeight;
+  }
+  if (titleLines.length && messageLines.length) cursorY += gap;
+  ctx.font = `500 ${messageSize}px Arial, sans-serif`;
+  for (const line of messageLines) {
+    if (cursorY + messageLineHeight > input.y + input.height - padding / 2) break;
+    ctx.fillText(line, input.x + padding, cursorY, maxWidth);
+    cursorY += messageLineHeight;
+  }
+  ctx.restore();
 }
 
 async function renderPawprint(input: {
@@ -260,15 +317,15 @@ async function renderPawprint(input: {
     gradient.addColorStop(0, "rgba(0,0,0,0)"); gradient.addColorStop(1, "rgba(18,14,12,.86)");
     ctx.fillStyle = gradient; ctx.fillRect(0, 0, 1200, 1500);
   }
-  const textX = plan.text.x * 1200;
-  const textY = plan.text.y * 1500;
-  const textWidth = plan.text.width * 1200;
-  const compact = plan.text.width < 0.5;
-  ctx.fillStyle = plan.textOverlay ? "#fff" : palette[2];
-  ctx.font = `700 ${compact ? 58 : 76}px Georgia, serif`;
-  wrapText(ctx, input.title, textX, textY + (compact ? 70 : 78), textWidth, compact ? 68 : 84, compact ? 3 : 2);
-  ctx.font = `400 ${compact ? 31 : 39}px Arial, sans-serif`;
-  wrapText(ctx, input.message, textX, textY + (compact ? 285 : 235), textWidth, compact ? 42 : 50, compact ? 4 : 3);
+  drawFittedTextBlock(ctx, {
+    title: input.title,
+    message: input.message,
+    x: plan.text.x * 1200,
+    y: plan.text.y * 1500,
+    width: plan.text.width * 1200,
+    height: plan.text.height * 1500,
+    color: plan.textOverlay ? "#fff" : palette[2],
+  });
   try {
     const result = await canvasDataUrl(canvas, "image/webp", 0.92);
     canvas.width = 1; canvas.height = 1;

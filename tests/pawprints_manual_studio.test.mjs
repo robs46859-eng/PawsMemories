@@ -28,6 +28,13 @@ test("Pawprints saves a selected rendered canvas and never asks an LLM to write 
   assert.doesNotMatch(pawprintsRoute, /generatedText/);
 });
 
+test("Pawprints export fits the exact title and message inside every template text rectangle", () => {
+  assert.match(studio, /function drawFittedTextBlock/);
+  assert.match(studio, /height: plan\.text\.height \* 1500/);
+  assert.match(studio, /wrapTextLines\(ctx, input\.message, maxWidth\)/);
+  assert.doesNotMatch(studio, /textY \+ \(compact \? 285 : 235\)/);
+});
+
 test("Pawprints remains separate from the Animator component tree", () => {
   assert.doesNotMatch(studio, /AnimatorScreen|SceneSequence|AnimationController|onGoToAnimator/);
 });

@@ -760,6 +760,7 @@ export default function App() {
                 <AnimatorScreen
                   initialAssetId={animatorAssetId}
                   onClose={() => setCurrentScreen(Screen.MODELS)}
+                  onOpenVideoCreator={() => setAnimatorMode("simple")}
                 />
               </Suspense>
             )}

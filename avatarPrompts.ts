@@ -46,9 +46,10 @@ export const REFERENCE_STYLE_OBJECT =
   `Plain neutral light-gray seamless studio background, no other objects, no hands, no people, no props, no text, no watermark.`;
 
 export const REFERENCE_STYLE_DOG =
-  `Render the pet as a premium Pixar-style stylized 3D character: soft appealing proportions, slightly enlarged ` +
-  `expressive eyes, subsurface-scattered skin/nose, and RICHLY TEXTURED groomed fur with visible individual strand ` +
-  `clumps, whiskers, and natural sheen — like a frame from a modern animated feature film. ` +
+  `Render the pet as a clean, high-fidelity, 3D-reconstruction-friendly subject. ` +
+  `Do not impose a cartoon, glossy vinyl, Pixar, toy-like, or exaggerated finish unless that exact output style is explicitly selected. ` +
+  `Use the selected output style exactly; when Auto is selected, preserve the natural appearance of the source pet with realistic ` +
+  `fur, skin, nose and eye materials rather than converting it into an animated-feature character. ` +
   `Faithfully preserve the pet's exact fur colors, markings, patterns, eye color, ear shape, and breed ` +
   `characteristics as seen across ALL reference photos. ` +
   `Pay EXTREME attention to FACIAL FEATURES: eye shape and color, nose/snout shape and color, ear position, shape ` +
@@ -128,8 +129,8 @@ export function humanStyleClause(styleId?: string | null): string {
 
 /** Selected output finish for pet/object reference renders. */
 export function selectedStyleClause(styleId?: string | null): string {
-  const id = styleId && styleId !== "auto" ? styleId : "pixar";
-  return STYLE_CLAUSES[id] || STYLE_CLAUSES.pixar;
+  const id = styleId && styleId !== "auto" ? styleId : "auto";
+  return STYLE_CLAUSES[id] || STYLE_CLAUSES.auto;
 }
 
 /**
@@ -230,7 +231,7 @@ export function buildReferencePrompt(
       faceClause + multiPhotoClause +
       `Generate ONE image of this exact pet seen DIRECTLY FROM THE FRONT (head and body facing straight toward the camera). ` +
       REFERENCE_STYLE_DOG +
-      ` SELECTED OUTPUT STYLE (authoritative and overrides the default Pixar finish above): render the pet as ${selectedStyleClause(style)}. ` +
+      ` SELECTED OUTPUT STYLE (authoritative): render the pet as ${selectedStyleClause(style)}. ` +
       `Preserve the pet's identity, markings, body proportions, neutral rigging pose, and reconstruction-safe framing. ` +
       accentClause + ` Respond with only the generated image.`
     );

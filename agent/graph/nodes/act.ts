@@ -421,6 +421,22 @@ except Exception as e:
 print(f"[Deterministic] Bound {mesh.name} to {armature.name} with {len(bone_names)} breed-aware vertex groups")`;
   }
 
+  if (description.includes("clear inherited animation") || description.includes("restore neutral pose")) {
+    return `import bpy
+from mathutils import Matrix
+print("[Deterministic] Clearing inherited motion and restoring neutral pose")
+for obj in bpy.context.scene.objects:
+    if obj.animation_data:
+        obj.animation_data_clear()
+    if obj.type == 'ARMATURE':
+        for bone in obj.pose.bones:
+            bone.matrix_basis = Matrix.Identity(4)
+for action in list(bpy.data.actions):
+    bpy.data.actions.remove(action)
+bpy.context.scene.frame_set(1)
+print(f"[Deterministic] Static model ready; remaining actions={len(bpy.data.actions)}")`;
+  }
+
   const animationMatch = description.match(/create (eating|drinking|running|playing|sleeping|photo) animation/);
   if (animationMatch) {
     const name = animationMatch[1];

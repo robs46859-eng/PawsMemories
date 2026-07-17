@@ -251,7 +251,7 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
           <p className="opacity-80">
             {avatarType === "object" 
               ? "Generate a static GLB 3D model. No rigging or animations will be applied."
-              : "Generate a fully rigged and animated 3D character with idle behaviors and an AI brain."}
+              : "Generate one static, rig-ready 3D character. Add motion later in the separate Animation Builder."}
           </p>
         </div>
 

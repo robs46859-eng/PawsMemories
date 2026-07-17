@@ -1895,8 +1895,9 @@ async function startServer() {
       }
 
       // Compact analysis record persisted for the build/rig stage (§8 "memory").
-      const generationAnalysis = triage
-        ? {
+      const generationAnalysis = {
+            outputStyle: typeof style === "string" && style ? style : "auto",
+            ...(triage ? {
             subjectClass: avatarType,
             detected: triage.subjectClass,
             classConfidence: triage.classConfidence,
@@ -1912,8 +1913,8 @@ async function startServer() {
             objectCategoryConfidence: avatarType === 'object' ? triage.objectCategoryConfidence : undefined,
             humanAnatomy: avatarType === 'human' ? triage.humanAnatomy : undefined,
             qualify: triage.qualify,
-          }
-        : null;
+            } : { subjectClass: avatarType }),
+          };
 
       // Layer 2: start Tripo3D generation (multiview when turnaround views exist).
       const handle = await startImageTo3D({ imageUrl: finalImageUrl, views: viewSet, geometry: geo });
@@ -2142,22 +2143,20 @@ async function startServer() {
                    await updateAvatarGenerationStatus(avatarId, "failed", buildState.statusMessage);
                 } else if (buildState.status === "completed") {
                    let finalModelUrl: string;
-                   let finalSpriteSheetUrl = "";
                    if (buildState.riggedGlbBase64) {
                       finalModelUrl = await uploadBase64Binary(buildState.riggedGlbBase64, "model/gltf-binary");
                    } else {
                       finalModelUrl = await uploadBinaryFromUrl(glbUrl, "model/gltf-binary");
                    }
-                   if (buildState.spriteSheetBase64) {
-                      finalSpriteSheetUrl = await uploadBase64Image(buildState.spriteSheetBase64);
-                   }
-                   
                    const modelMetadata = humanRig
                       ? { ...(buildState.animationMetadata || {}), humanRig }
                       : (buildState.animationMetadata || {});
-                   await updateAvatarModel(avatarId, avatarPhone, finalModelUrl, finalSpriteSheetUrl, modelMetadata);
+                   // Model Builder stores one clean reference image and one GLB.
+                   // Sprite/contact sheets belong to animation tooling and are
+                   // deliberately never uploaded or attached to avatar records.
+                   await updateAvatarModel(avatarId, avatarPhone, finalModelUrl, "", modelMetadata);
 
-                   // Mark the avatar "done" as soon as its model + sprites are saved.
+                   // Mark the avatar done as soon as its static model is saved.
                    await updateAvatarGenerationStatus(avatarId, "done");
 
                    // Skeletal clip baking (Phase 5) is intentionally disabled: the baked-in
