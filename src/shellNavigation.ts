@@ -16,8 +16,7 @@ export const TOP_PRIMARY_NAV: ShellNavigationItem[] = [
 export const SIDEBAR_NAV: ShellNavigationItem[] = [
   { id: "home", label: "Home", screen: Screen.DASHBOARD, materialIcon: "home" },
   { id: "fur-bin", label: "Fur Bin©️", screen: Screen.FURBIN, materialIcon: "inventory_2" },
-  { id: "profile", label: "Profile", screen: Screen.PROFILE, materialIcon: "person" },
-  { id: "fidos-styles", label: "Fido's Styles", screen: Screen.PAWLISHER, materialIcon: "brush" },
+  { id: "animate", label: "Animate", screen: Screen.ANIMATOR, materialIcon: "movie" },
 ];
 
-export const MOBILE_NAV = SIDEBAR_NAV;
+export const MOBILE_NAV = [...SIDEBAR_NAV, { id: "profile", label: "Profile", screen: Screen.PROFILE, materialIcon: "person" }];

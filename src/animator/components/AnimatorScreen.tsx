@@ -36,24 +36,28 @@ function SceneBackdrop({ backdrop }: { backdrop?: { kind?: string; url?: string 
   const url = backdrop?.url;
   const mobile = isMobile();
 
-  // Flat image renders (kind: "image") can't be a drei <Environment>; set them as
-  // scene.background so they fill the viewport no matter where the camera orbits.
+  // Load every shipped JPEG/WebP ourselves. This keeps missing/corrupt assets in
+  // a local fallback instead of allowing drei's Suspense loader to trip the
+  // whole-studio error boundary when a script changes environments.
   useEffect(() => {
-    if (kind !== "image" || !url || mobile) {
-      if (scene.background instanceof THREE.Texture) {
-        scene.background.dispose();
-      }
-      scene.background = null;
-      return;
-    }
+    if (!url || mobile || !["image", "hdri", "dome360"].includes(String(kind))) return;
     let disposed = false;
+    let loadedTexture: THREE.Texture | null = null;
+    const previousBackground = scene.background;
+    const previousEnvironment = scene.environment;
+    scene.background = new THREE.Color(kind === "image" ? "#29323a" : "#8aa0b5");
     const loader = new THREE.TextureLoader();
     loader.setCrossOrigin("anonymous");
     loader.load(
       url,
       (tex) => {
         if (disposed) { tex.dispose(); return; }
+        loadedTexture = tex;
         tex.colorSpace = THREE.SRGBColorSpace;
+        if (kind === "hdri" || kind === "dome360") {
+          tex.mapping = THREE.EquirectangularReflectionMapping;
+          scene.environment = tex;
+        }
         scene.background = tex;
       },
       undefined,
@@ -61,25 +65,20 @@ function SceneBackdrop({ backdrop }: { backdrop?: { kind?: string; url?: string 
     );
     return () => {
       disposed = true;
-      if (scene.background instanceof THREE.Texture) {
-        scene.background.dispose();
-        scene.background = null;
-      }
+      if (scene.background === loadedTexture) scene.background = previousBackground;
+      if (scene.environment === loadedTexture) scene.environment = previousEnvironment;
+      loadedTexture?.dispose();
     };
-  }, [kind, url, scene]);
+  }, [kind, mobile, url, scene]);
 
   if (mobile) {
     return <Environment preset="city" background />;
   }
   
-  if (kind === "hdri" || kind === "dome360") {
-    // 360° map: lights the pet AND shows as the visible background.
-    return url ? <Environment files={url} background /> : <Environment preset="city" />;
-  }
   if (kind === "image") {
-    // Image is the scene.background (above); light the pet with a neutral studio env.
     return <Environment preset="apartment" />;
   }
+  if (kind === "hdri" || kind === "dome360") return null;
   // procedural / glb-scene(unbuilt) / none → neutral visible environment.
   return <Environment preset="city" background />;
 }
@@ -236,6 +235,7 @@ export default function AnimatorScreen({
   const [showViewerGrid, setShowViewerGrid] = useState(true);
   const [showSafeArea, setShowSafeArea] = useState(true);
   const [sceneName, setSceneName] = useState("PAWSOME_SCENE_01");
+  const [studioNotice, setStudioNotice] = useState("");
   
   const { cameraObj } = useTheatreSheet(proMode, "PawsMemories");
   
@@ -409,13 +409,23 @@ export default function AnimatorScreen({
           if (actorId) {
             const controller = sceneController.getActorController(actorId);
             if (controller && runtime.clips[roleId] !== clipTarget.name) {
+              const requested = String(clipTarget.name || "");
+              const clips = controller.listClips();
+              const normalized = requested.toLowerCase().replace(/[_\s]+/g, "-");
+              const playable = clips.find((clip) => clip.name === requested)
+                || clips.find((clip) => clip.name.toLowerCase().replace(/[_\s]+/g, "-") === normalized)
+                || clips.find((clip) => clip.name.toLowerCase() === "idle");
+              if (!playable) {
+                setStudioNotice(`The cast model has no playable rig clips for “${requested}”.`);
+                continue;
+              }
               const blend = clipTarget.blend || 0;
               if (blend > 0) {
-                controller.crossFadeTo(clipTarget.name, blend);
+                controller.crossFadeTo(playable.name, blend);
               } else {
-                controller.selectClip(clipTarget.name, 0);
+                controller.selectClip(playable.name, 0);
               }
-              runtime.clips[roleId] = clipTarget.name;
+              runtime.clips[roleId] = requested;
             }
           }
         }
@@ -569,29 +579,45 @@ export default function AnimatorScreen({
 
   const handleApplyCast = async () => {
     if (!activeDirectorScript) return;
-    sceneController.dispose(); // clear existing actors
-    const newMappedRoles: Record<string, string> = {};
-    for (const role of activeDirectorScript.roles || []) {
-      const avatarId = castAssignments[role.id];
-      if (avatarId) {
-        const avatar = userAvatars.find(a => String(a.id) === avatarId);
-        if (avatar) {
-          const glbUrl = resolveAvatarGlbUrl(avatar);
-          const actorId = await sceneController.addActor(glbUrl, { label: avatar.name || role.name });
-          newMappedRoles[role.id] = actorId;
+    try {
+      setStudioNotice("Loading cast and preparing motion…");
+      sceneController.dispose(); // clear existing actors
+      const newMappedRoles: Record<string, string> = {};
+      for (const role of activeDirectorScript.roles || []) {
+        const avatarId = castAssignments[role.id];
+        if (avatarId) {
+          const avatar = userAvatars.find(a => String(a.id) === avatarId);
+          const glbUrl = avatar ? resolveAvatarGlbUrl(avatar) : null;
+          if (avatar && glbUrl) {
+            const actorId = await sceneController.addActor(glbUrl, { label: avatar.name || role.name });
+            if (actorId) newMappedRoles[role.id] = actorId;
+          }
         }
       }
+      if (Object.keys(newMappedRoles).length === 0) {
+        setStudioNotice("Choose at least one ready rigged model for the script cast.");
+        return;
+      }
+      setMappedRoles(newMappedRoles);
+      directorRuntimeRef.current = { scriptId: activeDirectorScript.id, lastTime: 0, clips: {} };
+      sceneController.seekAll(0);
+      sceneController.playAll();
+      setTimeline(0);
+      setIsPlaying(true);
+      setStudioNotice("Script is playing. Motion is generated from the model rig and updated every frame.");
+    } catch (error: any) {
+      console.error("[Animator] Could not apply director cast", error);
+      setStudioNotice(error?.message || "The script could not load this cast.");
     }
-    setMappedRoles(newMappedRoles);
-    directorRuntimeRef.current = { scriptId: activeDirectorScript.id, lastTime: 0, clips: {} };
-    sceneController.seekAll(0);
-    sceneController.playAll();
-    setTimeline(0);
-    setIsPlaying(true);
   };
 
   const selectDirectorScript = (script: any) => {
+    if (!script || !Array.isArray(script.events) || !Array.isArray(script.roles)) {
+      setStudioNotice("That script is incomplete and was not loaded.");
+      return;
+    }
     setActiveDirectorScript(script);
+    setStudioNotice("Script selected. Confirm the cast, then choose Apply Cast & Play.");
     setActiveSequenceId("");
     directorRuntimeRef.current = { scriptId: script.id, lastTime: 0, clips: {} };
     if (script.recommendedEnvironment) {
@@ -650,6 +676,11 @@ export default function AnimatorScreen({
             <div role="status" className="absolute top-16 left-1/2 -translate-x-1/2 z-20 rounded-xl bg-amber-500/90 px-4 py-2 text-sm text-black shadow-lg">
               Couldn't load the selected model — the studio is still available
             </div>
+          )}
+          {studioNotice && (
+            <button type="button" onClick={() => setStudioNotice("")} className="absolute left-1/2 top-16 z-30 max-w-[min(90vw,42rem)] -translate-x-1/2 rounded-xl border border-primary/40 bg-slate-950/95 px-4 py-2 text-left text-xs text-white shadow-xl">
+              {studioNotice}
+            </button>
           )}
           {/* Production workbench header — adapted from the supplied CELFORGE interface. */}
           <div className="absolute inset-x-0 top-0 z-30 flex h-14 items-center gap-2 border-b border-white/15 bg-slate-950/95 px-2 shadow-xl backdrop-blur-xl sm:px-4">
@@ -967,7 +998,7 @@ export default function AnimatorScreen({
                       onClick={() => setActiveEnvId(env.id)}
                       className={`text-xs p-2 rounded-xl text-center border transition-all truncate ${activeEnvId === env.id ? 'bg-primary/30 border-primary' : 'bg-white/5 border-transparent hover:bg-white/10'}`}
                     >
-                      {env.name}
+                      {env.label || env.name}
                     </button>
                   ))}
                 </div>

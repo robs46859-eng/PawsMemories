@@ -4,7 +4,7 @@
   "label": "Prison Gymnasium",
   "backdrop": {
     "kind": "image",
-    "url": "/animator-files/environments/gym_arkham.jpg"
+    "url": "/animator/environments/gym_arkham.webp"
   },
   "ground": {
     "color": "#4a5550"

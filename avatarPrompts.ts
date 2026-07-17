@@ -189,8 +189,12 @@ export function buildReferencePrompt(
   hasFacePhoto?: boolean,
   photoCount?: number,
   style?: string | null,
+  subjectSubtype?: string | null,
 ): string {
   const accentClause = (accent && ACCENT_PROMPTS[accent]) || "";
+  const subtypeClause = subjectSubtype
+    ? `The user explicitly identified the subject subtype as "${subjectSubtype.replace(/[^a-zA-Z0-9 -]/g, "").slice(0, 40)}"; preserve the anatomy and construction appropriate to that subtype. `
+    : "";
 
   if (type === 'object') {
     const multi = (photoCount && photoCount > 1)
@@ -198,6 +202,7 @@ export function buildReferencePrompt(
       : ``;
     return (
       `You are given one or more reference photos, all of the SAME object. ` + multi +
+      subtypeClause +
       `Generate ONE image of this exact object seen DIRECTLY FROM THE FRONT (standard front-facing view), showing its overall shape clearly. ` +
       REFERENCE_STYLE_OBJECT +
       ` SELECTED OUTPUT STYLE (authoritative): render the object as ${selectedStyleClause(style)}. ` +
@@ -221,14 +226,14 @@ export function buildReferencePrompt(
   if (type === 'human') {
     return (
       `You are given one or more reference photos, all of the SAME person. ` +
-      faceClause + multiPhotoClause +
+      faceClause + multiPhotoClause + subtypeClause +
       `Generate ONE image of this exact person seen DIRECTLY FROM THE FRONT (head and body facing straight toward the camera). ` +
       buildHumanReferenceStyle(style) + accentClause + ` Respond with only the generated image.`
     );
   } else {
     return (
       `You are given one or more reference photos, all of the SAME pet. ` +
-      faceClause + multiPhotoClause +
+      faceClause + multiPhotoClause + subtypeClause +
       `Generate ONE image of this exact pet seen DIRECTLY FROM THE FRONT (head and body facing straight toward the camera). ` +
       REFERENCE_STYLE_DOG +
       ` SELECTED OUTPUT STYLE (authoritative): render the pet as ${selectedStyleClause(style)}. ` +

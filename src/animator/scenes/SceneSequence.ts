@@ -58,7 +58,8 @@ export function runScript(script: any, currentTime: number): {
   let latestWeather: any = null;
   const clipTargets: Record<string, any> = {};
 
-  for (const event of script.events) {
+  const events = Array.isArray(script?.events) ? script.events : [];
+  for (const event of events) {
     if (event.time <= currentTime) {
       if (event.type === 'camera') latestCamera = event.value;
       if (event.type === 'light') latestLight = event.value;

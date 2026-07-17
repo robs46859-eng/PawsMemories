@@ -148,14 +148,17 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
         subject: options.subject,
         palette: options.palette ?? null,
         style: options.style,
+        selection_mode: options.selectionMode,
+        subject_subtype: options.subjectSubtype,
         // NOTE: detail, texture, lighting intentionally omitted.
         // The server falls back to its high-quality Tripo defaults.
       };
       const result = await generate3DAvatar(payload);
 
+      const chargedCredits = result.chargedCredits ?? generationCost;
       const updatedUser = userProfile.isAdmin
         ? userProfile
-        : { ...userProfile, credits: userProfile.credits - generationCost };
+        : { ...userProfile, credits: userProfile.credits - chargedCredits };
       onUpdateUser(updatedUser);
 
       setShowCreate(false);

@@ -15,6 +15,7 @@ import { isEndpointEnabled, dailyCapFor, withinDailyCap, type PaidEndpoint } fro
 import { classifyPetImage, type GenerateFn } from "./server/petClassify";
 import { semanticScan as runSemanticScan } from "./server/semanticScan";
 import { animatorRouter } from "./server/animator/routes.ts";
+import { ANIMATOR_DATA_DIR } from "./server/animator/paths.ts";
 import { studioRouter } from "./server/animator/studio_proxy.ts";
 import { refundRouter } from "./server/refunds.ts";
 import { setRefundReviewGenerate } from "./server/refunds.ts";
@@ -443,7 +444,7 @@ async function startServer() {
   );
 
   // Serve animator files statically
-  app.use("/animator-files", express.static(path.join(process.cwd(), "data", "animator")));
+  app.use("/animator-files", express.static(ANIMATOR_DATA_DIR));
   
   if (process.env.ANIMATOR_WORKER_ENABLED !== "false") {
     startAnimatorWorker();
@@ -1660,6 +1661,7 @@ async function startServer() {
     extra?: string,
     errRef?: { code?: number | string; message?: string; quota?: boolean },
     style?: string | null,
+    subjectSubtype?: string | null,
   ): Promise<string | null> {
     const imageParts: any[] = [];
     photos.forEach((p, idx) => {
@@ -1679,7 +1681,7 @@ async function startServer() {
     if (imageParts.length === 0) return null;
 
     const corrective = (extra || "").trim();
-    const referencePrompt = buildReferencePrompt(type, accent, hasFacePhoto, photos.length, style)
+    const referencePrompt = buildReferencePrompt(type, accent, hasFacePhoto, photos.length, style, subjectSubtype)
       + (corrective ? ` IMPORTANT — fix these issues from the previous attempt: ${corrective}.` : "");
     // Route through the shared helper so the responseModalities fix + failure
     // logging apply identically to every image path in the pipeline.
@@ -1689,10 +1691,12 @@ async function startServer() {
   app.post("/api/avatars", requireAuth, async (req: AuthedRequest, res) => {
     let avatarCreditsDebited = 0;
     try {
-      const { name, photo, photos, palette, avatar_type, face_photo, input_mode, subject, detail, texture, style, lighting } = req.body;
+      const { name, photo, photos, palette, avatar_type, face_photo, input_mode, subject, detail, texture, style, lighting, selection_mode, subject_subtype } = req.body;
       // Defensive: accept either camelCase or snake_case so a frontend mismatch can't silently break text mode.
       const inputMode: "image" | "text" = (input_mode ?? req.body.inputMode) === "text" ? "text" : "image";
       const avatarTypeRaw = avatar_type ?? req.body.avatarType;
+      const selectionMode: "auto" | "manual" = selection_mode === "auto" ? "auto" : "manual";
+      const subjectSubtype = typeof subject_subtype === "string" ? subject_subtype.trim().slice(0, 40) : "";
       const facePhotoRaw = face_photo ?? req.body.facePhoto;
       // Normalize the UI type to a canonical SubjectClass ('dog' == animal).
       let avatarType: SubjectClass = avatarTypeRaw === 'human' ? 'human' : avatarTypeRaw === 'object' ? 'object' : 'dog';
@@ -1723,6 +1727,23 @@ async function startServer() {
         }
         if (photoList.length > 6) {
           return res.status(400).json({ error: "Maximum 6 photos per avatar (1 face + 5 body)." });
+        }
+      }
+
+      let autoDetection: TriageResult | null = null;
+      if (selectionMode === "auto") {
+        if (inputMode === "image" && photoList[0]) {
+          try {
+            const { data, mimeType } = splitDataUrl(photoList[0]);
+            autoDetection = await triageReferenceImage(classifyGenerate, { imageBase64: data, mimeType, userType: "dog" });
+            avatarType = autoDetection.subjectClass;
+          } catch (error: any) {
+            console.warn("[POST /api/avatars] Auto Detect preflight unavailable; using animal workflow:", error?.message || error);
+          }
+        } else if (inputMode === "text") {
+          const words = String(subject || "").toLowerCase();
+          if (/\b(person|human|man|woman|boy|girl|child|presenter|character)\b/.test(words)) avatarType = "human";
+          else if (/\b(chair|table|car|vehicle|building|house|toy|object|food|plant|tool|machine|prop|statue)\b/.test(words)) avatarType = "object";
         }
       }
 
@@ -1776,7 +1797,7 @@ async function startServer() {
           const fields: TextPromptFields = { subject, style, lighting, corrective };
           candidate = await generateImageWithFallback([{ text: buildTextPrompt(fields) }], "text-to-reference", imgErr);
         } else {
-          candidate = await generatePetReferenceImage(photoList, accent, avatarType, hasFacePhoto, corrective, imgErr, style);
+          candidate = await generatePetReferenceImage(photoList, accent, avatarType, hasFacePhoto, corrective, imgErr, style, subjectSubtype);
         }
 
         if (!candidate) {
@@ -1845,9 +1866,10 @@ async function startServer() {
       let detectNotice: string | undefined;
       if (triage && isClassMismatch(triage, avatarType)) {
         const detected = triage.subjectClass;
-        detectNotice = `We detected a ${classLabel(detected)}, so we're generating a ${detected === 'object' ? 'static model' : classLabel(detected) + ' avatar'} instead of a ${classLabel(avatarType)}. You can change the type and regenerate if that's wrong.`;
-        console.log(`[POST /api/avatars] class mismatch: user=${avatarType} detected=${detected} (${triage.classConfidence}) — switching.`);
-        avatarType = detected;
+        detectNotice = selectionMode === "manual"
+          ? `We detected a ${classLabel(detected)}, but kept your selected ${classLabel(avatarType)} workflow. Use Auto Detect on a new build if you want detection to choose instead.`
+          : `Auto Detect initially chose ${classLabel(avatarType)}. The finished reference looked more like ${classLabel(detected)}, so we kept the original detected workflow to avoid silently rebuilding it as another type.`;
+        console.log(`[POST /api/avatars] class mismatch: selected=${avatarType} detected=${detected} (${triage.classConfidence}) — selection remains authoritative.`);
       }
 
       // ── Layer 1.5: COLOR-COORDINATION LOCK + multiview turnaround. Animals only
@@ -1897,6 +1919,9 @@ async function startServer() {
       // Compact analysis record persisted for the build/rig stage (§8 "memory").
       const generationAnalysis = {
             outputStyle: typeof style === "string" && style ? style : "auto",
+            selectionMode,
+            subjectSubtype: subjectSubtype || undefined,
+            autoDetectedClass: autoDetection?.subjectClass,
             ...(triage ? {
             subjectClass: avatarType,
             detected: triage.subjectClass,
@@ -1909,7 +1934,9 @@ async function startServer() {
             hasTail: triage.hasTail,
             coatColors: triage.coatColors,
             coatPattern: triage.coatPattern,
-            objectCategory: avatarType === 'object' ? triage.objectCategory : undefined,
+            objectCategory: avatarType === 'object'
+              ? ({ structure: "structure", plant: "plant", food: "food", part: "part", vehicle: "prop", collectible: "prop", prop: "prop" } as Record<string, string>)[subjectSubtype] || triage.objectCategory
+              : undefined,
             objectCategoryConfidence: avatarType === 'object' ? triage.objectCategoryConfidence : undefined,
             humanAnatomy: avatarType === 'human' ? triage.humanAnatomy : undefined,
             qualify: triage.qualify,
@@ -1920,7 +1947,7 @@ async function startServer() {
       const handle = await startImageTo3D({ imageUrl: finalImageUrl, views: viewSet, geometry: geo });
       const avatarId = await createAvatar(req.user!.phone, name, finalImageUrl, handle, {
         avatar_type: avatarType,
-        breed: triage?.breed || undefined,
+        breed: triage?.breed || (avatarType === "dog" && subjectSubtype ? subjectSubtype : undefined),
         generation_analysis: generationAnalysis,
       });
       if (viewSet) {
@@ -1928,7 +1955,7 @@ async function startServer() {
         catch (e: any) { console.warn("[POST /api/avatars] could not persist multiview views:", e?.message || e); }
       }
 
-      res.json({ avatarId, status: "pending", referenceImageUrl: finalImageUrl, usedReferenceImage, avatarType, notice: detectNotice });
+      res.json({ avatarId, status: "pending", referenceImageUrl: finalImageUrl, usedReferenceImage, avatarType, notice: detectNotice, chargedCredits: avatarCost });
     } catch (err: any) {
       if (avatarCreditsDebited > 0) {
         try { await restoreReservedGenerationCredits(req.user!.phone, avatarCreditsDebited); } catch {}

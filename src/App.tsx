@@ -452,7 +452,6 @@ export default function App() {
         <nav className="mx-auto grid h-16 w-full max-w-[96rem] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 px-3 sm:px-5 lg:px-8">
           <div className="flex min-w-0 items-center gap-2">
             <img src="/brand/pawsome-logo.png" alt="Pawsome3D" className="h-9 w-9 shrink-0 rounded-lg object-contain" />
-            <span className="block truncate text-lg font-extrabold text-primary sm:text-xl">Pawsome3D</span>
           </div>
 
           <div className="min-w-0">
@@ -558,13 +557,13 @@ export default function App() {
               ))}
             </nav>
             <div className="mx-4 mt-auto space-y-2 border-t border-outline-variant/20 px-4 py-6">
+              <button onClick={() => setCurrentScreen(Screen.PROFILE)} className={`flex w-full items-center gap-4 rounded-lg px-4 py-2 transition-all ${currentScreen === Screen.PROFILE ? "bg-primary text-on-primary" : "text-on-surface-variant hover:bg-secondary-container/30"}`}>
+                <span className="material-symbols-outlined shrink-0 font-sans">person</span>
+                <span className="text-body-sm">Profile</span>
+              </button>
               <button onClick={() => setShowHelpModal(true)} className="flex w-full items-center gap-4 rounded-lg px-4 py-2 text-on-surface-variant transition-all hover:bg-secondary-container/30">
                 <span className="material-symbols-outlined shrink-0 font-sans">help</span>
                 <span className="text-body-sm">Help / Support</span>
-              </button>
-              <button onClick={handleLogout} className="flex w-full items-center gap-4 rounded-lg px-4 py-2 text-on-surface-variant transition-all hover:bg-secondary-container/30">
-                <span className="material-symbols-outlined shrink-0 font-sans">logout</span>
-                <span className="text-body-sm">Logout</span>
               </button>
             </div>
           </aside>

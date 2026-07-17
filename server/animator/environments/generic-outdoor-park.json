@@ -4,7 +4,7 @@
   "label": "Sunny Park",
   "backdrop": {
     "kind": "hdri",
-    "url": "/animator-files/environments/kloppenheim_02.jpg"
+    "url": "/animator/environments/kloppenheim_02.webp"
   },
   "allowedWeather": [
     "clear",

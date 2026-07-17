@@ -11,10 +11,19 @@ test("top panel exposes only the primary creation destinations", () => {
   ]);
 });
 
-test("desktop and mobile panels use the same stable destination set", () => {
-  const expected = [Screen.DASHBOARD, Screen.FURBIN, Screen.PROFILE, Screen.PAWLISHER];
-  assert.deepEqual(SIDEBAR_NAV.map(({ screen }) => screen), expected);
-  assert.deepEqual(MOBILE_NAV.map(({ screen }) => screen), expected);
+test("desktop sidebar keeps creation studios out of the global shell", () => {
+  assert.deepEqual(SIDEBAR_NAV.map(({ screen }) => screen), [
+    Screen.DASHBOARD,
+    Screen.FURBIN,
+    Screen.ANIMATOR,
+  ]);
+  assert.deepEqual(MOBILE_NAV.map(({ screen }) => screen), [
+    Screen.DASHBOARD,
+    Screen.FURBIN,
+    Screen.ANIMATOR,
+    Screen.PROFILE,
+  ]);
+  assert.ok(!SIDEBAR_NAV.some(({ screen }) => screen === Screen.MODELS || screen === Screen.PAWLISHER));
 });
 
 test("shell navigation has no duplicate ids or screens per panel", () => {

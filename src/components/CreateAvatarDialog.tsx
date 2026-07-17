@@ -14,6 +14,8 @@ export interface CreateModelOptions {
   subject?: string;
   palette?: string | null;
   style?: string;
+  selectionMode: 'auto' | 'manual';
+  subjectSubtype?: string;
 }
 
 interface CreateAvatarDialogProps {
@@ -88,6 +90,8 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
   const [name, setName] = useState("");
   const [inputMode, setInputMode] = useState<'image' | 'text'>('image');
   const [avatarType, setAvatarType] = useState<'dog' | 'human' | 'object'>("dog");
+  const [selectionMode, setSelectionMode] = useState<'auto' | 'manual'>('auto');
+  const [subjectSubtype, setSubjectSubtype] = useState("dog");
   
   // Image mode state
   const [facePhoto, setFacePhoto] = useState<string | null>(null);
@@ -174,10 +178,12 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
       subject: inputMode === 'text' ? subject : undefined,
       palette: palette === "auto" ? null : palette,
       style,
+      selectionMode,
+      subjectSubtype: selectionMode === 'manual' ? subjectSubtype : undefined,
     });
   };
 
-  const subjectLabel = avatarType === "dog" ? "pet" : avatarType === "human" ? "person" : "object";
+  const subjectLabel = selectionMode === 'auto' ? "subject" : avatarType === "dog" ? "animal" : avatarType === "human" ? "person" : "object";
   const typeIcon = avatarType === "dog" ? "🐾" : avatarType === "human" ? "🧑" : "🧊";
 
   return (
@@ -215,41 +221,64 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
         </div>
 
         {/* Avatar Type Segmented Control */}
-        <div className="flex bg-surface border border-outline-variant/30 rounded-2xl p-1 mb-5">
+        <div className="grid grid-cols-2 sm:grid-cols-4 bg-surface border border-outline-variant/30 rounded-2xl p-1 mb-3 gap-1">
           <button
             type="button"
-            onClick={() => setAvatarType("dog")}
-            className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
-              avatarType === "dog" ? "bg-primary text-white shadow-md" : "text-on-surface-variant hover:bg-outline-variant/10"
-            }`}
+            onClick={() => setSelectionMode("auto")}
+            className={`py-2 text-xs font-bold rounded-xl transition-all ${selectionMode === "auto" ? "bg-primary text-white shadow-md" : "text-on-surface-variant hover:bg-outline-variant/10"}`}
           >
-            🐕 Dog
+            ✨ Auto Detect
           </button>
           <button
             type="button"
-            onClick={() => setAvatarType("human")}
+            onClick={() => { setSelectionMode("manual"); setAvatarType("dog"); setSubjectSubtype("dog"); }}
             className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
-              avatarType === "human" ? "bg-primary text-white shadow-md" : "text-on-surface-variant hover:bg-outline-variant/10"
+              selectionMode === "manual" && avatarType === "dog" ? "bg-primary text-white shadow-md" : "text-on-surface-variant hover:bg-outline-variant/10"
+            }`}
+          >
+            🐾 Animal
+          </button>
+          <button
+            type="button"
+            onClick={() => { setSelectionMode("manual"); setAvatarType("human"); setSubjectSubtype("human"); }}
+            className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
+              selectionMode === "manual" && avatarType === "human" ? "bg-primary text-white shadow-md" : "text-on-surface-variant hover:bg-outline-variant/10"
             }`}
           >
             🧑 Human
           </button>
           <button
             type="button"
-            onClick={() => setAvatarType("object")}
+            onClick={() => { setSelectionMode("manual"); setAvatarType("object"); setSubjectSubtype("prop"); }}
             className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
-              avatarType === "object" ? "bg-primary text-white shadow-md" : "text-on-surface-variant hover:bg-outline-variant/10"
+              selectionMode === "manual" && avatarType === "object" ? "bg-primary text-white shadow-md" : "text-on-surface-variant hover:bg-outline-variant/10"
             }`}
           >
             🧊 Object
           </button>
         </div>
 
+        {selectionMode === 'manual' && avatarType === 'dog' && (
+          <PromptSelect label="Animal type" value={subjectSubtype} onChange={setSubjectSubtype} options={[
+            { id: "dog", label: "Dog" }, { id: "cat", label: "Cat" }, { id: "horse", label: "Horse" },
+            { id: "rabbit", label: "Rabbit" }, { id: "bird", label: "Bird" }, { id: "other-animal", label: "Other animal" },
+          ]} />
+        )}
+        {selectionMode === 'manual' && avatarType === 'object' && (
+          <PromptSelect label="Object type" value={subjectSubtype} onChange={setSubjectSubtype} options={[
+            { id: "prop", label: "Prop / general object" }, { id: "structure", label: "Structure" },
+            { id: "vehicle", label: "Vehicle" }, { id: "plant", label: "Plant" }, { id: "food", label: "Food" },
+            { id: "part", label: "Mechanical part" }, { id: "collectible", label: "Collectible / toy" },
+          ]} />
+        )}
+
         {/* Info Banner */}
         <div className="bg-primary/10 border border-primary/20 text-on-surface rounded-xl p-3 text-xs flex gap-2 items-start mb-5">
           <Camera size={16} className="shrink-0 mt-0.5 text-primary" />
           <p className="opacity-80">
-            {avatarType === "object" 
+            {selectionMode === 'auto'
+              ? "We will detect Animal, Human, or Object first, then build using that detected workflow. Choose a type above when you want your selection to override detection."
+              : avatarType === "object"
               ? "Generate a static GLB 3D model. No rigging or animations will be applied."
               : "Generate one static, rig-ready 3D character. Add motion later in the separate Animation Builder."}
           </p>
@@ -273,7 +302,7 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
             {avatarType !== 'object' && (
               <div className="mb-4">
                 <label className="block text-[10px] font-bold mb-1 opacity-60 uppercase tracking-wider text-on-surface-variant">
-                  {typeIcon} Face Close-Up (recommended)
+                  {typeIcon} {selectionMode === 'auto' ? 'Primary Subject Photo' : 'Face Close-Up (recommended)'}
                 </label>
                 {facePhoto ? (
                   <div className="relative w-full min-h-56 aspect-[4/3] rounded-2xl overflow-hidden border-2 border-primary/40 bg-surface">
@@ -397,7 +426,7 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
           className="w-full bg-primary text-white py-3.5 rounded-xl font-black uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-primary/90 transition-all shadow-lg active:scale-95"
         >
           <Sparkles size={18} />
-          Create Model ({avatarGenerationCost(avatarType, inputMode)} cr)
+          Create Model ({selectionMode === 'auto' ? 'up to ' : ''}{avatarGenerationCost(avatarType, inputMode)} cr)
         </button>
       </div>
     </div>
