@@ -426,7 +426,7 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
           className="w-full bg-primary text-white py-3.5 rounded-xl font-black uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-primary/90 transition-all shadow-lg active:scale-95"
         >
           <Sparkles size={18} />
-          Create Model ({selectionMode === 'auto' ? 'up to ' : ''}{avatarGenerationCost(avatarType, inputMode)} cr)
+          Create Model ({selectionMode === 'auto' ? 'up to ' : ''}{avatarGenerationCost(avatarType, inputMode)} PupCoins)
         </button>
       </div>
     </div>

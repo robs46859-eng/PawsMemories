@@ -167,18 +167,52 @@ body {
 }
 
 /* New Prototype Aesthetics */
-.glass-card, .glass-panel {
-  background: rgba(250, 249, 245, 0.75);
+.glass-card, .glass-panel, .glass-button {
+  background: rgba(250, 249, 245, 0.78);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
   border: 1px solid rgba(255, 255, 255, 0.5);
   box-shadow: 0 8px 32px 0 rgba(68, 42, 34, 0.08);
 }
 
-.dark .glass-card, .dark .glass-panel {
-  background: rgba(23, 18, 15, 0.75);
+.glass-button {
+  transition: transform 180ms ease, background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.glass-button:hover {
+  background: rgba(250, 249, 245, 0.9);
+  border-color: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 12px 36px rgba(68, 42, 34, 0.14);
+}
+
+.glass-button:active {
+  transform: scale(.985);
+}
+
+.glass-tile {
+  background: rgba(250, 249, 245, 0.64);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  box-shadow: 0 10px 34px rgba(68, 42, 34, 0.07);
+  transition: transform 180ms ease, background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.glass-tile:hover {
+  background: rgba(250, 249, 245, 0.74);
+  border-color: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 14px 40px rgba(68, 42, 34, 0.12);
+  transform: translateY(-2px);
+}
+
+.dark .glass-card, .dark .glass-panel, .dark .glass-button {
+  background: rgba(23, 18, 15, 0.78);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
+
+.dark .glass-button:hover { background: rgba(23, 18, 15, 0.9); }
+.dark .glass-tile { background: rgba(23, 18, 15, 0.64); border-color: rgba(255, 255, 255, 0.08); }
+.dark .glass-tile:hover { background: rgba(23, 18, 15, 0.74); }
 
 .bg-transition {
   transition: background-image 0.8s ease-in-out, opacity 0.8s ease-in-out;

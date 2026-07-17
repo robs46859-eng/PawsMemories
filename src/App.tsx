@@ -27,7 +27,6 @@ import HelpModal from "./components/HelpModal";
 const PawprintsScreen = lazy(() => import("./components/PawprintsScreen"));
 const FidosStylesScreen = lazy(() => import("./components/FidosStylesScreen"));
 const FurBinScreen = lazy(() => import("./components/FurBinScreen"));
-const CreationsScreen = lazy(() => import("./components/CreationsScreen"));
 const AnimatorScreen = lazy(() => import("./animator/components/AnimatorScreen"));
 import WarehouseMode from "./components/WarehouseMode";
 import { MOBILE_NAV, SIDEBAR_NAV, TOP_PRIMARY_NAV } from "./shellNavigation";
@@ -42,7 +41,6 @@ const SCREEN_PATHS: Partial<Record<Screen, string>> = {
   [Screen.PAWPRINTS]: "/pawprints",
   [Screen.PAWLISHER]: "/fidos-styles",
   [Screen.FURBIN]: "/fur-bin",
-  [Screen.CREATIONS]: "/creations",
   [Screen.STORE]: "/store",
   [Screen.COMMUNITY]: "/community",
   [Screen.PROFILE]: "/profile",
@@ -52,6 +50,7 @@ const SCREEN_PATHS: Partial<Record<Screen, string>> = {
 
 function screenFromPath(pathname: string): Screen | null {
   const normalized = pathname.replace(/\/+$/, "") || "/";
+  if (normalized === "/creations") return Screen.FURBIN;
   const entry = Object.entries(SCREEN_PATHS).find(([, path]) => path === normalized);
   return entry ? entry[0] as Screen : null;
 }
@@ -74,7 +73,6 @@ const getBackgroundImage = (screen: Screen) => {
     case Screen.PAWPRINTS:
     case Screen.PAWLISHER:
     case Screen.FURBIN:
-    case Screen.CREATIONS:
       return {
         url: "/MAIN2.jpg",
         className: "opacity-45 blur-[1px]"
@@ -160,6 +158,13 @@ export default function App() {
         applyUser(user);
         setIsAuthed(true);
         setCurrentScreen(screenFromPath(window.location.pathname) || Screen.DASHBOARD);
+        // Login/check-in rewards are server-side and idempotent per calendar day.
+        try {
+          const checkedIn = await claimDailyStreak();
+          applyUser(checkedIn);
+        } catch {
+          // A reward outage must never block a returning user from entering the app.
+        }
         // Phase 1.7: Fetch persistent creations from backend
         await refreshCreations();
         const serverAlbums = await fetchAlbums();
@@ -220,13 +225,13 @@ export default function App() {
       const newUrl = window.location.pathname;
       window.history.replaceState({}, document.title, newUrl);
     } else if (orderCancelled === "true") {
-      alert("Order cancelled. Your payment was not processed and no credits were deducted.");
+      alert("Order cancelled. Your payment was not processed and no PupCoins were deducted.");
       const newUrl = window.location.pathname;
       window.history.replaceState({}, document.title, newUrl);
     } else if (params.get("credits_success") === "true") {
       const added = params.get("added") || "?";
       const sessionId = params.get("session_id");
-      setCreditSuccessMsg(`🎉 ${added} credits added to your account!`);
+      setCreditSuccessMsg(`🎉 ${added} PupCoins added to your account!`);
       // Confirm the purchase server-side (credits it if the webhook hasn't yet),
       // then re-fetch so the displayed balance is accurate even if the webhook failed.
       (async () => {
@@ -351,7 +356,7 @@ export default function App() {
   const handleTutorialComplete = () => setCurrentScreen(Screen.DASHBOARD);
 
   const handleClaimDailyBonus = async () => {
-    // Persist server-side (reuses the daily-streak grant: +5 credits & a treat).
+    // Persist server-side (reuses the daily-streak grant: +5 PupCoins & a treat).
     try {
       const updatedUser = await claimDailyStreak();
       applyUser(updatedUser);
@@ -365,7 +370,7 @@ export default function App() {
     try {
       const { reward, user } = await claimShareReward(platform);
       applyUser(user);
-      alert(`Thanks for sharing to ${platform}! +${reward} credits added.`);
+      alert(`Thanks for sharing to ${platform}! +${reward} PupCoins added.`);
     } catch (err: any) {
       alert(err.message || "Couldn't grant the share reward right now.");
     }
@@ -473,11 +478,6 @@ export default function App() {
         <nav className="mx-auto grid h-16 w-full max-w-[96rem] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 px-3 sm:px-5 lg:px-8">
           <div className="flex min-w-0 items-center gap-2">
             <img src="/brand/pawsome-logo.png" alt="Pawsome3D" className="h-9 w-9 shrink-0 rounded-lg object-contain" />
-            {isAuthed && (
-              <button onClick={() => setCurrentScreen(Screen.CREATIONS)} className={`flex h-9 w-9 items-center justify-center rounded-full border transition lg:hidden ${currentScreen === Screen.CREATIONS ? "border-primary bg-primary text-on-primary" : "border-outline-variant/30 bg-surface-container text-on-surface-variant hover:text-primary"}`} title="Creations" aria-label="Open creations">
-                <span className="material-symbols-outlined text-[19px]">photo_library</span>
-              </button>
-            )}
           </div>
 
           <div className="min-w-0">
@@ -491,7 +491,8 @@ export default function App() {
                   onClick={() => item.screen === Screen.ANIMATOR ? openAnimationStudio() : setCurrentScreen(item.screen)}
                   className={`min-h-10 px-2.5 text-sm font-medium transition-colors xl:px-3 ${currentScreen === item.screen ? "border-b-2 border-primary font-bold text-primary" : "text-on-surface-variant hover:text-primary"}`}
                 >
-                  {item.label}
+                  {item.imageSrc ? <img src={item.imageSrc} alt={item.label} className="h-8 w-8 rounded-lg object-cover" /> : item.label}
+                  <span className={item.imageSrc ? "sr-only" : undefined}>{item.label}</span>
                 </button>
               ))}
                 </>
@@ -544,15 +545,15 @@ export default function App() {
                     </div>
                   )}
                   <span className="hidden max-w-[72px] truncate text-xs font-bold text-on-surface xl:block">{userProfile.fullName.split(" ")[0]}</span>
-                  <span className="hidden text-xs font-bold text-secondary xl:block">{userProfile.credits}cr</span>
+                  <span className="hidden text-xs font-bold text-secondary xl:block">{userProfile.credits} PupCoins</span>
                 </button>
                 <button
                   data-tour="buy-credits"
                   onClick={() => setShowCreditStore(true)}
                   className="hidden h-10 shrink-0 items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-2.5 text-[10px] font-black uppercase text-primary hover:bg-primary/20 xl:flex"
-                  title="Buy more credits"
+                  title="Buy more PupCoins"
                 >
-                  <Zap size={11} className="fill-primary" /> Credits
+                  <Zap size={11} className="fill-primary" /> PupCoins
                 </button>
                 <button onClick={() => setShowHelpModal(true)} className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full border border-outline-variant/30 bg-surface-container text-on-surface-variant hover:text-primary sm:flex" title="Help & Support" aria-label="Help and support">
                   <HelpCircle size={18} />
@@ -568,7 +569,7 @@ export default function App() {
 
       <div className="flex-grow flex w-full relative">
         {/* Desktop Sidebar */}
-        {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN, Screen.CREATIONS].includes(currentScreen) && (
+        {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN].includes(currentScreen) && (
           <aside className="fixed bottom-0 left-0 top-16 z-40 hidden w-64 shrink-0 flex-col overflow-x-hidden overflow-y-auto border-r border-outline-variant/20 bg-surface/85 py-5 shadow-xl backdrop-blur-xl dark:bg-surface-dim/85 md:flex">
             <nav className="mt-4 flex-1 space-y-2 px-4">
               {SIDEBAR_NAV.map((item) => (
@@ -755,17 +756,6 @@ export default function App() {
               </Suspense>
             )}
 
-            {currentScreen === Screen.CREATIONS && (
-              <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
-                <CreationsScreen
-                  creations={creations}
-                  onRefresh={refreshCreations}
-                  onOpenVideoCreator={openAnimationStudio}
-                  onOpenPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
-                />
-              </Suspense>
-            )}
-
             {currentScreen === Screen.PAWLISHER && (
               <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
                 <FidosStylesScreen
@@ -783,7 +773,7 @@ export default function App() {
 
             {currentScreen === Screen.FURBIN && (
               <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
-                <FurBinScreen userProfile={userProfile} onOpenCreditStore={() => setShowCreditStore(true)} />
+                <FurBinScreen userProfile={userProfile} creations={creations} onOpenCreditStore={() => setShowCreditStore(true)} />
               </Suspense>
             )}
 
@@ -867,7 +857,7 @@ export default function App() {
       )}
 
       {/* Floating Bottom Navigator (only when signed in and past onboarding) */}
-      {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN, Screen.CREATIONS].includes(currentScreen) && (
+      {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN].includes(currentScreen) && (
         <div className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 gap-1 rounded-t-2xl border-t border-outline-variant/30 bg-surface-container-lowest/90 px-1 py-2 shadow-[0_-8px_32px_0_rgba(68,42,34,0.08)] backdrop-blur-xl dark:bg-surface-dim/90 md:hidden">
           {MOBILE_NAV.map((item) => (
             <button
@@ -909,7 +899,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Credit success toast */}
+      {/* PupCoins success toast */}
       {creditSuccessMsg && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-primary text-white px-5 py-3 rounded-2xl shadow-xl text-sm font-bold animate-fade-in flex items-center gap-2">
           <Zap size={16} className="fill-white" />
@@ -945,7 +935,7 @@ export default function App() {
             <span className="text-5xl animate-bounce mb-4 inline-block">🎉</span>
             <h3 className="text-lg font-extrabold text-primary mb-2">Order Confirmed!</h3>
             <p className="text-xs text-on-surface-variant leading-relaxed mb-4">
-              Your payment of **$12.00 USD** succeeded, and **800 credits** have been deducted.
+              Your payment of **$12.00 USD** succeeded, and **800 PupCoins** have been deducted.
               Randy is sending your custom physical pet album to print!
             </p>
             <div className="bg-surface-container rounded-xl p-3 text-[10px] text-on-surface-variant font-mono mb-6 text-left break-all">

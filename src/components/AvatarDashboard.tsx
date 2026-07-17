@@ -10,7 +10,7 @@ import { uncannyPresets } from "../avatar/uncannyPresets";
 import { avatarGenerationCost } from "../pricing";
 import { resolveAvatarGlbUrl } from "../animator/utils/avatarUtils";
 import {
-  Plus, Utensils, Droplets, Bone, RefreshCw, Info,
+  Plus, Utensils, Droplets, Bone, RefreshCw, Info, Download,
   Play, Camera, Moon, Zap, X, Sparkles, Clapperboard, Trash2
 } from "lucide-react";
 
@@ -132,8 +132,8 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
 
   const handleCreateAvatar = async (options: CreateModelOptions) => {
     const generationCost = avatarGenerationCost(options.avatarType, options.inputMode);
-    if (!userProfile.isAdmin && userProfile.credits < generationCost) {
-      alert(`You need ${generationCost} credits to create this model.`);
+    if (!userProfile.isAdmin && !userProfile.freeAvatarAvailable && userProfile.credits < generationCost) {
+      alert(`You need ${generationCost} PupCoins to create this model.`);
       return;
     }
     setCreating(true);
@@ -172,7 +172,7 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
     } catch (err: any) {
       if (err?.code === "MODEL_CAP_REACHED") {
         // Hard model-cap hit (Phase 9). Use the server's exact message (it has the
-        // current limit number) with a friendly fallback. No credits were charged.
+        // current limit number) with a friendly fallback. No PupCoins were charged.
         alert(err.message || "You've reached your model limit. Delete a model to make room for a new one.");
       } else {
         alert(err.message || "Failed to create model.");
@@ -232,7 +232,7 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
     setPresetByAvatar((prev) => ({ ...prev, [avatarId]: presetId }));
   };
 
-  // Open the confirm dialog for a softer-look restyle (regeneration costs a credit).
+  // Open the confirm dialog for a softer-look restyle (regeneration costs PupCoins).
   const requestRestyle = (avatarId: number, presetId: string) => {
     const preset = uncannyPresets.find((p) => p.id === presetId);
     setPresetByAvatar((prev) => ({ ...prev, [avatarId]: presetId }));
@@ -376,6 +376,16 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
                       >
                         <Clapperboard size={12} /> Studio
                       </button>
+                      {avatar.image_url && <a
+                        href={avatar.image_url}
+                        download={`${avatar.name || "avatar"}.jpg`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="absolute left-4 top-14 z-30 flex items-center gap-1 rounded-full bg-white/90 px-3 py-1.5 text-xs font-bold text-slate-900 shadow-lg hover:bg-white"
+                        title="Download the reference image as JPG"
+                      >
+                        <Download size={12} /> JPG
+                      </a>}
                     </>
                   )}
                   <h3 className="absolute bottom-4 left-4 text-white text-2xl font-black drop-shadow-md z-20 font-headline-lg-mobile">
@@ -579,7 +589,7 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
           <div className="w-full max-w-sm rounded-3xl bg-surface p-6 shadow-2xl border border-outline-variant/30" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-black text-on-surface mb-1">Regenerate with the {restyleConfirm.presetName} look?</h3>
             <p className="text-sm text-on-surface-variant mb-5">
-              This creates a fresh, softer version of your model and uses one regeneration credit.
+              This creates a fresh, softer version of your model and uses one regeneration PupCoin bundle.
             </p>
             <div className="flex gap-3">
               <button

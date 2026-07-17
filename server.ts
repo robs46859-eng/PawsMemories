@@ -10,7 +10,7 @@ import sharp from "sharp";
 import { sendSms } from "./server/sms";
 import { sendMail } from "./server/mail";
 import rateLimit from "express-rate-limit";
-import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, restoreReservedGenerationCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor, getStorageUsage, recordStorageAddHot, recordStorageRemoveHot, purchaseColdStorage, updateUserProfile, checkAndGrantProfileBonus, verifyUserPhone, verifyUserEmail, generateReferralCode, recordReferral, creditReferralIfComplete, getPawprintCategories, getPawprintTemplatesSync, acceptTermsVersion, createVoiceCloneAsset, listVoiceCloneAssets, createPasswordReset, consumePasswordReset, setUserPassword, insertBimBuild, listBimBuilds } from "./db";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, restoreReservedGenerationCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimFreeAvatar, releaseFreeAvatar, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor, getStorageUsage, recordStorageAddHot, recordStorageRemoveHot, purchaseColdStorage, updateUserProfile, checkAndGrantProfileBonus, verifyUserPhone, verifyUserEmail, generateReferralCode, recordReferral, creditReferralIfComplete, getPawprintCategories, getPawprintTemplatesSync, acceptTermsVersion, createVoiceCloneAsset, listVoiceCloneAssets, createPasswordReset, consumePasswordReset, setUserPassword, insertBimBuild, listBimBuilds } from "./db";
 import { isEndpointEnabled, dailyCapFor, withinDailyCap, type PaidEndpoint } from "./server/paidApiGuards";
 import { classifyPetImage, type GenerateFn } from "./server/petClassify";
 import { semanticScan as runSemanticScan } from "./server/semanticScan";
@@ -47,6 +47,7 @@ import { preflightBimModel, type BimModel } from "./src/bim/model";
 import { buildAndVerifyShell } from "./server/bim/shell";
 import { WARDROBE_CATALOG, WARDROBE_ITEM_IDS } from "./src/wardrobe/catalog";
 import { buildReferencePrompt, turnaroundViewsForType, paletteLockClause, extractPaletteInstruction, buildTextPrompt, geometryToTripo, type TextPromptFields, type SubjectClass } from "./avatarPrompts";
+import { createPrintfulOrder } from "./server/printful";
 import { triageReferenceImage, triagePasses, correctiveFromTriage, friendlyQualifyError, isClassMismatch, classLabel, type TriageResult } from "./server/imageTriage";
 import { objectBuildProfile, humanRigHints } from "./server/subjectProfiles";
 import {
@@ -530,7 +531,8 @@ async function startServer() {
     }
   });
 
-  // Step 2: required profile setup (name, birthdate, city, pets). Grants the 50 free credits.
+  // Step 2: required profile setup (name, birthdate, city, pets). The first
+  // avatar is free; no sign-up PupCoins are issued.
   app.post("/api/auth/complete-profile", requireAuth, async (req: AuthedRequest, res) => {
     try {
       const fullName = String(req.body?.fullName || "").trim();
@@ -560,7 +562,9 @@ async function startServer() {
         }
       }
 
-      res.json({ success: true, user: toPublicUser(user, TERMS_VERSION) });
+      if (user.profile_complete) await claimDailyStreak(req.user!.phone);
+      const refreshed = await findUserByPhone(req.user!.phone);
+      res.json({ success: true, user: toPublicUser(refreshed, TERMS_VERSION) });
     } catch (err: any) {
       console.error("complete-profile error:", err?.message || err);
       res.status(500).json({ error: "Could not save your profile. Please try again." });
@@ -584,7 +588,9 @@ async function startServer() {
       }
 
       const token = signToken({ phone: user.phone, uid: user.id });
-      res.json({ success: true, token, user: toPublicUser(user, TERMS_VERSION) });
+      if (user.profile_complete) await claimDailyStreak(user.phone);
+      const refreshed = await findUserByPhone(user.phone);
+      res.json({ success: true, token, user: toPublicUser(refreshed, TERMS_VERSION) });
     } catch (err: any) {
       console.error("login error:", err);
       res.status(500).json({ error: "Login failed. Please try again." });
@@ -1118,7 +1124,7 @@ async function startServer() {
       if (!isAdmin) {
         debited = await deductCredits(req.user!.phone, pawprintPrice, "pawprint_generation");
         if (!debited) {
-          return res.status(402).json({ error: `You need ${pawprintPrice} credits to create a Pawprint.` });
+          return res.status(402).json({ error: `You need ${pawprintPrice} PupCoins to create a Pawprint.` });
         }
       }
 
@@ -1180,6 +1186,56 @@ async function startServer() {
       }
       console.error("[POST /api/pawprints/generate] Error:", err?.message || err);
       res.status(500).json({ error: "Could not create the Pawprint. Your credits were returned." });
+    }
+  });
+
+  // Send a saved Pawprint digitally. The recipient pays nothing; the email
+  // includes the authoritative Pawprint price so shared links remain clear.
+  app.post("/api/pawprints/send", requireAuth, paidLimiter, async (req: AuthedRequest, res) => {
+    try {
+      const creationId = Number(req.body?.creationId);
+      const recipient = String(req.body?.email || "").trim().toLowerCase();
+      if (!Number.isInteger(creationId) || creationId <= 0) return res.status(400).json({ error: "A saved Pawprint is required." });
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) return res.status(400).json({ error: "Enter a valid recipient email." });
+      const creation = (await getCreations(req.user!.phone)).find((item: any) => Number(item.id) === creationId && item.image_url);
+      if (!creation) return res.status(404).json({ error: "That Pawprint is not in your FurBin." });
+      const esc = (value: string) => value.replace(/[&<>\"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[char] || char));
+      const sender = await findUserByPhone(req.user!.phone);
+      const senderName = esc(sender?.full_name || "A friend");
+      const imageUrl = esc(String(creation.image_url));
+      const sent = await sendMail({
+        to: recipient,
+        subject: `${senderName} sent you a Pawsome3D Pawprint`,
+        html: `<div style="font-family:system-ui,Arial,sans-serif;line-height:1.6"><h2>A Pawprint from ${senderName}</h2><p>Here is a keepsake made in Pawsome3D.</p><p><img src="${imageUrl}" alt="Pawprint" style="max-width:100%;border-radius:12px" /></p><p><a href="${imageUrl}">Open the Pawprint</a></p><p style="color:#666;font-size:13px">Pawprint creation price: ${CREDIT_PRICES.PAWPRINT} PupCoins.</p></div>`,
+        replyTo: sender?.email || undefined,
+      });
+      if (!sent) return res.status(503).json({ error: "Email delivery is not configured yet. Add RESEND_API_KEY and MAIL_FROM." });
+      res.json({ success: true, pricePupCoins: CREDIT_PRICES.PAWPRINT });
+    } catch (error: any) {
+      console.error("[POST /api/pawprints/send] Error:", error?.message || error);
+      res.status(500).json({ error: "Could not send the Pawprint." });
+    }
+  });
+
+  app.post("/api/pawprints/printful-order", requireAuth, paidLimiter, async (req: AuthedRequest, res) => {
+    try {
+      const creationId = Number(req.body?.creationId);
+      const recipient = req.body?.recipient && typeof req.body.recipient === "object" ? req.body.recipient : {};
+      const email = String(recipient.email || "").trim().toLowerCase();
+      if (!Number.isInteger(creationId) || creationId <= 0) return res.status(400).json({ error: "A saved Pawprint is required." });
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: "A valid shipping email is required." });
+      const creation = (await getCreations(req.user!.phone)).find((item: any) => Number(item.id) === creationId && item.image_url);
+      if (!creation) return res.status(404).json({ error: "That Pawprint is not in your FurBin." });
+      const order = await createPrintfulOrder({
+        recipient: { name: String(recipient.name || "Pawsome3D customer").slice(0, 120), email, address1: String(recipient.address1 || "").slice(0, 200), city: String(recipient.city || "").slice(0, 80), state_code: String(recipient.state_code || "").slice(0, 10) || undefined, country_code: String(recipient.country_code || "US").slice(0, 2).toUpperCase(), zip: String(recipient.zip || "").slice(0, 20) },
+        imageUrl: String(creation.image_url),
+      });
+      res.status(201).json({ success: true, order });
+    } catch (error: any) {
+      const message = error?.message || "Could not create the Printful order.";
+      if (/not configured/i.test(message)) return res.status(503).json({ error: message });
+      console.error("[POST /api/pawprints/printful-order] Error:", message);
+      res.status(502).json({ error: message });
     }
   });
 
@@ -1694,8 +1750,9 @@ async function startServer() {
     return generateImageWithFallback([...imageParts, { text: referencePrompt }], "referenceImage", errRef);
   }
 
-  app.post("/api/avatars", requireAuth, async (req: AuthedRequest, res) => {
+  app.post("/api/avatars", requireAuth, paidLimiter, async (req: AuthedRequest, res) => {
     let avatarCreditsDebited = 0;
+    let freeAvatarClaimed = false;
     try {
       const { name, photo, photos, palette, avatar_type, face_photo, input_mode, subject, detail, texture, style, lighting, selection_mode, subject_subtype } = req.body;
       // Defensive: accept either camelCase or snake_case so a frontend mismatch can't silently break text mode.
@@ -1754,6 +1811,7 @@ async function startServer() {
       }
 
       const avatarCost = avatarGenerationCost(avatarType, inputMode);
+      let payableAvatarCost = avatarCost;
 
       const isAdmin = await isUserAdmin(req.user!.phone);
 
@@ -1774,9 +1832,14 @@ async function startServer() {
       }
 
       if (!isAdmin) {
+        freeAvatarClaimed = await claimFreeAvatar(req.user!.phone);
+        if (freeAvatarClaimed) payableAvatarCost = 0;
+      }
+
+      if (!isAdmin) {
         const balance = await getCreditBalance(req.user!.phone);
-        if (balance < avatarCost) {
-          return res.status(402).json({ error: `Insufficient credits. You need ${avatarCost} credits.` });
+        if (balance < payableAvatarCost) {
+          return res.status(402).json({ error: `Insufficient PupCoins. You need ${payableAvatarCost} PupCoins.` });
         }
       }
 
@@ -1916,10 +1979,10 @@ async function startServer() {
       const geo = (detail || texture) ? geometryToTripo(detail, texture) : undefined;
 
       // Deduct credits ONLY now that we have a qualified image and are starting Tripo.
-      if (!isAdmin) {
-        const paid = await deductCredits(req.user!.phone, avatarCost, "avatar_generation");
-        if (!paid) return res.status(402).json({ error: `Insufficient credits. You need ${avatarCost} credits.` });
-        avatarCreditsDebited = avatarCost;
+      if (!isAdmin && payableAvatarCost > 0) {
+        const paid = await deductCredits(req.user!.phone, payableAvatarCost, "avatar_generation");
+        if (!paid) return res.status(402).json({ error: `Insufficient PupCoins. You need ${payableAvatarCost} PupCoins.` });
+        avatarCreditsDebited = payableAvatarCost;
       }
 
       // Compact analysis record persisted for the build/rig stage (§8 "memory").
@@ -1961,10 +2024,13 @@ async function startServer() {
         catch (e: any) { console.warn("[POST /api/avatars] could not persist multiview views:", e?.message || e); }
       }
 
-      res.json({ avatarId, status: "pending", referenceImageUrl: finalImageUrl, usedReferenceImage, avatarType, notice: detectNotice, chargedCredits: avatarCost });
+      res.json({ avatarId, status: "pending", referenceImageUrl: finalImageUrl, usedReferenceImage, avatarType, notice: detectNotice, chargedCredits: payableAvatarCost });
     } catch (err: any) {
       if (avatarCreditsDebited > 0) {
         try { await restoreReservedGenerationCredits(req.user!.phone, avatarCreditsDebited); } catch {}
+      }
+      if (freeAvatarClaimed) {
+        try { await releaseFreeAvatar(req.user!.phone); } catch {}
       }
       if (isTripoInsufficientCredit(err)) {
         console.error("[Tripo] Platform account out of credits — top up TRIPO_API_KEY account");
@@ -3508,7 +3574,7 @@ async function startServer() {
         // 1. Check balance
         const balance = await getCreditBalance(userPhone);
         if (balance < VIDEO_COST) {
-          return res.status(402).json({ success: false, error: `Insufficient credits. You need ${VIDEO_COST} credits.` });
+          return res.status(402).json({ success: false, error: `Insufficient PupCoins. You need ${VIDEO_COST} PupCoins.` });
         }
       }
 
@@ -3522,7 +3588,7 @@ async function startServer() {
       // 3. Deduct credits upfront (Admin bypass: skip deduction)
       if (!isAdmin) {
         const paid = await deductCredits(userPhone, VIDEO_COST, "animated_video");
-        if (!paid) return res.status(402).json({ success: false, error: `Insufficient credits. You need ${VIDEO_COST} credits.` });
+        if (!paid) return res.status(402).json({ success: false, error: `Insufficient PupCoins. You need ${VIDEO_COST} PupCoins.` });
         videoCreditsDebited = VIDEO_COST;
       }
 
@@ -3919,6 +3985,14 @@ async function startServer() {
       const job = await getJob(jobId, req.user!.phone);
       if (!job) return res.status(404).json({ success: false, error: "Job not found" });
 
+      const videoStaleMs = Number(process.env.VIDEO_JOB_STALE_MS) || 20 * 60 * 1000;
+      if (job.kind === "video" && ["queued", "running"].includes(job.status)
+        && Date.now() - new Date(job.created_at).getTime() > videoStaleMs) {
+        await updateJobStatus(job.id, "failed", "Video generation timed out before a durable file was returned.");
+        await restoreReservedGenerationCredits(job.user_phone, job.credits_reserved);
+        return res.json({ success: true, status: "failed", video_url: null, error: "Video generation timed out. Your PupCoins were returned." });
+      }
+
       if ((job.status === "running" || job.status === "queued") && job.operation_name && isTripoHandle(job.operation_name)) {
         try {
           const poll = await pollTripoTask(job.operation_name);
@@ -4037,7 +4111,8 @@ async function startServer() {
                 const videoData: any = op.response.generatedVideos[0].video;
                 let videoUrl: string;
                 if (videoData.uri) {
-                  const gcsRes = await fetch(videoData.uri);
+                  const gcsRes = await fetch(videoData.uri, { headers: process.env.GEMINI_API_KEY ? { "x-goog-api-key": process.env.GEMINI_API_KEY } : undefined });
+                  if (!gcsRes.ok) throw new Error(`Video download failed (${gcsRes.status})`);
                   const buf = Buffer.from(await gcsRes.arrayBuffer());
                   videoUrl = await uploadBase64Image(`data:video/mp4;base64,${buf.toString("base64")}`);
                 } else if (videoData.imageBytes) {
@@ -4084,6 +4159,12 @@ async function startServer() {
     try {
       const jobs = await getRunningJobs();
       for (const job of jobs) {
+        const videoStaleMs = Number(process.env.VIDEO_JOB_STALE_MS) || 20 * 60 * 1000;
+        if (job.kind === "video" && Date.now() - new Date(job.created_at).getTime() > videoStaleMs) {
+          await updateJobStatus(job.id, "failed", "Video generation timed out before a durable file was returned.");
+          await restoreReservedGenerationCredits(job.user_phone, job.credits_reserved);
+          continue;
+        }
         if (!job.operation_name) continue;
         // --- HeyGen talking-video branch ---
         if (isHeyGenHandle(job.operation_name)) {
@@ -4171,7 +4252,8 @@ async function startServer() {
               const videoData: any = op.response.generatedVideos[0].video;
               let videoUrl: string;
               if (videoData.uri) {
-                const gcsRes = await fetch(videoData.uri);
+                const gcsRes = await fetch(videoData.uri, { headers: process.env.GEMINI_API_KEY ? { "x-goog-api-key": process.env.GEMINI_API_KEY } : undefined });
+                if (!gcsRes.ok) throw new Error(`Video download failed (${gcsRes.status})`);
                 const buf = Buffer.from(await gcsRes.arrayBuffer());
                 videoUrl = await uploadBase64Image(`data:video/mp4;base64,${buf.toString("base64")}`);
               } else if (videoData.imageBytes) {

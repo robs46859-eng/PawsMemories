@@ -64,6 +64,7 @@ export interface UserRow {
   pawprint_tokens?: number;
   referral_code?: string | null;
   referred_by?: string | null;
+  free_avatar_available?: number;
 }
 
 /** Public-safe shape returned to the client. */
@@ -72,6 +73,7 @@ export interface PublicUser {
   fullName: string;
   email: string;
   credits: number;
+  freeAvatarAvailable: boolean;
   treats: number;
   city: string;
   zip?: string;
@@ -111,6 +113,7 @@ export function toPublicUser(userRow: any, currentTermsVersion?: string): Public
     birthdate: userRow.birthdate || "",
     profileComplete: !!userRow.profile_complete,
     credits: userRow.credits,
+    freeAvatarAvailable: !!userRow.free_avatar_available,
     treats: userRow.treats || 0,
     isAdmin: !!userRow.is_admin || (!!ADMIN_KEY && userRow.phone === ADMIN_KEY),
     isTester: !!userRow.is_tester,
@@ -152,6 +155,7 @@ export async function initDb(): Promise<void> {
         is_admin TINYINT(1) NOT NULL DEFAULT 0,
         daily_streak INT NOT NULL DEFAULT 0,
         last_streak_claim DATE NULL,
+        free_avatar_available TINYINT(1) NOT NULL DEFAULT 1,
         achievements_json TEXT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -180,6 +184,7 @@ export async function initDb(): Promise<void> {
       { name: "is_tester",         ddl: "ADD COLUMN is_tester TINYINT(1) NOT NULL DEFAULT 0" },
       { name: "daily_streak",      ddl: "ADD COLUMN daily_streak INT NOT NULL DEFAULT 0" },
       { name: "last_streak_claim", ddl: "ADD COLUMN last_streak_claim DATE NULL" },
+      { name: "free_avatar_available", ddl: "ADD COLUMN free_avatar_available TINYINT(1) NOT NULL DEFAULT 1" },
       { name: "achievements_json", ddl: "ADD COLUMN achievements_json TEXT NULL" },
       { name: "profile_photo_url", ddl: "ADD COLUMN profile_photo_url TEXT NULL" },
       // Phase 8 columns
@@ -871,8 +876,8 @@ export class EmailTakenError extends Error {
 /**
  * Create a fresh (profile-incomplete) account gated by email + password.
  * A synthetic internal key is generated for the users.phone column so the
- * existing foreign-key relationships keep working. The 50 free credits are NOT
- * granted here — they are granted when the user completes their profile.
+ * existing foreign-key relationships keep working. New users receive a
+ * one-time free-avatar entitlement, not wallet credits.
  */
 export async function createUserByEmail(email: string, passwordHash: string, acceptedTermsVersion: string): Promise<UserRow> {
   // Guard against a race / duplicate before insert.
@@ -883,8 +888,8 @@ export async function createUserByEmail(email: string, passwordHash: string, acc
   try {
     await getPool().query(
       `INSERT INTO users
-         (phone, email, password_hash, credits, treats, profile_complete, accepted_terms_version, accepted_terms_at)
-       VALUES (?, ?, ?, 0, 0, 0, ?, NOW())`,
+         (phone, email, password_hash, credits, treats, profile_complete, free_avatar_available, accepted_terms_version, accepted_terms_at)
+       VALUES (?, ?, ?, 0, 0, 0, 1, ?, NOW())`,
       [userKey, email, passwordHash, acceptedTermsVersion]
     );
   } catch (err: any) {
@@ -913,7 +918,8 @@ export async function acceptTermsVersion(phone: string, termsVersion: string): P
 /**
  * Save the required profile details and mark the profile complete.
  * Email + password were already set at sign-up, so they are not touched here.
- * Grants the 50 free credits only the first time the profile is completed.
+ * Completes the profile without granting wallet credits. The free-avatar
+ * entitlement is consumed later by the avatar generation route.
  */
 export async function completeUserProfile(
   phone: string,
@@ -926,7 +932,6 @@ export async function completeUserProfile(
        SET full_name = ?,
            birthdate = ?,
            city = ?,
-           credits = CASE WHEN profile_complete = 0 THEN credits + 50 ELSE credits END,
            profile_complete = 1
      WHERE phone = ?`,
     [fullName, birthdate, city, phone]
@@ -940,6 +945,23 @@ export async function completeUserProfile(
 export async function getCreditBalance(phone: string): Promise<number> {
   const user = await findUserByPhone(phone);
   return user ? user.credits : 0;
+}
+
+export async function claimFreeAvatar(phone: string): Promise<boolean> {
+  const [result] = await getPool().query(
+    `UPDATE users SET free_avatar_available = 0
+      WHERE phone = ? AND profile_complete = 1 AND free_avatar_available = 1`,
+    [phone]
+  ) as any;
+  return result.affectedRows === 1;
+}
+
+export async function releaseFreeAvatar(phone: string): Promise<void> {
+  await getPool().query(
+    `UPDATE users SET free_avatar_available = 1
+      WHERE phone = ? AND free_avatar_available = 0`,
+    [phone]
+  );
 }
 
 /**
@@ -1874,17 +1896,20 @@ export async function claimDailyStreak(phone: string): Promise<{success: boolean
     }
   }
 
-  // Reward: 5 credits and 1 treat
+  // Reward: 5 PupCoins and 1 treat. Every third consecutive day adds a
+  // small 15-PupCoin bundle so the incentive is meaningful but bounded.
+  const streakBundle = newStreak > 0 && newStreak % 3 === 0 ? 15 : 0;
+  const reward = 5 + streakBundle;
   await getPool().query(
     `UPDATE users 
      SET daily_streak = ?,
          last_streak_claim = ?,
-         credits = credits + 5,
+         credits = credits + ?,
          treats = treats + 1
      WHERE phone = ?`,
-    [newStreak, today, phone]
+    [newStreak, today, reward, phone]
   );
-  await recordCreditTxn(phone, 5, "daily_bonus");
+  await recordCreditTxn(phone, reward, streakBundle ? "daily_bonus_streak_bundle" : "daily_bonus");
   return { success: true };
 }
 
@@ -2500,20 +2525,8 @@ export async function updateUserProfile(phone: string, fields: {
   await getPool().query(`UPDATE users SET ${parts.join(", ")} WHERE phone = ?`, values);
 }
 
-/** Check if profile completion conditions are met and grant the 100-cr bonus. */
+/** Legacy compatibility hook. Signup/profile completion never grants wallet value. */
 export async function checkAndGrantProfileBonus(phone: string): Promise<{ granted: boolean }> {
-  const [rows] = await getPool().query(
-    `SELECT profile_bonus_granted, email_verified, phone_verified, zip FROM users WHERE phone = ?`,
-    [phone]
-  ) as any;
-  const row = rows?.[0];
-  if (!row) return { granted: false };
-  if (row.profile_bonus_granted) return { granted: false };
-  if (row.zip && row.email_verified && row.phone_verified) {
-    await addCredits(phone, 100, "profile_complete_bonus");
-    await getPool().query(`UPDATE users SET profile_bonus_granted = 1 WHERE phone = ?`, [phone]);
-    return { granted: true };
-  }
   return { granted: false };
 }
 

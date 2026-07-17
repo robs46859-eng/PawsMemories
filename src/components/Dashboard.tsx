@@ -1,5 +1,5 @@
 import React from "react";
-import { Sparkles, ArrowRight, Clapperboard, PawPrint, BookOpen, Shirt } from "lucide-react";
+import { Sparkles, ArrowRight } from "lucide-react";
 import { Album, Creation, UserProfile } from "../types";
 import { Achievement } from "./AchievementsPanel";
 
@@ -58,72 +58,23 @@ export default function Dashboard({ userProfile, streak, dailyStreakClaimed, onC
         </button>
       </div>
 
-      {/* Center: primary creation choices */}
+      {/* Home destinations: wide, low-opacity glass tiles keep the page quiet while
+          using the same product artwork as the global shell. */}
       <div className="flex-1 w-full flex flex-col items-center justify-center relative z-10 my-8">
         <div className="absolute h-64 w-64 rounded-full bg-primary/20 blur-[90px]" />
-        <div className="relative grid w-full max-w-4xl grid-cols-1 gap-5 md:grid-cols-2">
-          <button data-tour="dashboard-create" type="button" onClick={() => (onOpenFurball ? onOpenFurball() : onCreate())} className="group overflow-hidden rounded-[2rem] border border-white/30 bg-gradient-to-br from-primary/25 via-surface/80 to-secondary/20 p-7 text-left shadow-2xl backdrop-blur-2xl transition hover:-translate-y-1 hover:border-primary/60 hover:shadow-primary/20 active:scale-[.98]">
-            <div className="mb-8 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-on-primary shadow-lg"><PawPrint size={27} /></div>
-            <p className="text-xs font-black uppercase tracking-[.18em] text-primary">Furball3D</p>
-            <h2 className="mt-2 text-3xl font-black tracking-tight text-on-surface">Build a 3D model</h2>
-            <p className="mt-3 max-w-sm text-sm leading-6 text-on-surface-variant">Turn photos or a prompt into a clean, style-controlled 3D model.</p>
-            <span className="mt-6 inline-flex items-center gap-2 text-sm font-black text-primary">Open Furball3D <ArrowRight size={16} className="transition group-hover:translate-x-1" /></span>
-          </button>
-          <button type="button" onClick={() => onOpenFidos?.()} className="group overflow-hidden rounded-[2rem] border border-white/30 bg-gradient-to-br from-secondary/25 via-surface/80 to-primary/15 p-7 text-left shadow-2xl backdrop-blur-2xl transition hover:-translate-y-1 hover:border-secondary/60 hover:shadow-secondary/20 active:scale-[.98]">
-            <div className="mb-8 flex h-14 w-14 items-center justify-center rounded-2xl bg-secondary text-on-secondary shadow-lg"><Shirt size={27} /></div>
-            <p className="text-xs font-black uppercase tracking-[.18em] text-secondary">Fido's Styles</p>
-            <h2 className="mt-2 text-3xl font-black tracking-tight text-on-surface">Create the look</h2>
-            <p className="mt-3 max-w-sm text-sm leading-6 text-on-surface-variant">Build wardrobe looks and style variations for your selected model.</p>
-            <span className="mt-6 inline-flex items-center gap-2 text-sm font-black text-secondary">Open Fido's Styles <ArrowRight size={16} className="transition group-hover:translate-x-1" /></span>
-          </button>
+        <div className="relative grid w-full max-w-5xl grid-cols-1 gap-4 md:grid-cols-2">
+          {[
+            { label: "Furball3D", title: "Build a 3D model", detail: "Turn a photo or prompt into a model.", image: "/brand/furball3d.jpg", action: () => (onOpenFurball ? onOpenFurball() : onCreate()), tour: "dashboard-create" },
+            { label: "Fido's Styles", title: "Create the look", detail: "Build wardrobe looks and style variations.", image: "/brand/fidostyles.jpg", action: () => onOpenFidos?.() },
+            { label: "Pawprints", title: "Make a keepsake", detail: "Add photos and words for any occasion.", image: "/brand/pawprints.png", action: () => onOpenPawprints?.() },
+            { label: "Animation Studio", title: "Bring it to life", detail: `Animate ${petName} with video or 3D scenes.`, image: "/brand/animation-studio.png", action: () => onOpenAnimator?.() },
+          ].map((item) => (
+            <button key={item.label} data-tour={item.tour} type="button" onClick={item.action} className="glass-tile group flex min-h-36 items-center gap-5 rounded-[1.75rem] p-5 text-left md:min-h-44 md:p-6">
+              <img src={item.image} alt="" className="h-24 w-24 shrink-0 rounded-2xl object-cover shadow-md ring-1 ring-white/50 md:h-28 md:w-28" />
+              <span className="min-w-0"><span className="text-[10px] font-black uppercase tracking-[.18em] text-primary">{item.label}</span><strong className="mt-1 block text-2xl font-black tracking-tight text-on-surface">{item.title}</strong><span className="mt-2 block max-w-xs text-sm leading-5 text-on-surface-variant">{item.detail}</span><span className="mt-3 inline-flex items-center gap-2 text-xs font-black text-primary">Open <ArrowRight size={14} className="transition group-hover:translate-x-1" /></span></span>
+            </button>
+          ))}
         </div>
-      </div>
-
-      {/* Bottom: Quick-access action cards */}
-      <div className="w-full max-w-4xl grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6 z-10">
-
-        {/* Animation Card → Animation Studio */}
-        <button
-          type="button"
-          onClick={() => onOpenAnimator?.()}
-          className="glass-card p-5 rounded-3xl flex items-center justify-between border-t border-white/20 group cursor-pointer text-left hover:scale-[1.02] active:scale-95 transition-transform"
-        >
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <Clapperboard size={16} className="text-primary" />
-              <span className="text-xs font-extrabold uppercase tracking-widest opacity-70">Animation</span>
-            </div>
-            <h3 className="font-headline-lg text-lg font-bold">Open Studio</h3>
-            <div className="mt-1 flex items-center gap-1 text-primary text-xs font-bold group-hover:underline">
-              Animate {petName} <ArrowRight size={12} />
-            </div>
-          </div>
-          <span className="w-14 h-14 bg-primary-container rounded-2xl flex items-center justify-center text-primary-fixed shadow-inner group-hover:scale-110 transition-transform">
-            <Clapperboard size={22} />
-          </span>
-        </button>
-
-        {/* Pawprints Card */}
-        <button
-          type="button"
-          onClick={() => onOpenPawprints?.()}
-          className="glass-card p-5 rounded-3xl flex items-center justify-between border-t border-white/20 group cursor-pointer text-left hover:scale-[1.02] active:scale-95 transition-transform"
-        >
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <BookOpen size={16} className="text-primary" />
-              <span className="text-xs font-extrabold uppercase tracking-widest opacity-70">Pawprints</span>
-            </div>
-            <h3 className="font-headline-lg text-lg font-bold">Storybooks</h3>
-            <div className="mt-1 flex items-center gap-1 text-primary text-xs font-bold group-hover:underline">
-              Open Pawprints <ArrowRight size={12} />
-            </div>
-          </div>
-          <span className="w-14 h-14 bg-primary-container rounded-2xl flex items-center justify-center text-primary-fixed shadow-inner group-hover:scale-110 transition-transform">
-            <BookOpen size={22} />
-          </span>
-        </button>
-
       </div>
       
     </div>

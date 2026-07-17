@@ -167,7 +167,7 @@ export default function ProfileScreen({
       if (data.success) {
         if (data.user) onUserUpdate?.(data.user);
         loadProfile();
-        if (data.bonusGranted) alert("🎉 Profile complete! You earned 100 credits!");
+        if (data.bonusGranted) alert("🎉 Profile complete! You earned 100 PupCoins!");
         setVerifySent(false);
       } else {
         alert(data.error || "Invalid code.");
@@ -271,7 +271,7 @@ export default function ProfileScreen({
         {/* Credits + streak */}
         <div className="grid grid-cols-2 gap-3 mt-6">
           <div className="glass-panel rounded-2xl p-3">
-            <div className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant mb-1">🪙 Credits</div>
+            <div className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant mb-1">🪙 PupCoins</div>
             <div className="text-xl font-black text-primary font-mono">{userProfile.credits}</div>
             <button onClick={onOpenCreditStore} className="mt-1 w-full py-1.5 bg-primary text-on-primary rounded-lg text-[10px] font-black uppercase tracking-wide hover:opacity-90 active:scale-95 transition-all cursor-pointer">Buy</button>
           </div>
@@ -288,7 +288,7 @@ export default function ProfileScreen({
         {pData?.user && !pData.user.profileBonusGranted && (
           <div className="mt-3 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
             <p className="text-xs text-amber-700 dark:text-amber-300 font-medium flex items-center gap-1">
-              <Gift size={14} /> Complete your profile: add ZIP, verify email & phone → earn 100 credits!
+              <Gift size={14} /> Complete your profile to keep your one-free-avatar entitlement available.
             </p>
           </div>
         )}
@@ -323,7 +323,7 @@ export default function ProfileScreen({
             <Share2 size={16} className="text-primary" />
             <h3 className="text-sm font-extrabold text-on-surface uppercase tracking-wide">Referral</h3>
           </div>
-          <p className="text-xs text-on-surface-variant mb-2">Share your code and earn 30 credits per completed referral.</p>
+          <p className="text-xs text-on-surface-variant mb-2">Share your code and earn 30 PupCoins per completed referral.</p>
           <div className="flex items-center gap-2 bg-surface-container rounded-xl p-3">
             <code className="flex-1 text-sm font-bold text-primary font-mono">{pData.user.referralCode}</code>
             <button onClick={() => { navigator.clipboard.writeText(`https://pawsome3d.com/r/${pData.user!.referralCode}`); alert("Link copied!"); }} className="px-3 py-1.5 bg-primary/10 text-primary rounded-lg text-[10px] font-black uppercase tracking-wide hover:bg-primary/20 transition-all cursor-pointer">Copy</button>
@@ -386,7 +386,7 @@ export default function ProfileScreen({
       <section className="glass-panel border border-outline-variant/40 rounded-3xl p-6 mb-6">
         <div className="flex items-center gap-2 mb-4">
           <History size={16} className="text-primary" />
-          <h3 className="text-sm font-extrabold text-on-surface uppercase tracking-wide">Credit History</h3>
+          <h3 className="text-sm font-extrabold text-on-surface uppercase tracking-wide">PupCoin History</h3>
         </div>
         {history.length === 0 ? (
           <p className="text-xs text-on-surface-variant leading-relaxed">No credit activity yet.</p>

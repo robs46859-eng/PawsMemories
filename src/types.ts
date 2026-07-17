@@ -67,6 +67,8 @@ export interface Creation {
   created_at: string;
   // Legacy / frontend-only fields
   name?: string;
+  pet_name?: string | null;
+  pet_breed?: string | null;
   breed?: string;
   background?: BackgroundType;
   isCustomUploaded?: boolean;
@@ -83,6 +85,7 @@ export interface UserProfile {
   fullName: string;
   email?: string;
   credits: number;
+  freeAvatarAvailable?: boolean;
   treats: number;
   isAdmin?: boolean;
   city?: string;
@@ -106,6 +109,7 @@ export interface PublicUser {
   fullName: string;
   email: string;
   credits: number;
+  freeAvatarAvailable?: boolean;
   treats: number;
   city: string;
   birthdate: string;

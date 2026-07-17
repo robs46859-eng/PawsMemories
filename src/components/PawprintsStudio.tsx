@@ -371,6 +371,9 @@ export default function PawprintsStudio({ userProfile, onOpenCreditStore, onUser
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [resultUrl, setResultUrl] = useState("");
+  const [savedCreationId, setSavedCreationId] = useState<number | null>(null);
+  const [recipientEmail, setRecipientEmail] = useState("");
+  const [sending, setSending] = useState(false);
   const photoInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -388,6 +391,7 @@ export default function PawprintsStudio({ userProfile, onOpenCreditStore, onUser
     setMessage(item.sampleCopy[0] || "Made with love.");
     setVariation("classic");
     setResultUrl("");
+    setSavedCreationId(null);
   };
 
   const choosePhotos = async (files: File[]) => {
@@ -419,7 +423,7 @@ export default function PawprintsStudio({ userProfile, onOpenCreditStore, onUser
 
   const save = async () => {
     if (!template) return;
-    setBusy(true); setError(""); setResultUrl("");
+    setBusy(true); setError(""); setResultUrl(""); setSavedCreationId(null);
     try {
       const renderedImage = await renderPawprint({ variation, photos, title: title.trim() || template.name, message: message.trim(), category });
       const fields: Record<string, string> = {};
@@ -437,6 +441,7 @@ export default function PawprintsStudio({ userProfile, onOpenCreditStore, onUser
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "The Pawprint could not be saved.");
       setResultUrl(data.url);
+      setSavedCreationId(Number(data.creationId) || null);
       await onCreationSaved?.();
       if (data.user) onUserUpdate(data.user);
     } catch (caught: any) {
@@ -475,9 +480,16 @@ export default function PawprintsStudio({ userProfile, onOpenCreditStore, onUser
           <section className="rounded-3xl border border-outline-variant/30 bg-surface p-5"><div className="mb-3 flex items-center gap-2"><ImagePlus size={18} className="text-primary" /><h2 className="font-black">Photos</h2><span className="ml-auto text-xs font-black text-primary">{photos.length}/{MAX_PAWPRINT_PHOTOS}</span></div><button type="button" onClick={() => photoInput.current?.click()} className="min-h-40 w-full overflow-hidden rounded-2xl border-2 border-dashed border-outline-variant bg-surface-container-low transition hover:border-primary"><span className="flex min-h-40 flex-col items-center justify-center gap-2 p-6 text-center"><ImagePlus size={30} className="text-primary" /><strong>Add photos</strong><small className="text-on-surface-variant">Multiple PNG, JPEG, or WebP files · up to 20 MB each<br />Minimum 600 × 600 · large images optimize automatically</small></span></button><input ref={photoInput} type="file" multiple accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => { const files = Array.from(event.target.files || []); if (files.length) void choosePhotos(files); event.target.value = ""; }} />{photos.length > 0 && <div className="mt-3 grid grid-cols-3 gap-2">{photos.map((photo, index) => <div key={photo.id} className="group relative aspect-square overflow-hidden rounded-xl border border-outline-variant"><img src={photo.dataUrl} alt={photo.name} className="h-full w-full object-cover" /><button type="button" onClick={() => setPhotos((current) => current.filter((item) => item.id !== photo.id))} aria-label={`Remove ${photo.name}`} className="absolute right-1 top-1 grid h-7 w-7 place-items-center rounded-full bg-black/65 text-white"><X size={14} /></button><div className="absolute inset-x-1 bottom-1 flex justify-between"><button type="button" disabled={index === 0} onClick={() => movePhoto(index, -1)} aria-label={`Move ${photo.name} earlier`} className="grid h-7 w-7 place-items-center rounded-full bg-black/65 text-white disabled:opacity-30"><ArrowLeft size={13} /></button><button type="button" disabled={index === photos.length - 1} onClick={() => movePhoto(index, 1)} aria-label={`Move ${photo.name} later`} className="grid h-7 w-7 place-items-center rounded-full bg-black/65 text-white disabled:opacity-30"><ArrowRight size={13} /></button></div></div>)}</div>}</section>
           <section className="rounded-3xl border border-outline-variant/30 bg-surface p-5"><div className="mb-3 flex items-center gap-2"><Type size={18} className="text-primary" /><h2 className="font-black">Your words</h2></div><label className="text-xs font-bold text-on-surface-variant">Title</label><input id="pawprint-text" value={title} maxLength={80} onChange={(event) => setTitle(event.target.value)} className="mt-1 min-h-12 w-full rounded-xl border border-outline-variant bg-surface-container px-3" /><label className="mt-4 block text-xs font-bold text-on-surface-variant">Message</label><textarea value={message} maxLength={300} rows={4} onChange={(event) => setMessage(event.target.value)} className="mt-1 w-full resize-none rounded-xl border border-outline-variant bg-surface-container p-3" /><p className="mt-1 text-right text-[10px] text-on-surface-variant">{message.length}/300</p></section>
           {error && <p className="rounded-xl bg-error/10 p-3 text-sm font-bold text-error">{error}</p>}
-          {resultUrl && <a href={resultUrl} target="_blank" rel="noopener noreferrer" className="flex min-h-12 items-center justify-center gap-2 rounded-xl border border-primary font-black text-primary"><Download size={17} /> Open finished Pawprint</a>}
-          <button onClick={() => void save()} disabled={busy || (!userProfile.isAdmin && userProfile.credits < CREDIT_PRICES.PAWPRINT)} className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 font-black text-on-primary disabled:opacity-40">{busy ? <Loader2 className="animate-spin" size={19} /> : <Sparkles size={19} />}{busy ? "Saving…" : `Save selected variation · ${CREDIT_PRICES.PAWPRINT} credits`}</button>
-          {!userProfile.isAdmin && userProfile.credits < CREDIT_PRICES.PAWPRINT && <button onClick={onOpenCreditStore} className="min-h-12 w-full rounded-xl border border-primary font-black text-primary">Buy credits</button>}
+          {resultUrl && <>
+            <a href={resultUrl} target="_blank" rel="noopener noreferrer" className="flex min-h-12 items-center justify-center gap-2 rounded-xl border border-primary font-black text-primary"><Download size={17} /> Open finished Pawprint</a>
+            <div className="rounded-2xl border border-outline-variant/30 bg-surface-container-low p-4">
+              <label className="text-xs font-black text-on-surface-variant">Send this Pawprint by email</label>
+              <div className="mt-2 flex gap-2"><input type="email" value={recipientEmail} onChange={(event) => setRecipientEmail(event.target.value)} placeholder="friend@example.com" className="min-h-11 min-w-0 flex-1 rounded-xl border border-outline-variant bg-surface px-3 text-sm" /><button type="button" disabled={sending || !savedCreationId || !recipientEmail.trim()} onClick={async () => { setSending(true); setError(""); try { const response = await authedFetch("/api/pawprints/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ creationId: savedCreationId, email: recipientEmail }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error || "Could not send the Pawprint."); setRecipientEmail(""); } catch (caught: any) { setError(caught.message || "Could not send the Pawprint."); } finally { setSending(false); } }} className="min-h-11 rounded-xl bg-primary px-4 text-xs font-black text-on-primary disabled:opacity-40">{sending ? "Sending…" : "Send"}</button></div>
+              <p className="mt-2 text-[10px] text-on-surface-variant">The email includes the ${CREDIT_PRICES.PAWPRINT} PupCoins creation price.</p>
+            </div>
+          </>}
+          <button onClick={() => void save()} disabled={busy || (!userProfile.isAdmin && userProfile.credits < CREDIT_PRICES.PAWPRINT)} className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 font-black text-on-primary disabled:opacity-40">{busy ? <Loader2 className="animate-spin" size={19} /> : <Sparkles size={19} />}{busy ? "Saving…" : `Save selected variation · ${CREDIT_PRICES.PAWPRINT} PupCoins`}</button>
+          {!userProfile.isAdmin && userProfile.credits < CREDIT_PRICES.PAWPRINT && <button onClick={onOpenCreditStore} className="min-h-12 w-full rounded-xl border border-primary font-black text-primary">Buy PupCoins</button>}
         </aside>
       </div>
     </main>

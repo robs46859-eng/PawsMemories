@@ -11,7 +11,6 @@ const PRIVATE_TITLES: Partial<Record<Screen, string>> = {
   [Screen.PAWPRINTS]: "Pawprints Studio",
   [Screen.PAWLISHER]: "Fido's Styles",
   [Screen.FURBIN]: "Fur Bin",
-  [Screen.CREATIONS]: "Creations",
   [Screen.ALBUMS]: "My Albums",
   [Screen.PROFILE]: "Profile",
   [Screen.STORE]: "Store",

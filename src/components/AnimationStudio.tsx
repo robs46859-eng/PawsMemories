@@ -59,7 +59,7 @@ export default function AnimationStudio({ creations, userProfile, onOpenPro, onO
           // else transient — keep polling
         }
       }
-      throw new Error("This is taking longer than expected. Check your creations shortly — it may still finish.");
+      throw new Error("This is taking longer than expected. Check your FurBin shortly — it may still finish.");
     } catch (err: any) {
       setError(err?.message || "Could not create the animation.");
       setStatus("error");
@@ -76,7 +76,7 @@ export default function AnimationStudio({ creations, userProfile, onOpenPro, onO
         <button onClick={onClose} className="text-on-surface-variant hover:text-primary p-2 rounded-full" aria-label="Close"><X size={20} /></button>
       </div>
       <p className="text-sm text-on-surface-variant mb-5">
-        Create a generated video from one image and a motion prompt. Need a full scene, cast, and timeline? Open the 3D Animation Builder below. <strong>{cost} credits</strong> per video.
+        Create a generated video from one image and a motion prompt. Need a full scene, cast, and timeline? Open the 3D Animation Builder below. <strong>{cost} PupCoins</strong> per video.
       </p>
 
       {/* Result */}
@@ -94,7 +94,7 @@ export default function AnimationStudio({ creations, userProfile, onOpenPro, onO
         <div className="flex flex-col items-center justify-center py-16 gap-4 text-on-surface-variant">
           <RefreshCw className="animate-spin text-primary" size={30} />
           <p className="text-sm font-medium">Animating with AI… this can take a minute or two.</p>
-          <p className="text-xs">You can leave this page — your video will appear in your creations when it's ready.</p>
+          <p className="text-xs">You can leave this page — your video will appear in your FurBin when it's ready.</p>
         </div>
       ) : (
         <>
@@ -157,7 +157,7 @@ export default function AnimationStudio({ creations, userProfile, onOpenPro, onO
             disabled={!selected}
             className="w-full py-4 rounded-full bg-primary text-on-primary font-extrabold flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-50"
           >
-            <Wand2 size={18} /> {canAfford ? `Create Animation · ${cost} cr` : `Get credits to animate (${cost} cr)`}
+            <Wand2 size={18} /> {canAfford ? `Create Animation · ${cost} PupCoins` : `Get PupCoins to animate (${cost})`}
           </button>
 
           {/* Advanced workspace contained under the Video Creator entry point. */}
