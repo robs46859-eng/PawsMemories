@@ -6,6 +6,7 @@
 
 import type { BuildState } from "./types";
 import { executeBlenderTool } from "../../tools/blender_mcp";
+import { facialVisemeBpyScript } from "./facialVisemes";
 
 export async function finalizeNode(state: BuildState): Promise<Partial<BuildState>> {
   console.log("[Finalize] Exporting final assets...");
@@ -13,6 +14,14 @@ export async function finalizeNode(state: BuildState): Promise<Partial<BuildStat
   // Export GLB if not already done
   let riggedGlb = state.riggedGlbBase64;
   if (!riggedGlb) {
+    // This is an optional, deterministic production step. It never blocks a
+    // valid model export: models with no usable face keep the jaw-bone fallback.
+    try {
+      const viseme = await executeBlenderTool("execute_bpy", { code: facialVisemeBpyScript() });
+      if (!viseme.success) console.warn("[Finalize] Facial viseme synthesis skipped:", viseme.error || viseme.data?.error);
+    } catch (err: any) {
+      console.warn("[Finalize] Facial viseme synthesis skipped:", err?.message || err);
+    }
     try {
       const result = await executeBlenderTool("export_glb", {});
       if (result.success && result.data?.glb_base64) {
@@ -48,7 +57,7 @@ export async function finalizeNode(state: BuildState): Promise<Partial<BuildStat
   return {
     riggedGlbBase64: riggedGlb,
     spriteSheetBase64: null,
-    animationMetadata: { animations: {}, static: true },
+    animationMetadata: { animations: {}, static: true, facialVisemeContract: "viseme_A..viseme_X" },
     status: riggedGlb ? "completed" : "failed",
     statusMessage: riggedGlb
       ? `Build complete: ${completedSteps}/${totalSteps} steps, ${successRate}% success rate`

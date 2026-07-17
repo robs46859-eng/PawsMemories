@@ -30,6 +30,7 @@ import {
   VisemeTrack,
   activeVisemeAt,
 } from "./visemeRules.ts";
+import { findVisemeMorphIndex } from "./visemeBindings.ts";
 
 export type PlayerState = "idle" | "playing" | "paused" | "ended";
 
@@ -124,8 +125,10 @@ export class LipSyncPlayer {
     this.root.traverse((obj: any) => {
       if (obj.isMesh && obj.morphTargetDictionary && obj.morphTargetInfluences) {
         for (const shape of VISEME_SHAPES) {
-          const name = `${this.opts.morphPrefix}${shape}`;
-          const idx = obj.morphTargetDictionary[name];
+          const canonical = `${this.opts.morphPrefix}${shape}`;
+          const idx = this.opts.morphPrefix === "viseme_"
+            ? findVisemeMorphIndex(obj.morphTargetDictionary, shape)
+            : obj.morphTargetDictionary[canonical];
           if (idx !== undefined) {
             const arr = this.morphBindings.get(shape) ?? [];
             arr.push({ mesh: obj as THREE.Mesh, index: idx });

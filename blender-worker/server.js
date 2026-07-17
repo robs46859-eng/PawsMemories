@@ -552,7 +552,7 @@ print("IMPORT_COMPLETE")
 
     // 2) Load bake_lod.py and run it with the bonemap.
     const bakeScript = fs.readFileSync(BAKE_LOD_SCRIPT_PATH, "utf8");
-    const params = JSON.stringify({ out_path: outPath, bonemap });
+    const params = JSON.stringify({ out_path: outPath, bonemap, avatar_type });
     const bakeRes = await bridge.executeCode(
       `${bakeScript}\nrun_bake_lod(json.loads(r'''${params}'''))\n`
     );

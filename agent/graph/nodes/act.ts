@@ -9,6 +9,7 @@
 
 import type { BuildState, StepResult } from "./types";
 import { executeBlenderTool } from "../../tools/blender_mcp";
+import { facialVisemeBpyScript } from "./facialVisemes";
 import { retrieveBlenderContext, formatContextForPrompt } from "../../knowledge/retriever";
 import { generateGeminiText } from "../../gemini";
 import { lookupBreedAnatomy, generateVertexGroupCode, getBoneProportions } from "../../knowledge/breed-anatomy";
@@ -788,6 +789,11 @@ export async function actNode(state: BuildState): Promise<Partial<BuildState>> {
 
   // Special case: export step
   if (action.type === "finalize" || action.stepDescription.toLowerCase().includes("export")) {
+    // L2 face targets are part of the exported model contract. This is safe to
+    // repeat: existing provider shape keys are retained and missing names are
+    // filled before the GLB leaves Blender.
+    const visemeResult = await executeBlenderTool("execute_bpy", { code: facialVisemeBpyScript() });
+    if (!visemeResult.success) console.warn("[Act] Facial viseme synthesis skipped:", visemeResult.error || visemeResult.data?.error);
     const exportResult = await executeBlenderTool("export_glb", {});
     
     const stepResult: StepResult = {
