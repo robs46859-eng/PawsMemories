@@ -1,19 +1,73 @@
 <!doctype html>
-<html lang="en">
+<html lang="en-US">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Pawsome3D | Your Pet, Immortalized</title>
+    <title>Pawsome3D | Create 3D Pet Models, Videos &amp; Keepsakes</title>
+    <meta name="description" content="Turn your pet photos into 3D models, animated videos, custom styles, Pawprints designs, and shareable digital keepsakes with Pawsome3D." />
+    <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1" />
+    <meta name="theme-color" content="#f257b5" />
+    <link rel="canonical" href="https://pawsome3d.com/" />
+    <link rel="icon" type="image/png" href="/brand/pawsome-logo.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Pawsome3D" />
+    <meta property="og:title" content="Pawsome3D | Create 3D Pet Models, Videos &amp; Keepsakes" />
+    <meta property="og:description" content="Turn your pet photos into 3D models, animated videos, custom styles, Pawprints designs, and shareable digital keepsakes." />
+    <meta property="og:url" content="https://pawsome3d.com/" />
+    <meta property="og:image" content="https://pawsome3d.com/MAIN.jpg" />
+    <meta property="og:image:alt" content="Pawsome3D pet creation studio" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Pawsome3D | Create 3D Pet Models, Videos &amp; Keepsakes" />
+    <meta name="twitter:description" content="Create 3D pet models, animated videos, and custom keepsakes from your favorite photos." />
+    <meta name="twitter:image" content="https://pawsome3d.com/MAIN.jpg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=Be+Vietnam+Pro:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
     <!-- <model-viewer> (GLB viewer w/ rotate + AR) is loaded on demand by PetModelViewer.tsx,
          not site-wide, so pages without a 3D model don't pay for the ~300KB component. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "https://pawsome3d.com/#organization",
+            "name": "Pawsome3D",
+            "url": "https://pawsome3d.com/",
+            "logo": "https://pawsome3d.com/brand/pawsome-logo.png",
+            "email": "rob@stelar.host"
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://pawsome3d.com/#website",
+            "url": "https://pawsome3d.com/",
+            "name": "Pawsome3D",
+            "publisher": { "@id": "https://pawsome3d.com/#organization" }
+          },
+          {
+            "@type": "SoftwareApplication",
+            "name": "Pawsome3D",
+            "applicationCategory": "MultimediaApplication",
+            "operatingSystem": "Web",
+            "url": "https://pawsome3d.com/",
+            "description": "A web studio for creating 3D pet models, AI videos, custom styles, and printable keepsakes from photos.",
+            "publisher": { "@id": "https://pawsome3d.com/#organization" }
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
+    <noscript>
+      <main>
+        <h1>Create 3D pet models, videos, and keepsakes with Pawsome3D</h1>
+        <p>Pawsome3D turns pet photos into 3D models, animated videos, custom styles, Pawprints designs, and shareable digital keepsakes.</p>
+        <p><a href="/legal/privacy">Privacy Policy</a> · <a href="/legal/terms">Terms of Service</a></p>
+      </main>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

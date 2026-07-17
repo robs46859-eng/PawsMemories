@@ -71,6 +71,11 @@ function splitDataUrl(s: string): { data: string; mimeType: string } {
 
 async function startServer() {
   const app = express();
+  // API responses are application data, never search-result pages.
+  app.use("/api", (_req, res, next) => {
+    res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
+    next();
+  });
   // Gzip/deflate every text response (JSON, JS, CSS, HTML). The main bundle is
   // ~1.7MB raw → ~490KB on the wire. Must be mounted before route/static handlers.
   app.use(compression());

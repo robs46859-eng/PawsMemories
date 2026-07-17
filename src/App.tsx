@@ -30,6 +30,7 @@ const FurBinScreen = lazy(() => import("./components/FurBinScreen"));
 const AnimatorScreen = lazy(() => import("./animator/components/AnimatorScreen"));
 import WarehouseMode from "./components/WarehouseMode";
 import { MOBILE_NAV, SIDEBAR_NAV, TOP_PRIMARY_NAV } from "./shellNavigation";
+import { syncSeoMetadata } from "./seo";
 
 const EMPTY_PROFILE: UserProfile = { fullName: "", email: "", credits: 0, treats: 0, isAdmin: false, city: "", ageVerified: false, acceptedTermsVersion: null, currentTermsVersion: undefined, requiresTermsAcceptance: false };
 
@@ -182,6 +183,12 @@ export default function App() {
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
+
+  // Public entry is indexable; every account-specific studio route stays out of
+  // search results even though this is a client-routed application.
+  React.useEffect(() => {
+    syncSeoMetadata(currentScreen, isAuthed);
+  }, [currentScreen, isAuthed]);
 
   // Per-site mode: "main" (pawsome3d.com) vs "warehouse" (mypets.cc). Read from
   // the public /api/config endpoint (driven by the DEPLOY_TARGET env var).

@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /animator-files/
+
+Sitemap: https://pawsome3d.com/sitemap.xml
