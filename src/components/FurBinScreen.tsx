@@ -3,7 +3,7 @@ import type { Creation, UserProfile, VoiceCloneAsset } from "../types";
 import { Download, Eye, FileImage, Film, HardDrive, PackageOpen, PawPrint, Printer, RefreshCw, ShieldAlert, ShieldCheck, Volume2, X } from "lucide-react";
 import StorageMeter from "./StorageMeter";
 import PetModelViewer from "./PetModelViewer";
-import { createTreatstockCheckout, fetchModelLibrary, listVoiceCloneAssets, type ModelLibraryItem } from "../api";
+import { createSlant3dCheckout, fetchModelLibrary, fetchModelPrintOrders, fetchPawprintPrintOrders, listVoiceCloneAssets, type ModelLibraryItem, type ModelPrintOrder, type PawprintPrintOrder } from "../api";
 
 interface FurBinScreenProps {
   userProfile: UserProfile;
@@ -25,19 +25,35 @@ function outputUrl(creation: Creation) {
   return creation.video_url || creation.model_url || creation.image_url || "";
 }
 
-export default function FurBinScreen({ creations, onOpenCreditStore }: FurBinScreenProps) {
+export default function FurBinScreen({ creations, userProfile, onOpenCreditStore }: FurBinScreenProps) {
   const [voiceAssets, setVoiceAssets] = useState<VoiceCloneAsset[]>([]);
   const [filter, setFilter] = useState<BinFilter>("all");
   const [models, setModels] = useState<ModelLibraryItem[]>([]);
+  const [printOrders, setPrintOrders] = useState<ModelPrintOrder[]>([]);
+  const [pawprintPrintOrders, setPawprintPrintOrders] = useState<PawprintPrintOrder[]>([]);
   const [selectedModel, setSelectedModel] = useState<ModelLibraryItem | null>(null);
   const [targetHeightMm, setTargetHeightMm] = useState(100);
   const [printBusy, setPrintBusy] = useState(false);
   const [printError, setPrintError] = useState("");
+  const [printRecipient, setPrintRecipient] = useState({
+    name: userProfile.fullName || "",
+    email: userProfile.email || "",
+    line1: "",
+    line2: "",
+    city: userProfile.city || "",
+    state: "",
+    zip: userProfile.zip || "",
+    country: "US",
+  });
 
   useEffect(() => {
     listVoiceCloneAssets().then(setVoiceAssets).catch(() => setVoiceAssets([]));
     let active = true;
-    const refresh = () => fetchModelLibrary().then((items) => active && setModels(items)).catch(() => {});
+    const refresh = () => {
+      fetchModelLibrary().then((items) => active && setModels(items)).catch(() => {});
+      fetchModelPrintOrders().then((items) => active && setPrintOrders(items)).catch(() => {});
+      fetchPawprintPrintOrders().then((items) => active && setPawprintPrintOrders(items)).catch(() => {});
+    };
     refresh();
     const timer = window.setInterval(refresh, 15_000);
     return () => { active = false; window.clearInterval(timer); };
@@ -53,13 +69,13 @@ export default function FurBinScreen({ creations, onOpenCreditStore }: FurBinScr
     setPrintBusy(true);
     setPrintError("");
     try {
-      const result = await createTreatstockCheckout({
+      const result = await createSlant3dCheckout({
         sourceType: selectedModel.source_type,
         sourceId: selectedModel.id,
         targetHeightMm,
-        country: "US",
+        recipient: printRecipient,
       });
-      window.open(result.checkoutUrl, "_blank", "noopener,noreferrer");
+      window.location.assign(result.checkoutUrl);
     } catch (err: any) {
       setPrintError(err?.message || "Could not prepare this model for printing.");
     } finally {
@@ -98,6 +114,16 @@ export default function FurBinScreen({ creations, onOpenCreditStore }: FurBinScr
         </div>}
       </section>}
 
+      {(filter === "all" || filter === "models") && printOrders.length > 0 && <section className="mt-7">
+        <div className="mb-3 flex items-center gap-2"><h2 className="text-sm font-black uppercase tracking-[.16em] text-on-surface">3D print orders</h2><span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-black text-primary">{printOrders.length}</span></div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{printOrders.map((order) => <article key={order.id} className="rounded-[1.5rem] border border-white/30 bg-surface/75 p-4 shadow-lg backdrop-blur-2xl"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-black text-on-surface">Slant 3D order #{order.id}</p><p className="mt-1 text-[11px] text-on-surface-variant">{Number(order.target_height_mm)} mm figurine · {new Date(order.created_at).toLocaleDateString()}</p></div><span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-black uppercase text-primary">{order.status.replaceAll("_", " ")}</span></div>{order.retail_price_cents ? <p className="mt-3 text-sm font-black text-on-surface">${(order.retail_price_cents / 100).toFixed(2)}</p> : null}{order.status === "awaiting_payment" && order.checkout_url && <a href={order.checkout_url} className="mt-3 inline-flex min-h-10 items-center justify-center rounded-xl bg-primary px-4 text-xs font-black text-on-primary">Resume secure checkout</a>}<p className="mt-3 text-[10px] text-on-surface-variant">Provider reference: {order.provider_pack_id || "pending"}</p></article>)}</div>
+      </section>}
+
+      {(filter === "all" || filter === "pawprints") && pawprintPrintOrders.length > 0 && <section className="mt-7">
+        <div className="mb-3 flex items-center gap-2"><h2 className="text-sm font-black uppercase tracking-[.16em] text-on-surface">Pawprint print orders</h2><span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-black text-primary">{pawprintPrintOrders.length}</span></div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{pawprintPrintOrders.map((order) => <article key={order.id} className="rounded-[1.5rem] border border-white/30 bg-surface/75 p-4 shadow-lg backdrop-blur-2xl"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-black text-on-surface">Printful order #{order.id}</p><p className="mt-1 text-[11px] text-on-surface-variant">{order.product_code.replaceAll("-", " ")} · Qty {order.quantity} · {new Date(order.created_at).toLocaleDateString()}</p></div><span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-black uppercase text-primary">{order.status.replaceAll("_", " ")}</span></div>{order.retail_price_cents ? <p className="mt-3 text-sm font-black text-on-surface">${(order.retail_price_cents / 100).toFixed(2)}</p> : null}<div className="mt-3 flex flex-wrap gap-2">{order.status === "awaiting_payment" && order.checkout_url && <a href={order.checkout_url} className="inline-flex min-h-10 items-center justify-center rounded-xl bg-primary px-4 text-xs font-black text-on-primary">Resume secure checkout</a>}<a href={order.print_file_url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-10 items-center justify-center rounded-xl border border-primary/30 px-4 text-xs font-black text-primary">Print file</a></div><p className="mt-3 text-[10px] text-on-surface-variant">Provider reference: {order.provider_order_id || "pending"}</p></article>)}</div>
+      </section>}
+
       {(filter !== "models" || models.length === 0) && (visible.length === 0 ? <div className="mt-6 rounded-[2rem] border border-dashed border-outline-variant/50 bg-surface/80 p-12 text-center text-sm text-on-surface-variant">Your FurBin is empty for this output type.</div> : (
         <div className="mt-7 space-y-8">
           {groups.map(([kind, items]) => <section key={kind}><div className="mb-3 flex items-center gap-2"><h2 className="text-sm font-black uppercase tracking-[.16em] text-on-surface">{kind}</h2><span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-black text-primary">{items.length}</span></div><div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
@@ -109,7 +135,7 @@ export default function FurBinScreen({ creations, onOpenCreditStore }: FurBinScr
       <section className="mt-9 rounded-[2rem] border border-outline-variant/35 bg-surface/75 p-5 shadow-xl backdrop-blur-xl"><div className="mb-4 flex items-center gap-2"><Volume2 size={17} className="text-primary" /><h2 className="text-sm font-black uppercase tracking-[.16em] text-on-surface">Voice files</h2></div>{voiceAssets.length === 0 ? <p className="text-sm text-on-surface-variant">No voice files saved.</p> : <div className="space-y-2">{voiceAssets.map((asset) => <div key={asset.id} className="flex items-center justify-between gap-3 rounded-xl bg-surface-container p-3"><div className="min-w-0"><div className="truncate text-sm font-bold text-on-surface">{asset.name}</div><div className="text-[11px] text-on-surface-variant">{Math.max(1, Math.round(asset.bytes / 1024))} KB · {asset.mime_type}</div></div><span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[10px] font-black ${asset.voice_consent ? "bg-emerald-600/15 text-emerald-700" : "bg-error/10 text-error"}`}>{asset.voice_consent ? <ShieldCheck size={12} /> : <ShieldAlert size={12} />}{asset.voice_consent ? "Consent saved" : "Missing consent"}</span></div>)}</div>}</section>
       <p className="mt-5 text-center text-xs text-on-surface-variant">Storage stays bounded by your current FurBin allowance. Add paid storage only when you need more space.</p>
 
-      {selectedModel && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="3D model viewer"><div className="max-h-[92vh] w-full max-w-4xl overflow-auto rounded-[2rem] border border-white/30 bg-surface/95 p-5 shadow-2xl backdrop-blur-2xl"><div className="flex items-center justify-between gap-3"><div><h2 className="text-xl font-black text-on-surface">{selectedModel.name || "3D model"}</h2><p className="text-xs text-on-surface-variant">Backblaze model · interactive viewer</p></div><button type="button" onClick={() => { setSelectedModel(null); setPrintError(""); }} className="grid h-10 w-10 place-items-center rounded-full border border-outline-variant/40"><X size={18} /></button></div><div className="mt-4 h-[52vh] min-h-[360px] overflow-hidden rounded-2xl bg-surface-container-highest"><PetModelViewer src={selectedModel.rigged_model_url || selectedModel.model_url || ""} poster={selectedModel.image_url || undefined} className="h-full w-full" /></div><div className="mt-5 grid gap-4 rounded-2xl border border-outline-variant/35 bg-surface-container p-4 md:grid-cols-[1fr_auto]"><div><label className="text-xs font-black uppercase tracking-wide text-on-surface">Printed height</label><div className="mt-2 flex items-center gap-3"><input type="range" min="25" max="300" step="5" value={targetHeightMm} onChange={(event) => setTargetHeightMm(Number(event.target.value))} className="w-full" /><span className="w-20 text-right text-sm font-black text-primary">{targetHeightMm} mm</span></div><p className="mt-2 text-xs text-on-surface-variant">The source GLB is preserved. A separate STL is uniformly scaled to this physical height, checked, and sent to Treatstock for material, price, shipping, and checkout.</p>{printError && <p className="mt-2 text-sm font-bold text-error">{printError}</p>}</div><div className="flex flex-col gap-2"><a href={selectedModel.rigged_model_url || selectedModel.model_url || ""} download className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-primary/30 px-4 text-sm font-black text-primary"><Download size={16} /> Download GLB</a><button type="button" onClick={beginPrint} disabled={printBusy} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-black text-on-primary disabled:opacity-50"><Printer size={16} /> {printBusy ? "Preparing STL…" : "Quote & print"}</button></div></div></div></div>}
+      {selectedModel && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="3D model viewer"><div className="max-h-[92vh] w-full max-w-4xl overflow-auto rounded-[2rem] border border-white/30 bg-surface/95 p-5 shadow-2xl backdrop-blur-2xl"><div className="flex items-center justify-between gap-3"><div><h2 className="text-xl font-black text-on-surface">{selectedModel.name || "3D model"}</h2><p className="text-xs text-on-surface-variant">Backblaze model · interactive viewer</p></div><button type="button" onClick={() => { setSelectedModel(null); setPrintError(""); }} className="grid h-10 w-10 place-items-center rounded-full border border-outline-variant/40"><X size={18} /></button></div><div className="mt-4 h-[52vh] min-h-[360px] overflow-hidden rounded-2xl bg-surface-container-highest"><PetModelViewer src={selectedModel.rigged_model_url || selectedModel.model_url || ""} poster={selectedModel.image_url || undefined} className="h-full w-full" /></div><div className="mt-5 grid gap-4 rounded-2xl border border-outline-variant/35 bg-surface-container p-4 md:grid-cols-[1fr_auto]"><div><label className="text-xs font-black uppercase tracking-wide text-on-surface">Printed height</label><div className="mt-2 flex items-center gap-3"><input type="range" min="25" max="300" step="5" value={targetHeightMm} onChange={(event) => setTargetHeightMm(Number(event.target.value))} className="w-full" /><span className="w-20 text-right text-sm font-black text-primary">{targetHeightMm} mm</span></div><p className="mt-2 text-xs text-on-surface-variant">Your source GLB remains unchanged. Pawsome3D creates a separate, uniformly scaled STL, validates the mesh, obtains Slant 3D production and delivery costs, then opens a secure Stripe checkout.</p><div className="mt-4 grid grid-cols-2 gap-2"><input aria-label="Shipping name" placeholder="Full name" value={printRecipient.name} onChange={(event) => setPrintRecipient((current) => ({ ...current, name: event.target.value }))} className="col-span-2 min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" /><input aria-label="Shipping email" type="email" placeholder="Email" value={printRecipient.email} onChange={(event) => setPrintRecipient((current) => ({ ...current, email: event.target.value }))} className="col-span-2 min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" /><input aria-label="Shipping street address" placeholder="Street address" value={printRecipient.line1} onChange={(event) => setPrintRecipient((current) => ({ ...current, line1: event.target.value }))} className="col-span-2 min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" /><input aria-label="Shipping city" placeholder="City" value={printRecipient.city} onChange={(event) => setPrintRecipient((current) => ({ ...current, city: event.target.value }))} className="min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" /><input aria-label="Shipping state" placeholder="State" value={printRecipient.state} onChange={(event) => setPrintRecipient((current) => ({ ...current, state: event.target.value }))} className="min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" /><input aria-label="Shipping postal code" placeholder="Postal code" value={printRecipient.zip} onChange={(event) => setPrintRecipient((current) => ({ ...current, zip: event.target.value }))} className="min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" /><input aria-label="Shipping country" placeholder="Country" maxLength={2} value={printRecipient.country} onChange={(event) => setPrintRecipient((current) => ({ ...current, country: event.target.value.toUpperCase() }))} className="min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" /></div>{printError && <p className="mt-2 text-sm font-bold text-error">{printError}</p>}</div><div className="flex flex-col gap-2"><a href={selectedModel.rigged_model_url || selectedModel.model_url || ""} download className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-primary/30 px-4 text-sm font-black text-primary"><Download size={16} /> Download GLB</a><button type="button" onClick={beginPrint} disabled={printBusy} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-black text-on-primary disabled:opacity-50"><Printer size={16} /> {printBusy ? "Preparing & quoting…" : "Price & checkout"}</button></div></div></div></div>}
     </main>
   );
 }

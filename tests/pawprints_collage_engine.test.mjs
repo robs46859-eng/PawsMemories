@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { planPawprintCollage } from "../src/pawprints/collageEngine.ts";
 
-const layouts = ["classic", "overlay", "split", "frame", "story", "filmstrip", "circles", "mosaic"];
+  const layouts = ["classic", "overlay", "split", "frame", "story", "filmstrip", "circles", "mosaic", "polaroid", "triptych", "magazine", "panorama"];
 
 test("Pawprints collage plans support one through twelve photos", () => {
   for (const layout of layouts) {

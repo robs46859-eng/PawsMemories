@@ -8,12 +8,13 @@ const routeStart = server.indexOf('app.post("/api/pawprints/generate"');
 const routeEnd = server.indexOf('app.post("/api/streak/claim"', routeStart);
 const pawprintsRoute = server.slice(routeStart, routeEnd);
 
-test("Pawprints Studio is a click-through manual editor with eight variations", () => {
+test("Pawprints Studio is a click-through manual editor with twelve variations", () => {
   assert.match(studio, /What are you creating\?/);
   assert.match(studio, /Choose a starting layout/);
   assert.match(studio, /Choose a variation/);
   assert.match(studio, /"classic"[\s\S]*"overlay"[\s\S]*"split"[\s\S]*"frame"/);
   assert.match(studio, /"story"[\s\S]*"filmstrip"[\s\S]*"circles"[\s\S]*"mosaic"/);
+  assert.match(studio, /"polaroid"[\s\S]*"triptych"[\s\S]*"magazine"[\s\S]*"panorama"/);
   assert.match(studio, /Minimum 600 × 600/);
   assert.match(studio, /renderPawprint/);
 });
@@ -30,7 +31,7 @@ test("Pawprints saves a selected rendered canvas and never asks an LLM to write 
 
 test("Pawprints export fits the exact title and message inside every template text rectangle", () => {
   assert.match(studio, /function drawFittedTextBlock/);
-  assert.match(studio, /height: plan\.text\.height \* 1500/);
+  assert.match(studio, /height: plan\.text\.height \* PRINT_HEIGHT/);
   assert.match(studio, /wrapTextLines\(ctx, input\.message, maxWidth\)/);
   assert.doesNotMatch(studio, /textY \+ \(compact \? 285 : 235\)/);
 });

@@ -379,19 +379,68 @@ export async function fetchModelLibrary(): Promise<ModelLibraryItem[]> {
   return (await res.json()).models || [];
 }
 
-export async function createTreatstockCheckout(input: {
+export async function createSlant3dCheckout(input: {
   sourceType: "creation" | "avatar";
   sourceId: number;
   targetHeightMm: number;
-  country?: string;
+  recipient: {
+    name: string;
+    email: string;
+    line1: string;
+    line2?: string;
+    city: string;
+    state: string;
+    zip: string;
+    country: string;
+  };
 }): Promise<{ checkoutUrl: string; stlUrl: string; dimensionsMm: { x: number; y: number; z: number } }> {
-  const res = await authedFetch("/api/print/treatstock/checkout", {
+  const res = await authedFetch("/api/print/slant3d/checkout", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
     body: JSON.stringify(input),
   });
   if (!res.ok) throw new Error(await parseError(res, "Could not prepare this model for printing."));
   return await res.json();
+}
+
+export interface ModelPrintOrder {
+  id: number;
+  source_type: "creation" | "avatar";
+  source_id: number;
+  provider: "slant3d";
+  provider_pack_id: string;
+  target_height_mm: number;
+  checkout_url: string | null;
+  retail_price_cents: number | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function fetchModelPrintOrders(): Promise<ModelPrintOrder[]> {
+  const res = await authedFetch("/api/print/orders");
+  if (!res.ok) throw new Error(await parseError(res, "Could not load print orders."));
+  return (await res.json()).orders || [];
+}
+
+export interface PawprintPrintOrder {
+  id: number;
+  creation_id: number;
+  product_code: string;
+  provider_order_id: string;
+  print_file_url: string;
+  quantity: number;
+  retail_price_cents: number | null;
+  checkout_url: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function fetchPawprintPrintOrders(): Promise<PawprintPrintOrder[]> {
+  const res = await authedFetch("/api/pawprints/print-orders");
+  if (!res.ok) throw new Error(await parseError(res, "Could not load Pawprint print orders."));
+  return (await res.json()).orders || [];
 }
 
 export async function fetchAlbums(): Promise<Album[]> {

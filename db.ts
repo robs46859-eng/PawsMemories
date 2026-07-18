@@ -294,21 +294,107 @@ export async function initDb(): Promise<void> {
         user_phone VARCHAR(32) NOT NULL,
         source_type ENUM('creation','avatar') NOT NULL,
         source_id INT NOT NULL,
-        provider VARCHAR(32) NOT NULL DEFAULT 'treatstock',
+        provider VARCHAR(32) NOT NULL DEFAULT 'slant3d',
         provider_pack_id VARCHAR(64) NULL,
+        provider_file_id VARCHAR(128) NULL,
         stl_url TEXT NOT NULL,
         target_height_mm DECIMAL(8,2) NOT NULL,
         dimensions_json JSON NULL,
         topology_json JSON NULL,
         checkout_url TEXT NULL,
-        status ENUM('prepared','quoted','checkout','ordered','failed') NOT NULL DEFAULT 'prepared',
+        idempotency_key VARCHAR(128) NULL,
+        provider_cost_cents INT NULL,
+        retail_price_cents INT NULL,
+        stripe_session_id VARCHAR(128) NULL,
+        provider_payload_json JSON NULL,
+        status VARCHAR(40) NOT NULL DEFAULT 'prepared',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX (user_phone),
         INDEX (provider_pack_id),
+        UNIQUE KEY uniq_print_request (user_phone, idempotency_key),
         FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
+
+    try {
+      const [printColumns] = await getPool().query(
+        `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'print_orders'`,
+      ) as any;
+      const printColumnNames = new Set(printColumns.map((row: any) => String(row.COLUMN_NAME)));
+      const printMigrations = [
+        ["idempotency_key", "ADD COLUMN idempotency_key VARCHAR(128) NULL AFTER checkout_url"],
+        ["provider_file_id", "ADD COLUMN provider_file_id VARCHAR(128) NULL AFTER provider_pack_id"],
+        ["provider_cost_cents", "ADD COLUMN provider_cost_cents INT NULL AFTER idempotency_key"],
+        ["retail_price_cents", "ADD COLUMN retail_price_cents INT NULL AFTER provider_cost_cents"],
+        ["stripe_session_id", "ADD COLUMN stripe_session_id VARCHAR(128) NULL AFTER retail_price_cents"],
+        ["provider_payload_json", "ADD COLUMN provider_payload_json JSON NULL AFTER stripe_session_id"],
+      ];
+      for (const [name, ddl] of printMigrations) {
+        if (!printColumnNames.has(name)) await getPool().query(`ALTER TABLE print_orders ${ddl}`);
+      }
+      await getPool().query(`ALTER TABLE print_orders MODIFY COLUMN provider VARCHAR(32) NOT NULL DEFAULT 'slant3d'`);
+      await getPool().query(`ALTER TABLE print_orders MODIFY COLUMN status VARCHAR(40) NOT NULL DEFAULT 'prepared'`);
+      const [printIndexes] = await getPool().query(
+        `SELECT INDEX_NAME FROM information_schema.STATISTICS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'print_orders' AND INDEX_NAME = 'uniq_print_request'`,
+      ) as any;
+      if (!printIndexes.length) {
+        await getPool().query(`ALTER TABLE print_orders ADD UNIQUE INDEX uniq_print_request (user_phone, idempotency_key)`);
+      }
+    } catch (migrationError) {
+      console.warn("⚠️ Could not migrate print_orders idempotency fields:", migrationError);
+    }
+
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS pawprint_print_orders (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        user_phone VARCHAR(32) NOT NULL,
+        creation_id INT NOT NULL,
+        provider VARCHAR(32) NOT NULL DEFAULT 'printful',
+        product_code VARCHAR(48) NOT NULL,
+        provider_order_id VARCHAR(128) NULL,
+        print_file_url TEXT NOT NULL,
+        recipient_json JSON NOT NULL,
+        quantity INT NOT NULL DEFAULT 1,
+        price_cents INT NULL,
+        provider_cost_cents INT NULL,
+        retail_price_cents INT NULL,
+        stripe_session_id VARCHAR(128) NULL,
+        checkout_url TEXT NULL,
+        provider_payload_json JSON NULL,
+        status VARCHAR(32) NOT NULL DEFAULT 'draft',
+        idempotency_key VARCHAR(128) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_pawprint_print_request (user_phone, idempotency_key),
+        INDEX (user_phone),
+        INDEX (creation_id),
+        INDEX (provider_order_id),
+        FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    try {
+      const [pawprintOrderColumns] = await getPool().query(
+        `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'pawprint_print_orders'`,
+      ) as any;
+      const names = new Set(pawprintOrderColumns.map((row: any) => String(row.COLUMN_NAME)));
+      const migrations = [
+        ["provider_cost_cents", "ADD COLUMN provider_cost_cents INT NULL AFTER price_cents"],
+        ["retail_price_cents", "ADD COLUMN retail_price_cents INT NULL AFTER provider_cost_cents"],
+        ["stripe_session_id", "ADD COLUMN stripe_session_id VARCHAR(128) NULL AFTER retail_price_cents"],
+        ["checkout_url", "ADD COLUMN checkout_url TEXT NULL AFTER stripe_session_id"],
+        ["provider_payload_json", "ADD COLUMN provider_payload_json JSON NULL AFTER checkout_url"],
+      ];
+      for (const [name, ddl] of migrations) {
+        if (!names.has(name)) await getPool().query(`ALTER TABLE pawprint_print_orders ${ddl}`);
+      }
+    } catch (migrationError) {
+      console.warn("⚠️ Could not migrate Pawprint print order payment fields:", migrationError);
+    }
     
     await getPool().query(`
       CREATE TABLE IF NOT EXISTS pets (

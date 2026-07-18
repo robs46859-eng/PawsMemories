@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, Check, ChevronLeft, Download, ImagePlus, LayoutGrid, Loader2, Sparkles, Type, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, ChevronLeft, Download, ImagePlus, LayoutGrid, Loader2, Printer, Sparkles, Type, X } from "lucide-react";
 import type { Creation, PublicUser, UserProfile } from "../types";
 import { authedFetch } from "../api";
 import { CREDIT_PRICES } from "../pricing";
@@ -43,6 +43,28 @@ interface StudioPhoto {
   height: number;
 }
 
+interface PawprintPrintProduct {
+  code: string;
+  label: string;
+  description: string;
+  widthIn: number;
+  heightIn: number;
+  priceCents?: number;
+}
+
+interface ShippingForm {
+  name: string;
+  email: string;
+  address1: string;
+  city: string;
+  state_code: string;
+  country_code: string;
+  zip: string;
+}
+
+const PRINT_WIDTH = 2400;
+const PRINT_HEIGHT = 3000;
+
 const VARIATIONS: Array<{ id: Variation; label: string }> = [
   { id: "classic", label: "Classic" },
   { id: "overlay", label: "Editorial" },
@@ -52,6 +74,10 @@ const VARIATIONS: Array<{ id: Variation; label: string }> = [
   { id: "filmstrip", label: "Filmstrip" },
   { id: "circles", label: "Bubbles" },
   { id: "mosaic", label: "Arch Mosaic" },
+  { id: "polaroid", label: "Polaroids" },
+  { id: "triptych", label: "Gallery" },
+  { id: "magazine", label: "Magazine" },
+  { id: "panorama", label: "Panorama" },
 ];
 
 const CATEGORY_META: Record<string, { label: string; symbol: string; colors: [string, string, string] }> = {
@@ -218,12 +244,12 @@ function drawFittedTextBlock(
   ctx: CanvasRenderingContext2D,
   input: { title: string; message: string; x: number; y: number; width: number; height: number; color: string },
 ) {
-  const padding = Math.max(10, Math.min(28, input.width * 0.045));
+  const padding = Math.max(20, Math.min(56, input.width * 0.045));
   const maxWidth = Math.max(40, input.width - padding * 2);
   const maxHeight = Math.max(40, input.height - padding * 2);
-  const compact = input.width < 520 || input.height < 230;
-  const baseTitleSize = compact ? 54 : 76;
-  const baseMessageSize = compact ? 34 : 43;
+  const compact = input.width < 1040 || input.height < 460;
+  const baseTitleSize = compact ? 108 : 152;
+  const baseMessageSize = compact ? 68 : 86;
   let scale = 1;
   let titleLines: string[] = [];
   let messageLines: string[] = [];
@@ -277,8 +303,8 @@ async function renderPawprint(input: {
   category: string;
 }): Promise<string> {
   const canvas = document.createElement("canvas");
-  canvas.width = 1200;
-  canvas.height = 1500;
+  canvas.width = PRINT_WIDTH;
+  canvas.height = PRINT_HEIGHT;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("This browser cannot render the Pawprint.");
   const palette = CATEGORY_META[input.category]?.colors || ["#f8efe8", "#b7795d", "#3f2c24"];
@@ -295,7 +321,7 @@ async function renderPawprint(input: {
     ctx.globalAlpha = 1;
   }
 
-  const gpuLayer = await renderPhotosWebGL2({ photos: input.photos, rects: plan.photos, width: 1200, height: 1500, background: palette[0] });
+  const gpuLayer = await renderPhotosWebGL2({ photos: input.photos, rects: plan.photos, width: PRINT_WIDTH, height: PRINT_HEIGHT, background: palette[0] });
   if (gpuLayer) {
     ctx.drawImage(gpuLayer, 0, 0);
     gpuLayer.width = 1; gpuLayer.height = 1;
@@ -303,28 +329,28 @@ async function renderPawprint(input: {
     for (let index = 0; index < input.photos.length; index += 1) {
       const image = await loadImage(input.photos[index].dataUrl);
       const rect = plan.photos[index];
-      if (rect) cover(ctx, image, rect.x * 1200, rect.y * 1500, rect.width * 1200, rect.height * 1500, rect.shape);
+      if (rect) cover(ctx, image, rect.x * PRINT_WIDTH, rect.y * PRINT_HEIGHT, rect.width * PRINT_WIDTH, rect.height * PRINT_HEIGHT, rect.shape);
       image.src = "";
     }
   }
   if (plan.insetFrame) {
     ctx.strokeStyle = palette[1];
-    ctx.lineWidth = 24;
-    ctx.strokeRect(60, 60, 1080, 1380);
+    ctx.lineWidth = 48;
+    ctx.strokeRect(120, 120, PRINT_WIDTH - 240, PRINT_HEIGHT - 240);
   }
 
   if (plan.textOverlay) {
-    const gradient = ctx.createLinearGradient(0, 500, 0, 1500);
+    const gradient = ctx.createLinearGradient(0, PRINT_HEIGHT / 3, 0, PRINT_HEIGHT);
     gradient.addColorStop(0, "rgba(0,0,0,0)"); gradient.addColorStop(1, "rgba(18,14,12,.86)");
-    ctx.fillStyle = gradient; ctx.fillRect(0, 0, 1200, 1500);
+    ctx.fillStyle = gradient; ctx.fillRect(0, 0, PRINT_WIDTH, PRINT_HEIGHT);
   }
   drawFittedTextBlock(ctx, {
     title: input.title,
     message: input.message,
-    x: plan.text.x * 1200,
-    y: plan.text.y * 1500,
-    width: plan.text.width * 1200,
-    height: plan.text.height * 1500,
+    x: plan.text.x * PRINT_WIDTH,
+    y: plan.text.y * PRINT_HEIGHT,
+    width: plan.text.width * PRINT_WIDTH,
+    height: plan.text.height * PRINT_HEIGHT,
     color: plan.textOverlay ? "#fff" : palette[2],
   });
   try {
@@ -374,6 +400,20 @@ export default function PawprintsStudio({ userProfile, onOpenCreditStore, onUser
   const [savedCreationId, setSavedCreationId] = useState<number | null>(null);
   const [recipientEmail, setRecipientEmail] = useState("");
   const [sending, setSending] = useState(false);
+  const [printProducts, setPrintProducts] = useState<PawprintPrintProduct[]>([]);
+  const [printProductCode, setPrintProductCode] = useState("");
+  const [printOrderMode, setPrintOrderMode] = useState<"payment" | "draft">("payment");
+  const [shipping, setShipping] = useState<ShippingForm>({
+    name: userProfile.fullName || "",
+    email: userProfile.email || "",
+    address1: "",
+    city: userProfile.city || "",
+    state_code: "",
+    country_code: "US",
+    zip: userProfile.zip || "",
+  });
+  const [printBusy, setPrintBusy] = useState(false);
+  const [printOrder, setPrintOrder] = useState<{ id: string; status: string } | null>(null);
   const photoInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -381,6 +421,15 @@ export default function PawprintsStudio({ userProfile, onOpenCreditStore, onUser
       setCategories(Array.isArray(data.categories) ? data.categories : []);
       setTemplates(Array.isArray(data.templates) ? data.templates : []);
     }).catch(() => setError("Pawprint templates could not be loaded."));
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/pawprints/print-products").then((response) => response.json()).then((data) => {
+      const products = Array.isArray(data.products) ? data.products : [];
+      setPrintProducts(products);
+      setPrintProductCode((current) => current || products[0]?.code || "");
+      setPrintOrderMode(data.orderMode === "payment" ? "payment" : "draft");
+    }).catch(() => setPrintProducts([]));
   }, []);
 
   const categoryTemplates = useMemo(() => templates.filter((item) => item.category === category), [templates, category]);
@@ -451,6 +500,33 @@ export default function PawprintsStudio({ userProfile, onOpenCreditStore, onUser
     }
   };
 
+  const submitPrintOrder = async () => {
+    if (!savedCreationId || !printProductCode) return;
+    setPrintBusy(true);
+    setPrintOrder(null);
+    setError("");
+    try {
+      const response = await authedFetch("/api/pawprints/printful-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+        body: JSON.stringify({ creationId: savedCreationId, productCode: printProductCode, quantity: 1, recipient: shipping }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "The print order could not be created.");
+      if (data.checkoutUrl) {
+        window.location.assign(String(data.checkoutUrl));
+        return;
+      }
+      setPrintOrder({ id: String(data.order?.id || data.order?.provider_order_id || ""), status: String(data.order?.status || "draft") });
+    } catch (caught: any) {
+      setError(caught.message || "The print order could not be created.");
+    } finally {
+      setPrintBusy(false);
+    }
+  };
+
+  const selectedPrintProduct = printProducts.find((item) => item.code === printProductCode);
+
   if (!category) return (
     <main className="mx-auto w-full max-w-6xl px-4 pb-28 pt-8">
       {!userProfile.email && (
@@ -469,9 +545,9 @@ export default function PawprintsStudio({ userProfile, onOpenCreditStore, onUser
   if (!template) return (
     <main className="mx-auto w-full max-w-6xl px-4 pb-28 pt-8">
       <button onClick={() => setCategory("")} className="mb-6 flex min-h-11 items-center gap-2 text-sm font-black text-primary"><ChevronLeft size={18} /> Occasions</button>
-      <h1 className="text-3xl font-black">Choose a starting layout</h1><p className="mt-2 text-on-surface-variant">Everything remains editable, with eight responsive variations in the next step.</p>
+      <h1 className="text-3xl font-black">Choose a starting layout</h1><p className="mt-2 text-on-surface-variant">Everything remains editable, with {VARIATIONS.length} responsive variations in the next step.</p>
       <div className="mt-7 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {categoryTemplates.map((item, index) => <button key={item.layoutId} onClick={() => chooseTemplate(item)} className="overflow-hidden rounded-3xl border border-outline-variant/40 bg-surface text-left transition hover:border-primary/50 hover:shadow-lg"><div className="aspect-[16/9] p-6" style={{ background: CATEGORY_META[category]?.colors[index % 2 ? 1 : 0], color: CATEGORY_META[category]?.colors[2] }}><span className="text-5xl opacity-50">{CATEGORY_META[category]?.symbol}</span></div><div className="p-5"><strong className="text-base">{item.name}</strong><span className="mt-1 block text-xs capitalize text-on-surface-variant">{item.tone} · 8 variations</span></div></button>)}
+        {categoryTemplates.map((item, index) => <button key={item.layoutId} onClick={() => chooseTemplate(item)} className="overflow-hidden rounded-3xl border border-outline-variant/40 bg-surface text-left transition hover:border-primary/50 hover:shadow-lg"><div className="aspect-[16/9] p-6" style={{ background: CATEGORY_META[category]?.colors[index % 2 ? 1 : 0], color: CATEGORY_META[category]?.colors[2] }}><span className="text-5xl opacity-50">{CATEGORY_META[category]?.symbol}</span></div><div className="p-5"><strong className="text-base">{item.name}</strong><span className="mt-1 block text-xs capitalize text-on-surface-variant">{item.tone} · {VARIATIONS.length} variations</span></div></button>)}
       </div>
     </main>
   );
@@ -481,7 +557,7 @@ export default function PawprintsStudio({ userProfile, onOpenCreditStore, onUser
       <header className="mb-4 flex items-center gap-3 border-b border-outline-variant/30 pb-4"><button onClick={() => setTemplate(null)} className="grid h-11 w-11 place-items-center rounded-full border border-outline-variant"><ChevronLeft size={19} /></button><div><p className="text-xs font-bold text-primary">{CATEGORY_META[category]?.label}</p><h1 className="font-black text-on-surface">{template.name}</h1></div><span className="ml-auto hidden text-xs font-bold text-on-surface-variant sm:block">Select a variation, then save</span></header>
       <div className="grid gap-4 lg:grid-cols-[72px_minmax(0,1fr)_360px]">
         <nav className="hidden rounded-2xl border border-outline-variant/30 bg-surface p-2 lg:block"><button onClick={() => photoInput.current?.click()} className="mb-2 flex w-full flex-col items-center gap-1 rounded-xl py-3 text-[10px] font-black hover:bg-primary/10"><ImagePlus size={20} />Photo</button><button onClick={() => document.getElementById("pawprint-text")?.focus()} className="mb-2 flex w-full flex-col items-center gap-1 rounded-xl py-3 text-[10px] font-black hover:bg-primary/10"><Type size={20} />Text</button><button className="flex w-full flex-col items-center gap-1 rounded-xl bg-primary/10 py-3 text-[10px] font-black text-primary"><LayoutGrid size={20} />Layouts</button></nav>
-        <section className="rounded-3xl bg-surface-container-low p-3 sm:p-6"><div className="mb-4 flex items-center justify-between"><div><h2 className="font-black">Choose a variation</h2><p className="text-xs text-on-surface-variant">Your photos and words stay the same.</p></div><span className="rounded-full bg-surface px-3 py-1 text-xs font-black">8 options</span></div><div className="grid grid-cols-2 gap-2 sm:gap-4">{VARIATIONS.map((item) => <VariationPreview key={item.id} variation={item.id} selected={variation === item.id} photos={photos} title={title || "Your title"} message={message || "Your message"} category={category} onSelect={() => setVariation(item.id)} />)}</div></section>
+        <section className="rounded-3xl bg-surface-container-low p-3 sm:p-6"><div className="mb-4 flex items-center justify-between"><div><h2 className="font-black">Choose a variation</h2><p className="text-xs text-on-surface-variant">Your photos and words stay the same.</p></div><span className="rounded-full bg-surface px-3 py-1 text-xs font-black">{VARIATIONS.length} options</span></div><div className="grid grid-cols-2 gap-2 sm:gap-4">{VARIATIONS.map((item) => <VariationPreview key={item.id} variation={item.id} selected={variation === item.id} photos={photos} title={title || "Your title"} message={message || "Your message"} category={category} onSelect={() => setVariation(item.id)} />)}</div></section>
         <aside className="space-y-4">
           <section className="rounded-3xl border border-outline-variant/30 bg-surface p-5"><div className="mb-3 flex items-center gap-2"><ImagePlus size={18} className="text-primary" /><h2 className="font-black">Photos</h2><span className="ml-auto text-xs font-black text-primary">{photos.length}/{MAX_PAWPRINT_PHOTOS}</span></div><button type="button" onClick={() => photoInput.current?.click()} className="min-h-40 w-full overflow-hidden rounded-2xl border-2 border-dashed border-outline-variant bg-surface-container-low transition hover:border-primary"><span className="flex min-h-40 flex-col items-center justify-center gap-2 p-6 text-center"><ImagePlus size={30} className="text-primary" /><strong>Add photos</strong><small className="text-on-surface-variant">Multiple PNG, JPEG, or WebP files · up to 20 MB each<br />Minimum 600 × 600 · large images optimize automatically</small></span></button><input ref={photoInput} type="file" multiple accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => { const files = Array.from(event.target.files || []); if (files.length) void choosePhotos(files); event.target.value = ""; }} />{photos.length > 0 && <div className="mt-3 grid grid-cols-3 gap-2">{photos.map((photo, index) => <div key={photo.id} className="group relative aspect-square overflow-hidden rounded-xl border border-outline-variant"><img src={photo.dataUrl} alt={photo.name} className="h-full w-full object-cover" /><button type="button" onClick={() => setPhotos((current) => current.filter((item) => item.id !== photo.id))} aria-label={`Remove ${photo.name}`} className="absolute right-1 top-1 grid h-7 w-7 place-items-center rounded-full bg-black/65 text-white"><X size={14} /></button><div className="absolute inset-x-1 bottom-1 flex justify-between"><button type="button" disabled={index === 0} onClick={() => movePhoto(index, -1)} aria-label={`Move ${photo.name} earlier`} className="grid h-7 w-7 place-items-center rounded-full bg-black/65 text-white disabled:opacity-30"><ArrowLeft size={13} /></button><button type="button" disabled={index === photos.length - 1} onClick={() => movePhoto(index, 1)} aria-label={`Move ${photo.name} later`} className="grid h-7 w-7 place-items-center rounded-full bg-black/65 text-white disabled:opacity-30"><ArrowRight size={13} /></button></div></div>)}</div>}</section>
           <section className="rounded-3xl border border-outline-variant/30 bg-surface p-5"><div className="mb-3 flex items-center gap-2"><Type size={18} className="text-primary" /><h2 className="font-black">Your words</h2></div><label className="text-xs font-bold text-on-surface-variant">Title</label><input id="pawprint-text" value={title} maxLength={80} onChange={(event) => setTitle(event.target.value)} className="mt-1 min-h-12 w-full rounded-xl border border-outline-variant bg-surface-container px-3" /><label className="mt-4 block text-xs font-bold text-on-surface-variant">Message</label><textarea value={message} maxLength={300} rows={4} onChange={(event) => setMessage(event.target.value)} className="mt-1 w-full resize-none rounded-xl border border-outline-variant bg-surface-container p-3" /><p className="mt-1 text-right text-[10px] text-on-surface-variant">{message.length}/300</p></section>
@@ -493,6 +569,26 @@ export default function PawprintsStudio({ userProfile, onOpenCreditStore, onUser
               <div className="mt-2 flex gap-2"><input type="email" value={recipientEmail} onChange={(event) => setRecipientEmail(event.target.value)} placeholder="friend@example.com" className="min-h-11 min-w-0 flex-1 rounded-xl border border-outline-variant bg-surface px-3 text-sm" /><button type="button" disabled={sending || !savedCreationId || !recipientEmail.trim()} onClick={async () => { setSending(true); setError(""); try { const response = await authedFetch("/api/pawprints/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ creationId: savedCreationId, email: recipientEmail }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error || "Could not send the Pawprint."); setRecipientEmail(""); } catch (caught: any) { setError(caught.message || "Could not send the Pawprint."); } finally { setSending(false); } }} className="min-h-11 rounded-xl bg-primary px-4 text-xs font-black text-on-primary disabled:opacity-40">{sending ? "Sending…" : "Send"}</button></div>
               <p className="mt-2 text-[10px] text-on-surface-variant">The email includes the ${CREDIT_PRICES.PAWPRINT} PupCoins creation price.</p>
             </div>
+            {printProducts.length > 0 && <div className="rounded-2xl border border-primary/25 bg-surface-container-low p-4">
+              <div className="flex items-center gap-2"><Printer size={17} className="text-primary" /><h2 className="text-sm font-black">Order a physical Pawprint</h2></div>
+              <label className="mt-3 block text-xs font-bold text-on-surface-variant">Print format</label>
+              <select value={printProductCode} onChange={(event) => setPrintProductCode(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-outline-variant bg-surface px-3 text-sm">
+                {printProducts.map((product) => <option key={product.code} value={product.code}>{product.label}{product.priceCents ? ` · $${(product.priceCents / 100).toFixed(2)}` : ""}</option>)}
+              </select>
+              {selectedPrintProduct && <p className="mt-1 text-[10px] text-on-surface-variant">{selectedPrintProduct.description} · {selectedPrintProduct.widthIn} × {selectedPrintProduct.heightIn} in · a separate 300-DPI print file will be prepared.</p>}
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <input aria-label="Shipping name" placeholder="Full name" value={shipping.name} onChange={(event) => setShipping((current) => ({ ...current, name: event.target.value }))} className="col-span-2 min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" />
+                <input aria-label="Shipping email" type="email" placeholder="Email" value={shipping.email} onChange={(event) => setShipping((current) => ({ ...current, email: event.target.value }))} className="col-span-2 min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" />
+                <input aria-label="Shipping address" placeholder="Street address" value={shipping.address1} onChange={(event) => setShipping((current) => ({ ...current, address1: event.target.value }))} className="col-span-2 min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" />
+                <input aria-label="Shipping city" placeholder="City" value={shipping.city} onChange={(event) => setShipping((current) => ({ ...current, city: event.target.value }))} className="min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" />
+                <input aria-label="Shipping state" placeholder="State" value={shipping.state_code} onChange={(event) => setShipping((current) => ({ ...current, state_code: event.target.value.toUpperCase() }))} className="min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" />
+                <input aria-label="Shipping postal code" placeholder="Postal code" value={shipping.zip} onChange={(event) => setShipping((current) => ({ ...current, zip: event.target.value }))} className="min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" />
+                <input aria-label="Shipping country" placeholder="Country" maxLength={2} value={shipping.country_code} onChange={(event) => setShipping((current) => ({ ...current, country_code: event.target.value.toUpperCase() }))} className="min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" />
+              </div>
+              <button type="button" onClick={() => void submitPrintOrder()} disabled={printBusy || !savedCreationId} className="mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-black text-on-primary disabled:opacity-40">{printBusy ? <Loader2 size={17} className="animate-spin" /> : <Printer size={17} />}{printBusy ? "Preparing print…" : printOrderMode === "payment" ? "Price & secure checkout" : "Create print order"}</button>
+              {printOrder && <p className="mt-2 rounded-xl bg-primary/10 p-3 text-xs font-bold text-primary">Printful order {printOrder.id || "created"} · {printOrder.status}. You can return to this order from your FurBin.</p>}
+              <p className="mt-2 text-[10px] text-on-surface-variant">The print file is prepared at 300 DPI. Printful receives a draft first; it enters production only after Stripe confirms your payment.</p>
+            </div>}
           </>}
           {!userProfile.email ? (
             <button onClick={() => { window.location.href = "/sign-up"; }} className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 font-black text-on-primary">Sign In to Save Pawprint</button>

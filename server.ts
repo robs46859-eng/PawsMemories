@@ -48,8 +48,9 @@ import { preflightBimModel, type BimModel } from "./src/bim/model";
 import { buildAndVerifyShell } from "./server/bim/shell";
 import { WARDROBE_CATALOG, WARDROBE_ITEM_IDS } from "./src/wardrobe/catalog";
 import { buildReferencePrompt, turnaroundViewsForType, paletteLockClause, extractPaletteInstruction, buildTextPrompt, geometryToTripo, type TextPromptFields, type ExtendedSubjectClass, getSubjectClassForSpecies } from "./avatarPrompts";
-import { createPrintfulOrder } from "./server/printful";
-import { createTreatstockPrintablePack } from "./server/treatstock";
+import { confirmPrintfulOrderIfDraft, createPrintfulOrder, getPrintfulOrder } from "./server/printful";
+import { publicPawprintPrintProducts, requirePawprintPrintProduct } from "./server/pawprintProducts";
+import { draftSlantOrder, getSlantOrder, slant3dConfigured, submitSlantOrderIfDraft, uploadSlantFileFromUrl } from "./server/slant3d";
 import { triageReferenceImage, triagePasses, correctiveFromTriage, friendlyQualifyError, isClassMismatch, classLabel, type TriageResult } from "./server/imageTriage";
 import { objectBuildProfile, humanRigHints } from "./server/subjectProfiles";
 import {
@@ -141,6 +142,115 @@ async function startServer() {
     console.warn("⚠️ STRIPE_SECRET_KEY is missing or invalid. Server will run in Sandbox Simulation mode.");
   }
 
+  // A paid print must never depend on a single webhook delivery. Reclaim a
+  // stale submission and retry any payment-received Slant order idempotently.
+  async function recoverPaidSlantOrders() {
+    if (!slant3dConfigured()) return;
+    try {
+      await getPool().query(
+        `UPDATE print_orders SET status = 'payment_received'
+         WHERE provider = 'slant3d' AND status = 'submitting' AND updated_at < (NOW() - INTERVAL 10 MINUTE)`,
+      );
+      const [rows] = await getPool().query(
+        `SELECT id, provider_pack_id FROM print_orders
+         WHERE provider = 'slant3d' AND status = 'payment_received' ORDER BY updated_at ASC LIMIT 10`,
+      ) as any;
+      for (const row of rows as Array<{ id: number; provider_pack_id: string }>) {
+        const [claimed] = await getPool().query(
+          `UPDATE print_orders SET status = 'submitting' WHERE id = ? AND status = 'payment_received'`,
+          [row.id],
+        ) as any;
+        if (!claimed?.affectedRows) continue;
+        try {
+          const processed = await submitSlantOrderIfDraft(String(row.provider_pack_id));
+          const status = String(processed?.data?.status || processed?.data?.order?.status || "paid").toLowerCase();
+          await getPool().query(
+            `UPDATE print_orders SET status = ?, provider_payload_json = ? WHERE id = ?`,
+            [status, JSON.stringify(processed?.data || processed || {}), row.id],
+          );
+        } catch (error: any) {
+          console.error(`[Slant 3D recovery] Order ${row.id} failed:`, error?.message || error);
+          await getPool().query(`UPDATE print_orders SET status = 'payment_received' WHERE id = ?`, [row.id]);
+        }
+      }
+      const [activeRows] = await getPool().query(
+        `SELECT id, provider_pack_id FROM print_orders
+         WHERE provider = 'slant3d'
+           AND status NOT IN ('awaiting_payment','payment_setup_failed','payment_received','submitting','fulfilled','failed','canceled','cancelled')
+           AND updated_at < (NOW() - INTERVAL 4 MINUTE)
+         ORDER BY updated_at ASC LIMIT 20`,
+      ) as any;
+      for (const row of activeRows as Array<{ id: number; provider_pack_id: string }>) {
+        try {
+          const current = await getSlantOrder(String(row.provider_pack_id));
+          const status = String(current?.data?.status || current?.data?.order?.status || "processing").toLowerCase();
+          await getPool().query(
+            `UPDATE print_orders SET status = ?, provider_payload_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+            [status, JSON.stringify(current?.data || current || {}), row.id],
+          );
+        } catch (error: any) {
+          console.warn(`[Slant 3D status] Order ${row.id} refresh failed:`, error?.message || error);
+        }
+      }
+    } catch (error: any) {
+      console.warn("[Slant 3D recovery] Sweep failed:", error?.message || error);
+    }
+  }
+  void recoverPaidSlantOrders();
+  setInterval(() => void recoverPaidSlantOrders(), 5 * 60 * 1000);
+
+  async function recoverPaidPrintfulOrders() {
+    if (!process.env.PRINTFUL_API_KEY) return;
+    try {
+      await getPool().query(
+        `UPDATE pawprint_print_orders SET status = 'payment_received'
+         WHERE status = 'submitting' AND updated_at < (NOW() - INTERVAL 10 MINUTE)`,
+      );
+      const [retryRows] = await getPool().query(
+        `SELECT id, provider_order_id FROM pawprint_print_orders
+         WHERE status = 'payment_received' ORDER BY updated_at ASC LIMIT 10`,
+      ) as any;
+      for (const row of retryRows as Array<{ id: number; provider_order_id: string }>) {
+        const [claimed] = await getPool().query(
+          `UPDATE pawprint_print_orders SET status = 'submitting' WHERE id = ? AND status = 'payment_received'`,
+          [row.id],
+        ) as any;
+        if (!claimed?.affectedRows) continue;
+        try {
+          const confirmed = await confirmPrintfulOrderIfDraft(String(row.provider_order_id));
+          await getPool().query(
+            `UPDATE pawprint_print_orders SET status = ?, provider_payload_json = ? WHERE id = ?`,
+            [String(confirmed?.status || "pending").toLowerCase(), JSON.stringify(confirmed || {}), row.id],
+          );
+        } catch (error: any) {
+          console.error(`[Printful recovery] Order ${row.id} failed:`, error?.message || error);
+          await getPool().query(`UPDATE pawprint_print_orders SET status = 'payment_received' WHERE id = ?`, [row.id]);
+        }
+      }
+      const [activeRows] = await getPool().query(
+        `SELECT id, provider_order_id FROM pawprint_print_orders
+         WHERE status NOT IN ('awaiting_payment','payment_setup_failed','payment_received','submitting','fulfilled','failed','canceled','cancelled','draft')
+           AND updated_at < (NOW() - INTERVAL 4 MINUTE)
+         ORDER BY updated_at ASC LIMIT 20`,
+      ) as any;
+      for (const row of activeRows as Array<{ id: number; provider_order_id: string }>) {
+        try {
+          const current = await getPrintfulOrder(String(row.provider_order_id));
+          await getPool().query(
+            `UPDATE pawprint_print_orders SET status = ?, provider_payload_json = ? WHERE id = ?`,
+            [String(current?.status || "processing").toLowerCase(), JSON.stringify(current || {}), row.id],
+          );
+        } catch (error: any) {
+          console.warn(`[Printful status] Order ${row.id} refresh failed:`, error?.message || error);
+        }
+      }
+    } catch (error: any) {
+      console.warn("[Printful recovery] Sweep failed:", error?.message || error);
+    }
+  }
+  void recoverPaidPrintfulOrders();
+  setInterval(() => void recoverPaidPrintfulOrders(), 5 * 60 * 1000);
+
   // Local persistent order saving
   const ORDERS_FILE = path.join(process.cwd(), "orders.json");
   const saveOrder = (order: any) => {
@@ -189,6 +299,62 @@ async function startServer() {
           await addCredits(metadata.userPhone, creditsToAdd, "purchase:" + session.id);
           console.log(`✅ Added ${creditsToAdd} credits to ${metadata.userPhone} via Stripe purchase.`);
         }
+      } else if (metadata.type === "pawprint_print_order" && metadata.printOrderId && metadata.userPhone) {
+        const printOrderId = Number(metadata.printOrderId);
+        const [claimed] = await getPool().query(
+          `UPDATE pawprint_print_orders SET status = 'submitting', updated_at = CURRENT_TIMESTAMP
+           WHERE id = ? AND user_phone = ? AND status IN ('awaiting_payment', 'payment_received')`,
+          [printOrderId, metadata.userPhone],
+        ) as any;
+        if (!claimed?.affectedRows) {
+          console.log(`↩︎ Printful Pawprint order ${printOrderId} already submitted or in progress.`);
+          return;
+        }
+        const [rows] = await getPool().query(
+          `SELECT provider_order_id FROM pawprint_print_orders WHERE id = ? AND user_phone = ? LIMIT 1`,
+          [printOrderId, metadata.userPhone],
+        ) as any;
+        const providerOrderId = String(rows?.[0]?.provider_order_id || "");
+        if (!providerOrderId) throw new Error(`Pawprint print order ${printOrderId} has no Printful order ID.`);
+        try {
+          const confirmed = await confirmPrintfulOrderIfDraft(providerOrderId);
+          const status = String(confirmed?.status || "pending").toLowerCase();
+          await getPool().query(
+            `UPDATE pawprint_print_orders SET status = ?, provider_payload_json = ? WHERE id = ?`,
+            [status, JSON.stringify(confirmed || {}), printOrderId],
+          );
+        } catch (error) {
+          await getPool().query(`UPDATE pawprint_print_orders SET status = 'payment_received' WHERE id = ?`, [printOrderId]);
+          throw error;
+        }
+      } else if (metadata.type === "slant3d_print_order" && metadata.printOrderId && metadata.userPhone) {
+        const printOrderId = Number(metadata.printOrderId);
+        const [claimed] = await getPool().query(
+          `UPDATE print_orders SET status = 'submitting', updated_at = CURRENT_TIMESTAMP
+           WHERE id = ? AND user_phone = ? AND status IN ('awaiting_payment', 'payment_received')`,
+          [printOrderId, metadata.userPhone],
+        ) as any;
+        if (!claimed?.affectedRows) {
+          console.log(`↩︎ Slant 3D print order ${printOrderId} already submitted or in progress.`);
+          return;
+        }
+        const [rows] = await getPool().query(
+          `SELECT provider_pack_id FROM print_orders WHERE id = ? AND user_phone = ? LIMIT 1`,
+          [printOrderId, metadata.userPhone],
+        ) as any;
+        const publicOrderId = String(rows?.[0]?.provider_pack_id || "");
+        if (!publicOrderId) throw new Error(`Slant 3D print order ${printOrderId} has no provider order ID.`);
+        try {
+          const processed = await submitSlantOrderIfDraft(publicOrderId);
+          const providerStatus = String(processed?.data?.status || processed?.data?.order?.status || "paid").toLowerCase();
+          await getPool().query(
+            `UPDATE print_orders SET status = ?, provider_payload_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+            [providerStatus, JSON.stringify(processed?.data || processed || {}), printOrderId],
+          );
+        } catch (error) {
+          await getPool().query(`UPDATE print_orders SET status = 'payment_received' WHERE id = ?`, [printOrderId]);
+          throw error;
+        }
       } else {
         // Standard physical album order
         const order = {
@@ -218,16 +384,21 @@ async function startServer() {
       }
     };
 
-    if (event.type === "checkout.session.completed") {
-      const session = event.data.object as Stripe.Checkout.Session;
-      console.log(`Checkout session completed: ${session.id}, status: ${session.payment_status}`);
-      if (session.payment_status === "paid") {
+    try {
+      if (event.type === "checkout.session.completed") {
+        const session = event.data.object as Stripe.Checkout.Session;
+        console.log(`Checkout session completed: ${session.id}, status: ${session.payment_status}`);
+        if (session.payment_status === "paid") {
+          await handleSuccessfulPayment(session);
+        }
+      } else if (event.type === "checkout.session.async_payment_succeeded") {
+        const session = event.data.object as Stripe.Checkout.Session;
+        console.log(`Async payment succeeded: ${session.id}`);
         await handleSuccessfulPayment(session);
       }
-    } else if (event.type === "checkout.session.async_payment_succeeded") {
-      const session = event.data.object as Stripe.Checkout.Session;
-      console.log(`Async payment succeeded: ${session.id}`);
-      await handleSuccessfulPayment(session);
+    } catch (error: any) {
+      console.error("Stripe fulfillment webhook failed:", error?.message || error);
+      return res.status(500).json({ received: false, error: "Fulfillment submission failed." });
     }
 
     res.json({ received: true });
@@ -1158,7 +1329,7 @@ async function startServer() {
       }
       const finalBuffer = await sharp(sourceBuffer, sharpInputOptions)
         .rotate()
-        .resize(1200, 1500, { fit: "cover" })
+        .resize(2400, 3000, { fit: "cover" })
         .webp({ quality: 92, effort: 4, smartSubsample: true })
         .toBuffer();
       const title = customName || String(fields.petName || fields.name || "Pawprint").slice(0, 80);
@@ -1219,21 +1390,148 @@ async function startServer() {
     }
   });
 
-  app.post("/api/pawprints/printful-order", requireAuth, paidLimiter, async (req: AuthedRequest, res) => {
+  app.get("/api/pawprints/print-products", (_req, res) => {
+    const products = publicPawprintPrintProducts();
+    res.json({
+      provider: "printful",
+      configured: products.length > 0,
+      products,
+      orderMode: "payment",
+    });
+  });
+
+  app.get("/api/pawprints/print-orders", requireAuth, async (req: AuthedRequest, res) => {
     try {
-      const creationId = Number(req.body?.creationId);
-      const recipient = req.body?.recipient && typeof req.body.recipient === "object" ? req.body.recipient : {};
-      const email = String(recipient.email || "").trim().toLowerCase();
-      if (!Number.isInteger(creationId) || creationId <= 0) return res.status(400).json({ error: "A saved Pawprint is required." });
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: "A valid shipping email is required." });
+      const [rows] = await getPool().query(
+        `SELECT id, creation_id, provider, product_code, provider_order_id, print_file_url,
+                quantity, price_cents, provider_cost_cents, retail_price_cents, checkout_url,
+                status, created_at, updated_at
+         FROM pawprint_print_orders WHERE user_phone = ? ORDER BY created_at DESC LIMIT 100`,
+        [req.user!.phone],
+      ) as any;
+      res.json({ success: true, orders: rows });
+    } catch (error: any) {
+      console.error("[GET /api/pawprints/print-orders] Error:", error?.message || error);
+      res.status(500).json({ error: "Could not load Pawprint print orders." });
+    }
+  });
+
+  app.post("/api/pawprints/printful-order", requireAuth, paidLimiter, async (req: AuthedRequest, res) => {
+    let preparedOrderId: number | null = null;
+    try {
+      if (!stripe) return res.status(503).json({ error: "Stripe checkout is not configured for physical orders." });
+      const schema = z.object({
+        creationId: z.number().int().positive(),
+        productCode: z.string().min(1).max(48),
+        quantity: z.number().int().min(1).max(10).default(1),
+        recipient: z.object({
+          name: z.string().trim().min(2).max(120),
+          email: z.string().trim().email().max(200),
+          address1: z.string().trim().min(3).max(200),
+          city: z.string().trim().min(2).max(80),
+          state_code: z.string().trim().max(10).optional(),
+          country_code: z.string().trim().length(2).transform((value) => value.toUpperCase()),
+          zip: z.string().trim().min(2).max(20),
+        }),
+      });
+      const input = schema.parse(req.body);
+      const idempotencyKey = String(req.header("Idempotency-Key") || "").trim().slice(0, 128);
+      if (!idempotencyKey) return res.status(400).json({ error: "An idempotency key is required." });
+      const product = requirePawprintPrintProduct(input.productCode);
+      const creationId = input.creationId;
       const creation = (await getCreations(req.user!.phone)).find((item: any) => Number(item.id) === creationId && item.image_url);
       if (!creation) return res.status(404).json({ error: "That Pawprint is not in your FurBin." });
+
+      const [existingRows] = await getPool().query(
+        `SELECT id, provider_order_id, status, product_code, quantity, price_cents, print_file_url,
+                retail_price_cents, checkout_url
+         FROM pawprint_print_orders WHERE user_phone = ? AND idempotency_key = ? LIMIT 1`,
+        [req.user!.phone, idempotencyKey],
+      ) as any;
+      if (existingRows?.[0]) return res.json({ success: true, idempotent: true, order: existingRows[0], checkoutUrl: existingRows[0].checkout_url });
+
+      // Preserve the saved FurBin image and produce a separate 300-DPI PNG
+      // derivative sized for the selected physical product.
+      const sourceResponse = await fetch(String(creation.image_url), { signal: AbortSignal.timeout(30_000) });
+      if (!sourceResponse.ok) throw new Error("The saved Pawprint print file could not be opened.");
+      const sourceBuffer = Buffer.from(await sourceResponse.arrayBuffer());
+      if (sourceBuffer.byteLength > 30 * 1024 * 1024) throw new Error("The saved Pawprint print file is too large.");
+      const printBuffer = await sharp(sourceBuffer)
+        .resize({ width: Math.round(product.widthIn * 300), height: Math.round(product.heightIn * 300), fit: "contain", background: "#ffffff" })
+        .png({ compressionLevel: 9 })
+        .toBuffer();
+      const printFileUrl = await uploadBase64Binary(printBuffer.toString("base64"), "image/png", "pawprints-print");
+      const externalId = `pawprint-${createHash("sha256").update(`${req.user!.phone}:${idempotencyKey}`).digest("hex").slice(0, 32)}`;
       const order = await createPrintfulOrder({
-        recipient: { name: String(recipient.name || "Pawsome3D customer").slice(0, 120), email, address1: String(recipient.address1 || "").slice(0, 200), city: String(recipient.city || "").slice(0, 80), state_code: String(recipient.state_code || "").slice(0, 10) || undefined, country_code: String(recipient.country_code || "US").slice(0, 2).toUpperCase(), zip: String(recipient.zip || "").slice(0, 20) },
-        imageUrl: String(creation.image_url),
+        recipient: {
+          name: input.recipient.name,
+          email: input.recipient.email,
+          address1: input.recipient.address1,
+          city: input.recipient.city,
+          state_code: input.recipient.state_code || undefined,
+          country_code: String(input.recipient.country_code || "US").toUpperCase(),
+          zip: input.recipient.zip,
+        },
+        imageUrl: printFileUrl,
+        variantId: product.variantId,
+        templateId: product.templateId,
+        quantity: input.quantity,
+        externalId,
       });
-      res.status(201).json({ success: true, order });
+      const currentOrder = order.costs?.total ? order : await getPrintfulOrder(order.id);
+      const providerCost = Number(currentOrder?.costs?.total || 0);
+      if (!Number.isFinite(providerCost) || providerCost <= 0) {
+        throw new Error("Printful is still calculating this order. Try again after the print file finishes processing.");
+      }
+      const providerCostCents = Math.ceil(providerCost * 100);
+      const markupPercent = Math.max(0, Number(process.env.FULFILLMENT_MARKUP_PERCENT || 80));
+      const minimumMarginCents = Math.max(0, Number(process.env.FULFILLMENT_MIN_MARGIN_CENTS || 500));
+      const desiredRetailTotal = Math.max(
+        Number(product.priceCents || 0) * input.quantity,
+        providerCostCents + minimumMarginCents,
+        Math.ceil(providerCostCents * (1 + markupPercent / 100)),
+      );
+      const retailUnitPriceCents = Math.ceil(desiredRetailTotal / input.quantity);
+      const retailPriceCents = retailUnitPriceCents * input.quantity;
+      const [inserted] = await getPool().query(
+        `INSERT INTO pawprint_print_orders
+          (user_phone, creation_id, provider, product_code, provider_order_id, print_file_url,
+           recipient_json, quantity, price_cents, provider_cost_cents, retail_price_cents,
+           provider_payload_json, status, idempotency_key)
+         VALUES (?, ?, 'printful', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'awaiting_payment', ?)
+         ON DUPLICATE KEY UPDATE provider_order_id = VALUES(provider_order_id), status = VALUES(status), updated_at = CURRENT_TIMESTAMP`,
+        [req.user!.phone, creationId, product.code, order.id, printFileUrl, JSON.stringify(input.recipient),
+          input.quantity, product.priceCents || null, providerCostCents, retailPriceCents,
+          JSON.stringify(currentOrder || order), idempotencyKey],
+      ) as any;
+      preparedOrderId = Number(inserted.insertId);
+      const appUrl = process.env.APP_URL || "http://localhost:3000";
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ["card"],
+        line_items: [{
+          price_data: {
+            currency: "usd",
+            product_data: { name: product.label, description: `${product.description} · printed and shipped by Printful`, images: [printFileUrl] },
+            unit_amount: retailUnitPriceCents,
+          },
+          quantity: input.quantity,
+        }],
+        customer_email: input.recipient.email,
+        mode: "payment",
+        metadata: { type: "pawprint_print_order", printOrderId: String(preparedOrderId), userPhone: req.user!.phone, printfulOrderId: order.id },
+        success_url: `${appUrl}/pawprints?print_success=true&order_id=${preparedOrderId}`,
+        cancel_url: `${appUrl}/pawprints?print_cancelled=true&order_id=${preparedOrderId}`,
+      });
+      await getPool().query(
+        `UPDATE pawprint_print_orders SET checkout_url = ?, stripe_session_id = ? WHERE id = ?`,
+        [session.url, session.id, preparedOrderId],
+      );
+      res.status(201).json({ success: true, checkoutUrl: session.url, retailPriceCents, order: { ...order, productCode: product.code, printFileUrl } });
     } catch (error: any) {
+      if (preparedOrderId) {
+        try { await getPool().query(`UPDATE pawprint_print_orders SET status = 'payment_setup_failed' WHERE id = ?`, [preparedOrderId]); } catch {}
+      }
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.issues[0]?.message || "Check the shipping information." });
       const message = error?.message || "Could not create the Printful order.";
       if (/not configured/i.test(message)) return res.status(503).json({ error: message });
       console.error("[POST /api/pawprints/printful-order] Error:", message);
@@ -3511,13 +3809,50 @@ async function startServer() {
     sourceType: z.enum(["creation", "avatar"]),
     sourceId: z.number().int().positive(),
     targetHeightMm: z.number().min(25).max(300),
-    country: z.string().length(2).default("US"),
+    recipient: z.object({
+      name: z.string().trim().min(2).max(120),
+      email: z.string().trim().email().max(200),
+      line1: z.string().trim().min(3).max(200),
+      line2: z.string().trim().max(200).optional(),
+      city: z.string().trim().min(2).max(80),
+      state: z.string().trim().min(1).max(40),
+      zip: z.string().trim().min(2).max(20),
+      country: z.string().trim().length(2).transform((value) => value.toUpperCase()),
+    }),
   });
 
-  app.post("/api/print/treatstock/checkout", requireAuth, paidLimiter, async (req: AuthedRequest, res) => {
+  app.post("/api/print/slant3d/checkout", requireAuth, paidLimiter, async (req: AuthedRequest, res) => {
+    let preparedOrderId: number | null = null;
     try {
       const input = PrintPrepareSchema.parse(req.body);
       const phone = req.user!.phone;
+      if (!slant3dConfigured()) return res.status(503).json({ success: false, error: "Slant 3D printing is not configured." });
+      if (!stripe) return res.status(503).json({ success: false, error: "Stripe checkout is not configured for physical orders." });
+      const idempotencyKey = String(req.header("Idempotency-Key") || "").trim().slice(0, 128);
+      if (!idempotencyKey) return res.status(400).json({ success: false, error: "An idempotency key is required." });
+      const [existingRows] = await getPool().query(
+        `SELECT id, provider_pack_id, stl_url, target_height_mm, dimensions_json, topology_json,
+                checkout_url, retail_price_cents, status
+         FROM print_orders WHERE user_phone = ? AND idempotency_key = ? LIMIT 1`,
+        [phone, idempotencyKey],
+      ) as any;
+      if (existingRows?.[0]) {
+        const existing = existingRows[0];
+        if (existing.checkout_url) return res.json({ success: true, idempotent: true, order: existing, checkoutUrl: existing.checkout_url });
+        if (!existing.retail_price_cents) return res.status(409).json({ success: false, error: "This print quote could not be resumed. Start a new quote." });
+        const appUrl = process.env.APP_URL || "http://localhost:3000";
+        const resumed = await stripe.checkout.sessions.create({
+          payment_method_types: ["card"],
+          line_items: [{ price_data: { currency: "usd", product_data: { name: `Pawsome3D custom ${Math.round(Number(existing.target_height_mm))} mm figurine`, description: "Prepared, quality checked, printed, and shipped by Slant 3D." }, unit_amount: Number(existing.retail_price_cents) }, quantity: 1 }],
+          customer_email: input.recipient.email,
+          mode: "payment",
+          metadata: { type: "slant3d_print_order", printOrderId: String(existing.id), userPhone: phone, slantOrderId: String(existing.provider_pack_id) },
+          success_url: `${appUrl}/fur-bin?print_success=true&order_id=${existing.id}`,
+          cancel_url: `${appUrl}/fur-bin?print_cancelled=true&order_id=${existing.id}`,
+        });
+        await getPool().query(`UPDATE print_orders SET checkout_url = ?, stripe_session_id = ?, status = 'awaiting_payment' WHERE id = ?`, [resumed.url, resumed.id, existing.id]);
+        return res.json({ success: true, idempotent: true, order: existing, checkoutUrl: resumed.url });
+      }
       const table = input.sourceType === "creation" ? "creations" : "avatars";
       const [rows] = await getPool().query(
         `SELECT id, model_url${input.sourceType === "avatar" ? ", rigged_model_url" : ""}
@@ -3553,27 +3888,131 @@ async function startServer() {
       }
 
       const stlUrl = await uploadBase64Binary(prepared.stl_base64, "model/stl", "print-ready");
-      const pack = await createTreatstockPrintablePack({ stlUrl, country: input.country });
-      await getPool().query(
+      const ownerId = createHash("sha256").update(`pawsome3d:${phone}`).digest("hex").slice(0, 32);
+      const slantFile = await uploadSlantFileFromUrl({
+        stlUrl,
+        name: `pawsome3d-${input.sourceType}-${input.sourceId}-${Math.round(input.targetHeightMm)}mm`,
+        ownerId,
+      });
+      const draft = await draftSlantOrder({
+        publicFileServiceId: slantFile.publicFileServiceId,
+        address: {
+          name: input.recipient.name,
+          email: input.recipient.email,
+          line1: input.recipient.line1,
+          line2: input.recipient.line2,
+          city: input.recipient.city,
+          state: input.recipient.state,
+          zip: input.recipient.zip,
+          country: String(input.recipient.country || "US"),
+        },
+        ownerId,
+        itemName: `Pawsome3D custom ${Math.round(input.targetHeightMm)} mm figurine`,
+      });
+      const providerCostCents = Math.max(1, Math.ceil(draft.totals.totalCost * 100));
+      const markupPercent = Math.max(0, Number(process.env.FULFILLMENT_MARKUP_PERCENT || 80));
+      const minimumMarginCents = Math.max(0, Number(process.env.FULFILLMENT_MIN_MARGIN_CENTS || 500));
+      const retailPriceCents = Math.max(
+        providerCostCents + minimumMarginCents,
+        Math.ceil(providerCostCents * (1 + markupPercent / 100)),
+      );
+      const [inserted] = await getPool().query(
         `INSERT INTO print_orders
-          (user_phone, source_type, source_id, provider_pack_id, stl_url, target_height_mm,
-           dimensions_json, topology_json, checkout_url, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'checkout')`,
-        [phone, input.sourceType, input.sourceId, String(pack.id), stlUrl, input.targetHeightMm,
-          JSON.stringify(prepared.dimensions_mm), JSON.stringify(prepared.topology), pack.redir]
+          (user_phone, source_type, source_id, provider, provider_pack_id, provider_file_id,
+           stl_url, target_height_mm, dimensions_json, topology_json, idempotency_key,
+           provider_cost_cents, retail_price_cents, provider_payload_json, status)
+         VALUES (?, ?, ?, 'slant3d', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'awaiting_payment')`,
+        [phone, input.sourceType, input.sourceId, draft.publicId, slantFile.publicFileServiceId,
+          stlUrl, input.targetHeightMm, JSON.stringify(prepared.dimensions_mm), JSON.stringify(prepared.topology),
+          idempotencyKey, providerCostCents, retailPriceCents, JSON.stringify(draft.raw)],
+      ) as any;
+      const printOrderId = Number(inserted.insertId);
+      preparedOrderId = printOrderId;
+      const appUrl = process.env.APP_URL || "http://localhost:3000";
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ["card"],
+        line_items: [{
+          price_data: {
+            currency: "usd",
+            product_data: {
+              name: `Pawsome3D custom ${Math.round(input.targetHeightMm)} mm figurine`,
+              description: "Prepared, quality checked, printed, and shipped by Slant 3D.",
+            },
+            unit_amount: retailPriceCents,
+          },
+          quantity: 1,
+        }],
+        customer_email: input.recipient.email,
+        mode: "payment",
+        metadata: {
+          type: "slant3d_print_order",
+          printOrderId: String(printOrderId),
+          userPhone: phone,
+          slantOrderId: draft.publicId,
+        },
+        success_url: `${appUrl}/fur-bin?print_success=true&order_id=${printOrderId}`,
+        cancel_url: `${appUrl}/fur-bin?print_cancelled=true&order_id=${printOrderId}`,
+      });
+      await getPool().query(
+        `UPDATE print_orders SET checkout_url = ?, stripe_session_id = ? WHERE id = ?`,
+        [session.url, session.id, printOrderId],
       );
       res.json({
         success: true,
-        checkoutUrl: pack.redir,
-        packId: pack.id,
+        checkoutUrl: session.url,
+        orderId: printOrderId,
+        providerOrderId: draft.publicId,
         stlUrl,
         dimensionsMm: prepared.dimensions_mm,
         topology: prepared.topology,
+        providerCostCents,
+        retailPriceCents,
       });
     } catch (err: any) {
+      if (preparedOrderId) {
+        try { await getPool().query(`UPDATE print_orders SET status = 'payment_setup_failed' WHERE id = ?`, [preparedOrderId]); } catch {}
+      }
       if (err instanceof z.ZodError) return res.status(400).json({ success: false, error: err.issues[0]?.message || "Invalid print request." });
       const message = err?.message || "Could not start the print checkout.";
-      console.error("Treatstock print checkout error:", message);
+      console.error("Slant 3D print checkout error:", message);
+      res.status(/not configured/i.test(message) ? 503 : 502).json({ success: false, error: message });
+    }
+  });
+
+  app.get("/api/print/orders", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const [rows] = await getPool().query(
+        `SELECT id, source_type, source_id, provider, provider_pack_id, provider_file_id, stl_url, target_height_mm,
+                dimensions_json, topology_json, checkout_url, provider_cost_cents, retail_price_cents,
+                status, created_at, updated_at
+         FROM print_orders WHERE user_phone = ? ORDER BY created_at DESC LIMIT 100`,
+        [req.user!.phone],
+      ) as any;
+      res.json({ success: true, orders: rows });
+    } catch (error: any) {
+      console.error("Print order list error:", error?.message || error);
+      res.status(500).json({ success: false, error: "Could not load print orders." });
+    }
+  });
+
+  app.get("/api/print/orders/:id/status", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const orderId = Number(req.params.id);
+      if (!Number.isInteger(orderId) || orderId <= 0) return res.status(400).json({ success: false, error: "Invalid print order." });
+      const [rows] = await getPool().query(
+        `SELECT id, provider_pack_id, checkout_url, status FROM print_orders WHERE id = ? AND user_phone = ? LIMIT 1`,
+        [orderId, req.user!.phone],
+      ) as any;
+      const order = rows?.[0];
+      if (!order) return res.status(404).json({ success: false, error: "Print order not found." });
+      if (!order.provider_pack_id) return res.json({ success: true, order });
+      const providerOrder = await getSlantOrder(String(order.provider_pack_id));
+      const status = String(providerOrder?.data?.status || providerOrder?.data?.order?.status || order.status).toLowerCase();
+      await getPool().query(`UPDATE print_orders SET status = ?, provider_payload_json = ? WHERE id = ?`, [status, JSON.stringify(providerOrder?.data || providerOrder || {}), orderId]);
+      res.json({ success: true, order: { ...order, status }, providerOrder: providerOrder?.data || providerOrder });
+    } catch (error: any) {
+      const message = error?.message || "Could not refresh the print order.";
+      console.error("Print order status error:", message);
       res.status(/not configured/i.test(message) ? 503 : 502).json({ success: false, error: message });
     }
   });

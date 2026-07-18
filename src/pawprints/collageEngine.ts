@@ -1,4 +1,16 @@
-export type PawprintLayoutId = "classic" | "overlay" | "split" | "frame" | "story" | "filmstrip" | "circles" | "mosaic";
+export type PawprintLayoutId =
+  | "classic"
+  | "overlay"
+  | "split"
+  | "frame"
+  | "story"
+  | "filmstrip"
+  | "circles"
+  | "mosaic"
+  | "polaroid"
+  | "triptych"
+  | "magazine"
+  | "panorama";
 
 export interface NormalizedRect {
   x: number;
@@ -108,11 +120,41 @@ export function planPawprintCollage(layout: PawprintLayoutId, photoCount: number
       insetFrame: false,
     };
   }
-  return {
+  if (layout === "mosaic") return {
     photos: count === 1
       ? [{ x: 0.04, y: 0.04, width: 0.92, height: 0.92, shape: "arch" }]
       : [{ x: 0.03, y: 0.03, width: 0.62, height: 0.94, shape: "arch" }, ...gridRects(count - 1, { x: 0.67, y: 0.03, width: 0.3, height: 0.72 }, 0.012)],
     text: { x: 0.67, y: 0.78, width: 0.3, height: 0.17 },
+    textOverlay: false,
+    insetFrame: false,
+  };
+  if (layout === "polaroid") return {
+    photos: gridRects(count, { x: 0.08, y: 0.08, width: 0.84, height: 0.68 }, 0.035),
+    text: { x: 0.1, y: 0.81, width: 0.8, height: 0.13 },
+    textOverlay: false,
+    insetFrame: false,
+  };
+  if (layout === "triptych") return {
+    photos: count === 1
+      ? [{ x: 0.08, y: 0.06, width: 0.84, height: 0.72 }]
+      : gridRects(count, { x: 0.04, y: 0.06, width: 0.92, height: 0.72 }, 0.018),
+    text: { x: 0.08, y: 0.82, width: 0.84, height: 0.12 },
+    textOverlay: false,
+    insetFrame: true,
+  };
+  if (layout === "magazine") return {
+    photos: count === 1
+      ? [{ x: 0, y: 0, width: 1, height: 1 }]
+      : [{ x: 0, y: 0, width: 1, height: 0.7 }, ...gridRects(count - 1, { x: 0.56, y: 0.05, width: 0.39, height: 0.32 }, 0.012)],
+    text: { x: 0.07, y: 0.66, width: 0.86, height: 0.27 },
+    textOverlay: true,
+    insetFrame: false,
+  };
+  return {
+    photos: count === 1
+      ? [{ x: 0, y: 0.1, width: 1, height: 0.62 }]
+      : gridRects(count, { x: 0, y: 0.1, width: 1, height: 0.62 }, 0.008),
+    text: { x: 0.08, y: 0.77, width: 0.84, height: 0.15 },
     textOverlay: false,
     insetFrame: false,
   };
