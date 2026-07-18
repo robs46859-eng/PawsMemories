@@ -1956,17 +1956,23 @@ export async function claimDailyStreak(phone: string): Promise<{success: boolean
   if (!user) return { success: false };
 
   const today = new Date().toISOString().split('T')[0];
-  if (user.last_streak_claim && user.last_streak_claim.startsWith(today)) {
+  // mysql2 may return DATE columns as strings or Date objects depending on
+  // connection configuration. Normalize before comparing calendar dates.
+  const rawClaimedDate: unknown = user.last_streak_claim;
+  const claimedDate = rawClaimedDate instanceof Date
+    ? rawClaimedDate.toISOString().split('T')[0]
+    : rawClaimedDate ? String(rawClaimedDate).slice(0, 10) : null;
+  if (claimedDate === today) {
     return { success: false }; // Already claimed today
   }
 
   // Determine if it's contiguous (yesterday)
   let newStreak = 1;
-  if (user.last_streak_claim) {
+  if (claimedDate) {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const yesterdayStr = yesterday.toISOString().split('T')[0];
-    if (user.last_streak_claim.startsWith(yesterdayStr)) {
+    if (claimedDate === yesterdayStr) {
       newStreak = (user.daily_streak || 0) + 1;
     }
   }
@@ -3311,4 +3317,3 @@ export async function releasePipelineSessionReservation(sessionId: string, userP
     connection.release();
   }
 }
-

@@ -3961,7 +3961,9 @@ async function startServer() {
       };
 
       const commitResult = await commitPipelineSessionBuild(sessionId, userPhone, {
-        kind: 'tripo',
+        // generation_jobs.kind is constrained to still/video/model; the
+        // provider task handle is stored separately as operation_name.
+        kind: 'model',
         credits_reserved: MODEL_COST,
         operation_name: handle
       }, creationData);
