@@ -41,9 +41,22 @@ class BlenderBridgeClient {
       const id = ++this._requestId;
       const socket = new net.Socket();
       let buffer = "";
+      let settled = false;
+      const fail = (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      };
+      const succeed = (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        resolve(value);
+      };
       const timeout = setTimeout(() => {
         socket.destroy();
-        reject(new Error(`Bridge request timed out after 600s: ${method}`));
+        fail(new Error(`Bridge request timed out after 600s: ${method}`));
       }, 600000);
 
       socket.connect(this.port, this.host, () => {
@@ -60,24 +73,27 @@ class BlenderBridgeClient {
           try {
             const response = JSON.parse(line);
             if (response.error) {
-              reject(new Error(response.error.message || JSON.stringify(response.error)));
+              fail(new Error(response.error.message || JSON.stringify(response.error)));
             } else {
-              resolve(response.result);
+              succeed(response.result);
             }
           } catch (e) {
-            reject(new Error(`Invalid JSON from bridge: ${line.slice(0, 200)}`));
+            fail(new Error(`Invalid JSON from bridge: ${line.slice(0, 200)}`));
           }
           socket.end();
         }
       });
 
       socket.on("error", (err) => {
-        clearTimeout(timeout);
-        reject(new Error(`Bridge connection error: ${err.message}`));
+        fail(new Error(`Bridge connection error: ${err.message}`));
       });
 
       socket.on("close", () => {
-        clearTimeout(timeout);
+        // Blender can be killed after writing an export but before sending
+        // the JSON-RPC response. Treat the closed socket as a real failure so
+        // Hostinger records the job failure immediately instead of waiting for
+        // the 600-second request timeout.
+        if (!settled) fail(new Error(`Blender bridge closed before replying to ${method}`));
       });
     });
   }
@@ -196,6 +212,9 @@ async function ensureBridgeReady() {
     });
     bridgeProcess.on("exit", (code, signal) => {
       console.warn(`[Bridge] Blender TCP bridge exited: code=${code} signal=${signal}`);
+      // A dead child must not be treated as a healthy autostart process. The
+      // next request will call ensureBridgeReady and start a fresh bridge.
+      bridgeProcess = null;
     });
     bridgeProcess.on("error", (spawnErr) => {
       console.error(`[Bridge] Failed to start Blender TCP bridge: ${spawnErr.message}`);
