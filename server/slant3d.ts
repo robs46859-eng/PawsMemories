@@ -71,6 +71,39 @@ export function slant3dConfigured(): boolean {
   return Boolean(process.env.SLANT3D_API_KEY && process.env.SLANT3D_PLATFORM_ID && process.env.SLANT3D_DEFAULT_FILAMENT_ID);
 }
 
+function arrayFrom(value: any, keys: string[]): any[] {
+  if (Array.isArray(value)) return value;
+  for (const key of keys) if (Array.isArray(value?.[key])) return value[key];
+  return [];
+}
+
+/** Non-mutating credential/platform/material check for the admin deployment gate. */
+export async function verifySlant3dConfiguration(): Promise<{
+  authenticated: true;
+  platformValid: boolean;
+  filamentValid: boolean;
+  filamentAvailable: boolean;
+  filamentName: string | null;
+}> {
+  const { platformId, filamentId } = config();
+  const [platformPayload, filamentPayload] = await Promise.all([
+    request(`/platforms/${encodeURIComponent(platformId)}`, { method: "GET", signal: AbortSignal.timeout(30_000) }),
+    request("/filaments", { method: "GET", signal: AbortSignal.timeout(30_000) }),
+  ]);
+  const platform = platformPayload?.data?.platform || platformPayload?.data || platformPayload?.platform || platformPayload;
+  const filamentData = filamentPayload?.data || filamentPayload;
+  const filaments = arrayFrom(filamentData, ["filaments", "items", "results"]);
+  const selected = filaments.find((item: any) => String(item?.publicId || item?.id || "") === filamentId);
+  const returnedPlatformId = String(platform?.publicId || platform?.id || platform?.platformId || "");
+  return {
+    authenticated: true,
+    platformValid: returnedPlatformId === platformId,
+    filamentValid: Boolean(selected),
+    filamentAvailable: Boolean(selected && selected.available !== false),
+    filamentName: selected ? String(selected.name || selected.color || "Selected filament").slice(0, 120) : null,
+  };
+}
+
 export async function uploadSlantFileFromUrl(input: { stlUrl: string; name: string; ownerId: string }): Promise<SlantFile> {
   const { platformId } = config();
   const payload = await request("/files", {

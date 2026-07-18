@@ -39,6 +39,24 @@ async function parsePrintful(response: Response): Promise<any> {
   return payload?.result || payload || {};
 }
 
+/** Non-mutating authentication/store-context check for the admin deployment gate. */
+export async function verifyPrintfulConfiguration(): Promise<{
+  authenticated: true;
+  storeContext: "explicit" | "token";
+  ordersReadable: boolean;
+}> {
+  const { base, headers } = configuration();
+  const result = await parsePrintful(await fetch(`${base}/orders?limit=1&offset=0`, {
+    headers,
+    signal: AbortSignal.timeout(30_000),
+  }));
+  return {
+    authenticated: true,
+    storeContext: process.env.PRINTFUL_STORE_ID ? "explicit" : "token",
+    ordersReadable: Array.isArray(result) || Boolean(result && typeof result === "object"),
+  };
+}
+
 export async function createPrintfulOrder(input: PrintfulOrderInput): Promise<PrintfulOrderResult> {
   const { base, headers } = configuration();
   const variantId = Number(input.variantId || process.env.PRINTFUL_PAWPRINT_VARIANT_ID || 0);

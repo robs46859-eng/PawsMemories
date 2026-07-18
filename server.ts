@@ -48,11 +48,11 @@ import { preflightBimModel, type BimModel } from "./src/bim/model";
 import { buildAndVerifyShell } from "./server/bim/shell";
 import { WARDROBE_CATALOG, WARDROBE_ITEM_IDS } from "./src/wardrobe/catalog";
 import { buildReferencePrompt, turnaroundViewsForType, paletteLockClause, extractPaletteInstruction, buildTextPrompt, geometryToTripo, type TextPromptFields, type ExtendedSubjectClass, getSubjectClassForSpecies } from "./avatarPrompts";
-import { confirmPrintfulOrderIfDraft, createPrintfulOrder, getPrintfulOrder } from "./server/printful";
+import { confirmPrintfulOrderIfDraft, createPrintfulOrder, getPrintfulOrder, verifyPrintfulConfiguration } from "./server/printful";
 import { publicPawprintPrintProducts, requirePawprintPrintProduct } from "./server/pawprintProducts";
 import { buildFulfillmentReadiness } from "./server/fulfillmentReadiness";
 import { extractShipmentTracking } from "./server/fulfillmentTracking";
-import { draftSlantOrder, getSlantOrder, slant3dConfigured, submitSlantOrderIfDraft, uploadSlantFileFromUrl } from "./server/slant3d";
+import { draftSlantOrder, getSlantOrder, slant3dConfigured, submitSlantOrderIfDraft, uploadSlantFileFromUrl, verifySlant3dConfiguration } from "./server/slant3d";
 import { triageReferenceImage, triagePasses, correctiveFromTriage, friendlyQualifyError, isClassMismatch, classLabel, type TriageResult } from "./server/imageTriage";
 import { objectBuildProfile, humanRigHints } from "./server/subjectProfiles";
 import {
@@ -1426,6 +1426,65 @@ async function startServer() {
       storageConfigured,
       workerConfigured,
     }));
+  });
+
+  app.get("/api/admin/fulfillment/verify", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      if (!(await isUserAdmin(req.user!.phone))) {
+        return res.status(403).json({ error: "Admin access required." });
+      }
+      const storage = Boolean(
+        process.env.MEDIA_BUCKET_NAME && process.env.MEDIA_BUCKET_URL
+        && process.env.MEDIA_BUCKET_KEY && process.env.MEDIA_BUCKET_SECRET,
+      );
+      const stripeReady = Boolean(stripe && stripeWebhookSecret);
+      const products = publicPawprintPrintProducts();
+      const workerUrl = String(process.env.BLENDER_WORKER_URL || "").replace(/\/render$/, "").replace(/\/$/, "");
+
+      const slantCheck = slant3dConfigured()
+        ? verifySlant3dConfiguration()
+        : Promise.reject(new Error("not configured"));
+      const printfulCheck = process.env.PRINTFUL_API_KEY
+        ? verifyPrintfulConfiguration()
+        : Promise.reject(new Error("not configured"));
+      const workerCheck = workerUrl && process.env.WORKER_SHARED_SECRET
+        ? fetch(`${workerUrl}/health`, { signal: AbortSignal.timeout(15_000) }).then(async (response) => {
+            if (!response.ok) throw new Error("worker unavailable");
+            const body: any = await response.json().catch(() => ({}));
+            return { reachable: true, bridgeConnected: body?.bridge === "connected", blenderVersion: body?.blenderVersion || null };
+          })
+        : Promise.reject(new Error("not configured"));
+
+      const [slant, printful, worker] = await Promise.allSettled([slantCheck, printfulCheck, workerCheck]);
+      const slantResult = slant.status === "fulfilled" ? slant.value : null;
+      const printfulResult = printful.status === "fulfilled" ? printful.value : null;
+      const workerResult = worker.status === "fulfilled" ? worker.value : null;
+      const checks = {
+        stripe: { ready: stripeReady },
+        storage: { ready: storage },
+        slant3d: {
+          ready: Boolean(slantResult?.authenticated && slantResult.platformValid && slantResult.filamentValid && slantResult.filamentAvailable),
+          ...(slantResult || {}),
+        },
+        printful: {
+          ready: Boolean(printfulResult?.authenticated && printfulResult.ordersReadable && products.length > 0),
+          productCount: products.length,
+          ...(printfulResult || {}),
+        },
+        blenderWorker: {
+          ready: Boolean(workerResult?.reachable && workerResult.bridgeConnected),
+          ...(workerResult || {}),
+        },
+      };
+      res.json({
+        ready: Object.values(checks).every((check) => check.ready),
+        checks,
+        mutatingRequestsMade: false,
+      });
+    } catch (error: any) {
+      console.error("Fulfillment verification failed:", error?.message || error);
+      res.status(500).json({ error: "Fulfillment verification could not be completed." });
+    }
   });
 
   app.get("/api/pawprints/print-orders", requireAuth, async (req: AuthedRequest, res) => {

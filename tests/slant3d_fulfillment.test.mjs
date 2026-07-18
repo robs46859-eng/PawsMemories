@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
-import { draftSlantOrder, submitSlantOrderIfDraft, uploadSlantFileFromUrl } from "../server/slant3d.ts";
+import { draftSlantOrder, submitSlantOrderIfDraft, uploadSlantFileFromUrl, verifySlant3dConfiguration } from "../server/slant3d.ts";
 
 const originalFetch = globalThis.fetch;
 const originalEnv = {
@@ -83,4 +83,24 @@ test("draft Slant order is submitted exactly once", async () => {
   const result = await submitSlantOrderIfDraft("SLANT_1");
   assert.equal(result.data.status, "PAID");
   assert.deepEqual(methods, ["GET", "POST"]);
+});
+
+test("Slant deployment verification is read-only and validates platform and filament", async () => {
+  const calls = [];
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push({ url: String(url), method: init.method || "GET" });
+    if (String(url).endsWith("/filaments")) {
+      return new Response(JSON.stringify({ success: true, data: { filaments: [{ publicId: "filament-test", name: "PLA Matte Black", available: true }] } }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ success: true, data: { platform: { publicId: "platform-test" } } }), { status: 200 });
+  };
+  const result = await verifySlant3dConfiguration();
+  assert.deepEqual(result, {
+    authenticated: true,
+    platformValid: true,
+    filamentValid: true,
+    filamentAvailable: true,
+    filamentName: "PLA Matte Black",
+  });
+  assert.deepEqual(calls.map((call) => call.method), ["GET", "GET"]);
 });

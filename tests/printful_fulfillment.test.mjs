@@ -5,7 +5,7 @@ process.env.PRINTFUL_API_KEY = "test-printful-token";
 process.env.PRINTFUL_API_BASE_URL = "https://printful.test";
 process.env.PRINTFUL_STORE_ID = "store-123";
 
-const { createPrintfulOrder, confirmPrintfulOrderIfDraft } = await import("../server/printful.ts");
+const { createPrintfulOrder, confirmPrintfulOrderIfDraft, verifyPrintfulConfiguration } = await import("../server/printful.ts");
 
 function response(result, status = 200) {
   return new Response(JSON.stringify({ result }), {
@@ -76,6 +76,23 @@ test("Printful paid-order retry does not reconfirm a non-draft order", async () 
     const order = await confirmPrintfulOrderIfDraft("42");
     assert.equal(order.status, "pending");
     assert.equal(calls.length, 1);
+    assert.equal(calls[0].init.method, undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Printful deployment verification reads orders without creating one", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push({ url: String(url), init });
+    return response([]);
+  };
+  try {
+    const result = await verifyPrintfulConfiguration();
+    assert.deepEqual(result, { authenticated: true, storeContext: "explicit", ordersReadable: true });
+    assert.equal(calls[0].url, "https://printful.test/orders?limit=1&offset=0");
     assert.equal(calls[0].init.method, undefined);
   } finally {
     globalThis.fetch = originalFetch;

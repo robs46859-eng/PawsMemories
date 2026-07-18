@@ -122,3 +122,9 @@ Before enabling customer buttons:
 4. Keep Slant and Printful test/draft modes until sample orders have been physically inspected.
 5. Order at least one Slant figurine at each offered height and one Printful sample for each product code.
 6. Validate margins with real shipping/tax responses before advertising fixed retail prices.
+
+After adding the variables and restarting the application, an administrator can call
+`GET /api/admin/fulfillment/verify`. This read-only diagnostic checks Stripe and
+storage presence, Slant authentication/platform/current filament availability,
+Printful authentication/store context/product mappings, and Blender bridge health.
+It does not upload a file, create an order, submit fulfillment, or make a charge.
