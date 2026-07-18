@@ -17,6 +17,17 @@ export enum Screen {
   PAWLISHER = "PAWLISHER",
   FURBIN = "FURBIN",
   CREATIONS = "CREATIONS",
+  CREATE = "CREATE",
+  CREATE_REFERENCE = "CREATE_REFERENCE",
+  CREATE_CUSTOMIZE = "CREATE_CUSTOMIZE",
+  CREATE_VALIDATE = "CREATE_VALIDATE",
+  CREATE_CHECKOUT = "CREATE_CHECKOUT",
+  MARKETPLACE = "MARKETPLACE",
+  LANDING_MODELS = "LANDING_MODELS",
+  LANDING_DOGS = "LANDING_DOGS",
+  LANDING_MEMORIALS = "LANDING_MEMORIALS",
+  HOW_IT_WORKS = "HOW_IT_WORKS",
+  PRICING = "PRICING",
 }
 
 // Randy AI guidance action types — used by /api/randy-chat response and RandyChat component
@@ -30,6 +41,8 @@ export interface RandyAction {
 }
 
 export type RandyHeadState = 'idle' | 'listen' | 'think' | 'talk' | 'happy';
+
+export type PetSpecies = 'dog' | 'cat' | 'bird' | 'rabbit' | 'horse' | 'reptile' | 'small_animal' | 'other';
 
 export type StyleType = "Realistic" | "Sketch" | "Clay" | "Artistic" | "Anime" | "3D" | "Retro";
 

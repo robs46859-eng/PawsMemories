@@ -453,6 +453,12 @@ export default function PawprintsStudio({ userProfile, onOpenCreditStore, onUser
 
   if (!category) return (
     <main className="mx-auto w-full max-w-6xl px-4 pb-28 pt-8">
+      {!userProfile.email && (
+        <section className="mb-12 overflow-hidden rounded-3xl bg-primary/5 p-8 text-center sm:p-16">
+          <h1 className="text-4xl font-black text-on-surface">Personalized Pawprints Pet Art</h1>
+          <p className="mx-auto mt-4 max-w-2xl text-lg text-on-surface-variant">Create digital and printable pet keepsakes with your photos, message, and chosen occasion. Sign in to save and print your designs.</p>
+        </section>
+      )}
       <div className="mb-8 max-w-2xl"><p className="text-xs font-black uppercase tracking-[.2em] text-primary">Pawprints Studio</p><h1 className="mt-2 text-3xl font-black text-on-surface">What are you creating?</h1><p className="mt-2 text-on-surface-variant">Choose an occasion, then add your own photo and exact words.</p></div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {categories.map((item) => { const meta = CATEGORY_META[item]; return <button key={item} onClick={() => setCategory(item)} className="relative aspect-[4/5] overflow-hidden rounded-3xl border border-outline-variant/40 p-4 text-left transition hover:-translate-y-1 hover:border-primary/50" style={{ background: meta?.colors[0] }}><span className="text-6xl opacity-70">{meta?.symbol || "🐾"}</span><span className="absolute inset-x-4 bottom-4 text-base font-black" style={{ color: meta?.colors[2] }}>{meta?.label || item}</span></button>; })}
@@ -488,8 +494,14 @@ export default function PawprintsStudio({ userProfile, onOpenCreditStore, onUser
               <p className="mt-2 text-[10px] text-on-surface-variant">The email includes the ${CREDIT_PRICES.PAWPRINT} PupCoins creation price.</p>
             </div>
           </>}
-          <button onClick={() => void save()} disabled={busy || (!userProfile.isAdmin && userProfile.credits < CREDIT_PRICES.PAWPRINT)} className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 font-black text-on-primary disabled:opacity-40">{busy ? <Loader2 className="animate-spin" size={19} /> : <Sparkles size={19} />}{busy ? "Saving…" : `Save selected variation · ${CREDIT_PRICES.PAWPRINT} PupCoins`}</button>
-          {!userProfile.isAdmin && userProfile.credits < CREDIT_PRICES.PAWPRINT && <button onClick={onOpenCreditStore} className="min-h-12 w-full rounded-xl border border-primary font-black text-primary">Buy PupCoins</button>}
+          {!userProfile.email ? (
+            <button onClick={() => { window.location.href = "/sign-up"; }} className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 font-black text-on-primary">Sign In to Save Pawprint</button>
+          ) : (
+            <>
+              <button onClick={() => void save()} disabled={busy || (!userProfile.isAdmin && userProfile.credits < CREDIT_PRICES.PAWPRINT)} className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 font-black text-on-primary disabled:opacity-40">{busy ? <Loader2 className="animate-spin" size={19} /> : <Sparkles size={19} />}{busy ? "Saving…" : `Save selected variation · ${CREDIT_PRICES.PAWPRINT} PupCoins`}</button>
+              {!userProfile.isAdmin && userProfile.credits < CREDIT_PRICES.PAWPRINT && <button onClick={onOpenCreditStore} className="min-h-12 w-full rounded-xl border border-primary font-black text-primary">Buy PupCoins</button>}
+            </>
+          )}
         </aside>
       </div>
     </main>

@@ -9,14 +9,15 @@ export interface ShellNavigationItem {
 }
 
 export const TOP_PRIMARY_NAV: ShellNavigationItem[] = [
-  { id: "furball", label: "Furball3D", screen: Screen.MODELS, materialIcon: "pets", imageSrc: "/brand/furball3d.jpg" },
+  { id: "create", label: "Create", screen: Screen.CREATE, materialIcon: "add_circle", imageSrc: "/brand/furball3d.jpg" },
+  { id: "marketplace", label: "Marketplace", screen: Screen.MARKETPLACE, materialIcon: "storefront" },
   { id: "pawprints", label: "Pawprints", screen: Screen.PAWPRINTS, materialIcon: "auto_stories", imageSrc: "/brand/pawprints.png" },
-  { id: "fidos-styles", label: "Fido's Styles", screen: Screen.PAWLISHER, materialIcon: "brush", imageSrc: "/brand/fidostyles.jpg" },
 ];
 
 export const SIDEBAR_NAV: ShellNavigationItem[] = [
   { id: "home", label: "Home", screen: Screen.DASHBOARD, materialIcon: "home" },
   { id: "fur-bin", label: "Fur Bin©️", screen: Screen.FURBIN, materialIcon: "inventory_2" },
+  { id: "marketplace-side", label: "Marketplace", screen: Screen.MARKETPLACE, materialIcon: "storefront" },
   { id: "animate", label: "Animate", screen: Screen.ANIMATOR, materialIcon: "movie", imageSrc: "/brand/animation-studio.png" },
 ];
 

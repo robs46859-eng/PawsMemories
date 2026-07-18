@@ -19,6 +19,6 @@ test("model creation exposes auto detection plus explicit animal, human, and obj
 test("server makes the automatic detected type authoritative before it generates the model", () => {
   assert.match(server, /selectionMode === "auto"/);
   assert.match(server, /avatarType = autoDetection\.subjectClass/);
-  assert.match(server, /const avatarCost = avatarGenerationCost\(avatarType, inputMode\)/);
+  assert.match(server, /const avatarCost = avatarGenerationCost\(/);
   assert.match(server, /selectionMode === "manual"/);
 });

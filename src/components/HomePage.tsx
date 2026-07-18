@@ -1,0 +1,358 @@
+import React from "react";
+import { ArrowRight, Camera, Palette, ShieldCheck, Printer, Lock, Construction, Bell, Sparkles, Star, Heart, Gift, Dog, PawPrint } from "lucide-react";
+import { UserProfile } from "../types";
+
+interface HomePageProps {
+  userProfile: UserProfile;
+  onOpenCreate: () => void;
+  onOpenMarketplace: () => void;
+  onOpenPawprints: () => void;
+  onOpenFurball: () => void;
+  onOpenAnimator: () => void;
+  onOpenFidos: () => void;
+}
+
+/* Static showcase data — uses existing creation imagery */
+const FEATURED_MODELS = [
+  {
+    name: "Randy in Paris",
+    breed: "Golden Retriever",
+    style: "Clay",
+    size: '4" tall',
+    price: "Example design",
+    image: "https://lh3.googleusercontent.com/aida-public/AB6AXuBU0nUa1m6O8-EVOuohKwONaRwJZZ1gEa5tLTsM6Pk1OPKho05x71b_umVngODZv7RWo73hOOvU9Pu2yXKJeirbxWxwhUK0Oc8ZFW0V8ZtACgsRSPZMsMbEYEEAO1esiiTpH2zeweZ3QKaShDtccGyScYK3DPYrRmCO8dvSv0zEfSO0vQfPknP_CW52xEaWsC4OY5-40p1XpbQMAuCeo0OUJO_pV-DEwfFkOxaCgZedlpRMbhqAEHqAtwegofQrEhqucTjtQ2OleIE",
+  },
+  {
+    name: "Regal Cooper",
+    breed: "English Bulldog",
+    style: "Realistic",
+    size: '5" tall',
+    price: "Example design",
+    image: "https://lh3.googleusercontent.com/aida-public/AB6AXuB8ObbseD9WagQBXRMd7E8BZ9RKHCgeVXiTKIOxDJMzlQsW7PyFS-UBTPelIFo5QDRzArLs-4-4Oy6SJRj96hu8uVRnQnCBEX1QpUj4KkwViPiT2O6z7A8hCU1m1tGqzsbjfqwTtmb-rdCuYzWTIV3knQxTGdj1wOIy_BZnirVnKurbIwHKukbwAZoLNP71iCjzmKKELvLlJFKabzz3CT54bzle2VywswLksCtnmOWoThBAC3PtfJYhh--0wQssrh3QDfwRSZgeL7o",
+  },
+  {
+    name: "Cabin Companion",
+    breed: "Labrador",
+    style: "Realistic",
+    size: '4" tall',
+    price: "Example design",
+    image: "https://lh3.googleusercontent.com/aida/AP1WRLtFDVEbGliaP7_evzZN_0TExPZntgmOewmauFKbkzvCbsDtKQs6KG-2t6XJ2X111LgZJF1OEymMFPWvAmWawCw-BCq6LT56LCOMv1teoRQytKnceBBh9acShCALXBygU3f_ABu8p4jiWEJVExClrbt0bTGdcCQ6GxFLGP4wYdtYKWhbchG9EG7JxIw39ErS7Lal4ujgb8uz8bxQOr-4H1dKF26Fv2zKJ4DWGHaAF7N7C4clV0ba9n8zADQ",
+  },
+  {
+    name: "Canyon Adventure",
+    breed: "Golden Retriever",
+    style: "Clay",
+    size: '6" tall',
+    price: "Example design",
+    image: "https://lh3.googleusercontent.com/aida/AP1WRLuMUevcjZpP-AN97I_CA6dOQYEMS0BevxX3U39ALuZBdr-amMVOAtfxg8xCDxKyqZaseVEV-unjiFTjJh3qvOeeJK_FEcahmc-CSgTOIEsW_C9-BNmA7cgFVAjjQTQW0l1qQNz2RYiP8fzGVMjSgv3FD75s1qC_ghJQ5_sKyBUcPn7Gt74S_qwQy21Mq7ObaMtDVUR3Joq0QE0DwBDmKXXRXS21S-v6gRkS_EAKEwhLJiVOuOIm8xWZVQ",
+  },
+];
+
+const HOW_IT_WORKS = [
+  { step: 1, title: "Upload", desc: "Share a photo of your pet and tell us a bit about them.", icon: Camera },
+  { step: 2, title: "Customize", desc: "Choose pose, accessories, collar, and engraving options.", icon: Palette },
+  { step: 3, title: "Validate", desc: "Our engine checks the model is printable and structurally sound.", icon: ShieldCheck },
+  { step: 4, title: "Print", desc: "Pick your size, material, and finish — then we print and ship.", icon: Printer },
+];
+
+const STORIES = [
+  { title: "Memorials", desc: "Honor a beloved companion with a lasting keepsake.", icon: Heart, color: "text-rose-500" },
+  { title: "New Puppies", desc: "Capture the first year in a custom figurine.", icon: Dog, color: "text-amber-600" },
+  { title: "Gifts", desc: "Surprise any pet parent with a one-of-a-kind present.", icon: Gift, color: "text-emerald-600" },
+  { title: "Family Companions", desc: "Celebrate the pet that made your house a home.", icon: Star, color: "text-sky-500" },
+];
+
+const MARKETPLACE_CATEGORIES = [
+  { title: "Breed Models", desc: "Explore curated models by breed.", icon: "🐕" },
+  { title: "Memorial Pieces", desc: "Honoring companions who crossed the bridge.", icon: "🕊️" },
+  { title: "Accessories", desc: "Collars, plaques, bases, and more.", icon: "🎀" },
+  { title: "Seasonal", desc: "Holiday-themed and limited editions.", icon: "🎄" },
+];
+
+const LOCKED_MODULES = [
+  { name: "Animation Studio", desc: "Bring your 3D model to life with motion and video.", image: "/brand/animation-studio.png" },
+  { name: "Video Generation", desc: "Create cinematic clips starring your pet.", image: "/brand/furball3d.jpg" },
+  { name: "Fido's Styles", desc: "Wardrobe looks and style variations for your model.", image: "/brand/fidostyles.jpg" },
+];
+
+export default function HomePage({
+  userProfile,
+  onOpenCreate,
+  onOpenMarketplace,
+  onOpenPawprints,
+}: HomePageProps) {
+  const firstName = userProfile.fullName?.split(" ")[0] || "there";
+
+  return (
+    <div className="w-full min-h-[calc(100dvh-64px)] pb-28 md:pb-12">
+      {/* ─────────────── HERO ─────────────── */}
+      <section className="relative w-full overflow-hidden px-4 pt-8 sm:px-6 md:pt-14">
+        <div className="mx-auto max-w-6xl">
+          <div className="glass-hero relative flex flex-col items-center gap-8 rounded-[2rem] p-8 md:flex-row md:gap-12 md:p-12">
+            {/* Ambient glows */}
+            <div className="pointer-events-none absolute -left-20 -top-20 h-56 w-56 rounded-full bg-primary/15 blur-[80px]" />
+            <div className="pointer-events-none absolute -bottom-16 -right-16 h-48 w-48 rounded-full bg-secondary/15 blur-[70px]" />
+
+            {/* Text side */}
+            <div className="relative z-10 flex-1 text-center md:text-left">
+              <p className="mb-2 text-xs font-black uppercase tracking-[.2em] text-primary">
+                Pawsome3D
+              </p>
+              <h1 className="text-3xl font-black leading-tight tracking-tight text-on-surface sm:text-4xl lg:text-5xl">
+                Turn your pet into something{" "}
+                <span className="text-primary">you can hold.</span>
+              </h1>
+              <p className="mt-4 max-w-lg text-sm leading-relaxed text-on-surface-variant md:text-base">
+                Upload a photo, personalize the model, and print a one-of-a-kind keepsake
+                that celebrates every wag and purr.
+              </p>
+
+              {/* CTAs */}
+              <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:justify-center md:justify-start">
+                <button
+                  id="hero-create-cta"
+                  type="button"
+                  onClick={onOpenCreate}
+                  className="flex items-center justify-center gap-2 rounded-2xl bg-primary px-8 py-4 text-sm font-black text-on-primary shadow-lg transition-all hover:brightness-105 hover:bg-primary/90 focus:outline-none focus:ring-4 focus:ring-primary/30 active:scale-95 disabled:opacity-50"
+                >
+                  <Sparkles size={16} className="fill-on-primary" />
+                  Create My 3D Model
+                  <ArrowRight size={16} />
+                </button>
+                <button
+                  id="hero-marketplace-cta"
+                  type="button"
+                  onClick={onOpenMarketplace}
+                  className="glass-button flex items-center justify-center gap-2 rounded-2xl px-7 py-4 text-sm font-bold text-on-surface transition-all hover:text-primary"
+                >
+                  Browse Marketplace
+                  <ArrowRight size={14} />
+                </button>
+              </div>
+            </div>
+
+            {/* Hero image */}
+            <div className="relative z-10 shrink-0">
+              <div className="dog-float">
+                <img
+                  src="/brand/furball3d.jpg"
+                  alt="3D pet model showcase"
+                  className="h-48 w-48 rounded-3xl object-cover shadow-2xl ring-2 ring-white/40 sm:h-56 sm:w-56 md:h-72 md:w-72"
+                />
+              </div>
+              <div className="absolute -bottom-3 -right-3 flex items-center gap-1 rounded-full bg-primary px-3 py-1.5 text-[10px] font-black text-on-primary shadow-lg">
+                <Printer size={12} />
+                Print-ready
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ─────────────── FEATURED MODELS ─────────────── */}
+      <section className="mt-14 px-4 sm:px-6">
+        <div className="mx-auto max-w-6xl">
+          <div className="mb-6 flex items-center gap-2">
+            <Star size={18} className="text-primary" />
+            <h2 className="text-xs font-black uppercase tracking-[.18em] text-primary">Featured Models</h2>
+          </div>
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            {FEATURED_MODELS.map((model) => (
+              <article
+                key={model.name}
+                className="glass-showcase group cursor-pointer overflow-hidden rounded-[1.6rem]"
+                onClick={onOpenCreate}
+              >
+                <div className="relative aspect-[4/5] overflow-hidden">
+                  <img
+                    src={model.image}
+                    alt={model.name}
+                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-4 pt-12">
+                    <h3 className="text-sm font-black text-white">{model.name}</h3>
+                    <p className="mt-0.5 text-[11px] text-white/80">{model.breed} · {model.style}</p>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between p-4">
+                  <div>
+                    <span className="text-[10px] font-bold text-on-surface-variant">{model.size}</span>
+                    <span className="ml-2 text-xs font-bold text-primary">{model.price}</span>
+                  </div>
+                  <span className="flex items-center gap-1 text-xs font-bold text-primary opacity-0 transition-opacity group-hover:opacity-100">
+                    Customize <ArrowRight size={12} />
+                  </span>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ─────────────── HOW IT WORKS ─────────────── */}
+      <section className="mt-16 px-4 sm:px-6">
+        <div className="mx-auto max-w-6xl">
+          <div className="mb-8 text-center">
+            <h2 className="text-xs font-black uppercase tracking-[.18em] text-primary">How It Works</h2>
+            <p className="mt-2 text-2xl font-black tracking-tight text-on-surface md:text-3xl">
+              From photo to physical keepsake
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            {HOW_IT_WORKS.map(({ step, title, desc, icon: Icon }) => (
+              <div key={step} className="glass-card group relative rounded-2xl p-6 text-center">
+                {/* Step number */}
+                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-on-primary text-lg font-black shadow-md">
+                  {step}
+                </div>
+                <Icon size={28} className="mx-auto mb-3 text-primary transition-transform group-hover:scale-110" />
+                <h3 className="text-base font-black text-on-surface">{title}</h3>
+                <p className="mt-2 text-xs leading-relaxed text-on-surface-variant">{desc}</p>
+                {/* Connector arrow (hidden on last & mobile) */}
+                {step < 4 && (
+                  <div className="pointer-events-none absolute -right-3 top-1/2 hidden -translate-y-1/2 text-primary/30 lg:block">
+                    <ArrowRight size={20} />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ─────────────── PERSONAL STORIES ─────────────── */}
+      <section className="mt-16 px-4 sm:px-6">
+        <div className="mx-auto max-w-6xl">
+          <div className="mb-6 text-center">
+            <h2 className="text-xs font-black uppercase tracking-[.18em] text-primary">Personal Stories</h2>
+            <p className="mt-2 text-xl font-black tracking-tight text-on-surface md:text-2xl">
+              Every pet deserves to be remembered
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            {STORIES.map(({ title, desc, icon: Icon, color }) => (
+              <div key={title} className="glass-tile rounded-2xl p-5 text-center">
+                <Icon size={28} className={`mx-auto mb-3 ${color}`} />
+                <h3 className="text-sm font-black text-on-surface">{title}</h3>
+                <p className="mt-1.5 text-[11px] leading-relaxed text-on-surface-variant">{desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ─────────────── PAWPRINTS ─────────────── */}
+      <section className="mt-16 px-4 sm:px-6">
+        <div className="mx-auto max-w-6xl">
+          <div className="glass-card flex flex-col items-center gap-6 rounded-[2rem] p-8 md:flex-row md:p-10">
+            <img
+              src="/brand/pawprints.png"
+              alt="Pawprints keepsakes"
+              className="h-32 w-32 shrink-0 rounded-2xl object-cover shadow-lg ring-1 ring-white/40 md:h-40 md:w-40"
+            />
+            <div className="flex-1 text-center md:text-left">
+              <span className="text-[10px] font-black uppercase tracking-[.18em] text-primary">Pawprints</span>
+              <h2 className="mt-1 text-xl font-black tracking-tight text-on-surface md:text-2xl">
+                Digital keepsakes, cards, and personalized artwork
+              </h2>
+              <p className="mt-2 max-w-md text-sm text-on-surface-variant">
+                Create beautiful Pawprints with your favorite photos and heartfelt words for any occasion — birthdays, memorials, holidays, and more.
+              </p>
+              <button
+                type="button"
+                onClick={onOpenPawprints}
+                className="mt-5 inline-flex items-center gap-2 rounded-xl bg-primary px-6 py-3 text-sm font-black text-on-primary shadow-md transition-all hover:brightness-105 active:scale-95"
+              >
+                <PawPrint size={16} />
+                Create a Pawprint
+                <ArrowRight size={14} />
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ─────────────── MARKETPLACE ─────────────── */}
+      <section className="mt-16 px-4 sm:px-6">
+        <div className="mx-auto max-w-6xl">
+          <div className="glass-card rounded-[2rem] p-8 md:p-10">
+            <div className="mb-6 text-center">
+              <span className="text-[10px] font-black uppercase tracking-[.18em] text-primary">Marketplace</span>
+              <h2 className="mt-1 text-xl font-black tracking-tight text-on-surface md:text-2xl">
+                Explore the 3D Pet Marketplace
+              </h2>
+              <p className="mt-2 text-sm text-on-surface-variant">
+                Browse breed-specific models, memorial pieces, accessories, and seasonal collections.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+              {MARKETPLACE_CATEGORIES.map((cat) => (
+                <button
+                  key={cat.title}
+                  type="button"
+                  onClick={onOpenMarketplace}
+                  className="glass-tile group flex flex-col items-center gap-3 rounded-2xl p-5 text-center"
+                >
+                  <span className="text-3xl">{cat.icon}</span>
+                  <h3 className="text-sm font-black text-on-surface">{cat.title}</h3>
+                  <p className="text-[10px] text-on-surface-variant">{cat.desc}</p>
+                  <span className="mt-auto flex items-center gap-1 text-[10px] font-bold text-primary opacity-0 transition-opacity group-hover:opacity-100">
+                    Browse <ArrowRight size={10} />
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="mt-6 text-center">
+              <button
+                type="button"
+                onClick={onOpenMarketplace}
+                className="inline-flex items-center gap-2 rounded-xl border border-primary/30 px-6 py-3 text-sm font-black text-primary transition-all hover:bg-primary/10 active:scale-95"
+              >
+                Explore the Marketplace
+                <ArrowRight size={14} />
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ─────────────── LOCKED MODULES ─────────────── */}
+      <section className="mt-16 px-4 sm:px-6">
+        <div className="mx-auto max-w-6xl">
+          <div className="mb-6 text-center">
+            <h2 className="text-xs font-black uppercase tracking-[.18em] text-on-surface-variant">Coming Soon</h2>
+          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            {LOCKED_MODULES.map((mod) => (
+              <div
+                key={mod.name}
+                className="locked-module-overlay glass-tile relative flex items-center gap-4 rounded-[1.5rem] p-5"
+              >
+                <div className="relative shrink-0">
+                  <img
+                    src={mod.image}
+                    alt=""
+                    className="h-16 w-16 rounded-xl object-cover opacity-50 grayscale"
+                  />
+                  <div className="absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full bg-primary/80 text-on-primary shadow">
+                    <Lock size={10} />
+                  </div>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-black text-on-surface">{mod.name}</h3>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[9px] font-black uppercase text-primary">
+                      <Construction size={9} /> Under Construction
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[11px] text-on-surface-variant">{mod.desc}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}

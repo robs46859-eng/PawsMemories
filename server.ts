@@ -1,4 +1,5 @@
 import express from "express";
+import { z } from "zod";
 import compression from "compression";
 import path from "path";
 // Vite is imported dynamically below — only in dev mode
@@ -46,7 +47,7 @@ import { avatarGenerationCost, bimModelCost, CREDIT_PACKS, CREDIT_PRICES, REUSE_
 import { preflightBimModel, type BimModel } from "./src/bim/model";
 import { buildAndVerifyShell } from "./server/bim/shell";
 import { WARDROBE_CATALOG, WARDROBE_ITEM_IDS } from "./src/wardrobe/catalog";
-import { buildReferencePrompt, turnaroundViewsForType, paletteLockClause, extractPaletteInstruction, buildTextPrompt, geometryToTripo, type TextPromptFields, type SubjectClass } from "./avatarPrompts";
+import { buildReferencePrompt, turnaroundViewsForType, paletteLockClause, extractPaletteInstruction, buildTextPrompt, geometryToTripo, type TextPromptFields, type ExtendedSubjectClass, getSubjectClassForSpecies } from "./avatarPrompts";
 import { createPrintfulOrder } from "./server/printful";
 import { triageReferenceImage, triagePasses, correctiveFromTriage, friendlyQualifyError, isClassMismatch, classLabel, type TriageResult } from "./server/imageTriage";
 import { objectBuildProfile, humanRigHints } from "./server/subjectProfiles";
@@ -1604,7 +1605,7 @@ async function startServer() {
    * so all four views share exactly the same colours. Colour drift between views
    * is the #1 failure mode of multiview-to-3D, producing muddy/striped textures.
    */
-  async function extractPalette(frontDataUrl: string, type: SubjectClass): Promise<string | null> {
+  async function extractPalette(frontDataUrl: string, type: ExtendedSubjectClass): Promise<string | null> {
     const m = frontDataUrl.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
     if (!m) return null;
     const part = { inlineData: { data: m[2], mimeType: m[1] } };
@@ -1694,7 +1695,7 @@ async function startServer() {
   async function generateTurnaroundViews(
     frontDataUrl: string,
     palette: string | null,
-    type: SubjectClass
+    type: ExtendedSubjectClass
   ): Promise<Partial<Record<"left" | "back" | "right", string>>> {
     const m = frontDataUrl.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
     if (!m) return {};
@@ -1718,7 +1719,7 @@ async function startServer() {
   async function generatePetReferenceImage(
     photos: string[],
     accent: string | null | undefined,
-    type: SubjectClass,
+    type: ExtendedSubjectClass,
     hasFacePhoto?: boolean,
     extra?: string,
     errRef?: { code?: number | string; message?: string; quota?: boolean },
@@ -1761,8 +1762,8 @@ async function startServer() {
       const selectionMode: "auto" | "manual" = selection_mode === "auto" ? "auto" : "manual";
       const subjectSubtype = typeof subject_subtype === "string" ? subject_subtype.trim().slice(0, 40) : "";
       const facePhotoRaw = face_photo ?? req.body.facePhoto;
-      // Normalize the UI type to a canonical SubjectClass ('dog' == animal).
-      let avatarType: SubjectClass = avatarTypeRaw === 'human' ? 'human' : avatarTypeRaw === 'object' ? 'object' : 'dog';
+      // Normalize the UI type to a canonical ExtendedSubjectClass ('dog' == animal).
+      let avatarType: ExtendedSubjectClass = (avatarTypeRaw as any);
       // Accept new multi-photo payload; keep backward compat with single `photo`.
       const photoList: string[] = Array.isArray(photos) && photos.length > 0
         ? photos.filter((p: unknown) => typeof p === "string" && p.length > 0)
@@ -1810,7 +1811,7 @@ async function startServer() {
         }
       }
 
-      const avatarCost = avatarGenerationCost(avatarType, inputMode);
+      const avatarCost = avatarGenerationCost(getSubjectClassForSpecies(avatarType), inputMode);
       let payableAvatarCost = avatarCost;
 
       const isAdmin = await isUserAdmin(req.user!.phone);
@@ -3064,12 +3065,12 @@ async function startServer() {
         if (currentBalance < GENERATION_COST) {
           return res.status(402).json({
             success: false,
-            error: `Insufficient credits. You need ${GENERATION_COST} credits but only have ${currentBalance}. Purchase more credits to continue.`
+            error: `Insufficient PupCoins. You need ${GENERATION_COST} PupCoins but only have ${currentBalance}. Purchase more PupCoins to continue.`
           });
         }
         const paid = await deductCredits(userPhone, GENERATION_COST, "hd_image_generation");
         if (!paid) {
-          return res.status(402).json({ success: false, error: `Insufficient credits. You need ${GENERATION_COST} credits.` });
+          return res.status(402).json({ success: false, error: `Insufficient PupCoins. You need ${GENERATION_COST} PupCoins.` });
         }
         imageCreditsDebited = GENERATION_COST;
       }
@@ -3673,7 +3674,7 @@ async function startServer() {
         }
         const balance = await getCreditBalance(userPhone);
         if (balance < CREDIT_PRICES.LIP_SYNC_30_SECONDS) {
-          return res.status(402).json({ success: false, error: `Insufficient credits. You need ${CREDIT_PRICES.LIP_SYNC_30_SECONDS} credits.` });
+          return res.status(402).json({ success: false, error: `Insufficient PupCoins. You need ${CREDIT_PRICES.LIP_SYNC_30_SECONDS} PupCoins.` });
         }
       }
 
@@ -3687,7 +3688,7 @@ async function startServer() {
       // Deduct credits upfront (Admin bypass: skip deduction).
       if (!isAdmin) {
         const paid = await deductCredits(userPhone, CREDIT_PRICES.LIP_SYNC_30_SECONDS, "lip_sync");
-        if (!paid) return res.status(402).json({ success: false, error: `Insufficient credits. You need ${CREDIT_PRICES.LIP_SYNC_30_SECONDS} credits.` });
+        if (!paid) return res.status(402).json({ success: false, error: `Insufficient PupCoins. You need ${CREDIT_PRICES.LIP_SYNC_30_SECONDS} PupCoins.` });
         lipSyncCreditsDebited = CREDIT_PRICES.LIP_SYNC_30_SECONDS;
       }
 
@@ -3749,6 +3750,237 @@ async function startServer() {
     }
   });
 
+
+  // ---------------------------------------------------------------------------
+  // Create Pipeline (Phase 2)
+  // ---------------------------------------------------------------------------
+
+  app.post("/api/create-pipeline/generate-reference", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { sessionId, species, breed, petName, intent, style, inputPhotoUrl } = req.body;
+      const userPhone = req.user!.phone;
+      
+      let id = sessionId;
+      if (!id) {
+        const { randomUUID } = await import("crypto");
+        id = randomUUID();
+      }
+      
+      const { getCreatePipelineSession, upsertCreatePipelineSession } = await import("./db");
+      
+      let session = await getCreatePipelineSession(id, userPhone);
+      if (session && session.status !== "draft" && session.status !== "reference_ready") {
+        return res.status(400).json({ success: false, error: "Session is no longer editable." });
+      }
+
+      // We need to generate a candidate image. Re-using generatePetReferenceImage
+      // (This will act as the "real" image generator for Phase 2).
+      const photos = inputPhotoUrl ? [inputPhotoUrl] : [];
+      const hasFace = !!inputPhotoUrl; // Simple heuristic for now
+      
+      let candidateUrl = null;
+      try {
+        candidateUrl = await generatePetReferenceImage(
+          photos,
+          intent || null,
+          species as ExtendedSubjectClass,
+          hasFace,
+          "",
+          {},
+          style || "Realistic",
+          breed || null
+        );
+      } catch (genErr) {
+        console.error("Reference generation error:", genErr);
+        return res.status(500).json({ success: false, error: "Failed to generate candidate image. No PupCoins were deducted." });
+      }
+
+      if (!candidateUrl) {
+         return res.status(500).json({ success: false, error: "Failed to generate candidate image. No PupCoins were deducted." });
+      }
+
+      // Convert Data URI to public URL if needed, similar to create-3d-model
+      if (candidateUrl.startsWith("data:image")) {
+        try {
+          candidateUrl = await uploadBase64Image(candidateUrl);
+        } catch (upErr: any) {
+          return res.status(502).json({ success: false, error: "Could not persist candidate image." });
+        }
+      }
+
+      const newSession = {
+        id,
+        user_phone: userPhone,
+        species,
+        breed: breed || null,
+        pet_name: petName || null,
+        intent: intent || null,
+        style: style || null,
+        input_photo_url: inputPhotoUrl || null,
+        candidate_image_url: candidateUrl,
+        customization_state: session?.customization_state || null,
+        validation_state: session?.validation_state || null,
+        status: "reference_ready" as const,
+        idempotency_key: session?.idempotency_key || null,
+        build_job_id: session?.build_job_id || null,
+      };
+
+      await upsertCreatePipelineSession(newSession);
+
+      res.json({ success: true, sessionId: id, candidateUrl });
+    } catch (err: any) {
+      console.error("Error in generate-reference:", err);
+      res.status(500).json({ success: false, error: "Failed to process reference generation." });
+    }
+  });
+
+  app.post("/api/create-pipeline/remake-reference", requireAuth, async (req: AuthedRequest, res) => {
+    // Exact same logic, handled by frontend calling generate-reference with sessionId
+    res.status(400).json({ success: false, error: "Use generate-reference with an existing sessionId." });
+  });
+
+  app.post("/api/create-pipeline/update", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { sessionId, customizationState, validationState } = req.body;
+      const userPhone = req.user!.phone;
+      if (!sessionId) {
+        return res.status(400).json({ success: false, error: "Missing sessionId" });
+      }
+
+      const { getCreatePipelineSession, upsertCreatePipelineSession } = await import("./db");
+      const session = await getCreatePipelineSession(sessionId, userPhone);
+      if (!session) {
+        return res.status(404).json({ success: false, error: "Session not found." });
+      }
+
+      // Merge states safely
+      if (customizationState) {
+        session.customization_state = { ...(session.customization_state || {}), ...customizationState };
+      }
+      if (validationState) {
+        const crypto = require('crypto');
+        const hash = crypto.createHash('md5').update(JSON.stringify(session.customization_state || {})).digest('hex');
+        const vState = { ...validationState, _customizationHash: hash };
+        session.validation_state = JSON.stringify(vState); // We store it as a string
+      }
+
+      await upsertCreatePipelineSession(session);
+      return res.json({ success: true, session });
+    } catch (err: any) {
+      console.error("Pipeline update error:", err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  const ValidationSchema = z.object({
+    isPrintable: z.boolean(),
+    errors: z.array(z.string()).optional(),
+    warnings: z.array(z.string()).optional(),
+  });
+
+  app.post("/api/create-pipeline/approve", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const { sessionId, idempotencyKey } = req.body;
+      const userPhone = req.user!.phone;
+      if (!sessionId || !idempotencyKey) {
+        return res.status(400).json({ success: false, error: "Missing sessionId or idempotencyKey" });
+      }
+
+      const { 
+        reservePipelineSessionForBuild, 
+        commitPipelineSessionBuild, 
+        markPipelineSessionRecoveryRequired, 
+        releasePipelineSessionReservation,
+        getCreatePipelineSession
+      } = await import("./db");
+      
+      const session = await getCreatePipelineSession(sessionId, userPhone);
+      if (!session) {
+        return res.status(404).json({ success: false, error: "Session not found." });
+      }
+
+      if (!session.customization_state) {
+        return res.status(400).json({ success: false, error: "Missing customization state." });
+      }
+      if (!session.candidate_image_url) {
+        return res.status(400).json({ success: false, error: "Missing candidate image." });
+      }
+      if (session.status !== 'reference_ready' && session.status !== 'build_starting') {
+        return res.status(400).json({ success: false, error: "Session is not ready for approval." });
+      }
+
+      // Validate the validation state
+      let validation;
+      try {
+        if (!session.validation_state) throw new Error("No validation state");
+        const rawValidation = JSON.parse(session.validation_state);
+        
+        const crypto = require('crypto');
+        const expectedHash = crypto.createHash('md5').update(JSON.stringify(session.customization_state)).digest('hex');
+        if (rawValidation._customizationHash !== expectedHash) {
+          throw new Error("Stale validation state");
+        }
+
+        validation = ValidationSchema.parse(rawValidation);
+      } catch (e: any) {
+        return res.status(400).json({ success: false, error: "Validation state is missing, invalid, or stale. Please re-validate." });
+      }
+      
+      if (!validation.isPrintable) {
+        return res.status(400).json({ success: false, error: "Model is not printable. Please fix validation errors." });
+      }
+
+      const MODEL_COST = CREDIT_PRICES.STATIC_3D_PHOTO; // Authoritative price
+
+      // 1. Reserve
+      const reserveResult = await reservePipelineSessionForBuild(sessionId, userPhone, idempotencyKey, MODEL_COST);
+      
+      if (!reserveResult.success) {
+        if (reserveResult.alreadyReservedOrBuilding) {
+           return res.json({ success: true, message: "Already approved", status: reserveResult.sessionRow?.status, jobId: reserveResult.sessionRow?.build_job_id });
+        }
+        return res.status(reserveResult.error === "Insufficient PupCoins." ? 402 : 409).json({ success: false, error: reserveResult.error });
+      }
+
+      // 2. External Provider Start (Tripo / Meshy)
+      let handle: string;
+      try {
+        handle = await startImageTo3D({ imageUrl: session.candidate_image_url! });
+      } catch (genErr: any) {
+        console.error("External provider start failed:", genErr);
+        await releasePipelineSessionReservation(sessionId, userPhone, MODEL_COST);
+        return res.status(503).json({ success: false, error: "3D generation is temporarily unavailable. PupCoins have been refunded." });
+      }
+
+      // 3. Commit the job to database
+      const creationData = {
+        style: session.style || 'Realistic',
+        image_url: session.candidate_image_url,
+        pet_name: session.pet_name,
+        pet_breed: session.breed
+      };
+
+      const commitResult = await commitPipelineSessionBuild(sessionId, userPhone, {
+        kind: 'tripo',
+        credits_reserved: MODEL_COST,
+        operation_name: handle
+      }, creationData);
+
+      if (!commitResult.success) {
+        // We failed to finalize the DB transaction, but the external provider has already been called!
+        // We MUST NOT refund the user automatically or they get a free model.
+        // We MUST escalate to recovery_required and save the provider handle.
+        await markPipelineSessionRecoveryRequired(sessionId, userPhone, handle);
+        return res.status(500).json({ success: false, error: "Failed to finalize job state. Support has been notified." });
+      }
+
+      return res.json({ success: true, message: "Build started", status: "building" });
+    } catch (err: any) {
+      console.error("Pipeline approve error:", err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // Meshy "3D pet figurine" generation. Mirrors /api/create-video but uses
   // Meshy's image-to-3D pipeline. Reuses the same generation_jobs table +
   // credit/rate-limit logic; the Meshy task id is stored in operation_name with
@@ -3773,7 +4005,7 @@ async function startServer() {
         }
         const balance = await getCreditBalance(userPhone);
         if (balance < MODEL_COST) {
-          return res.status(402).json({ success: false, error: `Insufficient credits. You need ${MODEL_COST} credits.` });
+          return res.status(402).json({ success: false, error: `Insufficient PupCoins. You need ${MODEL_COST} PupCoins.` });
         }
       }
 
@@ -3797,7 +4029,7 @@ async function startServer() {
 
       if (!isAdmin) {
         const paid = await deductCredits(userPhone, MODEL_COST, "static_3d_photo");
-        if (!paid) return res.status(402).json({ success: false, error: `Insufficient credits. You need ${MODEL_COST} credits.` });
+        if (!paid) return res.status(402).json({ success: false, error: `Insufficient PupCoins. You need ${MODEL_COST} PupCoins.` });
         modelCreditsDebited = MODEL_COST;
       }
 
@@ -3904,7 +4136,7 @@ async function startServer() {
         }
         const balance = await getCreditBalance(userPhone);
         if (balance < MODEL_COST) {
-          return res.status(402).json({ success: false, error: `Insufficient credits. You need ${MODEL_COST} credits.` });
+          return res.status(402).json({ success: false, error: `Insufficient PupCoins. You need ${MODEL_COST} PupCoins.` });
         }
       }
 
@@ -3933,7 +4165,7 @@ async function startServer() {
 
       if (!isAdmin) {
         const paid = await deductCredits(userPhone, MODEL_COST, "static_3d_photo");
-        if (!paid) return res.status(402).json({ success: false, error: `Insufficient credits. You need ${MODEL_COST} credits.` });
+        if (!paid) return res.status(402).json({ success: false, error: `Insufficient PupCoins. You need ${MODEL_COST} PupCoins.` });
         modelCreditsDebited = MODEL_COST;
       }
 

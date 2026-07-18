@@ -3,11 +3,11 @@ import { test } from "node:test";
 import { Screen } from "../src/types.ts";
 import { MOBILE_NAV, SIDEBAR_NAV, TOP_PRIMARY_NAV } from "../src/shellNavigation.ts";
 
-test("top panel exposes only the primary creation destinations", () => {
+test("top panel exposes Create, Marketplace, Pawprints", () => {
   assert.deepEqual(TOP_PRIMARY_NAV.map(({ screen }) => screen), [
-    Screen.MODELS,
+    Screen.CREATE,
+    Screen.MARKETPLACE,
     Screen.PAWPRINTS,
-    Screen.PAWLISHER,
   ]);
 });
 
@@ -15,11 +15,13 @@ test("desktop sidebar keeps creation studios out of the global shell", () => {
   assert.deepEqual(SIDEBAR_NAV.map(({ screen }) => screen), [
     Screen.DASHBOARD,
     Screen.FURBIN,
+    Screen.MARKETPLACE,
     Screen.ANIMATOR,
   ]);
   assert.deepEqual(MOBILE_NAV.map(({ screen }) => screen), [
     Screen.DASHBOARD,
     Screen.FURBIN,
+    Screen.MARKETPLACE,
     Screen.ANIMATOR,
     Screen.PROFILE,
   ]);

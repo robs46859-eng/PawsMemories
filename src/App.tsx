@@ -6,6 +6,15 @@ import AnimationStudio from "./components/AnimationStudio";
 import Welcome from "./components/Welcome";
 import Tutorial from "./components/Tutorial";
 import Dashboard from "./components/Dashboard";
+import HomePage from "./components/HomePage";
+import CreateScreen from "./components/CreateScreen";
+import CreateReferenceScreen from "./components/create-flow/CreateReferenceScreen";
+import CreateCustomizeScreen from "./components/create-flow/CreateCustomizeScreen";
+import CreateValidateScreen from "./components/create-flow/CreateValidateScreen";
+import CreateCheckoutScreen from "./components/create-flow/CreateCheckoutScreen";
+import { CreateFlowProvider } from "./components/create-flow/CreateFlowContext";
+import MarketplaceScreen from "./components/MarketplaceScreen";
+import UnderConstructionLock from "./components/UnderConstructionLock";
 import EditMemory from "./components/EditMemory";
 import RequestMemory from "./components/RequestMemory";
 import AdminRequestPanel from "./components/AdminRequestPanel";
@@ -35,7 +44,8 @@ import { syncSeoMetadata } from "./seo";
 const EMPTY_PROFILE: UserProfile = { fullName: "", email: "", credits: 0, treats: 0, isAdmin: false, city: "", ageVerified: false, acceptedTermsVersion: null, currentTermsVersion: undefined, requiresTermsAcceptance: false };
 
 const SCREEN_PATHS: Partial<Record<Screen, string>> = {
-  [Screen.DASHBOARD]: "/home",
+  [Screen.DASHBOARD]: "/",
+  [Screen.SIGN_UP]: "/sign-up",
   [Screen.MODELS]: "/furball3d",
   [Screen.ANIMATOR]: "/animator",
   [Screen.PAWPRINTS]: "/pawprints",
@@ -46,11 +56,23 @@ const SCREEN_PATHS: Partial<Record<Screen, string>> = {
   [Screen.PROFILE]: "/profile",
   [Screen.ALBUMS]: "/albums",
   [Screen.REQUEST_MEMORY]: "/request-memory",
+  [Screen.CREATE]: "/create",
+  [Screen.CREATE_REFERENCE]: "/create/reference",
+  [Screen.CREATE_CUSTOMIZE]: "/create/customize",
+  [Screen.CREATE_VALIDATE]: "/create/validate",
+  [Screen.CREATE_CHECKOUT]: "/create/checkout",
+  [Screen.MARKETPLACE]: "/marketplace",
+  [Screen.LANDING_MODELS]: "/3d-pet-models",
+  [Screen.LANDING_DOGS]: "/custom-dog-figurines",
+  [Screen.LANDING_MEMORIALS]: "/pet-memorial-models",
+  [Screen.HOW_IT_WORKS]: "/how-it-works",
+  [Screen.PRICING]: "/pricing",
 };
 
 function screenFromPath(pathname: string): Screen | null {
   const normalized = pathname.replace(/\/+$/, "") || "/";
   if (normalized === "/creations") return Screen.FURBIN;
+  if (normalized === "/home" || normalized === "/") return Screen.DASHBOARD;
   const entry = Object.entries(SCREEN_PATHS).find(([, path]) => path === normalized);
   return entry ? entry[0] as Screen : null;
 }
@@ -73,6 +95,12 @@ const getBackgroundImage = (screen: Screen) => {
     case Screen.PAWPRINTS:
     case Screen.PAWLISHER:
     case Screen.FURBIN:
+    case Screen.CREATE:
+    case Screen.CREATE_REFERENCE:
+    case Screen.CREATE_CUSTOMIZE:
+    case Screen.CREATE_VALIDATE:
+    case Screen.CREATE_CHECKOUT:
+    case Screen.MARKETPLACE:
       return {
         url: "/MAIN2.jpg",
         className: "opacity-45 blur-[1px]"
@@ -101,7 +129,7 @@ export default function App() {
   const [isAuthed, setIsAuthed] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
 
-  const [currentScreen, setCurrentScreen] = useState<Screen>(Screen.SIGN_UP);
+  const [currentScreen, setCurrentScreen] = useState<Screen>(Screen.DASHBOARD);
   const [animatorAssetId, setAnimatorAssetId] = useState<string | null>(null);
   // Video Creator is the Animate landing screen; the full 3D builder is its
   // advanced workspace, opened from within that parent module.
@@ -487,9 +515,9 @@ export default function App() {
               {TOP_PRIMARY_NAV.map((item) => (
                 <button
                   key={item.id}
-                  data-tour={item.screen === Screen.MODELS ? "nav-models" : undefined}
+                  data-tour={item.screen === Screen.CREATE ? "nav-create" : undefined}
                   onClick={() => item.screen === Screen.ANIMATOR ? openAnimationStudio() : setCurrentScreen(item.screen)}
-                  className={`min-h-10 px-2.5 text-sm font-medium transition-colors xl:px-3 ${currentScreen === item.screen ? "border-b-2 border-primary font-bold text-primary" : "text-on-surface-variant hover:text-primary"}`}
+                  className={`min-h-10 px-2.5 text-sm font-medium transition-colors xl:px-3 ${[item.screen, Screen.CREATE_REFERENCE, Screen.CREATE_CUSTOMIZE, Screen.CREATE_VALIDATE, Screen.CREATE_CHECKOUT].includes(currentScreen) && item.screen === Screen.CREATE ? "border-b-2 border-primary font-bold text-primary" : currentScreen === item.screen ? "border-b-2 border-primary font-bold text-primary" : "text-on-surface-variant hover:text-primary"}`}
                 >
                   {item.imageSrc ? <img src={item.imageSrc} alt={item.label} className="h-8 w-8 rounded-lg object-cover" /> : item.label}
                   <span className={item.imageSrc ? "sr-only" : undefined}>{item.label}</span>
@@ -569,7 +597,7 @@ export default function App() {
 
       <div className="flex-grow flex w-full relative">
         {/* Desktop Sidebar */}
-        {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN].includes(currentScreen) && (
+        {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN, Screen.CREATE, Screen.CREATE_REFERENCE, Screen.CREATE_CUSTOMIZE, Screen.CREATE_VALIDATE, Screen.CREATE_CHECKOUT, Screen.MARKETPLACE].includes(currentScreen) && (
           <aside className="fixed bottom-0 left-0 top-16 z-40 hidden w-64 shrink-0 flex-col overflow-x-hidden overflow-y-auto border-r border-outline-variant/20 bg-surface/85 py-5 shadow-xl backdrop-blur-xl dark:bg-surface-dim/85 md:flex">
             <nav className="mt-4 flex-1 space-y-2 px-4">
               {SIDEBAR_NAV.map((item) => (
@@ -597,55 +625,68 @@ export default function App() {
         )}
 
       {/* Main Content Router viewport */}
+      <CreateFlowProvider>
       <main className={`flex min-w-0 flex-grow flex-col items-center justify-center pt-16 pb-24 md:pb-0 ${isAuthed ? 'relative w-full md:ml-64 md:w-[calc(100%-16rem)]' : 'w-full'}`}>
-        {/* When not authenticated, the only reachable screen is sign-up. */}
-        {!isAuthed ? (
+        {/* Render public screens regardless of auth state */}
+        {[Screen.DASHBOARD, Screen.LANDING_MODELS, Screen.LANDING_DOGS, Screen.LANDING_MEMORIALS, Screen.HOW_IT_WORKS, Screen.PRICING].includes(currentScreen) && (
+          <HomePage
+            userProfile={userProfile}
+            onOpenCreate={() => !isAuthed ? setCurrentScreen(Screen.SIGN_UP) : setCurrentScreen(Screen.CREATE)}
+            onOpenMarketplace={() => setCurrentScreen(Screen.MARKETPLACE)}
+            onOpenPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
+            onOpenFurball={() => setCurrentScreen(Screen.MODELS)}
+            onOpenAnimator={openAnimationStudio}
+            onOpenFidos={() => setCurrentScreen(Screen.PAWLISHER)}
+          />
+        )}
+
+        {currentScreen === Screen.CREATE && (
+          <CreateScreen onNavigate={setCurrentScreen} />
+        )}
+        {currentScreen === Screen.CREATE_REFERENCE && (
+          <CreateReferenceScreen onNavigate={setCurrentScreen} />
+        )}
+        {currentScreen === Screen.CREATE_CUSTOMIZE && (
+          <CreateCustomizeScreen onNavigate={setCurrentScreen} />
+        )}
+        {currentScreen === Screen.CREATE_VALIDATE && (
+          <CreateValidateScreen onNavigate={setCurrentScreen} />
+        )}
+        {currentScreen === Screen.CREATE_CHECKOUT && (
+          <CreateCheckoutScreen onNavigate={setCurrentScreen} userProfile={userProfile} />
+        )}
+
+        {currentScreen === Screen.MARKETPLACE && (
+          <MarketplaceScreen onOpenCreate={() => !isAuthed ? setCurrentScreen(Screen.SIGN_UP) : setCurrentScreen(Screen.CREATE)} />
+        )}
+
+        {currentScreen === Screen.PAWPRINTS && (
+          <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
+            <PawprintsScreen userProfile={userProfile} creations={creations} onOpenCreditStore={() => setShowCreditStore(true)} onUserUpdate={applyUser} onCreationSaved={refreshCreations} />
+          </Suspense>
+        )}
+
+        {/* When not authenticated and screen is not public, render sign-up. */}
+        {!isAuthed && ![Screen.DASHBOARD, Screen.CREATE, Screen.CREATE_REFERENCE, Screen.CREATE_CUSTOMIZE, Screen.CREATE_VALIDATE, Screen.CREATE_CHECKOUT, Screen.MARKETPLACE, Screen.PAWPRINTS, Screen.LANDING_MODELS, Screen.LANDING_DOGS, Screen.LANDING_MEMORIALS, Screen.HOW_IT_WORKS, Screen.PRICING].includes(currentScreen) ? (
           <SignUp onAuthenticated={handleAuthenticated} />
         ) : (
-          <>
-            {currentScreen === Screen.WELCOME && (
-              <Welcome
-                userName={userProfile.fullName}
-                onNext={handleWelcomeNext}
-                onBackToSignUp={handleLogout}
-              />
-            )}
+          isAuthed && (
+            <>
+              {currentScreen === Screen.WELCOME && (
+                <Welcome
+                  userName={userProfile.fullName}
+                  onNext={handleWelcomeNext}
+                  onBackToSignUp={handleLogout}
+                />
+              )}
 
-            {currentScreen === Screen.TUTORIAL && <Tutorial onComplete={handleTutorialComplete} />}
+              {currentScreen === Screen.TUTORIAL && <Tutorial onComplete={handleTutorialComplete} />}
 
-            {currentScreen === Screen.DASHBOARD && (
-              <Dashboard
-                userProfile={userProfile}
-                albums={albums}
-                creations={creations}
-                onAddMemory={() => setCurrentScreen(userProfile.isAdmin ? Screen.EDIT_MEMORY : Screen.REQUEST_MEMORY)}
-                onCreate={() => setCurrentScreen(Screen.MODELS)}
-                onClaimDailyBonus={handleClaimDailyBonus}
-                onShareCompleted={handleShareCompleted}
-                onSelectCreation={handleSelectCreation}
-                streak={dailyStreak}
-                achievements={achievements}
-                onClaimReward={handleClaimReward}
-                onClaimDailyStreak={handleClaimDailyStreak}
-                dailyStreakClaimed={dailyStreakClaimed}
-                onSelectAlbum={(album) => {
-                  setActiveAlbum(album);
-                  setCurrentScreen(Screen.ALBUM_VIEW);
-                }}
-                onCreateAlbum={handleCreateAlbum}
-                onOpenAdminPanel={userProfile.isAdmin ? () => setShowAdminPanel(true) : undefined}
-                onOpenAnimator={openAnimationStudio}
-                onOpenFurball={() => setCurrentScreen(Screen.MODELS)}
-                onOpenPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
-                onOpenFidos={() => setCurrentScreen(Screen.PAWLISHER)}
-              />
-            )}
-
-            {currentScreen === Screen.EDIT_MEMORY && userProfile.isAdmin && (
-              <EditMemory
-                credits={userProfile.credits}
-                isAdmin={userProfile.isAdmin}
-                onCreationSaved={handleCreationSaved}
+              {currentScreen === Screen.EDIT_MEMORY && userProfile.isAdmin && (
+                <EditMemory
+                  credits={userProfile.credits}
+                  isAdmin={userProfile.isAdmin}
+                  onCreationSaved={handleCreationSaved}
                 onCreationGenerated={handleCreationGenerated}
                 onCreationUpdated={handleCreationUpdated}
                 onDeductCredits={handleDeductCredits}
@@ -683,8 +724,8 @@ export default function App() {
             {currentScreen === Screen.ALBUM_VIEW && activeAlbum && (
               <AlbumView
                 album={activeAlbum}
-                creations={creations}
-                onBack={() => setCurrentScreen(Screen.DASHBOARD)}
+                creations={creations.filter(c => c.album_id?.toString() === activeAlbum.id)}
+                onBack={() => setCurrentScreen(Screen.ALBUMS)}
                 onSelectCreation={(c) => setSelectedCreationForShare(c)}
                 onPlayVideo={() => {}}
                 animatingJobs={{}}
@@ -701,22 +742,12 @@ export default function App() {
             )}
 
             {currentScreen === Screen.MODELS && (
-              <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
-                <AvatarDashboard
-                  userProfile={userProfile}
-                  onUpdateUser={(updatedUser) => {
-                    setUserProfile(updatedUser);
-                  }}
-                  isDarkMode={isDarkMode}
-                  onOpenCreditStore={() => setShowCreditStore(true)}
-                  onGoToAnimator={(assetId) => {
-                    setAnimatorAssetId(assetId);
-                    setAnimatorMode("pro");
-                    setCurrentScreen(Screen.ANIMATOR);
-                  }}
+                <UnderConstructionLock
+                  featureName="Furball3D"
+                  featureDescription="The legacy Furball3D builder is offline while we migrate to the new create-to-print workflow."
+                  onGoToCreate={() => setCurrentScreen(Screen.CREATE)}
                 />
-              </Suspense>
-            )}
+              )}
 
             {currentScreen === Screen.STORE && (
               <Store
@@ -750,25 +781,12 @@ export default function App() {
               <Community userProfile={userProfile} />
             )}
 
-            {currentScreen === Screen.PAWPRINTS && (
-              <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
-                <PawprintsScreen userProfile={userProfile} creations={creations} onOpenCreditStore={() => setShowCreditStore(true)} onUserUpdate={applyUser} onCreationSaved={refreshCreations} />
-              </Suspense>
-            )}
-
             {currentScreen === Screen.PAWLISHER && (
-              <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
-                <FidosStylesScreen
-                  userProfile={userProfile}
-                  onUserUpdate={applyUser}
-                  onGoToAnimator={(assetId) => {
-                    setAnimatorAssetId(assetId);
-                    setAnimatorMode("pro");
-                    setCurrentScreen(Screen.ANIMATOR);
-                  }}
-                  onGoToPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
-                />
-              </Suspense>
+              <UnderConstructionLock
+                featureName="Fido's Styles"
+                featureDescription="Wardrobe looks, style variations, and coat customization for your 3D models — coming soon."
+                onGoToCreate={() => setCurrentScreen(Screen.CREATE)}
+              />
             )}
 
             {currentScreen === Screen.FURBIN && (
@@ -777,58 +795,32 @@ export default function App() {
               </Suspense>
             )}
 
-            {currentScreen === Screen.ANIMATOR && animatorMode === "pro" && (
-              <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
-                <AnimatorScreen
-                  initialAssetId={animatorAssetId}
-                  onClose={openAnimationStudio}
-                  onOpenVideoCreator={() => setAnimatorMode("simple")}
-                />
-              </Suspense>
-            )}
-
-            {currentScreen === Screen.ANIMATOR && animatorMode === "simple" && (
-              <AnimationStudio
-                creations={creations}
-                userProfile={userProfile as PublicUser}
-                onOpenPro={() => setAnimatorMode("pro")}
-                onOpenCreditStore={() => setShowCreditStore(true)}
-                onClose={() => setCurrentScreen(Screen.MODELS)}
-                onCreationsChanged={refreshCreations}
+            {currentScreen === Screen.ANIMATOR && (
+              <UnderConstructionLock
+                featureName="Animation Studio"
+                featureDescription="Bring your 3D pet model to life with motion, video, and cinematic scenes — coming soon."
+                onGoToCreate={() => setCurrentScreen(Screen.CREATE)}
               />
             )}
 
+
             {/* Safety net: if somehow on SIGN_UP while authed, send to dashboard */}
             {currentScreen === Screen.SIGN_UP && (
-              <Dashboard
-                userProfile={userProfile as PublicUser}
-                albums={albums}
-                creations={creations}
-                onAddMemory={() => setCurrentScreen(userProfile.isAdmin ? Screen.EDIT_MEMORY : Screen.REQUEST_MEMORY)}
-                onCreate={() => setCurrentScreen(Screen.MODELS)}
-                onClaimDailyBonus={handleClaimDailyBonus}
-                onShareCompleted={handleShareCompleted}
-                onSelectCreation={handleSelectCreation}
-                streak={dailyStreak}
-                achievements={achievements}
-                onClaimReward={handleClaimReward}
-                onClaimDailyStreak={handleClaimDailyStreak}
-                dailyStreakClaimed={dailyStreakClaimed}
-                onSelectAlbum={(album) => {
-                  setActiveAlbum(album);
-                  setCurrentScreen(Screen.ALBUM_VIEW);
-                }}
-                onCreateAlbum={handleCreateAlbum}
-                onOpenAdminPanel={userProfile.isAdmin ? () => setShowAdminPanel(true) : undefined}
-                onOpenAnimator={openAnimationStudio}
-                onOpenFurball={() => setCurrentScreen(Screen.MODELS)}
+              <HomePage
+                userProfile={userProfile}
+                onOpenCreate={() => setCurrentScreen(Screen.CREATE)}
+                onOpenMarketplace={() => setCurrentScreen(Screen.MARKETPLACE)}
                 onOpenPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
+                onOpenFurball={() => setCurrentScreen(Screen.MODELS)}
+                onOpenAnimator={openAnimationStudio}
                 onOpenFidos={() => setCurrentScreen(Screen.PAWLISHER)}
               />
             )}
           </>
-        )}
+        )
+      )}
       </main>
+      </CreateFlowProvider>
 
       {isAuthed && userProfile.requiresTermsAcceptance && (
         <div className="fixed inset-0 z-[90] bg-black/70 flex items-center justify-center p-4">
@@ -857,7 +849,7 @@ export default function App() {
       )}
 
       {/* Floating Bottom Navigator (only when signed in and past onboarding) */}
-      {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN].includes(currentScreen) && (
+      {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN, Screen.CREATE, Screen.MARKETPLACE].includes(currentScreen) && (
         <div className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 gap-1 rounded-t-2xl border-t border-outline-variant/30 bg-surface-container-lowest/90 px-1 py-2 shadow-[0_-8px_32px_0_rgba(68,42,34,0.08)] backdrop-blur-xl dark:bg-surface-dim/90 md:hidden">
           {MOBILE_NAV.map((item) => (
             <button

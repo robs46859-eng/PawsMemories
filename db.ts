@@ -18,6 +18,10 @@ export function dbConfigured(): boolean {
   return !!(process.env.DB_HOST && process.env.DB_NAME && process.env.DB_USER);
 }
 
+export function setPool(newPool: mysql.Pool) {
+  pool = newPool;
+}
+
 export function getPool(): mysql.Pool {
   if (!pool) {
     pool = mysql.createPool({
@@ -788,6 +792,77 @@ export async function initDb(): Promise<void> {
         FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
+
+    // Create pipeline state for guided 3D model generation (Phase 2).
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS create_pipeline_sessions (
+        id VARCHAR(64) PRIMARY KEY,
+        user_phone VARCHAR(32) NOT NULL,
+        species VARCHAR(32) NOT NULL,
+        breed VARCHAR(120) NULL,
+        pet_name VARCHAR(120) NULL,
+        intent VARCHAR(120) NULL,
+        style VARCHAR(32) NULL,
+        input_photo_url TEXT NULL,
+        candidate_image_url TEXT NULL,
+        customization_state JSON NULL,
+        validation_state VARCHAR(32) NULL,
+        status ENUM('draft', 'reference_ready', 'approved', 'customizing', 'validation_failed', 'print_ready', 'building', 'complete', 'failed') NOT NULL DEFAULT 'draft',
+        idempotency_key VARCHAR(120) NULL,
+        build_job_id INT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX (user_phone),
+        INDEX (status),
+        FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // Migration: Add build_starting and recovery_required to status enum idempotently
+    try {
+      const [colRows]: any = await getPool().query(
+        "SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_NAME = 'create_pipeline_sessions' AND COLUMN_NAME = 'status' AND TABLE_SCHEMA = DATABASE()"
+      );
+      if (colRows && colRows.length > 0) {
+        const colType = colRows[0].COLUMN_TYPE; // e.g. enum('draft','reference_ready',...)
+        if (colType.startsWith('enum')) {
+          // Extract existing values
+          const match = colType.match(/enum\((.*)\)/);
+          if (match && match[1]) {
+            const existingVals = match[1].split(',').map((s: string) => s.replace(/'/g, ''));
+            const toAdd = ['build_starting', 'recovery_required'];
+            let needsMigration = false;
+            for (const v of toAdd) {
+              if (!existingVals.includes(v)) {
+                existingVals.push(v);
+                needsMigration = true;
+              }
+            }
+            if (needsMigration) {
+              const newEnumStr = existingVals.map((v: string) => `'${v}'`).join(',');
+              await getPool().query(`ALTER TABLE create_pipeline_sessions MODIFY COLUMN status ENUM(${newEnumStr}) NOT NULL DEFAULT 'draft'`);
+              console.log("✅ Migrated create_pipeline_sessions.status enum to include new states.");
+            }
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn("⚠️ Could not migrate create_pipeline_sessions.status:", e?.message || e);
+    }
+
+    // Migration: Add provider_handle column idempotently
+    try {
+      await getPool().query("ALTER TABLE create_pipeline_sessions ADD COLUMN provider_handle VARCHAR(255) NULL");
+      // Add index for recovery lookup
+      await getPool().query("ALTER TABLE create_pipeline_sessions ADD INDEX idx_provider_handle (provider_handle)");
+      console.log("✅ Added provider_handle to create_pipeline_sessions.");
+    } catch (e: any) {
+      if (e?.code === 'ER_DUP_FIELDNAME') {
+        // already exists, fine
+      } else {
+        console.warn("⚠️ Could not add provider_handle column:", e?.message || e);
+      }
+    }
 
     // Email hygiene (guarded — must never abort init): normalize to lower-case,
     // then best-effort enforce uniqueness. The UNIQUE index only applies once any
@@ -2451,7 +2526,7 @@ export async function purchaseColdStorage(phone: string, requestId: string): Pro
   }
   const ok = await deductCredits(phone, COLD_GB_COST_CR, `storage_purchase:${requestId}`);
   if (!ok) {
-    return { success: false, error: `Insufficient credits. You need ${COLD_GB_COST_CR} credits for 1 GB of cold storage.` };
+    return { success: false, error: `Insufficient PupCoins. You need ${COLD_GB_COST_CR} PupCoins for 1 GB of cold storage.` };
   }
   await getPool().query(
     `INSERT INTO user_storage (user_phone, cold_gb_purchased) VALUES (?, 1)
@@ -2886,3 +2961,325 @@ export async function listBimBuilds(userPhone: string, limit = 50): Promise<Arra
     createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
   }));
 }
+
+// ---------------------------------------------------------------------------
+// Create Pipeline Sessions (Phase 2)
+// ---------------------------------------------------------------------------
+
+export type PipelineStatus = 'draft' | 'reference_ready' | 'approved' | 'customizing' | 'validation_failed' | 'print_ready' | 'build_starting' | 'building' | 'recovery_required' | 'complete' | 'failed';
+
+export interface CreatePipelineSession {
+  id: string;
+  user_phone: string;
+  species: string;
+  breed: string | null;
+  pet_name: string | null;
+  intent: string | null;
+  style: string | null;
+  input_photo_url: string | null;
+  candidate_image_url: string | null;
+  customization_state: any | null;
+  validation_state: string | null;
+  status: PipelineStatus;
+  idempotency_key: string | null;
+  build_job_id: number | null;
+  provider_handle?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export async function upsertCreatePipelineSession(session: CreatePipelineSession): Promise<void> {
+  await getPool().query(
+    `INSERT INTO create_pipeline_sessions (
+       id, user_phone, species, breed, pet_name, intent, style, input_photo_url, candidate_image_url, 
+       customization_state, validation_state, status, idempotency_key, build_job_id, provider_handle
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE 
+       species = VALUES(species),
+       breed = VALUES(breed),
+       pet_name = VALUES(pet_name),
+       intent = VALUES(intent),
+       style = VALUES(style),
+       input_photo_url = VALUES(input_photo_url),
+       candidate_image_url = VALUES(candidate_image_url),
+       customization_state = VALUES(customization_state),
+       validation_state = VALUES(validation_state),
+       status = VALUES(status),
+       idempotency_key = VALUES(idempotency_key),
+       build_job_id = VALUES(build_job_id),
+       provider_handle = VALUES(provider_handle)`,
+    [
+      session.id, session.user_phone, session.species, session.breed, session.pet_name, session.intent, session.style,
+      session.input_photo_url, session.candidate_image_url, 
+      session.customization_state ? JSON.stringify(session.customization_state) : null,
+      session.validation_state, session.status, session.idempotency_key, session.build_job_id, session.provider_handle || null
+    ]
+  );
+}
+
+export async function getCreatePipelineSession(id: string, userPhone: string): Promise<CreatePipelineSession | null> {
+  const [rows] = await getPool().query(
+    "SELECT * FROM create_pipeline_sessions WHERE id = ? AND user_phone = ?",
+    [id, userPhone]
+  ) as any;
+  if (!rows || rows.length === 0) return null;
+  const row = rows[0];
+  let customization_state = null;
+  try {
+    if (row.customization_state) customization_state = JSON.parse(row.customization_state);
+  } catch (e) {}
+  return {
+    ...row,
+    customization_state
+  };
+}
+
+export async function updateCreatePipelineStatus(id: string, userPhone: string, status: PipelineStatus, buildJobId?: number): Promise<void> {
+  if (buildJobId !== undefined) {
+    await getPool().query(
+      "UPDATE create_pipeline_sessions SET status = ?, build_job_id = ? WHERE id = ? AND user_phone = ?",
+      [status, buildJobId, id, userPhone]
+    );
+  } else {
+    await getPool().query(
+      "UPDATE create_pipeline_sessions SET status = ? WHERE id = ? AND user_phone = ?",
+      [status, id, userPhone]
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline Transactions (Phase 2)
+// ---------------------------------------------------------------------------
+
+export async function reservePipelineSessionForBuild(sessionId: string, userPhone: string, idempotencyKey: string, modelCost: number): Promise<{ success: boolean; error?: string; alreadyReservedOrBuilding?: boolean; sessionRow?: CreatePipelineSession }> {
+  const connection = await getPool().getConnection();
+  try {
+    await connection.query('START TRANSACTION');
+
+    // 1. Lock the session row
+    const [rows] = await connection.query(
+      "SELECT * FROM create_pipeline_sessions WHERE id = ? AND user_phone = ? FOR UPDATE",
+      [sessionId, userPhone]
+    ) as any;
+
+    if (!rows || rows.length === 0) {
+      await connection.query('ROLLBACK');
+      return { success: false, error: "Session not found." };
+    }
+
+    const session = rows[0];
+
+    // If it's already past reference_ready...
+    if (session.status !== 'reference_ready') {
+      if (session.idempotency_key === idempotencyKey) {
+        // Safe retry of an already successfully reserved/built session
+        await connection.query('ROLLBACK');
+        return { success: true, alreadyReservedOrBuilding: true, sessionRow: session };
+      }
+      await connection.query('ROLLBACK');
+      return { success: false, error: "Session is in an invalid state for approval, or a conflicting approval is already processing." };
+    }
+
+    // 2. Lock the user row and deduct PupCoins
+    const [userRows] = await connection.query("SELECT * FROM users WHERE phone = ? FOR UPDATE", [userPhone]) as any;
+    if (!userRows || userRows.length === 0) {
+      await connection.query('ROLLBACK');
+      return { success: false, error: "User not found." };
+    }
+    const user = userRows[0];
+    
+    // Admins don't need credits, but normal users do.
+    const isAdmin = user.is_admin === 1;
+    if (!isAdmin && user.credits < modelCost) {
+      await connection.query('ROLLBACK');
+      return { success: false, error: "Insufficient PupCoins." };
+    }
+
+    if (!isAdmin) {
+      await connection.query("UPDATE users SET credits = credits - ? WHERE phone = ?", [modelCost, userPhone]);
+    }
+
+    // 3. Update status to 'build_starting' and set idempotency key
+    await connection.query(
+      "UPDATE create_pipeline_sessions SET status = 'build_starting', idempotency_key = ? WHERE id = ?",
+      [idempotencyKey, sessionId]
+    );
+
+    await connection.query('COMMIT');
+    return { success: true, sessionRow: session };
+  } catch (err: any) {
+    await connection.query('ROLLBACK');
+    return { success: false, error: err.message };
+  } finally {
+    connection.release();
+  }
+}
+
+export async function commitPipelineSessionBuild(sessionId: string, userPhone: string, jobData: any, creationData: any): Promise<{ success: boolean; error?: string }> {
+  const connection = await getPool().getConnection();
+  try {
+    await connection.query('START TRANSACTION');
+
+    // 1. Lock the session row to ensure it's still 'build_starting'
+    const [rows] = await connection.query(
+      "SELECT * FROM create_pipeline_sessions WHERE id = ? AND user_phone = ? FOR UPDATE",
+      [sessionId, userPhone]
+    ) as any;
+
+    if (!rows || rows.length === 0) {
+      throw new Error("Session not found.");
+    }
+    const session = rows[0];
+    
+    if (session.status !== 'build_starting') {
+      throw new Error("Session is not in build_starting state.");
+    }
+
+    // 2. Insert into creations (FurBin)
+    const [creationRes] = await connection.query(
+      `INSERT INTO creations (user_phone, media_type, style, backdrop_kind, preset_name, image_url, model_url, pet_name, pet_breed)
+       VALUES (?, 'model', ?, 'preset', 'Studio', ?, NULL, ?, ?)`,
+      [userPhone, creationData.style || 'Realistic', creationData.image_url, creationData.pet_name, creationData.pet_breed]
+    ) as any;
+    const creationId = creationRes.insertId;
+
+    // 3. Insert into generation_jobs
+    const [jobRes] = await connection.query(
+      `INSERT INTO generation_jobs (user_phone, creation_id, kind, credits_reserved, operation_name, status)
+       VALUES (?, ?, ?, ?, ?, 'queued')`,
+      [userPhone, creationId, jobData.kind, jobData.credits_reserved, jobData.operation_name || null]
+    ) as any;
+    const jobId = jobRes.insertId;
+
+    // 4. Update session status to building
+    await connection.query(
+      "UPDATE create_pipeline_sessions SET status = 'building', build_job_id = ? WHERE id = ?",
+      [jobId, sessionId]
+    );
+
+    await connection.query('COMMIT');
+    return { success: true };
+  } catch (err: any) {
+    await connection.query('ROLLBACK');
+    return { success: false, error: err.message };
+  } finally {
+    connection.release();
+  }
+}
+
+export async function getPipelineSessionByProviderHandle(providerHandle: string): Promise<CreatePipelineSession | null> {
+  const [rows] = await getPool().query(
+    "SELECT * FROM create_pipeline_sessions WHERE provider_handle = ?",
+    [providerHandle]
+  ) as any;
+  return rows[0] || null;
+}
+
+export async function recoverPipelineSession(sessionId: string, userPhone: string, jobData: any, creationData: any): Promise<{ success: boolean; error?: string }> {
+  const connection = await getPool().getConnection();
+  try {
+    await connection.query('START TRANSACTION');
+
+    const [rows] = await connection.query(
+      "SELECT * FROM create_pipeline_sessions WHERE id = ? AND user_phone = ? FOR UPDATE",
+      [sessionId, userPhone]
+    ) as any;
+
+    if (!rows || rows.length === 0) {
+      throw new Error("Session not found.");
+    }
+    const session = rows[0];
+    
+    // Allow either build_starting or recovery_required
+    if (session.status !== 'recovery_required' && session.status !== 'build_starting') {
+      throw new Error("Session is not in a recoverable state.");
+    }
+
+    // Idempotency check: see if a creation already exists for this session's external job
+    // Actually, we can check generation_jobs by operation_name, or just avoid duplicates
+    // based on session.build_job_id if it got partially set, but if recovery_required is set,
+    // the previous transaction rolled back, so it shouldn't exist.
+    // We will ensure only 1 creation is made by doing the same insertions.
+    
+    const [creationRes] = await connection.query(
+      `INSERT INTO creations (user_phone, media_type, style, backdrop_kind, preset_name, image_url, model_url, pet_name, pet_breed)
+       VALUES (?, 'model', ?, 'preset', 'Studio', ?, NULL, ?, ?)`,
+      [userPhone, creationData.style || 'Realistic', creationData.image_url, creationData.pet_name, creationData.pet_breed]
+    ) as any;
+    const creationId = creationRes.insertId;
+
+    const [jobRes] = await connection.query(
+      `INSERT INTO generation_jobs (user_phone, creation_id, kind, credits_reserved, operation_name, status)
+       VALUES (?, ?, ?, ?, ?, 'queued')`,
+      [userPhone, creationId, jobData.kind, jobData.credits_reserved, session.provider_handle || jobData.operation_name || null]
+    ) as any;
+    const jobId = jobRes.insertId;
+
+    await connection.query(
+      "UPDATE create_pipeline_sessions SET status = 'building', build_job_id = ? WHERE id = ?",
+      [jobId, sessionId]
+    );
+
+    await connection.query('COMMIT');
+    return { success: true };
+  } catch (err: any) {
+    await connection.query('ROLLBACK');
+    return { success: false, error: err.message };
+  } finally {
+    connection.release();
+  }
+}
+
+
+export async function markPipelineSessionRecoveryRequired(sessionId: string, userPhone: string, providerHandle: string): Promise<void> {
+  await getPool().query(
+    "UPDATE create_pipeline_sessions SET status = 'recovery_required', provider_handle = ? WHERE id = ? AND user_phone = ?",
+    [providerHandle, sessionId, userPhone]
+  );
+}
+
+export async function releasePipelineSessionReservation(sessionId: string, userPhone: string, modelCost: number): Promise<{ success: boolean; error?: string }> {
+  const connection = await getPool().getConnection();
+  try {
+    await connection.query('START TRANSACTION');
+
+    const [rows] = await connection.query(
+      "SELECT * FROM create_pipeline_sessions WHERE id = ? AND user_phone = ? FOR UPDATE",
+      [sessionId, userPhone]
+    ) as any;
+
+    if (!rows || rows.length === 0) {
+      throw new Error("Session not found.");
+    }
+    const session = rows[0];
+    
+    if (session.status !== 'build_starting') {
+      throw new Error("Session is not in build_starting state.");
+    }
+
+    // Refund PupCoins
+    const [userRows] = await connection.query("SELECT * FROM users WHERE phone = ? FOR UPDATE", [userPhone]) as any;
+    if (userRows && userRows.length > 0) {
+      const user = userRows[0];
+      if (user.is_admin === 0) {
+        await connection.query("UPDATE users SET credits = credits + ? WHERE phone = ?", [modelCost, userPhone]);
+      }
+    }
+
+    // Revert status to reference_ready
+    await connection.query(
+      "UPDATE create_pipeline_sessions SET status = 'reference_ready', idempotency_key = NULL WHERE id = ?",
+      [sessionId]
+    );
+
+    await connection.query('COMMIT');
+    return { success: true };
+  } catch (err: any) {
+    await connection.query('ROLLBACK');
+    return { success: false, error: err.message };
+  } finally {
+    connection.release();
+  }
+}
+

@@ -16,10 +16,11 @@ test("Scene controller wrapper is memoized so initial asset loading cannot loop"
   assert.match(source, /const wrappedController = useMemo/);
 });
 
-test("Video Creator is the Animate parent screen and contains the 3D Animation Builder", () => {
+test("Animator and Video Creator source code is preserved (not deleted)", () => {
+  // The component source files must remain intact even though they are gated
+  // behind UnderConstructionLock in App.tsx.
   const builder = fs.readFileSync("src/animator/components/AnimatorScreen.tsx", "utf8");
   const videoCreator = fs.readFileSync("src/components/AnimationStudio.tsx", "utf8");
-  const app = fs.readFileSync("src/App.tsx", "utf8");
   assert.match(builder, /3D Animation Builder/);
   assert.match(builder, /Timeline[\s\S]*Dope Sheet[\s\S]*X-Sheet/);
   assert.match(builder, /workspaceTool/);
@@ -27,10 +28,17 @@ test("Video Creator is the Animate parent screen and contains the 3D Animation B
   assert.match(builder, /onOpenVideoCreator/);
   assert.match(videoCreator, /Video Creator/);
   assert.match(videoCreator, /Open 3D Animation Builder/);
+});
+
+test("Animator screen is gated with UnderConstructionLock in App.tsx", () => {
+  const app = fs.readFileSync("src/App.tsx", "utf8");
+  // Animator mode state and openAnimationStudio helper are retained
   assert.match(app, /useState<"simple" \| "pro">\("simple"\)/);
   assert.match(app, /const openAnimationStudio = \(\) => \{[\s\S]*setAnimatorMode\("simple"\)/);
-  assert.match(app, /onOpenVideoCreator=\{\(\) => setAnimatorMode\("simple"\)\}/);
-  assert.match(app, /onClose=\{openAnimationStudio\}/);
-  const mobileNavigation = app.slice(app.indexOf("{MOBILE_NAV.map"));
-  assert.match(mobileNavigation, /item\.screen === Screen\.ANIMATOR \? openAnimationStudio\(\)/);
+  // But the ANIMATOR screen now renders UnderConstructionLock
+  assert.match(app, /currentScreen === Screen\.ANIMATOR[\s\S]*UnderConstructionLock/);
+  assert.match(app, /featureName="Animation Studio"/);
+  // Fido's Styles is also gated
+  assert.match(app, /currentScreen === Screen\.PAWLISHER[\s\S]*UnderConstructionLock/);
+  assert.match(app, /featureName="Fido's Styles"/);
 });

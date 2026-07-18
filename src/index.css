@@ -256,3 +256,75 @@ body {
   opacity: 0.1;
   pointer-events: none;
 }
+
+/* Homepage remodel: showcase tiles for featured models (spec: slightly lower opacity) */
+.glass-showcase {
+  background: rgba(250, 249, 245, 0.56);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.36);
+  box-shadow: 0 10px 34px rgba(68, 42, 34, 0.06);
+  transition: transform 220ms ease, background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.glass-showcase:hover {
+  background: rgba(250, 249, 245, 0.68);
+  border-color: rgba(255, 255, 255, 0.6);
+  box-shadow: 0 14px 42px rgba(68, 42, 34, 0.11);
+  transform: translateY(-3px);
+}
+
+.dark .glass-showcase {
+  background: rgba(23, 18, 15, 0.56);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+.dark .glass-showcase:hover {
+  background: rgba(23, 18, 15, 0.68);
+}
+
+/* Homepage hero glass treatment */
+.glass-hero {
+  background: rgba(250, 249, 245, 0.72);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  box-shadow: 0 12px 48px rgba(68, 42, 34, 0.10);
+}
+
+.dark .glass-hero {
+  background: rgba(23, 18, 15, 0.72);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Under Construction lock overlay badge */
+.locked-module-overlay {
+  position: relative;
+  overflow: hidden;
+  pointer-events: auto;
+}
+
+.locked-module-overlay::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 12px,
+    rgba(68, 42, 34, 0.03) 12px,
+    rgba(68, 42, 34, 0.03) 24px
+  );
+  pointer-events: none;
+}
+
+.dark .locked-module-overlay::after {
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 12px,
+    rgba(255, 255, 255, 0.02) 12px,
+    rgba(255, 255, 255, 0.02) 24px
+  );
+}
+

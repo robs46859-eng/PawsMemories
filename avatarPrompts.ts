@@ -1,3 +1,5 @@
+import type { PetSpecies } from "./src/types";
+
 /**
  * Canonical subject class used across the generator pipeline. 'dog' is the
  * animal value kept on the wire for backward-compat (DB default, existing rows);
@@ -5,6 +7,35 @@
  * is NOT rigged or animated.
  */
 export type SubjectClass = 'dog' | 'human' | 'object';
+
+export type ExtendedSubjectClass = PetSpecies | 'human' | 'object';
+
+export function getBuildProfileForSpecies(species: ExtendedSubjectClass): 'quadruped' | 'winged' | 'reptile' | 'small_animal' | 'human' | 'object' | 'other' {
+  if (species === 'human') return 'human';
+  if (species === 'object') return 'object';
+  switch (species) {
+    case 'dog':
+    case 'cat':
+    case 'rabbit':
+    case 'horse':
+      return 'quadruped';
+    case 'bird':
+      return 'winged';
+    case 'reptile':
+      return 'reptile';
+    case 'small_animal':
+      return 'small_animal';
+    default:
+      return 'other';
+  }
+}
+
+export function getSubjectClassForSpecies(species: ExtendedSubjectClass): SubjectClass {
+  if (species === 'human') return 'human';
+  if (species === 'object') return 'object';
+  // All other animal species fall back to the generic 'dog' (animal) pipeline for tripo rig building
+  return 'dog';
+}
 
 /**
  * Positive/negative definitions of each class. Shared by the auto-detection +
@@ -16,7 +47,7 @@ export const CLASS_DEFINITIONS =
   `- "human": a real living person or clearly human character. Canonical human anatomy: exactly ONE head; TWO eyes; TWO ears; ONE nose with TWO nostrils; ONE mouth; TWO arms ending in TWO hands, each hand with FIVE fingers (four fingers + one thumb); TWO legs ending in TWO feet; a human face, skin and hair. ` +
   `Missing, extra or duplicated features (e.g. one eye, three arms, six fingers, no nose) are ANATOMY ANOMALIES to be flagged, not new classes. ` +
   `NOT a doll, mannequin, action figure, statue, or costume of a person, and NOT an animal.\n` +
-  `- "dog": a living (or lifelike) animal with animal anatomy — a body on legs (usually four), a head with a muzzle/snout or beak, fur/feathers/scales, usually a tail. Dogs, cats, birds, rabbits, etc. ` +
+  `- "animal" (e.g. dog, cat, bird, rabbit, horse, reptile, small_animal, other): a living (or lifelike) animal with animal anatomy — a body on legs (usually four) or wings, a head with a muzzle/snout or beak, fur/feathers/scales, usually a tail. ` +
   `NOT a plush toy, figurine, statue or drawing of an animal, and NOT a human.\n` +
   `- "object": anything that is NOT a live human or animal — props, furniture, vehicles, toys, food, plants, gadgets, buildings — INCLUDING toys, figurines and statues that merely depict a human or animal. ` +
   `The test is: is this a living subject we should rig and animate, or an inanimate thing? If inanimate, it is "object" even if it is shaped like a dog or person.\n\n` +
@@ -184,7 +215,7 @@ export const ACCENT_PROMPTS: Record<string, string> = {
 };
 
 export function buildReferencePrompt(
-  type: SubjectClass,
+  type: ExtendedSubjectClass,
   accent?: string | null,
   hasFacePhoto?: boolean,
   photoCount?: number,
@@ -243,7 +274,7 @@ export function buildReferencePrompt(
   }
 }
 
-export function turnaroundViewsForType(type: SubjectClass): { view: "left" | "back" | "right"; prompt: string }[] {
+export function turnaroundViewsForType(type: ExtendedSubjectClass): { view: "left" | "back" | "right"; prompt: string }[] {
   if (type === 'object') {
     return [
       {
@@ -320,7 +351,7 @@ export function turnaroundViewsForType(type: SubjectClass): { view: "left" | "ba
   }
 }
 
-export function paletteLockClause(type: SubjectClass, palette: string | null): string {
+export function paletteLockClause(type: ExtendedSubjectClass, palette: string | null): string {
   const subject = type === 'human' ? 'human' : type === 'object' ? 'object' : 'pet';
   const detail = type === 'human' ? 'skin, hair, clothing colours'
     : type === 'object' ? 'materials and colours'
@@ -333,7 +364,7 @@ export function paletteLockClause(type: SubjectClass, palette: string | null): s
   );
 }
 
-export function extractPaletteInstruction(type: SubjectClass): string {
+export function extractPaletteInstruction(type: ExtendedSubjectClass): string {
   if (type === 'object') {
     return (
       `Describe this object's exact colours and materials as a short, comma-separated palette an artist could match precisely: ` +
