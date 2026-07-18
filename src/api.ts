@@ -379,6 +379,17 @@ export async function fetchModelLibrary(): Promise<ModelLibraryItem[]> {
   return (await res.json()).models || [];
 }
 
+export interface FulfillmentReadiness {
+  modelPrinting: { provider: "slant3d"; available: boolean };
+  pawprintPrinting: { provider: "printful"; available: boolean; productCount: number };
+}
+
+export async function fetchFulfillmentReadiness(): Promise<FulfillmentReadiness> {
+  const res = await fetch("/api/fulfillment/readiness");
+  if (!res.ok) throw new Error("Could not check print availability.");
+  return await res.json();
+}
+
 export async function createSlant3dCheckout(input: {
   sourceType: "creation" | "avatar";
   sourceId: number;

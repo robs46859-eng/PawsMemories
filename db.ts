@@ -14,7 +14,12 @@ const ADMIN_KEY = process.env.ADMIN_KEY || process.env.ADMIN_PHONE || "";
 
 let pool: mysql.Pool | null = null;
 
+function databaseExplicitlyDisabledForTests(): boolean {
+  return process.env.NODE_ENV === "test" && process.env.DB_DISABLED === "1";
+}
+
 export function dbConfigured(): boolean {
+  if (databaseExplicitlyDisabledForTests()) return false;
   return !!(process.env.DB_HOST && process.env.DB_NAME && process.env.DB_USER);
 }
 
@@ -23,6 +28,9 @@ export function setPool(newPool: mysql.Pool) {
 }
 
 export function getPool(): mysql.Pool {
+  if (databaseExplicitlyDisabledForTests()) {
+    throw new Error("Database is disabled for this test process.");
+  }
   if (!pool) {
     pool = mysql.createPool({
       host: process.env.DB_HOST || "localhost",

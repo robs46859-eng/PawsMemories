@@ -403,6 +403,7 @@ export default function PawprintsStudio({ userProfile, onOpenCreditStore, onUser
   const [printProducts, setPrintProducts] = useState<PawprintPrintProduct[]>([]);
   const [printProductCode, setPrintProductCode] = useState("");
   const [printOrderMode, setPrintOrderMode] = useState<"payment" | "draft">("payment");
+  const [printAvailable, setPrintAvailable] = useState(false);
   const [shipping, setShipping] = useState<ShippingForm>({
     name: userProfile.fullName || "",
     email: userProfile.email || "",
@@ -429,7 +430,8 @@ export default function PawprintsStudio({ userProfile, onOpenCreditStore, onUser
       setPrintProducts(products);
       setPrintProductCode((current) => current || products[0]?.code || "");
       setPrintOrderMode(data.orderMode === "payment" ? "payment" : "draft");
-    }).catch(() => setPrintProducts([]));
+      setPrintAvailable(data.available === true);
+    }).catch(() => { setPrintProducts([]); setPrintAvailable(false); });
   }, []);
 
   const categoryTemplates = useMemo(() => templates.filter((item) => item.category === category), [templates, category]);
@@ -572,7 +574,7 @@ export default function PawprintsStudio({ userProfile, onOpenCreditStore, onUser
             {printProducts.length > 0 && <div className="rounded-2xl border border-primary/25 bg-surface-container-low p-4">
               <div className="flex items-center gap-2"><Printer size={17} className="text-primary" /><h2 className="text-sm font-black">Order a physical Pawprint</h2></div>
               <label className="mt-3 block text-xs font-bold text-on-surface-variant">Print format</label>
-              <select value={printProductCode} onChange={(event) => setPrintProductCode(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-outline-variant bg-surface px-3 text-sm">
+              <select value={printProductCode} onChange={(event) => setPrintProductCode(event.target.value)} disabled={!printAvailable} className="mt-1 min-h-11 w-full rounded-xl border border-outline-variant bg-surface px-3 text-sm disabled:opacity-50">
                 {printProducts.map((product) => <option key={product.code} value={product.code}>{product.label}{product.priceCents ? ` · $${(product.priceCents / 100).toFixed(2)}` : ""}</option>)}
               </select>
               {selectedPrintProduct && <p className="mt-1 text-[10px] text-on-surface-variant">{selectedPrintProduct.description} · {selectedPrintProduct.widthIn} × {selectedPrintProduct.heightIn} in · a separate 300-DPI print file will be prepared.</p>}
@@ -585,7 +587,8 @@ export default function PawprintsStudio({ userProfile, onOpenCreditStore, onUser
                 <input aria-label="Shipping postal code" placeholder="Postal code" value={shipping.zip} onChange={(event) => setShipping((current) => ({ ...current, zip: event.target.value }))} className="min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" />
                 <input aria-label="Shipping country" placeholder="Country" maxLength={2} value={shipping.country_code} onChange={(event) => setShipping((current) => ({ ...current, country_code: event.target.value.toUpperCase() }))} className="min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" />
               </div>
-              <button type="button" onClick={() => void submitPrintOrder()} disabled={printBusy || !savedCreationId} className="mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-black text-on-primary disabled:opacity-40">{printBusy ? <Loader2 size={17} className="animate-spin" /> : <Printer size={17} />}{printBusy ? "Preparing print…" : printOrderMode === "payment" ? "Price & secure checkout" : "Create print order"}</button>
+              {!printAvailable && <p className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs font-bold text-amber-700">Physical Pawprint ordering is being configured. Your finished digital Pawprint remains available to download and email.</p>}
+              <button type="button" onClick={() => void submitPrintOrder()} disabled={printBusy || !savedCreationId || !printAvailable} className="mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-black text-on-primary disabled:cursor-not-allowed disabled:opacity-40">{printBusy ? <Loader2 size={17} className="animate-spin" /> : <Printer size={17} />}{printBusy ? "Preparing print…" : !printAvailable ? "Printing unavailable" : printOrderMode === "payment" ? "Price & secure checkout" : "Create print order"}</button>
               {printOrder && <p className="mt-2 rounded-xl bg-primary/10 p-3 text-xs font-bold text-primary">Printful order {printOrder.id || "created"} · {printOrder.status}. You can return to this order from your FurBin.</p>}
               <p className="mt-2 text-[10px] text-on-surface-variant">The print file is prepared at 300 DPI. Printful receives a draft first; it enters production only after Stripe confirms your payment.</p>
             </div>}

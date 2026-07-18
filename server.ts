@@ -50,6 +50,7 @@ import { WARDROBE_CATALOG, WARDROBE_ITEM_IDS } from "./src/wardrobe/catalog";
 import { buildReferencePrompt, turnaroundViewsForType, paletteLockClause, extractPaletteInstruction, buildTextPrompt, geometryToTripo, type TextPromptFields, type ExtendedSubjectClass, getSubjectClassForSpecies } from "./avatarPrompts";
 import { confirmPrintfulOrderIfDraft, createPrintfulOrder, getPrintfulOrder } from "./server/printful";
 import { publicPawprintPrintProducts, requirePawprintPrintProduct } from "./server/pawprintProducts";
+import { buildFulfillmentReadiness } from "./server/fulfillmentReadiness";
 import { draftSlantOrder, getSlantOrder, slant3dConfigured, submitSlantOrderIfDraft, uploadSlantFileFromUrl } from "./server/slant3d";
 import { triageReferenceImage, triagePasses, correctiveFromTriage, friendlyQualifyError, isClassMismatch, classLabel, type TriageResult } from "./server/imageTriage";
 import { objectBuildProfile, humanRigHints } from "./server/subjectProfiles";
@@ -1392,12 +1393,38 @@ async function startServer() {
 
   app.get("/api/pawprints/print-products", (_req, res) => {
     const products = publicPawprintPrintProducts();
+    const storageConfigured = Boolean(
+      process.env.MEDIA_BUCKET_NAME && process.env.MEDIA_BUCKET_URL
+      && process.env.MEDIA_BUCKET_KEY && process.env.MEDIA_BUCKET_SECRET,
+    );
+    const available = Boolean(products.length > 0 && process.env.PRINTFUL_API_KEY && stripe && storageConfigured);
     res.json({
       provider: "printful",
       configured: products.length > 0,
+      available,
       products,
       orderMode: "payment",
     });
+  });
+
+  // Public capability flags let the studios disable fulfillment controls until
+  // every server-side dependency is present. No key names or secret values are
+  // exposed to the browser.
+  app.get("/api/fulfillment/readiness", (_req, res) => {
+    const storageConfigured = Boolean(
+      process.env.MEDIA_BUCKET_NAME && process.env.MEDIA_BUCKET_URL
+      && process.env.MEDIA_BUCKET_KEY && process.env.MEDIA_BUCKET_SECRET,
+    );
+    const workerConfigured = Boolean(process.env.BLENDER_WORKER_URL && process.env.WORKER_SHARED_SECRET);
+    const pawprintProducts = publicPawprintPrintProducts();
+    res.json(buildFulfillmentReadiness({
+      stripeConfigured: Boolean(stripe),
+      slantConfigured: slant3dConfigured(),
+      printfulConfigured: Boolean(process.env.PRINTFUL_API_KEY),
+      pawprintProductCount: pawprintProducts.length,
+      storageConfigured,
+      workerConfigured,
+    }));
   });
 
   app.get("/api/pawprints/print-orders", requireAuth, async (req: AuthedRequest, res) => {
@@ -1479,6 +1506,10 @@ async function startServer() {
         externalId,
       });
       const currentOrder = order.costs?.total ? order : await getPrintfulOrder(order.id);
+      const providerCurrency = String(currentOrder?.costs?.currency || "USD").toUpperCase();
+      if (providerCurrency !== "USD") {
+        throw new Error(`Printful returned ${providerCurrency} pricing, but checkout is configured for USD.`);
+      }
       const providerCost = Number(currentOrder?.costs?.total || 0);
       if (!Number.isFinite(providerCost) || providerCost <= 0) {
         throw new Error("Printful is still calculating this order. Try again after the print file finishes processing.");

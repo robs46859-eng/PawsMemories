@@ -3,9 +3,21 @@ import { bumpDailyUsage, dbConfigured, getPool } from "../../db";
 import { EdgeHermesClient } from "./client";
 import { loadHermesConfig } from "./config";
 import { createHermesRouter, type HermesRouterDeps } from "./router";
-import { MySqlHermesStore } from "./store";
+import { MySqlHermesStore, type HermesStore } from "./store";
 
 const HERMES_JSON_LIMIT = "256kb";
+
+function unavailableStore(): HermesStore {
+  const unavailable = async (): Promise<never> => {
+    throw new Error("Hermes storage is unavailable.");
+  };
+  return {
+    createJob: unavailable,
+    setBridgeJob: unavailable,
+    getJob: unavailable,
+    updateJob: unavailable,
+  };
+}
 
 const hermesJsonErrorHandler: ErrorRequestHandler = (error, _req, res, next) => {
   if (error?.type === "entity.too.large" || error?.status === 413) {
@@ -37,10 +49,11 @@ export async function createProductionHermesApp(): Promise<Express> {
     throw new Error("Hermes requires database configuration.");
   }
 
-  const store = new MySqlHermesStore(getPool());
-  if (databaseReady) {
+  const mysqlStore = databaseReady ? new MySqlHermesStore(getPool()) : null;
+  const store: HermesStore = mysqlStore || unavailableStore();
+  if (mysqlStore) {
     try {
-      await store.ensureSchema();
+      await mysqlStore.ensureSchema();
     } catch {
       if (config.enabled) throw new Error("Hermes database initialization failed.");
       console.warn("[Hermes] Table initialization skipped while Hermes is disabled.");

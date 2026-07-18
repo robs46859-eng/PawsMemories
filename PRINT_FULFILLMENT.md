@@ -23,6 +23,7 @@ Treatstock is not used or exposed by the application.
 8. Stripe Checkout collects the customer's payment.
 9. Only a verified paid Stripe webhook submits the Slant draft to production.
 10. A recovery sweep safely retries paid-but-unsubmitted orders and refreshes active order statuses. FurBin shows the order, price, provider reference, and current status.
+11. `/api/fulfillment/readiness` keeps the customer checkout disabled until Slant, Stripe, storage, and the Blender print worker are all available.
 
 ### Physical accuracy boundary
 
@@ -43,6 +44,7 @@ Treatstock is not used or exposed by the application.
 8. The server applies the configured retail price floor and fulfillment margin, then opens Stripe Checkout.
 9. Only a verified paid Stripe webhook confirms the Printful draft for production.
 10. A recovery sweep retries paid-but-unconfirmed orders and refreshes fulfillment status. FurBin shows the order and print file.
+11. The Pawprints Studio keeps physical ordering disabled until Printful, Stripe, storage, and at least one server-owned product mapping are available.
 
 ## Required configuration
 
