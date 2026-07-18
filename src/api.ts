@@ -361,6 +361,39 @@ export async function fetchCreations(): Promise<Creation[]> {
   }
 }
 
+export interface ModelLibraryItem {
+  id: number;
+  source_type: "creation" | "avatar";
+  name: string | null;
+  breed: string | null;
+  image_url: string | null;
+  model_url: string | null;
+  rigged_model_url: string | null;
+  status: string;
+  created_at: string;
+}
+
+export async function fetchModelLibrary(): Promise<ModelLibraryItem[]> {
+  const res = await authedFetch("/api/models/library");
+  if (!res.ok) throw new Error(await parseError(res, "Failed to load your models."));
+  return (await res.json()).models || [];
+}
+
+export async function createTreatstockCheckout(input: {
+  sourceType: "creation" | "avatar";
+  sourceId: number;
+  targetHeightMm: number;
+  country?: string;
+}): Promise<{ checkoutUrl: string; stlUrl: string; dimensionsMm: { x: number; y: number; z: number } }> {
+  const res = await authedFetch("/api/print/treatstock/checkout", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(await parseError(res, "Could not prepare this model for printing."));
+  return await res.json();
+}
+
 export async function fetchAlbums(): Promise<Album[]> {
   try {
     const res = await authedFetch("/api/albums");

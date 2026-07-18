@@ -130,6 +130,10 @@ class BlenderBridgeClient {
     return this.send("export_glb", { output_path: outputPath });
   }
 
+  async preparePrintStl(targetHeightMm) {
+    return this.send("prepare_print_stl", { target_height_mm: targetHeightMm });
+  }
+
   async ping() {
     return this.send("ping", {});
   }
@@ -494,6 +498,25 @@ app.post("/export-glb", async (req, res) => {
   try {
     const result = await bridge.exportGlb();
     res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Convert the currently imported GLB to a physically calibrated STL derivative.
+app.post("/prepare-print", async (req, res) => {
+  try {
+    let { glb_base64, glb_url, target_height_mm } = req.body || {};
+    if (!glb_base64 && glb_url) {
+      const source = await fetch(glb_url);
+      if (!source.ok) throw new Error(`Failed to download glb_url (${source.status})`);
+      glb_base64 = Buffer.from(await source.arrayBuffer()).toString("base64");
+    }
+    if (!glb_base64) return res.status(400).json({ error: "glb_base64 or glb_url is required" });
+    const imported = await bridge.send("import_glb", { glb_base64 });
+    if (!imported?.success) throw new Error(imported?.error || "GLB import failed");
+    const result = await bridge.preparePrintStl(Number(target_height_mm || 100));
+    res.status(result?.success ? 200 : 422).json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

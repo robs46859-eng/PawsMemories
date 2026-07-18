@@ -320,6 +320,93 @@ def handle_export_glb(params: dict) -> dict:
         return {"success": False, "error": str(e)}
 
 
+def handle_prepare_print_stl(params: dict) -> dict:
+    """Create a uniformly scaled STL derivative and report basic topology.
+
+    The imported source remains untouched in object storage. STL coordinates
+    are emitted in millimeters; target_height_mm is the authoritative physical
+    calibration supplied by the customer.
+    """
+    target_height_mm = float(params.get("target_height_mm") or 100.0)
+    if target_height_mm < 25.0 or target_height_mm > 300.0:
+        return {"success": False, "error": "target_height_mm must be between 25 and 300"}
+    output_path = os.path.join(tempfile.gettempdir(), "pawsome_print_ready.stl")
+    try:
+        import bmesh
+        from mathutils import Vector
+
+        mesh_objects = [obj for obj in bpy.context.scene.objects if obj.type == "MESH"]
+        if not mesh_objects:
+            return {"success": False, "error": "No mesh objects found"}
+
+        bpy.ops.object.select_all(action="DESELECT")
+        for obj in mesh_objects:
+            obj.select_set(True)
+        bpy.context.view_layer.objects.active = mesh_objects[0]
+        if len(mesh_objects) > 1:
+            bpy.ops.object.join()
+        obj = bpy.context.view_layer.objects.active
+        bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+
+        world_corners = [obj.matrix_world @ Vector(corner) for corner in obj.bound_box]
+        mins = [min(v[i] for v in world_corners) for i in range(3)]
+        maxs = [max(v[i] for v in world_corners) for i in range(3)]
+        source_height = maxs[2] - mins[2]
+        if source_height <= 1e-9:
+            return {"success": False, "error": "Model has zero physical height"}
+
+        # Convert the unitless/imported model to an explicit millimeter target.
+        scale_factor = target_height_mm / source_height
+        obj.scale = (scale_factor, scale_factor, scale_factor)
+        bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+
+        triangulate = obj.modifiers.new(name="PrintTriangulate", type="TRIANGULATE")
+        bpy.context.view_layer.objects.active = obj
+        bpy.ops.object.modifier_apply(modifier=triangulate.name)
+
+        bm = bmesh.new()
+        bm.from_mesh(obj.data)
+        non_manifold_edges = sum(1 for edge in bm.edges if not edge.is_manifold)
+        degenerate_faces = sum(1 for face in bm.faces if face.calc_area() <= 1e-10)
+        vertex_count = len(bm.verts)
+        triangle_count = len(bm.faces)
+        bm.free()
+
+        corners = [obj.matrix_world @ Vector(corner) for corner in obj.bound_box]
+        dims_mm = [max(v[i] for v in corners) - min(v[i] for v in corners) for i in range(3)]
+
+        bpy.ops.object.select_all(action="DESELECT")
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
+        if hasattr(bpy.ops.wm, "stl_export"):
+            bpy.ops.wm.stl_export(filepath=output_path, export_selected_objects=True)
+        else:
+            bpy.ops.export_mesh.stl(filepath=output_path, use_selection=True)
+
+        with open(output_path, "rb") as f:
+            stl_base64 = base64.b64encode(f.read()).decode("utf-8")
+        size_bytes = os.path.getsize(output_path)
+        os.remove(output_path)
+        return {
+            "success": True,
+            "stl_base64": stl_base64,
+            "size_bytes": size_bytes,
+            "units": "mm",
+            "dimensions_mm": {"x": dims_mm[0], "y": dims_mm[1], "z": dims_mm[2]},
+            "topology": {
+                "vertex_count": vertex_count,
+                "triangle_count": triangle_count,
+                "non_manifold_edges": non_manifold_edges,
+                "degenerate_faces": degenerate_faces,
+            },
+            "printable": non_manifold_edges == 0 and degenerate_faces == 0,
+        }
+    except Exception as e:
+        if os.path.exists(output_path):
+            os.remove(output_path)
+        return {"success": False, "error": str(e)}
+
+
 def handle_import_glb(params: dict) -> dict:
     """Import a base64 GLB payload into the current scene."""
     glb_base64 = params.get("glb_base64") or ""
@@ -456,6 +543,7 @@ METHODS = {
     "save_checkpoint": handle_save_checkpoint,
     "restore_checkpoint": handle_restore_checkpoint,
     "export_glb": handle_export_glb,
+    "prepare_print_stl": handle_prepare_print_stl,
     "import_glb": handle_import_glb,
     "ping": handle_ping,
 }

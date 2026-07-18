@@ -49,6 +49,7 @@ import { buildAndVerifyShell } from "./server/bim/shell";
 import { WARDROBE_CATALOG, WARDROBE_ITEM_IDS } from "./src/wardrobe/catalog";
 import { buildReferencePrompt, turnaroundViewsForType, paletteLockClause, extractPaletteInstruction, buildTextPrompt, geometryToTripo, type TextPromptFields, type ExtendedSubjectClass, getSubjectClassForSpecies } from "./avatarPrompts";
 import { createPrintfulOrder } from "./server/printful";
+import { createTreatstockPrintablePack } from "./server/treatstock";
 import { triageReferenceImage, triagePasses, correctiveFromTriage, friendlyQualifyError, isClassMismatch, classLabel, type TriageResult } from "./server/imageTriage";
 import { objectBuildProfile, humanRigHints } from "./server/subjectProfiles";
 import {
@@ -3467,6 +3468,113 @@ async function startServer() {
     } catch (err: any) {
       console.error("Error fetching creations:", err);
       res.status(500).json({ success: false, error: "Failed to fetch creations." });
+    }
+  });
+
+  // Unified model library: new create-pipeline models plus every legacy avatar
+  // model already persisted in Backblaze. Source IDs remain explicit so print
+  // preparation and future edits cannot target the wrong table.
+  app.get("/api/models/library", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const phone = req.user!.phone;
+      const [creationRows] = await getPool().query(
+        `SELECT id, 'creation' AS source_type, pet_name AS name, pet_breed AS breed,
+                image_url, model_url, NULL AS rigged_model_url, created_at,
+                CASE WHEN model_url IS NULL THEN 'building' ELSE 'done' END AS status
+         FROM creations WHERE user_phone = ? AND media_type = 'model'`,
+        [phone]
+      ) as any;
+      const [avatarRows] = await getPool().query(
+        `SELECT id, 'avatar' AS source_type, name, breed, image_url, model_url,
+                rigged_model_url, created_at, generation_status AS status
+         FROM avatars
+         WHERE user_phone = ? AND (model_url IS NOT NULL OR rigged_model_url IS NOT NULL)`,
+        [phone]
+      ) as any;
+      const seen = new Set<string>();
+      const models = [...creationRows, ...avatarRows]
+        .filter((item: any) => {
+          const url = item.rigged_model_url || item.model_url;
+          if (!url || seen.has(url)) return false;
+          seen.add(url);
+          return true;
+        })
+        .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      res.json({ success: true, models });
+    } catch (err: any) {
+      console.error("Model library error:", err);
+      res.status(500).json({ success: false, error: "Failed to load your model library." });
+    }
+  });
+
+  const PrintPrepareSchema = z.object({
+    sourceType: z.enum(["creation", "avatar"]),
+    sourceId: z.number().int().positive(),
+    targetHeightMm: z.number().min(25).max(300),
+    country: z.string().length(2).default("US"),
+  });
+
+  app.post("/api/print/treatstock/checkout", requireAuth, paidLimiter, async (req: AuthedRequest, res) => {
+    try {
+      const input = PrintPrepareSchema.parse(req.body);
+      const phone = req.user!.phone;
+      const table = input.sourceType === "creation" ? "creations" : "avatars";
+      const [rows] = await getPool().query(
+        `SELECT id, model_url${input.sourceType === "avatar" ? ", rigged_model_url" : ""}
+         FROM ${table} WHERE id = ? AND user_phone = ? LIMIT 1`,
+        [input.sourceId, phone]
+      ) as any;
+      const source = rows?.[0];
+      const modelUrl = source?.rigged_model_url || source?.model_url;
+      if (!modelUrl) return res.status(404).json({ success: false, error: "That model is not ready or does not belong to you." });
+
+      const workerUrl = String(process.env.BLENDER_WORKER_URL || "").replace(/\/render$/, "").replace(/\/$/, "");
+      if (!workerUrl) return res.status(503).json({ success: false, error: "Print preparation is not configured." });
+      const preparedResponse = await fetch(`${workerUrl}/prepare-print`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-worker-secret": process.env.WORKER_SHARED_SECRET || "",
+        },
+        body: JSON.stringify({ glb_url: modelUrl, target_height_mm: input.targetHeightMm }),
+        signal: AbortSignal.timeout(600_000),
+      });
+      const prepared: any = await preparedResponse.json().catch(() => ({}));
+      if (!preparedResponse.ok || !prepared?.success) {
+        return res.status(422).json({ success: false, error: prepared?.error || "The model could not be prepared for printing." });
+      }
+      if (!prepared.printable) {
+        return res.status(422).json({
+          success: false,
+          error: "This mesh needs repair before manufacturing.",
+          dimensionsMm: prepared.dimensions_mm,
+          topology: prepared.topology,
+        });
+      }
+
+      const stlUrl = await uploadBase64Binary(prepared.stl_base64, "model/stl", "print-ready");
+      const pack = await createTreatstockPrintablePack({ stlUrl, country: input.country });
+      await getPool().query(
+        `INSERT INTO print_orders
+          (user_phone, source_type, source_id, provider_pack_id, stl_url, target_height_mm,
+           dimensions_json, topology_json, checkout_url, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'checkout')`,
+        [phone, input.sourceType, input.sourceId, String(pack.id), stlUrl, input.targetHeightMm,
+          JSON.stringify(prepared.dimensions_mm), JSON.stringify(prepared.topology), pack.redir]
+      );
+      res.json({
+        success: true,
+        checkoutUrl: pack.redir,
+        packId: pack.id,
+        stlUrl,
+        dimensionsMm: prepared.dimensions_mm,
+        topology: prepared.topology,
+      });
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ success: false, error: err.issues[0]?.message || "Invalid print request." });
+      const message = err?.message || "Could not start the print checkout.";
+      console.error("Treatstock print checkout error:", message);
+      res.status(/not configured/i.test(message) ? 503 : 502).json({ success: false, error: message });
     }
   });
 

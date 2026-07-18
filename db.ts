@@ -287,6 +287,28 @@ export async function initDb(): Promise<void> {
         INDEX (status)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
+
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS print_orders (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        user_phone VARCHAR(32) NOT NULL,
+        source_type ENUM('creation','avatar') NOT NULL,
+        source_id INT NOT NULL,
+        provider VARCHAR(32) NOT NULL DEFAULT 'treatstock',
+        provider_pack_id VARCHAR(64) NULL,
+        stl_url TEXT NOT NULL,
+        target_height_mm DECIMAL(8,2) NOT NULL,
+        dimensions_json JSON NULL,
+        topology_json JSON NULL,
+        checkout_url TEXT NULL,
+        status ENUM('prepared','quoted','checkout','ordered','failed') NOT NULL DEFAULT 'prepared',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX (user_phone),
+        INDEX (provider_pack_id),
+        FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
     
     await getPool().query(`
       CREATE TABLE IF NOT EXISTS pets (

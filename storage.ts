@@ -38,6 +38,7 @@ export function getExtensionFromMime(mimeType: string): string {
     "video/webm": "webm",
     "model/gltf-binary": "glb",
     "model/gltf+json": "gltf",
+    "model/stl": "stl",
     "application/octet-stream": "glb",
     "audio/webm": "webm",
     "audio/mpeg": "mp3",
