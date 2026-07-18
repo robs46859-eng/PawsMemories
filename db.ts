@@ -806,7 +806,7 @@ export async function initDb(): Promise<void> {
         input_photo_url TEXT NULL,
         candidate_image_url TEXT NULL,
         customization_state JSON NULL,
-        validation_state VARCHAR(32) NULL,
+        validation_state JSON NULL,
         status ENUM('draft', 'reference_ready', 'approved', 'customizing', 'validation_failed', 'print_ready', 'building', 'complete', 'failed') NOT NULL DEFAULT 'draft',
         idempotency_key VARCHAR(120) NULL,
         build_job_id INT NULL,
@@ -848,6 +848,27 @@ export async function initDb(): Promise<void> {
       }
     } catch (e: any) {
       console.warn("⚠️ Could not migrate create_pipeline_sessions.status:", e?.message || e);
+    }
+
+    // Earlier Phase 2 builds mistakenly created validation_state as
+    // VARCHAR(32), truncating the validation JSON and causing every approval
+    // to fail as "missing, invalid, or stale". Preserve valid documents,
+    // discard only already-truncated values, then enforce a JSON column.
+    try {
+      const [validationCols]: any = await getPool().query(
+        "SELECT DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_NAME = 'create_pipeline_sessions' AND COLUMN_NAME = 'validation_state' AND TABLE_SCHEMA = DATABASE()"
+      );
+      if (validationCols?.[0]?.DATA_TYPE !== 'json') {
+        await getPool().query(
+          "UPDATE create_pipeline_sessions SET validation_state = NULL WHERE validation_state IS NOT NULL AND JSON_VALID(validation_state) = 0"
+        );
+        await getPool().query(
+          "ALTER TABLE create_pipeline_sessions MODIFY COLUMN validation_state JSON NULL"
+        );
+        console.log("✅ Migrated create_pipeline_sessions.validation_state to JSON.");
+      }
+    } catch (e: any) {
+      console.warn("⚠️ Could not migrate create_pipeline_sessions.validation_state:", e?.message || e);
     }
 
     // Migration: Add provider_handle column idempotently

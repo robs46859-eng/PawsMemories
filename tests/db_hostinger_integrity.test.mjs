@@ -57,6 +57,19 @@ if (!RUN_INTEGRATION) {
         assert.ok(enumDef.includes("recovery_required"), "recovery_required enum state should exist");
         assert.ok(enumDef.includes("reference_ready"), "reference_ready enum state should remain intact");
 
+        const [validationCols] = await pool.query(
+          `SELECT DATA_TYPE FROM information_schema.COLUMNS
+           WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'create_pipeline_sessions' AND COLUMN_NAME = 'validation_state'`,
+          [dbName]
+        );
+        // MariaDB exposes JSON as its LONGTEXT alias in information_schema;
+        // MySQL reports the native JSON type. Either safely stores the full
+        // document and avoids the legacy VARCHAR(32) truncation.
+        assert.ok(
+          ["json", "longtext"].includes(validationCols[0]?.DATA_TYPE),
+          "validation_state must store complete validation JSON"
+        );
+
         // Verify provider_handle exists
         const [handleCols] = await pool.query(
           `SELECT COLUMN_NAME FROM information_schema.COLUMNS 
