@@ -39,6 +39,9 @@ if (!RUN_INTEGRATION) {
       
       // Setup Phase
       await t.test("Setup connection and schema checks", async () => {
+        // Apply the same guarded startup migrations used by the application
+        // before inspecting or exercising the pipeline tables.
+        await initDb();
         const pool = getPool();
         const dbName = process.env.DB_NAME || "pawsome3d";
         
@@ -94,7 +97,8 @@ if (!RUN_INTEGRATION) {
 
           // Exactly one should succeed. The rest should return the same result (already Reserved) safely,
           // without deducting multiple times.
-          const successes = results.filter(r => r.success);
+          console.log("Concurrent Results:", results);
+          const successes = results.filter(r => r.success && !r.alreadyReservedOrBuilding);
           const alreadyReserved = results.filter(r => r.alreadyReservedOrBuilding);
           
           assert.strictEqual(successes.length, 1, "Exactly ONE request should succeed");
@@ -111,7 +115,7 @@ if (!RUN_INTEGRATION) {
           
           // Verify balance hasn't dropped further
           const [rows2] = await pool.query(`SELECT credits FROM users WHERE phone = ?`, [testPhone]);
-          assert.strictEqual(rows2.credits, 80, "Balance should still be 80 after failed concurrent attempt.");
+          assert.strictEqual(rows2[0].credits, 80, "Balance should still be 80 after failed concurrent attempt.");
         });
 
         await t.test("Recovery: Lookup and finalization are idempotent (no duplicate creations)", async () => {
@@ -141,19 +145,15 @@ if (!RUN_INTEGRATION) {
           assert.strictEqual(sessionRec.status, "recovery_required", "Should be in recovery status");
 
           // Recover it (simulate the manual/sweep recovery)
-          const commitPayload = { media_type: "model", style: "realistic", image_url: "fake" };
-          const recoverRes = await recoverPipelineSession(sessionId, testPhone, commitPayload, {
-            camera_position: [0, 0, 5],
-            camera_target: [0, 0, 0]
-          });
-
+          const jobData = { kind: "3d_generation", credits_reserved: 20 };
+          const creationData = { media_type: "model", style: "realistic", image_url: "fake", pet_name: "Fido", pet_breed: "Labrador" };
+          const recoverRes = await recoverPipelineSession(sessionId, testPhone, jobData, creationData);
+          
+          console.log("Recovery Response:", recoverRes);
           assert.strictEqual(recoverRes.success, true, "Should successfully recover session");
 
           // Run recovery a second time to ensure idempotency
-          const duplicateRes = await recoverPipelineSession(sessionId, testPhone, commitPayload, {
-            camera_position: [0, 0, 5],
-            camera_target: [0, 0, 0]
-          });
+          const duplicateRes = await recoverPipelineSession(sessionId, testPhone, jobData, creationData);
           
           assert.strictEqual(duplicateRes.success, true, "Second recovery attempt should return success safely");
 
