@@ -3176,7 +3176,7 @@ export async function getPipelineSessionByProviderHandle(providerHandle: string)
   return rows[0] || null;
 }
 
-export async function recoverPipelineSession(sessionId: string, userPhone: string, jobData: any, creationData: any): Promise<{ success: boolean; error?: string }> {
+export async function recoverPipelineSession(sessionId: string, userPhone: string, jobData: any, creationData: any): Promise<{ success: boolean; error?: string; alreadyRecovered?: boolean }> {
   const connection = await getPool().getConnection();
   try {
     await connection.query('START TRANSACTION');
@@ -3193,7 +3193,31 @@ export async function recoverPipelineSession(sessionId: string, userPhone: strin
     
     // Allow either build_starting or recovery_required
     if (session.status !== 'recovery_required' && session.status !== 'build_starting') {
+      // If it's already in building or beyond, it's technically already recovered
+      if (session.status === 'building' || session.status === 'complete' || session.status === 'failed') {
+        await connection.query('ROLLBACK');
+        return { success: true, alreadyRecovered: true };
+      }
       throw new Error("Session is not in a recoverable state.");
+    }
+
+    // Database-level idempotency guard: guarantee only one creation/job is made
+    // Check if we already created a job for this provider_handle
+    if (session.provider_handle) {
+      const [existingJobs] = await connection.query(
+        `SELECT id FROM generation_jobs WHERE operation_name = ? FOR UPDATE`,
+        [session.provider_handle]
+      ) as any;
+      if (existingJobs && existingJobs.length > 0) {
+        // We already created a job/creation for this provider_handle
+        // Ensure session status matches
+        await connection.query(
+          "UPDATE create_pipeline_sessions SET status = 'building', build_job_id = ? WHERE id = ?",
+          [existingJobs[0].id, sessionId]
+        );
+        await connection.query('COMMIT');
+        return { success: true, alreadyRecovered: true };
+      }
     }
 
     // Idempotency check: see if a creation already exists for this session's external job
@@ -3232,11 +3256,16 @@ export async function recoverPipelineSession(sessionId: string, userPhone: strin
 }
 
 
-export async function markPipelineSessionRecoveryRequired(sessionId: string, userPhone: string, providerHandle: string): Promise<void> {
-  await getPool().query(
-    "UPDATE create_pipeline_sessions SET status = 'recovery_required', provider_handle = ? WHERE id = ? AND user_phone = ?",
-    [providerHandle, sessionId, userPhone]
-  );
+export async function markPipelineSessionRecoveryRequired(sessionId: string, userPhone: string, providerHandle: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    await getPool().query(
+      "UPDATE create_pipeline_sessions SET status = 'recovery_required', provider_handle = ? WHERE id = ? AND user_phone = ?",
+      [providerHandle, sessionId, userPhone]
+    );
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
 }
 
 export async function releasePipelineSessionReservation(sessionId: string, userPhone: string, modelCost: number): Promise<{ success: boolean; error?: string }> {
