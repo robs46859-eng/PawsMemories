@@ -51,6 +51,7 @@ import { buildReferencePrompt, turnaroundViewsForType, paletteLockClause, extrac
 import { confirmPrintfulOrderIfDraft, createPrintfulOrder, getPrintfulOrder } from "./server/printful";
 import { publicPawprintPrintProducts, requirePawprintPrintProduct } from "./server/pawprintProducts";
 import { buildFulfillmentReadiness } from "./server/fulfillmentReadiness";
+import { extractShipmentTracking } from "./server/fulfillmentTracking";
 import { draftSlantOrder, getSlantOrder, slant3dConfigured, submitSlantOrderIfDraft, uploadSlantFileFromUrl } from "./server/slant3d";
 import { triageReferenceImage, triagePasses, correctiveFromTriage, friendlyQualifyError, isClassMismatch, classLabel, type TriageResult } from "./server/imageTriage";
 import { objectBuildProfile, humanRigHints } from "./server/subjectProfiles";
@@ -1432,11 +1433,15 @@ async function startServer() {
       const [rows] = await getPool().query(
         `SELECT id, creation_id, provider, product_code, provider_order_id, print_file_url,
                 quantity, price_cents, provider_cost_cents, retail_price_cents, checkout_url,
-                status, created_at, updated_at
+                provider_payload_json, status, created_at, updated_at
          FROM pawprint_print_orders WHERE user_phone = ? ORDER BY created_at DESC LIMIT 100`,
         [req.user!.phone],
       ) as any;
-      res.json({ success: true, orders: rows });
+      const orders = rows.map((row: any) => {
+        const { provider_payload_json, ...safe } = row;
+        return { ...safe, tracking: extractShipmentTracking(provider_payload_json) };
+      });
+      res.json({ success: true, orders });
     } catch (error: any) {
       console.error("[GET /api/pawprints/print-orders] Error:", error?.message || error);
       res.status(500).json({ error: "Could not load Pawprint print orders." });
@@ -4015,11 +4020,15 @@ async function startServer() {
       const [rows] = await getPool().query(
         `SELECT id, source_type, source_id, provider, provider_pack_id, provider_file_id, stl_url, target_height_mm,
                 dimensions_json, topology_json, checkout_url, provider_cost_cents, retail_price_cents,
-                status, created_at, updated_at
+                provider_payload_json, status, created_at, updated_at
          FROM print_orders WHERE user_phone = ? ORDER BY created_at DESC LIMIT 100`,
         [req.user!.phone],
       ) as any;
-      res.json({ success: true, orders: rows });
+      const orders = rows.map((row: any) => {
+        const { provider_payload_json, ...safe } = row;
+        return { ...safe, tracking: extractShipmentTracking(provider_payload_json) };
+      });
+      res.json({ success: true, orders });
     } catch (error: any) {
       console.error("Print order list error:", error?.message || error);
       res.status(500).json({ success: false, error: "Could not load print orders." });
@@ -4039,8 +4048,9 @@ async function startServer() {
       if (!order.provider_pack_id) return res.json({ success: true, order });
       const providerOrder = await getSlantOrder(String(order.provider_pack_id));
       const status = String(providerOrder?.data?.status || providerOrder?.data?.order?.status || order.status).toLowerCase();
-      await getPool().query(`UPDATE print_orders SET status = ?, provider_payload_json = ? WHERE id = ?`, [status, JSON.stringify(providerOrder?.data || providerOrder || {}), orderId]);
-      res.json({ success: true, order: { ...order, status }, providerOrder: providerOrder?.data || providerOrder });
+      const providerPayload = providerOrder?.data || providerOrder || {};
+      await getPool().query(`UPDATE print_orders SET status = ?, provider_payload_json = ? WHERE id = ?`, [status, JSON.stringify(providerPayload), orderId]);
+      res.json({ success: true, order: { ...order, status, tracking: extractShipmentTracking(providerPayload) } });
     } catch (error: any) {
       const message = error?.message || "Could not refresh the print order.";
       console.error("Print order status error:", message);

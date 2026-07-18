@@ -426,6 +426,15 @@ export interface ModelPrintOrder {
   status: string;
   created_at: string;
   updated_at: string;
+  tracking: ShipmentTracking[];
+}
+
+export interface ShipmentTracking {
+  carrier: string | null;
+  service: string | null;
+  trackingNumber: string | null;
+  trackingUrl: string | null;
+  shippedAt: string | null;
 }
 
 export async function fetchModelPrintOrders(): Promise<ModelPrintOrder[]> {
@@ -446,6 +455,7 @@ export interface PawprintPrintOrder {
   status: string;
   created_at: string;
   updated_at: string;
+  tracking: ShipmentTracking[];
 }
 
 export async function fetchPawprintPrintOrders(): Promise<PawprintPrintOrder[]> {
