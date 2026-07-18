@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Screen } from "../../types";
 import { useCreateFlow } from "./CreateFlowContext";
 import { ChevronLeft, ChevronRight, RefreshCw, AlertTriangle } from "lucide-react";
+import { authedFetch } from "../../api";
 
 interface CreateReferenceScreenProps {
   onNavigate: (screen: Screen) => void;
@@ -16,12 +17,10 @@ export default function CreateReferenceScreen({ onNavigate }: CreateReferenceScr
     setIsGenerating(true);
     setError(null);
     try {
-      const token = localStorage.getItem("paws_token");
-      const res = await fetch("/api/create-pipeline/generate-reference", {
+      const res = await authedFetch("/api/create-pipeline/generate-reference", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`
         },
         body: JSON.stringify({
           sessionId: state.sessionId,

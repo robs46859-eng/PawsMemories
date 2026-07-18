@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Screen } from "../../types";
 import { useCreateFlow } from "./CreateFlowContext";
 import { ChevronLeft, ChevronRight, CheckCircle2, XCircle, AlertTriangle, RefreshCw } from "lucide-react";
+import { authedFetch } from "../../api";
 
 interface CreateValidateScreenProps {
   onNavigate: (screen: Screen) => void;
@@ -73,12 +74,10 @@ export default function CreateValidateScreen({ onNavigate }: CreateValidateScree
     setIsSaving(true);
     setSaveError(null);
     try {
-      const token = localStorage.getItem("paws_token");
-      const res = await fetch("/api/create-pipeline/update", {
+      const res = await authedFetch("/api/create-pipeline/update", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`
         },
         body: JSON.stringify({
           sessionId: state.sessionId,

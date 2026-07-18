@@ -3,6 +3,7 @@ import { Screen, UserProfile } from "../../types";
 import { useCreateFlow } from "./CreateFlowContext";
 import { ChevronLeft, Check, RefreshCw, AlertTriangle } from "lucide-react";
 import { CREDIT_PRICES } from "../../pricing";
+import { authedFetch } from "../../api";
 
 interface CreateCheckoutScreenProps {
   onNavigate: (screen: Screen) => void;
@@ -22,16 +23,13 @@ export default function CreateCheckoutScreen({ onNavigate, userProfile }: Create
     setIsApproving(true);
     setError(null);
     try {
-      const token = localStorage.getItem("paws_token");
-      
       // Idempotency key - a simple random string for this attempt
       const idempotencyKey = crypto.randomUUID();
 
-      const res = await fetch("/api/create-pipeline/approve", {
+      const res = await authedFetch("/api/create-pipeline/approve", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`
         },
         body: JSON.stringify({
           sessionId: state.sessionId,
