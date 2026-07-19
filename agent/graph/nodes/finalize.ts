@@ -16,11 +16,14 @@ export async function finalizeNode(state: BuildState): Promise<Partial<BuildStat
   if (!riggedGlb) {
     // This is an optional, deterministic production step. It never blocks a
     // valid model export: models with no usable face keep the jaw-bone fallback.
-    try {
-      const viseme = await executeBlenderTool("execute_bpy", { code: facialVisemeBpyScript() });
-      if (!viseme.success) console.warn("[Finalize] Facial viseme synthesis skipped:", viseme.error || viseme.data?.error);
-    } catch (err: any) {
-      console.warn("[Finalize] Facial viseme synthesis skipped:", err?.message || err);
+    // P4: skipped when the facial rig was not purchased (facialVisemes=false).
+    if (state.facialVisemes !== false) {
+      try {
+        const viseme = await executeBlenderTool("execute_bpy", { code: facialVisemeBpyScript() });
+        if (!viseme.success) console.warn("[Finalize] Facial viseme synthesis skipped:", viseme.error || viseme.data?.error);
+      } catch (err: any) {
+        console.warn("[Finalize] Facial viseme synthesis skipped:", err?.message || err);
+      }
     }
     try {
       const result = await executeBlenderTool("export_glb", {});

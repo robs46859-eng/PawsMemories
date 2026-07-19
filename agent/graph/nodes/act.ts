@@ -792,8 +792,11 @@ export async function actNode(state: BuildState): Promise<Partial<BuildState>> {
     // L2 face targets are part of the exported model contract. This is safe to
     // repeat: existing provider shape keys are retained and missing names are
     // filled before the GLB leaves Blender.
-    const visemeResult = await executeBlenderTool("execute_bpy", { code: facialVisemeBpyScript() });
-    if (!visemeResult.success) console.warn("[Act] Facial viseme synthesis skipped:", visemeResult.error || visemeResult.data?.error);
+    // P4: skipped when the facial rig was not purchased (facialVisemes=false).
+    if (state.facialVisemes !== false) {
+      const visemeResult = await executeBlenderTool("execute_bpy", { code: facialVisemeBpyScript() });
+      if (!visemeResult.success) console.warn("[Act] Facial viseme synthesis skipped:", visemeResult.error || visemeResult.data?.error);
+    }
     const exportResult = await executeBlenderTool("export_glb", {});
     
     const stepResult: StepResult = {

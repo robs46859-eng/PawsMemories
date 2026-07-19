@@ -16,16 +16,21 @@ test("desktop sidebar keeps creation studios out of the global shell", () => {
     Screen.DASHBOARD,
     Screen.FURBIN,
     Screen.MARKETPLACE,
-    Screen.ANIMATOR,
   ]);
   assert.deepEqual(MOBILE_NAV.map(({ screen }) => screen), [
     Screen.DASHBOARD,
     Screen.FURBIN,
     Screen.MARKETPLACE,
-    Screen.ANIMATOR,
     Screen.PROFILE,
   ]);
   assert.ok(!SIDEBAR_NAV.some(({ screen }) => screen === Screen.MODELS || screen === Screen.PAWLISHER));
+});
+
+test("RD-1: no shell entry routes to a gated (UnderConstructionLock) screen", () => {
+  const gated = new Set([Screen.MODELS, Screen.ANIMATOR, Screen.PAWLISHER]);
+  for (const panel of [TOP_PRIMARY_NAV, SIDEBAR_NAV, MOBILE_NAV]) {
+    assert.ok(!panel.some(({ screen }) => gated.has(screen)), "shell navigation must not dead-end into a lock screen");
+  }
 });
 
 test("shell navigation has no duplicate ids or screens per panel", () => {

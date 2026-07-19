@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Screen } from "../../types";
 import { useCreateFlow } from "./CreateFlowContext";
 import { ChevronLeft, ChevronRight, Check } from "lucide-react";
+import { CREDIT_PRICES, createModelCost } from "../../pricing";
 
 interface CreateCustomizeScreenProps {
   onNavigate: (screen: Screen) => void;
@@ -11,6 +12,11 @@ export default function CreateCustomizeScreen({ onNavigate }: CreateCustomizeScr
   const { state, setState } = useCreateFlow();
   const [pose, setPose] = useState(state.customizationState?.pose || "Sitting");
   const [engraving, setEngraving] = useState(state.customizationState?.engraving || "");
+  const [rigEnabled, setRigEnabled] = useState<boolean>(!!state.customizationState?.rigging?.enabled);
+  const [rigFacial, setRigFacial] = useState<boolean>(!!state.customizationState?.rigging?.facial);
+
+  const rigging = { enabled: rigEnabled, facial: rigEnabled && rigFacial };
+  const totalCost = createModelCost(rigging);
 
   const handleNext = () => {
     setState(s => ({
@@ -18,7 +24,8 @@ export default function CreateCustomizeScreen({ onNavigate }: CreateCustomizeScr
       customizationState: {
         ...s.customizationState,
         pose,
-        engraving
+        engraving,
+        rigging
       }
     }));
     onNavigate(Screen.CREATE_VALIDATE);
@@ -83,6 +90,40 @@ export default function CreateCustomizeScreen({ onNavigate }: CreateCustomizeScr
               />
               <div className="text-right text-xs text-on-surface-variant mt-1">
                 {engraving.length} / 24
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-xl font-bold text-on-surface mb-4">Animation Rigging (Optional)</h3>
+              <label className="flex items-start gap-3 p-4 rounded-xl border-2 border-outline-variant bg-surface cursor-pointer hover:border-primary/50 transition-all">
+                <input
+                  type="checkbox"
+                  checked={rigEnabled}
+                  onChange={(e) => setRigEnabled(e.target.checked)}
+                  className="mt-1 w-5 h-5 accent-[var(--md-sys-color-primary,#6750a4)]"
+                />
+                <span className="flex-1">
+                  <span className="font-bold text-on-surface block">Rig this model for animation</span>
+                  <span className="text-sm text-on-surface-variant">Animation-ready skeleton with automated quality checks (posture, limbs, weights).</span>
+                </span>
+                <span className="font-black text-primary whitespace-nowrap">+{CREDIT_PRICES.RIG_ADDON}</span>
+              </label>
+              <label className={`mt-3 flex items-start gap-3 p-4 rounded-xl border-2 bg-surface transition-all ${rigEnabled ? "border-outline-variant cursor-pointer hover:border-primary/50" : "border-outline-variant/40 opacity-50 cursor-not-allowed"}`}>
+                <input
+                  type="checkbox"
+                  checked={rigEnabled && rigFacial}
+                  disabled={!rigEnabled}
+                  onChange={(e) => setRigFacial(e.target.checked)}
+                  className="mt-1 w-5 h-5 accent-[var(--md-sys-color-primary,#6750a4)]"
+                />
+                <span className="flex-1">
+                  <span className="font-bold text-on-surface block">Include facial rig</span>
+                  <span className="text-sm text-on-surface-variant">Viseme blendshapes for lip-sync and expressions.</span>
+                </span>
+                <span className="font-black text-primary whitespace-nowrap">+{CREDIT_PRICES.FACIAL_RIG_ADDON}</span>
+              </label>
+              <div className="mt-3 text-right text-sm font-bold text-on-surface">
+                Total: <span className="text-primary">{totalCost} PupCoins</span>
               </div>
             </div>
           </div>

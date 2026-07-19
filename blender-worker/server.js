@@ -134,6 +134,10 @@ class BlenderBridgeClient {
     return this.send("prepare_print_stl", { target_height_mm: targetHeightMm });
   }
 
+  async physicsValidate(profile, facial) {
+    return this.send("physics_validate", { profile, facial: !!facial });
+  }
+
   async ping() {
     return this.send("ping", {});
   }
@@ -516,6 +520,27 @@ app.post("/prepare-print", async (req, res) => {
     const imported = await bridge.send("import_glb", { glb_base64 });
     if (!imported?.success) throw new Error(imported?.error || "GLB import failed");
     const result = await bridge.preparePrintStl(Number(target_height_mm || 100));
+    res.status(result?.success ? 200 : 422).json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Rig quality gates: anatomy + physics validation at gravity 9.8 m/s^2.
+// Accepts an already-imported scene, or a glb_base64/glb_url to import first.
+app.post("/physics-validate", async (req, res) => {
+  try {
+    let { glb_base64, glb_url, profile, facial } = req.body || {};
+    if (!glb_base64 && glb_url) {
+      const source = await fetch(glb_url);
+      if (!source.ok) throw new Error(`Failed to download glb_url (${source.status})`);
+      glb_base64 = Buffer.from(await source.arrayBuffer()).toString("base64");
+    }
+    if (glb_base64) {
+      const imported = await bridge.send("import_glb", { glb_base64 });
+      if (!imported?.success) throw new Error(imported?.error || "GLB import failed");
+    }
+    const result = await bridge.physicsValidate(String(profile || "quadruped"), !!facial);
     res.status(result?.success ? 200 : 422).json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });

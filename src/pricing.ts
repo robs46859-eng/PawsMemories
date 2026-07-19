@@ -10,6 +10,10 @@ export const CREDIT_PRICES = {
   STATIC_3D_TEXT: 40,
   STATIC_3D_PHOTO: 45,
   RIGGED_3D_AVATAR: 80,
+  // P3/P4 optional rigging on the create flow. Base + RIG_ADDON must always
+  // equal RIGGED_3D_AVATAR so the published price stays honest.
+  RIG_ADDON: 35,
+  FACIAL_RIG_ADDON: 20,
   BIM_SHELL_MODEL: 60,
   BIM_IFC_MODEL: 300,
   AVATAR_CLOTHING_VARIANT: 15,
@@ -56,8 +60,12 @@ export const SERVICE_PRICES: readonly ServicePrice[] = [
   { label: "Static 3D Object", credits: CREDIT_PRICES.STATIC_3D_TEXT, detail: "Text to GLB" },
   { label: "Static 3D Object", credits: CREDIT_PRICES.STATIC_3D_PHOTO, detail: "Photo to GLB" },
   { label: "Rigged 3D Avatar", credits: CREDIT_PRICES.RIGGED_3D_AVATAR },
-  { label: "Scaled Building Shell", credits: CREDIT_PRICES.BIM_SHELL_MODEL, detail: "GLB geometry without BIM semantics" },
-  { label: "IFC Building Information Model", credits: CREDIT_PRICES.BIM_IFC_MODEL, detail: "IFC4 + semantic GLB + verification" },
+  { label: "Rigging Add-on", credits: CREDIT_PRICES.RIG_ADDON, detail: "Create flow: animation-ready skeleton + quality gates" },
+  { label: "Facial Rig Add-on", credits: CREDIT_PRICES.FACIAL_RIG_ADDON, detail: "Viseme blendshapes for lip-sync (requires Rigging Add-on)" },
+  // RD-2: BIM has moved to fsai.pro (dedicated BIM/IFC platform). Prices are
+  // retired from the Pawsome3D store; the backend endpoints remain until FSAI is live.
+  { label: "Scaled Building Shell", credits: null, detail: "Moved to fsai.pro", comingSoon: true },
+  { label: "IFC Building Information Model", credits: null, detail: "Moved to fsai.pro", comingSoon: true },
   { label: "Avatar Clothing Variant", credits: CREDIT_PRICES.AVATAR_CLOTHING_VARIANT, comingSoon: true },
   { label: "Avatar Pose Pack", credits: CREDIT_PRICES.AVATAR_POSE_PACK, comingSoon: true },
   { label: "AI Voice Generation", credits: CREDIT_PRICES.AI_VOICE_30_SECONDS, detail: "Up to 30 seconds" },
@@ -70,6 +78,28 @@ export const SERVICE_PRICES: readonly ServicePrice[] = [
   { label: "Additional Storage", credits: CREDIT_PRICES.STORAGE_GB_MONTH, detail: "1 GB per month" },
   { label: "Marketplace Listing", credits: null, detail: "7.5% commission; $10 or 100-credit wallet minimum", comingSoon: true },
 ];
+
+/** P3/P4: rigging selection carried in create-pipeline customization_state. */
+export interface RiggingSelection {
+  enabled: boolean;
+  facial: boolean;
+}
+
+/** Authoritative create-flow price: base model + optional rig + optional facial. */
+export function createModelCost(rigging?: RiggingSelection | null): number {
+  let total: number = CREDIT_PRICES.STATIC_3D_PHOTO;
+  if (rigging?.enabled) {
+    total += CREDIT_PRICES.RIG_ADDON;
+    if (rigging.facial) total += CREDIT_PRICES.FACIAL_RIG_ADDON;
+  }
+  return total;
+}
+
+/** The refundable portion when rigging fails and the static model is delivered. */
+export function riggingAddonCost(rigging?: RiggingSelection | null): number {
+  if (!rigging?.enabled) return 0;
+  return CREDIT_PRICES.RIG_ADDON + (rigging.facial ? CREDIT_PRICES.FACIAL_RIG_ADDON : 0);
+}
 
 export function avatarGenerationCost(avatarType: "dog" | "human" | "object", inputMode: "image" | "text"): number {
   if (avatarType !== "object") return CREDIT_PRICES.RIGGED_3D_AVATAR;

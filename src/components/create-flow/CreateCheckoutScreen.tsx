@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Screen, UserProfile } from "../../types";
 import { useCreateFlow } from "./CreateFlowContext";
 import { ChevronLeft, Check, RefreshCw, AlertTriangle } from "lucide-react";
-import { CREDIT_PRICES } from "../../pricing";
+import { CREDIT_PRICES, createModelCost } from "../../pricing";
 import { authedFetch } from "../../api";
 
 interface CreateCheckoutScreenProps {
@@ -15,7 +15,9 @@ export default function CreateCheckoutScreen({ onNavigate, userProfile }: Create
   const [isApproving, setIsApproving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  const MODEL_COST = CREDIT_PRICES.STATIC_3D_PHOTO;
+  // P3/P4: authoritative price includes the optional rigging selections made
+  // on the customize screen. Server recomputes the same total on approve.
+  const MODEL_COST = createModelCost(state.customizationState?.rigging);
 
   const hasEnoughCredits = userProfile.isAdmin || userProfile.credits >= MODEL_COST;
 

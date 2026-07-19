@@ -42,3 +42,25 @@ test("Animator screen is gated with UnderConstructionLock in App.tsx", () => {
   assert.match(app, /currentScreen === Screen\.PAWLISHER[\s\S]*UnderConstructionLock/);
   assert.match(app, /featureName="Fido's Styles"/);
 });
+
+test("RD-4: gated animator/lip-sync backends stay intact (gating must never become deletion)", () => {
+  // Client speech stack
+  for (const file of [
+    "src/animator/speech/liveSpeech.ts",
+    "src/animator/speech/speak.ts",
+    "src/animator/components/AnimatorScreen.tsx",
+  ]) {
+    assert.ok(fs.existsSync(file), `${file} must exist while the Animation Studio is gated`);
+  }
+  // Server lip-sync + animator router remain mounted and functional
+  const lipsync = fs.readFileSync("server/animator/lipsync.ts", "utf8");
+  assert.match(lipsync, /postProcessVisemeTrack/);
+  const routes = fs.readFileSync("server/animator/routes.ts", "utf8");
+  assert.match(routes, /animatorRouter\.post\("\/animator\/lipsync"/);
+  assert.match(routes, /animatorRouter\.post\("\/rig"/);
+  const server = fs.readFileSync("server.ts", "utf8");
+  assert.match(server, /animatorRouter/);
+  // Build-time viseme pipeline preserved for the facial rig add-on
+  const visemes = fs.readFileSync("agent/graph/nodes/facialVisemes.ts", "utf8");
+  assert.match(visemes, /viseme_/);
+});

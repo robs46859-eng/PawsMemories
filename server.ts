@@ -43,7 +43,9 @@ import { normalizeVideoAspectRatio } from "./server/videoAspectRatio";
 import { registerSnapgenRoutes } from "./server/snapgen";
 import { SKELETON_CONTRACTS } from "./skeletonContract";
 import { TERMS_VERSION } from "./src/legal";
-import { avatarGenerationCost, bimModelCost, CREDIT_PACKS, CREDIT_PRICES, REUSE_DISCOUNT, type BimBuildMode } from "./src/pricing";
+import { avatarGenerationCost, bimModelCost, CREDIT_PACKS, CREDIT_PRICES, REUSE_DISCOUNT, createModelCost, riggingAddonCost, type BimBuildMode, type RiggingSelection } from "./src/pricing";
+import { executeBlenderTool } from "./agent/tools/blender_mcp";
+import { getPipelineSessionByBuildJobId, setCreationRiggedModel } from "./db";
 import { preflightBimModel, type BimModel } from "./src/bim/model";
 import { buildAndVerifyShell } from "./server/bim/shell";
 import { WARDROBE_CATALOG, WARDROBE_ITEM_IDS } from "./src/wardrobe/catalog";
@@ -55,6 +57,107 @@ import { extractShipmentTracking } from "./server/fulfillmentTracking";
 import { draftSlantOrder, getSlantOrder, slant3dConfigured, submitSlantOrderIfDraft, uploadSlantFileFromUrl, verifySlant3dConfiguration } from "./server/slant3d";
 import { triageReferenceImage, triagePasses, correctiveFromTriage, friendlyQualifyError, isClassMismatch, classLabel, type TriageResult } from "./server/imageTriage";
 import { objectBuildProfile, humanRigHints } from "./server/subjectProfiles";
+
+// ---------------------------------------------------------------------------
+// P3/P4 — Optional rigging stage for create-pipeline model jobs.
+// Runs AFTER the static GLB is stored, so a rig failure can never cost the
+// user their base model. Refunds only the add-on on fallback. One attempt +
+// one retry, both gated by the worker's physics_validate (gravity 9.8 m/s²).
+// ---------------------------------------------------------------------------
+const pipelineRigLocks = new Set<number>();
+
+async function runCreatePipelineRigStage(job: { id: number; user_phone: string; creation_id: number | null }, glbUrl: string): Promise<void> {
+  if (pipelineRigLocks.has(job.id)) return;
+  pipelineRigLocks.add(job.id);
+  const { updateJobStatus, restoreReservedGenerationCredits } = await import("./db");
+  try {
+    const session = await getPipelineSessionByBuildJobId(job.id);
+    const rigging: RiggingSelection | undefined = session?.customization_state?.rigging;
+    if (!rigging?.enabled) {
+      await updateJobStatus(job.id, "done");
+      return;
+    }
+    await updateJobStatus(job.id, "rigging");
+
+    const glbBase64 = await fetchUrlAsBase64(glbUrl);
+    const referenceBase64 = session?.candidate_image_url ? await fetchUrlAsBase64(session.candidate_image_url).catch(() => null) : null;
+    const species = String(session?.species || "dog");
+    const isBiped = species === "human";
+    const petAnalysis: PetAnalysis = {
+      species,
+      breed: session?.breed || "Mixed",
+      bodyType: isBiped ? "biped" : "quadruped",
+      estimatedPose: "standing",
+      legCount: isBiped ? 2 : 4,
+      hasTail: !isBiped,
+      hasWings: false,
+      bodyProportions: { headSize: "medium", legLength: "medium", bodyLength: "medium", neckLength: "medium" },
+      coatColors: ["#C0A080"],
+      coatPattern: "solid",
+    };
+
+    let riggedGlbBase64: string | null = null;
+    let report: unknown = null;
+    for (let attempt = 1; attempt <= 2 && !riggedGlbBase64; attempt++) {
+      try {
+        const buildState = await runBuildPipeline(
+          petAnalysis,
+          glbBase64,
+          async (step, pct, detail) => console.log(`[PipelineRig job ${job.id} attempt ${attempt}] ${step}: ${detail} (${pct}%)`),
+          referenceBase64,
+          { facialVisemes: !!rigging.facial } // P4: visemes only when purchased
+        );
+        if (buildState.status !== "completed" || !buildState.riggedGlbBase64) {
+          console.warn(`[PipelineRig job ${job.id}] attempt ${attempt} did not produce a rig: ${buildState.statusMessage || buildState.status}`);
+          continue;
+        }
+        // Quality gates: anatomy + physics at 9.8 m/s² (§5.4 known-bug guards).
+        await updateJobStatus(job.id, "validating");
+        const imported = await executeBlenderTool("import_glb", { glb_base64: buildState.riggedGlbBase64 });
+        if (!imported.success) throw new Error(imported.error || "rigged GLB re-import failed");
+        const validation = await executeBlenderTool("physics_validate", {
+          profile: petAnalysis.bodyType,
+          facial: !!rigging.facial,
+        });
+        report = validation.data ?? validation;
+        const passed = !!(validation.success && (validation.data?.pass ?? (validation as any).pass));
+        if (passed) {
+          riggedGlbBase64 = buildState.riggedGlbBase64;
+        } else {
+          console.warn(`[PipelineRig job ${job.id}] attempt ${attempt} failed quality gates:`, JSON.stringify(report).slice(0, 600));
+          await updateJobStatus(job.id, "rigging");
+        }
+      } catch (attemptErr: any) {
+        console.error(`[PipelineRig job ${job.id}] attempt ${attempt} error:`, attemptErr?.message || attemptErr);
+      }
+    }
+
+    if (riggedGlbBase64 && job.creation_id) {
+      const riggedUrl = await uploadBase64Binary(riggedGlbBase64, "model/gltf-binary");
+      await setCreationRiggedModel(job.creation_id, job.user_phone, riggedUrl, report);
+      await updateJobStatus(job.id, "done");
+      await sendSms(job.user_phone, `🐾 Paws & Memories: Your rigged 3D model is ready! View it at ${process.env.APP_URL || "your app"}.`);
+    } else {
+      // Static fallback: model already delivered; refund only the add-on.
+      const addon = riggingAddonCost(rigging);
+      if (addon > 0) await restoreReservedGenerationCredits(job.user_phone, addon);
+      if (job.creation_id) await setCreationRiggedModel(job.creation_id, job.user_phone, "", report).catch?.(() => {});
+      await updateJobStatus(job.id, "done_static_fallback", "Rigging did not pass quality gates; static model delivered and rigging credits refunded.");
+      await sendSms(job.user_phone, `🐾 Paws & Memories: Your 3D model is ready as a static model. Rigging didn't pass our quality checks, so those PupCoins were refunded.`);
+    }
+  } catch (err: any) {
+    console.error(`[PipelineRig job ${job.id}] fatal:`, err?.message || err);
+    const { updateJobStatus: setStatus, restoreReservedGenerationCredits: refund } = await import("./db");
+    try {
+      const session = await getPipelineSessionByBuildJobId(job.id);
+      const addon = riggingAddonCost(session?.customization_state?.rigging);
+      if (addon > 0) await refund(job.user_phone, addon);
+    } catch {}
+    await setStatus(job.id, "done_static_fallback", "Rigging stage errored; static model delivered and rigging credits refunded.").catch?.(() => {});
+  } finally {
+    pipelineRigLocks.delete(job.id);
+  }
+}
 import {
   signToken,
   requireAuth,
@@ -4577,7 +4680,10 @@ async function startServer() {
         return res.status(400).json({ success: false, error: "Model is not printable. Please fix validation errors." });
       }
 
-      const MODEL_COST = CREDIT_PRICES.STATIC_3D_PHOTO; // Authoritative price
+      // Authoritative price: base model + optional rigging add-ons chosen on
+      // the customize screen (P3/P4). The client shows the same computation;
+      // the server total is the one that gets reserved.
+      const MODEL_COST = createModelCost(session.customization_state?.rigging as RiggingSelection | undefined);
 
       // 1. Reserve
       const reserveResult = await reservePipelineSessionForBuild(sessionId, userPhone, idempotencyKey, MODEL_COST);
@@ -4962,9 +5068,17 @@ async function startServer() {
             const result = await pollImageTo3D(job.operation_name);
             if (result.done) {
               if (result.glbUrl) {
+                // Static model is ALWAYS stored first — a later rig failure can
+                // never cost the user their base model (P3 §5.3).
                 const modelUrl = await uploadBinaryFromUrl(result.glbUrl, "model/gltf-binary");
-                await updateJobStatus(jobId, "done");
                 await setCreationModelUrl(job.creation_id!, req.user!.phone, modelUrl);
+                const rigSession = await getPipelineSessionByBuildJobId(jobId);
+                if (rigSession?.customization_state?.rigging?.enabled) {
+                  await updateJobStatus(jobId, "rigging");
+                  void runCreatePipelineRigStage({ id: jobId, user_phone: req.user!.phone, creation_id: job.creation_id ?? null }, result.glbUrl);
+                  return res.json({ success: true, status: "rigging", model_url: modelUrl });
+                }
+                await updateJobStatus(jobId, "done");
                 await sendSms(req.user!.phone, `🐾 Paws & Memories: Your 3D pet model is ready! View it at ${process.env.APP_URL || "your app"}.`);
                 return res.json({ success: true, status: "done", model_url: modelUrl });
               } else {
@@ -5107,11 +5221,18 @@ async function startServer() {
             const result = await pollImageTo3D(job.operation_name);
             if (result.done) {
               if (result.glbUrl) {
+                // Static model is ALWAYS stored first (P3 §5.3).
                 const modelUrl = await uploadBinaryFromUrl(result.glbUrl, "model/gltf-binary");
-                await updateJobStatus(job.id, "done");
                 if (job.creation_id) {
                   await setCreationModelUrl(job.creation_id, job.user_phone, modelUrl);
                 }
+                const rigSession = await getPipelineSessionByBuildJobId(job.id);
+                if (rigSession?.customization_state?.rigging?.enabled) {
+                  await updateJobStatus(job.id, "rigging");
+                  void runCreatePipelineRigStage({ id: job.id, user_phone: job.user_phone, creation_id: job.creation_id ?? null }, result.glbUrl);
+                  continue;
+                }
+                await updateJobStatus(job.id, "done");
                 await sendSms(job.user_phone, `🐾 Paws & Memories: Your 3D pet model is ready! View it at ${process.env.APP_URL || "your app"}.`);
               } else {
                 await updateJobStatus(job.id, "failed", result.error || "Meshy generation failed");

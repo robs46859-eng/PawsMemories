@@ -488,6 +488,29 @@ export async function initDb(): Promise<void> {
       console.warn("⚠️ Schema migration warning (model support):", migErr);
     }
 
+    // Optional rigging on the create pipeline (redress P3/P4): rig-stage job
+    // statuses + rigged artifact/report columns on creations. Safe to re-run.
+    try {
+      const [rigCols] = await getPool().query(
+        `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'creations' AND COLUMN_NAME IN ('rigged_model_url','rig_report')`,
+        [dbName]
+      ) as any;
+      const rigColNames = (rigCols as any[]).map((c: any) => c.COLUMN_NAME);
+      if (!rigColNames.includes("rigged_model_url")) {
+        await getPool().query(`ALTER TABLE creations ADD COLUMN rigged_model_url LONGTEXT NULL AFTER model_url`);
+        console.log("✅ Migration: added creations.rigged_model_url");
+      }
+      if (!rigColNames.includes("rig_report")) {
+        await getPool().query(`ALTER TABLE creations ADD COLUMN rig_report JSON NULL AFTER rigged_model_url`);
+        console.log("✅ Migration: added creations.rig_report");
+      }
+      await getPool().query(
+        `ALTER TABLE generation_jobs MODIFY COLUMN status ENUM('queued','running','rigging','validating','done','done_static_fallback','failed') NOT NULL DEFAULT 'queued'`
+      );
+    } catch (migErr) {
+      console.warn("⚠️ Schema migration warning (optional rigging):", migErr);
+    }
+
     const requiredAvatarColumns: { name: string; ddl: string }[] = [
       { name: "model_url",          ddl: "ADD COLUMN model_url TEXT NULL" },
       { name: "sprite_sheet_url",   ddl: "ADD COLUMN sprite_sheet_url TEXT NULL" },
@@ -1557,7 +1580,7 @@ export async function createJob(data: {
 
 export async function updateJobStatus(
   jobId: number,
-  status: 'queued' | 'running' | 'done' | 'failed',
+  status: 'queued' | 'running' | 'rigging' | 'validating' | 'done' | 'done_static_fallback' | 'failed',
   error?: string | null,
   operationName?: string | null
 ): Promise<boolean> {
@@ -1615,6 +1638,35 @@ export async function setCreationModelUrl(creationId: number, phone: string, mod
     [modelUrl, creationId, phone]
   ) as any;
   return result.affectedRows === 1;
+}
+
+/** P3 optional rigging: persist the rigged GLB + validation report alongside the static model. */
+export async function setCreationRiggedModel(
+  creationId: number,
+  phone: string,
+  riggedModelUrl: string,
+  rigReport: unknown
+): Promise<boolean> {
+  const [result] = await getPool().query(
+    `UPDATE creations SET rigged_model_url = ?, rig_report = ? WHERE id = ? AND user_phone = ?`,
+    [riggedModelUrl, JSON.stringify(rigReport ?? null), creationId, phone]
+  ) as any;
+  return result.affectedRows === 1;
+}
+
+/** P3 optional rigging: find the create-pipeline session that owns a build job. */
+export async function getPipelineSessionByBuildJobId(jobId: number): Promise<CreatePipelineSession | null> {
+  const [rows] = await getPool().query(
+    `SELECT * FROM create_pipeline_sessions WHERE build_job_id = ? LIMIT 1`,
+    [jobId]
+  ) as any;
+  if (!rows || rows.length === 0) return null;
+  const row = rows[0];
+  let customization_state = null;
+  try {
+    if (row.customization_state) customization_state = JSON.parse(row.customization_state);
+  } catch (e) {}
+  return { ...row, customization_state };
 }
 
 export async function getDailyVideoCount(phone: string): Promise<number> {

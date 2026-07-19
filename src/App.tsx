@@ -634,7 +634,7 @@ export default function App() {
             onOpenCreate={() => !isAuthed ? setCurrentScreen(Screen.SIGN_UP) : setCurrentScreen(Screen.CREATE)}
             onOpenMarketplace={() => setCurrentScreen(Screen.MARKETPLACE)}
             onOpenPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
-            onOpenFurball={() => setCurrentScreen(Screen.MODELS)}
+            onOpenFurball={() => setCurrentScreen(Screen.CREATE)} /* RD-6: Furball3D gated; route to Create */
             onOpenAnimator={openAnimationStudio}
             onOpenFidos={() => setCurrentScreen(Screen.PAWLISHER)}
           />
@@ -753,7 +753,7 @@ export default function App() {
               <Store
                 userProfile={userProfile}
                 onOpenCreditStore={() => setShowCreditStore(true)}
-                onGoToAvatars={() => setCurrentScreen(Screen.MODELS)}
+                onGoToAvatars={() => setCurrentScreen(Screen.CREATE)} /* RD-6: avatars gated; route to Create */
                 albums={albums}
                 creations={creations}
                 onSelectCreation={handleSelectCreation}
@@ -811,7 +811,7 @@ export default function App() {
                 onOpenCreate={() => setCurrentScreen(Screen.CREATE)}
                 onOpenMarketplace={() => setCurrentScreen(Screen.MARKETPLACE)}
                 onOpenPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
-                onOpenFurball={() => setCurrentScreen(Screen.MODELS)}
+                onOpenFurball={() => setCurrentScreen(Screen.CREATE)} /* RD-6: Furball3D gated; route to Create */
                 onOpenAnimator={openAnimationStudio}
                 onOpenFidos={() => setCurrentScreen(Screen.PAWLISHER)}
               />
@@ -878,7 +878,7 @@ export default function App() {
             isDarkMode={isDarkMode}
             onNavigate={setCurrentScreen}
             onOpenCreditStore={() => setShowCreditStore(true)}
-            onLaunchAR={() => setCurrentScreen(Screen.MODELS)}
+            onLaunchAR={() => setCurrentScreen(Screen.CREATE)} /* RD-6: AR entry gated; route to Create */
           />
         </Suspense>
       )}

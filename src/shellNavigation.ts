@@ -18,7 +18,9 @@ export const SIDEBAR_NAV: ShellNavigationItem[] = [
   { id: "home", label: "Home", screen: Screen.DASHBOARD, materialIcon: "home" },
   { id: "fur-bin", label: "Fur Bin©️", screen: Screen.FURBIN, materialIcon: "inventory_2" },
   { id: "marketplace-side", label: "Marketplace", screen: Screen.MARKETPLACE, materialIcon: "storefront" },
-  { id: "animate", label: "Animate", screen: Screen.ANIMATOR, materialIcon: "movie", imageSrc: "/brand/animation-studio.png" },
+  // RD-1: "Animate" removed while Animation Studio is gated behind
+  // UnderConstructionLock — the shell must never navigate to a dead end.
+  // Restore this entry when the studio unlocks.
 ];
 
 export const MOBILE_NAV = [...SIDEBAR_NAV, { id: "profile", label: "Profile", screen: Screen.PROFILE, materialIcon: "person" }];
