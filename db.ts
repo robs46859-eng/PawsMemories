@@ -2,6 +2,11 @@ import mysql from "mysql2/promise";
 import { generateUserKey } from "./auth";
 import { CREDIT_PRICES } from "./src/pricing";
 import type { ModelSpatialMetadata } from "./src/three/spatial/types";
+import type {
+  PaidEndpoint,
+  PaidUsageLimits,
+  PaidUsageReservation,
+} from "./server/paidApiGuards";
 
 /** Internal row key for the seeded admin account (not a phone number). */
 const ADMIN_KEY = process.env.ADMIN_KEY || process.env.ADMIN_PHONE || "";
@@ -686,6 +691,18 @@ export async function initDb(): Promise<void> {
         count       INT          NOT NULL DEFAULT 0,
         PRIMARY KEY (user_phone, endpoint, day),
         FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // Aggregate request and reserved-cost budget for paid AR endpoints. This is
+    // separate from the user table so one transaction can lock both counters.
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS api_usage_global_daily (
+        endpoint                 VARCHAR(32) NOT NULL,
+        day                      DATE        NOT NULL,
+        count                    INT         NOT NULL DEFAULT 0,
+        reserved_cost_micro_usd  BIGINT      NOT NULL DEFAULT 0,
+        PRIMARY KEY (endpoint, day)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
@@ -1678,11 +1695,7 @@ export async function getDailyVideoCount(phone: string): Promise<number> {
   return Number(arr[0].count);
 }
 
-/**
- * Atomically increment today's usage count for (user, endpoint) and return the
- * new count. Used to enforce per-user daily caps on the paid AR endpoints
- * (classify/rig/semantic_scan) — see server/paidApiGuards.ts.
- */
+/** @deprecated Paid routes must use reservePaidUsage so aggregate caps stay atomic. */
 export async function bumpDailyUsage(phone: string, endpoint: string): Promise<number> {
   await getPool().query(
     `INSERT INTO api_usage_daily (user_phone, endpoint, day, count)
@@ -1696,6 +1709,99 @@ export async function bumpDailyUsage(phone: string, endpoint: string): Promise<n
   );
   const arr = rows as unknown as { count: string | number }[];
   return arr.length ? Number(arr[0].count) : 0;
+}
+
+/**
+ * Atomically reserve both user and aggregate capacity before a paid provider
+ * call. Locks are always acquired global-first, then user, to keep concurrent
+ * requests in a consistent order. A denied reservation changes neither row.
+ */
+export async function reservePaidUsage(
+  phone: string,
+  endpoint: PaidEndpoint,
+  limits: PaidUsageLimits,
+): Promise<PaidUsageReservation> {
+  const connection = await getPool().getConnection();
+  try {
+    await connection.beginTransaction();
+
+    await connection.query(
+      `INSERT INTO api_usage_global_daily
+         (endpoint, day, count, reserved_cost_micro_usd)
+       VALUES (?, UTC_DATE(), 0, 0)
+       ON DUPLICATE KEY UPDATE endpoint = VALUES(endpoint)`,
+      [endpoint],
+    );
+    await connection.query(
+      `INSERT INTO api_usage_daily (user_phone, endpoint, day, count)
+       VALUES (?, ?, UTC_DATE(), 0)
+       ON DUPLICATE KEY UPDATE user_phone = VALUES(user_phone)`,
+      [phone, endpoint],
+    );
+
+    const [globalRows] = await connection.query(
+      `SELECT count, reserved_cost_micro_usd
+       FROM api_usage_global_daily
+       WHERE endpoint = ? AND day = UTC_DATE()
+       FOR UPDATE`,
+      [endpoint],
+    ) as any;
+    const [userRows] = await connection.query(
+      `SELECT count
+       FROM api_usage_daily
+       WHERE user_phone = ? AND endpoint = ? AND day = UTC_DATE()
+       FOR UPDATE`,
+      [phone, endpoint],
+    ) as any;
+
+    const globalCount = Number(globalRows?.[0]?.count || 0);
+    const globalReservedCostMicroUsd = Number(globalRows?.[0]?.reserved_cost_micro_usd || 0);
+    const userCount = Number(userRows?.[0]?.count || 0);
+    const nextCost = globalReservedCostMicroUsd + limits.estimatedCostMicroUsd;
+
+    let reason: PaidUsageReservation["reason"];
+    if (userCount >= limits.userDailyCap) reason = "user_cap";
+    else if (globalCount >= limits.globalDailyCap) reason = "global_cap";
+    else if (nextCost > limits.globalDailyCostMicroUsd) reason = "global_cost_cap";
+
+    if (reason) {
+      await connection.rollback();
+      return {
+        allowed: false,
+        reason,
+        userCount,
+        globalCount,
+        globalReservedCostMicroUsd,
+      };
+    }
+
+    await connection.query(
+      `UPDATE api_usage_global_daily
+       SET count = count + 1,
+           reserved_cost_micro_usd = reserved_cost_micro_usd + ?
+       WHERE endpoint = ? AND day = UTC_DATE()`,
+      [limits.estimatedCostMicroUsd, endpoint],
+    );
+    await connection.query(
+      `UPDATE api_usage_daily
+       SET count = count + 1
+       WHERE user_phone = ? AND endpoint = ? AND day = UTC_DATE()`,
+      [phone, endpoint],
+    );
+    await connection.commit();
+
+    return {
+      allowed: true,
+      userCount: userCount + 1,
+      globalCount: globalCount + 1,
+      globalReservedCostMicroUsd: nextCost,
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 }
 
 /** Read today's usage count for (user, endpoint) without incrementing. */

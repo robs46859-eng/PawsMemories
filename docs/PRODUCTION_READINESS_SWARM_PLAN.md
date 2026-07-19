@@ -3,6 +3,7 @@
 **Director:** Codex
 **Started:** 2026-07-14
 **Baseline:** `origin/main` at `5085d0b`
+**Current integrated baseline:** `origin/main` at `8e62581`
 **Release state:** HOLD - implementation and evidence gates remain open
 
 ## Product Outcome
@@ -11,7 +12,8 @@ Production readiness means all of the following work together as one supported p
 
 1. A signed-in user can provide a prompt, choose owned 3D models and objects, optionally
    choose an owned BIM building model, and receive a playable, downloadable animated
-   video with an exact duration of 10 seconds.
+   video at a documented provider-supported duration. The UI and saved metadata must
+   report the validated duration accurately; exact 10-second output is a future add-on.
 2. AR passes the complete P0-P9 hardening program and a named human reviewer records a
    real-device go/no-go decision. Automated checks cannot substitute for this approval.
 3. Pawprints provides curated creative templates with useful customization, previews,
@@ -47,20 +49,23 @@ Exit: concurrency tests cannot exceed any configured cap; invalid, unauthorized,
 or rejected work consumes neither a reservation nor a provider call; staging kill switches
 have been exercised and restored by an operator.
 
-### B. Ten-Second Prompt-to-Video
+### B. Prompt-to-Video Foundation
 
 Owner: Video pipeline lane
 
 - Define a versioned job contract containing prompt, owned actor/model IDs, owned object
-  IDs, optional owned BIM model ID, output aspect ratio, audio choice, and `duration=10`.
+  IDs, optional owned BIM model ID, output aspect ratio, audio choice, and a supported
+  duration selected from server-owned provider capabilities.
 - Resolve all assets server-side and enforce ownership before reserving cost.
 - Normalize the prompt into a deterministic scene plan and provider request.
 - Support a provider-backed path and a deterministic fake with call counters.
 - Validate delivered duration, codec, dimensions, size, and ownership before persistence.
 - Expose durable queued/running/succeeded/failed/cancelled states with idempotent retries.
 
-Exit: supported inputs produce an owned 10-second output in staging, failures are
-recoverable and observable, and no caller can reference another user's assets.
+Exit: supported inputs produce an owned output at its declared duration in staging;
+duration, codec, dimensions, and media integrity are validated; failures are recoverable
+and observable; and no caller can reference another user's assets. Exact 10-second
+normalization is not an exit criterion for the initial production release.
 
 ### C. AR Hardening and Human Acceptance
 
@@ -124,7 +129,7 @@ GO, and the approved artifact is deployed with post-deploy smoke and monitoring 
 1. P0 atomic budgets, kill switches, and evidence scaffolding.
 2. Importable full app and complete route/security contracts.
 3. Private media ownership and signed delivery.
-4. Versioned 10-second video job contract and deterministic orchestration.
+4. Versioned supported-duration video job contract and deterministic orchestration.
 5. BIM/model/object scene resolution and output validation.
 6. Pawprints template registry, customization, and persistence.
 7. Typed route/action registry and global shell cleanup.
@@ -143,7 +148,7 @@ work may proceed in isolated worktrees, but integration follows this dependency 
 | Baseline CI | Type, unit/AR, IFC, security, contract, build | Verified for stabilization baseline |
 | P0 budgets | Concurrent reservation, dollar ceiling, kill-switch staging report | Open |
 | Ownership/privacy | Two-user media/BIM/video contracts and private bucket evidence | Open |
-| Video | Exact 10-second staging output and media validation report | Open |
+| Video | Supported-duration staging output and media validation report | Open |
 | Pawprints | Template/action inventory and browser/accessibility report | Open |
 | Shell | Complete UI action map and desktop/mobile smoke report | Open |
 | AR P0-P9 | Evidence register with no unwaived critical/high findings | Open |
@@ -165,3 +170,33 @@ Begin with the P0 atomic budget contract and complete product/route inventories 
 parallel. Video, Pawprints, and shell implementation may start after their inventories are
 reviewed, but no paid provider path or production deployment may be enabled before P0 and
 ownership gates are proven.
+
+## Future Exact 10-Second Video Add-On
+
+Exact 10-second output is deferred beyond the initial production release. A future add-on
+may normalize a shorter provider result, extend a deterministic rendered scene, or use a
+provider that natively supports 10 seconds. It must not mislabel an 8-second file as 10
+seconds, duplicate frames without disclosure, or bypass media validation.
+
+Before this add-on ships, it requires a versioned duration policy, audio-safe extension or
+trimming, deterministic tests, provider and post-processing cost reservations, staging
+outputs measured to the accepted timing tolerance, cancellation/retry behavior, and
+product copy that accurately describes the result. The current `swarm/video-pipeline`
+prototype hardcodes exact 10-second behavior and must be revised before it can be proposed
+for integration.
+
+## Future Fido's Styles Asset Library
+
+After the shell and production safety gates are closed, expand Fido's Styles with a
+curated library of production-ready assets for both dog and human models. Candidate
+categories include clothing, collars and harnesses, toys, beds, furniture, props, and
+other accessories.
+
+Every asset must have recorded source provenance, license, attribution obligations,
+redistribution rights, permitted commercial use, author, version, checksum, and a local
+license copy before it can enter the catalog. Imported meshes must also pass geometry,
+skeleton/attachment, material, texture, scale, orientation, polygon-budget, accessibility,
+mobile-performance, malware, and visual-QA checks. Assets that are only partially meshed,
+have ambiguous licensing, contain external runtime dependencies, or cannot be safely
+attached to both supported body profiles remain unavailable. This is future work and is
+not part of the current shell completion claim.
