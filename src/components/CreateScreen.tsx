@@ -7,6 +7,34 @@ interface CreateScreenProps {
   onNavigate: (screen: Screen) => void;
 }
 
+function downscaleReferenceImage(dataUrl: string, maxDimension = 2048): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
+      if (scale >= 1) {
+        resolve(dataUrl);
+        return;
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const context = canvas.getContext("2d");
+      if (!context) {
+        reject(new Error("This browser could not optimize the image."));
+        return;
+      }
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL("image/jpeg", 0.88));
+    };
+    image.onerror = () => reject(new Error("The selected image could not be decoded."));
+    image.src = dataUrl;
+  });
+}
+
 export default function CreateScreen({ onNavigate }: CreateScreenProps) {
   const { state, setState } = useCreateFlow();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -29,13 +57,20 @@ export default function CreateScreen({ onNavigate }: CreateScreenProps) {
 
     setIsProcessing(true);
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       const base64Url = event.target?.result as string;
-      setState((prev) => ({
-        ...prev,
-        inputPhotoUrl: base64Url,
-      }));
-      setIsProcessing(false);
+      try {
+        const optimizedPhoto = await downscaleReferenceImage(base64Url);
+        setState((prev) => ({
+          ...prev,
+          inputPhotoUrl: optimizedPhoto,
+        }));
+        setError(null);
+      } catch (optimizationError: any) {
+        setError(optimizationError?.message || "Failed to optimize image file.");
+      } finally {
+        setIsProcessing(false);
+      }
     };
     reader.onerror = () => {
       setError("Failed to read image file.");

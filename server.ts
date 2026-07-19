@@ -552,6 +552,7 @@ async function startServer() {
     "/api/profile/photo",
     "/api/profile/photos",
     "/api/bim/import-ifc",
+    "/api/create-pipeline/generate-reference",
   ]);
   app.use((req, res, next) => {
     // The exact production pet-sim app is mounted after its provider adapters
