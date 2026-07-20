@@ -386,8 +386,9 @@ export default function AnimatorScreen({
         if (state.cameraTarget) {
           setCameraState(state.cameraTarget);
         }
-        if (state.clipTarget && activeController) {
-          activeController.selectClip(state.clipTarget);
+        if (activeController) {
+          const target = state.clipTargets[activeActorId || "default"];
+          if (target) activeController.selectClip(target);
         }
       }
       
