@@ -25,7 +25,7 @@ const RandyChat = lazy(() => import("./components/RandyChat"));
 import AlbumView from "./components/AlbumView";
 import AlbumsPage from "./components/AlbumsPage";
 import { fetchMe, fetchCreations, fetchAlbums, createAlbum, clearToken, claimAchievement, claimDailyStreak, claimShareReward, confirmCreditsSession, acceptCurrentTerms } from "./api";
-import { Sun, Moon, LogOut, RefreshCw, Zap, Bell, ShoppingCart, Users, HelpCircle, PackageCheck } from "lucide-react";
+import { Sun, Moon, LogOut, RefreshCw, Zap, Bell, ShoppingCart, Users, HelpCircle, PackageCheck, ShoppingBag } from "lucide-react";
 import CreditStore from "./components/CreditStore";
 const AvatarDashboard = lazy(() => import("./components/AvatarDashboard"));
 import Store from "./components/Store";
@@ -37,6 +37,7 @@ const FidosStylesScreen = lazy(() => import("./components/FidosStylesScreen"));
 const FurBinScreen = lazy(() => import("./components/FurBinScreen"));
 const WagsAdminPanel = lazy(() => import("./components/WagsAdminPanel"));
 const WagsInboxScreen = lazy(() => import("./components/WagsInboxScreen"));
+const MarketplaceAdminScreen = lazy(() => import("./components/MarketplaceAdminScreen"));
 const AnimatorScreen = lazy(() => import("./animator/components/AnimatorScreen"));
 import WarehouseMode from "./components/WarehouseMode";
 import { MOBILE_NAV, SIDEBAR_NAV, TOP_PRIMARY_NAV } from "./shellNavigation";
@@ -70,6 +71,7 @@ const SCREEN_PATHS: Partial<Record<Screen, string>> = {
   [Screen.PRICING]: "/pricing",
   [Screen.ADMIN_WAGS]: "/admin/wags",
   [Screen.WAGS_INBOX]: "/wags",
+  [Screen.ADMIN_MARKETPLACE]: "/admin/marketplace",
 };
 
 function screenFromPath(pathname: string): Screen | null {
@@ -599,6 +601,16 @@ export default function App() {
                     <PackageCheck size={18} />
                   </button>
                 )}
+                {userProfile.isAdmin && (
+                  <button
+                    onClick={() => setCurrentScreen(Screen.ADMIN_MARKETPLACE)}
+                    className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full border border-outline-variant/30 bg-surface-container text-on-surface-variant hover:text-primary sm:flex"
+                    title="Marketplace admin"
+                    aria-label="Marketplace catalog manager"
+                  >
+                    <ShoppingBag size={18} />
+                  </button>
+                )}
                 <button onClick={handleLogout} className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full border border-outline-variant/30 bg-surface-container text-on-surface-variant hover:bg-error/10 hover:text-error sm:flex" title="Log out" aria-label="Log out">
                   <LogOut size={18} />
                 </button>
@@ -610,7 +622,7 @@ export default function App() {
 
       <div className="flex-grow flex w-full relative">
         {/* Desktop Sidebar */}
-        {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN, Screen.CREATE, Screen.CREATE_REFERENCE, Screen.CREATE_CUSTOMIZE, Screen.CREATE_VALIDATE, Screen.CREATE_CHECKOUT, Screen.MARKETPLACE, Screen.ADMIN_WAGS, Screen.WAGS_INBOX].includes(currentScreen) && (
+        {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN, Screen.CREATE, Screen.CREATE_REFERENCE, Screen.CREATE_CUSTOMIZE, Screen.CREATE_VALIDATE, Screen.CREATE_CHECKOUT, Screen.MARKETPLACE, Screen.ADMIN_WAGS, Screen.ADMIN_MARKETPLACE, Screen.WAGS_INBOX].includes(currentScreen) && (
           <aside className="fixed bottom-0 left-0 top-16 z-40 hidden w-64 shrink-0 flex-col overflow-x-hidden overflow-y-auto border-r border-outline-variant/20 bg-surface/85 py-5 shadow-xl backdrop-blur-xl dark:bg-surface-dim/85 md:flex">
             <nav className="mt-4 flex-1 space-y-2 px-4">
               {SIDEBAR_NAV.map((item) => (
@@ -801,6 +813,23 @@ export default function App() {
                   onUserUpdate={applyUser}
                 />
               </Suspense>
+            )}
+
+            {currentScreen === Screen.ADMIN_MARKETPLACE && (
+              userProfile.isAdmin ? (
+                <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
+                  <MarketplaceAdminScreen onClose={() => setCurrentScreen(Screen.DASHBOARD)} />
+                </Suspense>
+              ) : (
+                <HomePage
+                  userProfile={userProfile}
+                  onOpenCreate={() => setCurrentScreen(Screen.CREATE)}
+                  onOpenMarketplace={() => setCurrentScreen(Screen.MARKETPLACE)}
+                  onOpenPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
+                  onOpenFurball={() => setCurrentScreen(Screen.CREATE)}
+                  onOpenFidos={() => setCurrentScreen(Screen.PAWLISHER)}
+                />
+              )
             )}
 
             {currentScreen === Screen.WAGS_INBOX && (

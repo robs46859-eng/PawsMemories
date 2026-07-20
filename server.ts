@@ -19,6 +19,25 @@ import { animatorRouter } from "./server/animator/routes.ts";
 import { planWagsBox, getPriorBoxHistory } from "./server/wags/planner";
 import { deliverBox, getOwnedWardrobeItems } from "./server/wags/delivery";
 import { RebakeRequestSchema, viewsFromAvatarRow } from "./server/textureSchemas";
+import {
+  MarketplaceAdminError,
+  listListingsWithCounts,
+  listingPreviews,
+  createListing,
+  updateListing,
+  reorderListings,
+  mintUploadUrl,
+  confirmAsset,
+  updateAsset,
+} from "./server/marketplaceAdmin";
+import {
+  CreateListingSchema,
+  UpdateListingSchema,
+  ReorderListingsSchema,
+  UploadUrlRequestSchema,
+  ConfirmAssetSchema,
+  UpdateAssetSchema,
+} from "./server/marketplaceSchemas";
 import { ANIMATOR_DATA_DIR } from "./server/animator/paths.ts";
 import { studioRouter } from "./server/animator/studio_proxy.ts";
 import { refundRouter } from "./server/refunds.ts";
@@ -1938,6 +1957,103 @@ async function startServer() {
       console.error("[admin/wags/boxes PATCH]", err?.message || err);
       res.status(500).json({ error: "Could not update box." });
     }
+  });
+
+  // ==========================================================================
+  // Phase 3 — admin catalog manager (/admin/marketplace).
+  // Route glue only: all logic lives in server/marketplaceAdmin.ts where it is
+  // unit-testable. Every endpoint is admin-gated server-side; the client gate
+  // in MarketplaceAdminScreen is cosmetic.
+  // ==========================================================================
+
+  /** Shared guard + error mapping for the marketplace admin routes. */
+  const requireMarketplaceAdmin = async (req: AuthedRequest, res: any): Promise<boolean> => {
+    if (!req.user || !await isUserAdmin(req.user.phone)) {
+      res.status(403).json({ error: "Admin only." });
+      return false;
+    }
+    return true;
+  };
+  const sendAdminError = (res: any, err: any, fallback: string) => {
+    if (err instanceof MarketplaceAdminError) return res.status(err.status).json({ error: err.message });
+    console.error("[admin/marketplace]", err?.message || err);
+    return res.status(500).json({ error: fallback });
+  };
+
+  app.get("/api/admin/marketplace/listings", requireAuth, async (req: AuthedRequest, res) => {
+    if (!await requireMarketplaceAdmin(req, res)) return;
+    try {
+      const listings = await listListingsWithCounts(getPool() as any, {
+        status: req.query.status ? String(req.query.status) : undefined,
+        limit: Number(req.query.limit ?? 50),
+        offset: Number(req.query.offset ?? 0),
+      });
+      res.json({ listings });
+    } catch (err: any) { sendAdminError(res, err, "Could not load listings."); }
+  });
+
+  app.get("/api/admin/marketplace/listings/:id/previews", requireAuth, async (req: AuthedRequest, res) => {
+    if (!await requireMarketplaceAdmin(req, res)) return;
+    try {
+      res.json({ previews: await listingPreviews(getPool() as any, Number(req.params.id)) });
+    } catch (err: any) { sendAdminError(res, err, "Could not load previews."); }
+  });
+
+  app.post("/api/admin/marketplace/listings", requireAuth, async (req: AuthedRequest, res) => {
+    if (!await requireMarketplaceAdmin(req, res)) return;
+    const parsed = CreateListingSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues.map((i) => i.message).join("; ") });
+    try {
+      res.status(201).json(await createListing(getPool() as any, req.user!.phone, parsed.data));
+    } catch (err: any) { sendAdminError(res, err, "Could not create the listing."); }
+  });
+
+  app.patch("/api/admin/marketplace/listings/:id", requireAuth, async (req: AuthedRequest, res) => {
+    if (!await requireMarketplaceAdmin(req, res)) return;
+    const parsed = UpdateListingSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues.map((i) => i.message).join("; ") });
+    try {
+      await updateListing(getPool() as any, Number(req.params.id), parsed.data);
+      res.json({ id: Number(req.params.id), updated: true });
+    } catch (err: any) { sendAdminError(res, err, "Could not update the listing."); }
+  });
+
+  app.post("/api/admin/marketplace/listings/:id/reorder", requireAuth, async (req: AuthedRequest, res) => {
+    if (!await requireMarketplaceAdmin(req, res)) return;
+    const parsed = ReorderListingsSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues.map((i) => i.message).join("; ") });
+    try {
+      await reorderListings(getPool() as any, parsed.data.order);
+      res.json({ reordered: parsed.data.order.length });
+    } catch (err: any) { sendAdminError(res, err, "Could not reorder listings."); }
+  });
+
+  app.post("/api/admin/marketplace/upload-url", requireAuth, async (req: AuthedRequest, res) => {
+    if (!await requireMarketplaceAdmin(req, res)) return;
+    const parsed = UploadUrlRequestSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues.map((i) => i.message).join("; ") });
+    try {
+      res.json(await mintUploadUrl(getPool() as any, parsed.data));
+    } catch (err: any) { sendAdminError(res, err, "Could not create an upload URL."); }
+  });
+
+  app.post("/api/admin/marketplace/assets", requireAuth, async (req: AuthedRequest, res) => {
+    if (!await requireMarketplaceAdmin(req, res)) return;
+    const parsed = ConfirmAssetSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues.map((i) => i.message).join("; ") });
+    try {
+      res.status(201).json(await confirmAsset(getPool() as any, parsed.data));
+    } catch (err: any) { sendAdminError(res, err, "Could not confirm the asset."); }
+  });
+
+  app.patch("/api/admin/marketplace/assets/:id", requireAuth, async (req: AuthedRequest, res) => {
+    if (!await requireMarketplaceAdmin(req, res)) return;
+    const parsed = UpdateAssetSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues.map((i) => i.message).join("; ") });
+    try {
+      await updateAsset(getPool() as any, Number(req.params.id), parsed.data);
+      res.json({ id: Number(req.params.id), updated: true });
+    } catch (err: any) { sendAdminError(res, err, "Could not update the asset."); }
   });
 
   app.get("/api/pawprints/templates", (_req, res) => {
