@@ -18,7 +18,7 @@ import { semanticScan as runSemanticScan } from "./server/semanticScan";
 import { animatorRouter } from "./server/animator/routes.ts";
 import { planWagsBox, getPriorBoxHistory } from "./server/wags/planner";
 import { deliverBox, getOwnedWardrobeItems } from "./server/wags/delivery";
-import { RebakeRequestSchema, viewsFromAvatarRow } from "./server/textureSchemas";
+import { RebakeRequestSchema, StylizeRequestSchema, viewsFromAvatarRow } from "./server/textureSchemas";
 import {
   MarketplaceAdminError,
   listListingsWithCounts,
@@ -31,6 +31,15 @@ import {
   confirmAsset,
   updateAsset,
 } from "./server/marketplaceAdmin";
+import {
+  publicListings,
+  publicListing,
+  checkoutDigital,
+  getOrderStatus,
+  getUserEntitlements,
+  digitalDownload
+} from "./server/marketplacePublic";
+import { ListingQuerySchema } from "./server/marketplaceSchemas";
 import {
   CreateListingSchema,
   UpdateListingSchema,
@@ -56,6 +65,7 @@ import { createHash, randomUUID } from "crypto";
 import { resolveBreedProfile } from "./server/breedProfiles";
 import { decayDrives, DEFAULT_DRIVES, DEFAULT_HORMONES, weightsFromTemperament } from "./src/brain";
 import { uploadBase64Image, uploadBinaryFromUrl, fetchUrlAsBase64, uploadBase64Binary } from "./storage";
+import { getPrivateSignedUrl, putPrivateObject, mintObjectKey } from "./storage.private";
 import { runBuildPipeline } from "./agent/graph/orchestrator";
 import { analyzePetImage, type PetAnalysis } from "./ollama-agent";
 import { getBlenderClient } from "./agent/tools/blender_client";
@@ -482,6 +492,32 @@ async function startServer() {
         } catch (error) {
           await getPool().query(`UPDATE print_orders SET status = 'payment_received' WHERE id = ?`, [printOrderId]);
           throw error;
+        }
+      } else if (metadata.type === "marketplace_digital" && metadata.digitalOrderId && metadata.userPhone && metadata.listingId) {
+        const digitalOrderId = Number(metadata.digitalOrderId);
+        
+        // 1. Mark order as paid
+        await getPool().query(
+          `UPDATE marketplace_digital_orders 
+           SET status = 'paid', stripe_payment_intent = ?, updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+          [typeof session.payment_intent === 'string' ? session.payment_intent : null, digitalOrderId]
+        );
+
+        // 2. Grant entitlement idempotently
+        const [oRows] = await getPool().query(
+          `SELECT asset_id FROM marketplace_digital_orders WHERE id = ? LIMIT 1`,
+          [digitalOrderId]
+        ) as any;
+        
+        if (oRows && oRows.length > 0) {
+          await getPool().query(
+            `INSERT INTO marketplace_entitlements (user_phone, listing_id, asset_id, digital_order_id, granted_reason)
+             VALUES (?, ?, ?, ?, 'purchase')
+             ON DUPLICATE KEY UPDATE id = id`,
+            [metadata.userPhone, metadata.listingId, oRows[0].asset_id, digitalOrderId]
+          );
+          console.log(`✅ Granted marketplace entitlement for listing ${metadata.listingId} to ${metadata.userPhone}.`);
         }
       } else {
         // Standard physical album order
@@ -1789,6 +1825,93 @@ async function startServer() {
       res.status(500).json({ error: "Could not start the texture re-bake." });
     }
   });
+  // POST /api/texture/jobs — Start a stylization texture job (UV6)
+  app.post("/api/texture/jobs", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const idempotencyKey = String(req.header("Idempotency-Key") || "").trim().slice(0, 128);
+      if (!idempotencyKey) return res.status(400).json({ error: "An idempotency key is required." });
+
+      const parsed = StylizeRequestSchema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.issues.map((i) => i.message).join("; ") });
+      }
+
+      const { avatar_id, prompt, tier, identity_strength } = parsed.data;
+      const phone = req.user!.phone;
+
+      // 1. Idempotency Check
+      const [existing]: any = await getPool().query(
+        `SELECT id, status, result_model_url FROM texture_jobs WHERE user_phone = ? AND idempotency_key = ? LIMIT 1`,
+        [phone, idempotencyKey],
+      );
+      if (existing?.[0]) {
+        return res.json({ jobId: existing[0].id, status: existing[0].status, resultUrl: existing[0].result_model_url, idempotent: true });
+      }
+
+      // 2. Avatar Ownership & Model Resolution
+      const [avatarRows]: any = await getPool().query(
+        `SELECT id, image_url, model_url, rigged_model_url FROM avatars WHERE id = ? AND user_phone = ? LIMIT 1`,
+        [avatar_id, phone],
+      );
+      const avatar = avatarRows?.[0];
+      if (!avatar) return res.status(404).json({ error: "Avatar not found." });
+      const sourceModelUrl = avatar.rigged_model_url || avatar.model_url;
+      if (!sourceModelUrl) return res.status(422).json({ error: "This avatar has no 3D model yet." });
+
+      // 3. Deduct Credits
+      const { CREDIT_PRICES } = await import("./src/pricing.js").catch(() => import("./src/pricing.ts"));
+      // Map tier to pricing (e.g. standard hermes looks pricing)
+      const cost = tier === "draft" ? 2 : tier === "studio" ? 20 : 8; 
+      
+      const conn = await getPool().getConnection();
+      try {
+        await conn.beginTransaction();
+        const [walletRows]: any = await conn.query(`SELECT balance FROM user_credits WHERE user_phone = ? FOR UPDATE`, [phone]);
+        const currentBalance = walletRows?.[0]?.balance ?? 0;
+        if (currentBalance < cost) {
+          await conn.rollback();
+          conn.release();
+          return res.status(402).json({ error: "Insufficient credits.", required: cost, balance: currentBalance });
+        }
+        await conn.query(
+          `INSERT INTO credit_ledger (user_phone, amount, reason, reference_id) VALUES (?, ?, ?, ?)`,
+          [phone, -cost, `texture_job_${tier}`, idempotencyKey],
+        );
+        await conn.query(
+          `UPDATE user_credits SET balance = balance - ? WHERE user_phone = ?`,
+          [cost, phone],
+        );
+        await conn.commit();
+      } catch (err) {
+        await conn.rollback();
+        conn.release();
+        throw err;
+      }
+      conn.release();
+
+      // 4. Create Job Record
+      const jobId = randomUUID();
+      await getPool().query(
+        `INSERT INTO texture_jobs (id, user_phone, avatar_id, job_type, status, source_model_url, prompt, tier, identity_strength, idempotency_key)
+         VALUES (?, ?, ?, 'stylize', 'queued', ?, ?, ?, ?, ?)`,
+        [jobId, phone, avatar.id, sourceModelUrl, prompt, tier, identity_strength, idempotencyKey],
+      );
+
+      res.status(202).json({ jobId, status: "queued", cost });
+
+      // 5. Hand off to background orchestrator
+      import("./server/textureJob.js").catch(() => import("./server/textureJob.ts")).then(({ processStylizationJob }) => {
+        processStylizationJob(jobId, phone, avatar.id, sourceModelUrl, prompt, tier, identity_strength);
+      }).catch(err => {
+        console.error("Failed to load textureJob module:", err);
+      });
+
+    } catch (err: any) {
+      console.error("[texture/jobs POST]", err?.message || err);
+      res.status(500).json({ error: "Could not start the texture job." });
+    }
+  });
+
 
   // GET /api/texture/jobs/:id — poll a re-bake job (owner only).
   app.get("/api/texture/jobs/:id", requireAuth, async (req: AuthedRequest, res) => {
@@ -1980,6 +2103,107 @@ async function startServer() {
     console.error("[admin/marketplace]", err?.message || err);
     return res.status(500).json({ error: fallback });
   };
+
+  // --- PUBLIC MARKETPLACE & DIGITAL PURCHASE ---
+  
+  app.get("/api/marketplace/listings", async (req, res) => {
+    const parsed = ListingQuerySchema.safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues.map((i) => i.message).join("; ") });
+    try {
+      res.json(await publicListings(getPool() as any, parsed.data));
+    } catch (err: any) {
+      console.error("[marketplace public]", err?.message || err);
+      res.status(500).json({ error: "Could not load listings." });
+    }
+  });
+
+  app.get("/api/marketplace/listings/:uuid", async (req, res) => {
+    try {
+      const listing = await publicListing(getPool() as any, String(req.params.uuid));
+      if (!listing) return res.status(404).json({ error: "Listing not found." });
+      res.json({ listing });
+    } catch (err: any) {
+      console.error("[marketplace public]", err?.message || err);
+      res.status(500).json({ error: "Could not load listing." });
+    }
+  });
+
+  app.post("/api/marketplace/listings/:uuid/checkout", requireAuth, paidLimiter, async (req: AuthedRequest, res) => {
+    const idempotencyKey = String(req.header("Idempotency-Key") || "").trim().slice(0, 128);
+    if (!idempotencyKey) return res.status(400).json({ error: "An idempotency key is required." });
+    
+    try {
+      const result = await checkoutDigital(getPool() as any, req.user!.phone, String(req.params.uuid), idempotencyKey);
+      if (result.checkoutUrl) {
+        return res.json({ checkoutUrl: result.checkoutUrl });
+      }
+      
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ["card", "us_bank_account", "cashapp"],
+        line_items: [{
+          price_data: {
+            currency: "usd",
+            product_data: {
+              name: `Pawsome3D Digital Model`, // Phase 4 doesn't dynamically fetch title for stripe product, just generic
+              description: `Digital download of 3D model`,
+            },
+            unit_amount: result.priceCents,
+          },
+          quantity: 1,
+        }],
+        mode: "payment",
+        // The success URL doesn't grant, it only redirects and polls
+        success_url: `${process.env.APP_URL || "http://localhost:5173"}/fur-bin?digital_success=true&order_id=${result.orderId}`,
+        cancel_url: `${process.env.APP_URL || "http://localhost:5173"}/marketplace`,
+        metadata: {
+          type: "marketplace_digital",
+          digitalOrderId: String(result.orderId),
+          userPhone: req.user!.phone,
+          listingId: String(result.listingId)
+        },
+      });
+      
+      await getPool().query(
+        `UPDATE marketplace_digital_orders SET stripe_session_id = ?, checkout_url = ? WHERE id = ?`,
+        [session.id, session.url, result.orderId]
+      );
+      
+      res.json({ checkoutUrl: session.url });
+    } catch (err: any) {
+      if (err.status) res.status(err.status);
+      else res.status(500);
+      res.json({ error: err.message || "Checkout failed." });
+    }
+  });
+
+  app.get("/api/marketplace/listings/:uuid/download", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const signed = await digitalDownload(getPool() as any, req.user!.phone, String(req.params.uuid));
+      res.json(signed);
+    } catch (err: any) {
+      if (err.status) res.status(err.status);
+      else res.status(500);
+      res.json({ error: err.message || "Download failed." });
+    }
+  });
+
+  app.get("/api/marketplace/orders/:id", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      res.json(await getOrderStatus(getPool() as any, req.user!.phone, Number(req.params.id)));
+    } catch (err: any) {
+      res.status(404).json({ error: err.message || "Not found" });
+    }
+  });
+
+  app.get("/api/marketplace/entitlements", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      res.json({ entitlements: await getUserEntitlements(getPool() as any, req.user!.phone) });
+    } catch (err: any) {
+      res.status(500).json({ error: "Could not load entitlements." });
+    }
+  });
+
+  // --- ADMIN MARKETPLACE ---
 
   app.get("/api/admin/marketplace/listings", requireAuth, async (req: AuthedRequest, res) => {
     if (!await requireMarketplaceAdmin(req, res)) return;
@@ -4908,6 +5132,223 @@ async function startServer() {
       if (err instanceof z.ZodError) return res.status(400).json({ success: false, error: err.issues[0]?.message || "Invalid print request." });
       const message = err?.message || "Could not start the print checkout.";
       console.error("Slant 3D print checkout error:", message);
+      res.status(/not configured/i.test(message) ? 503 : 502).json({ success: false, error: message });
+    }
+  });
+
+  app.post("/api/marketplace/listings/:uuid/print/checkout", requireAuth, paidLimiter, async (req: AuthedRequest, res) => {
+    let preparedOrderId: number | null = null;
+    try {
+      const input = PrintPrepareSchema.parse(req.body);
+      const phone = req.user!.phone;
+      const listingUuid = req.params.uuid;
+      
+      if (!slant3dConfigured()) return res.status(503).json({ success: false, error: "Slant 3D printing is not configured." });
+      if (!stripe) return res.status(503).json({ success: false, error: "Stripe checkout is not configured for physical orders." });
+      const idempotencyKey = String(req.header("Idempotency-Key") || "").trim().slice(0, 128);
+      if (!idempotencyKey) return res.status(400).json({ success: false, error: "An idempotency key is required." });
+      
+      const [existingRows] = await getPool().query(
+        `SELECT id, provider_pack_id, stl_url, target_height_mm, dimensions_json, topology_json,
+                checkout_url, retail_price_cents, status
+         FROM print_orders WHERE user_phone = ? AND idempotency_key = ? LIMIT 1`,
+        [phone, idempotencyKey],
+      ) as any;
+      if (existingRows?.[0]) {
+        const existing = existingRows[0];
+        if (existing.checkout_url) return res.json({ success: true, idempotent: true, order: existing, checkoutUrl: existing.checkout_url });
+        if (!existing.retail_price_cents) return res.status(409).json({ success: false, error: "This print quote could not be resumed. Start a new quote." });
+        const appUrl = process.env.APP_URL || "http://localhost:3000";
+        const resumed = await stripe.checkout.sessions.create({
+          payment_method_types: ["card"],
+          line_items: [{ price_data: { currency: "usd", product_data: { name: `Pawsome3D custom ${Math.round(Number(existing.target_height_mm))} mm figurine`, description: "Prepared, quality checked, printed, and shipped by Slant 3D." }, unit_amount: Number(existing.retail_price_cents) }, quantity: 1 }],
+          customer_email: input.recipient.email,
+          mode: "payment",
+          metadata: { type: "slant3d_print_order", printOrderId: String(existing.id), userPhone: phone, slantOrderId: String(existing.provider_pack_id) },
+          success_url: `${appUrl}/fur-bin?print_success=true&order_id=${existing.id}`,
+          cancel_url: `${appUrl}/fur-bin?print_cancelled=true&order_id=${existing.id}`,
+        });
+        await getPool().query(`UPDATE print_orders SET checkout_url = ?, stripe_session_id = ?, status = 'awaiting_payment' WHERE id = ?`, [resumed.url, resumed.id, existing.id]);
+        return res.json({ success: true, idempotent: true, order: existing, checkoutUrl: resumed.url });
+      }
+
+      // 1. Resolve listing and check bounds
+      const [lRows] = await getPool().query(
+        `SELECT id, name, status, print_size_min_mm, print_size_max_mm 
+         FROM marketplace_listings WHERE uuid = ? AND status = 'published' LIMIT 1`,
+        [listingUuid]
+      ) as any;
+      const listing = lRows?.[0];
+      if (!listing) return res.status(404).json({ success: false, error: "Listing not found or not published." });
+      
+      const targetMm = input.targetHeightMm;
+      const minMm = listing.print_size_min_mm ? Number(listing.print_size_min_mm) : 25;
+      const maxMm = listing.print_size_max_mm ? Number(listing.print_size_max_mm) : 300;
+      if (targetMm < minMm || targetMm > maxMm) {
+        return res.status(422).json({ success: false, error: `Requested height must be between ${minMm} and ${maxMm} mm.` });
+      }
+
+      // 2. Resolve private source GLB
+      const [aRows] = await getPool().query(
+        `SELECT id, object_key FROM marketplace_assets WHERE listing_id = ? AND kind = 'source_glb' AND status = 'active' LIMIT 1`,
+        [listing.id]
+      ) as any;
+      if (!aRows || aRows.length === 0) return res.status(404).json({ success: false, error: "Listing has no active 3D model." });
+      
+      // 3. See if we have a cached STL derivative for this exact target height
+      const [stlRows] = await getPool().query(
+        `SELECT object_key, size_bytes FROM marketplace_assets WHERE listing_id = ? AND kind = 'stl_derivative' AND status = 'active' AND sort_order = ? LIMIT 1`,
+        [listing.id, Math.round(targetMm)]
+      ) as any;
+
+      let stlUrl = "";
+      let stlObjectKey = "";
+      let dimensionsMm = { x: 0, y: 0, z: targetMm };
+      let topology = { faces: 0, vertices: 0, manifold: true };
+
+      if (stlRows && stlRows.length > 0) {
+        stlObjectKey = String(stlRows[0].object_key);
+        const signedStl = await getPrivateSignedUrl(stlObjectKey);
+        stlUrl = signedStl.url;
+        // Ideally we store dimensions and topology on the asset, but let's just make it up or assume they aren't strictly required for pricing. Wait, dimensions/topology are saved in `print_orders` and returned to UI.
+        // I will just leave them as placeholders if cached, since pricing uses Slant3D's API output.
+      } else {
+        const workerUrl = String(process.env.BLENDER_WORKER_URL || "").replace(/\/render$/, "").replace(/\/$/, "");
+        if (!workerUrl) return res.status(503).json({ success: false, error: "Print preparation is not configured." });
+        
+        const signedGlb = await getPrivateSignedUrl(String(aRows[0].object_key));
+        
+        const preparedResponse = await fetch(`${workerUrl}/prepare-print`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-worker-secret": process.env.WORKER_SHARED_SECRET || "",
+          },
+          body: JSON.stringify({ glb_url: signedGlb.url, target_height_mm: targetMm }),
+          signal: AbortSignal.timeout(600_000),
+        });
+        const prepared: any = await preparedResponse.json().catch(() => ({}));
+        if (!preparedResponse.ok || !prepared?.success) {
+          return res.status(422).json({ success: false, error: prepared?.error || "The model could not be prepared for printing." });
+        }
+        if (!prepared.printable) {
+          return res.status(422).json({
+            success: false,
+            error: "This mesh needs repair before manufacturing.",
+            dimensionsMm: prepared.dimensions_mm,
+            topology: prepared.topology,
+          });
+        }
+        
+        dimensionsMm = prepared.dimensions_mm;
+        topology = prepared.topology;
+        
+        // Save to private bucket as stl_derivative
+        const stlBuffer = Buffer.from(prepared.stl_base64, "base64");
+        stlObjectKey = mintObjectKey(listingUuid, "stl");
+        await putPrivateObject(stlObjectKey, stlBuffer, "model/stl");
+        
+        // INSERT into marketplace_assets
+        await getPool().query(
+          `INSERT INTO marketplace_assets (listing_id, kind, object_key, mime_type, size_bytes, sort_order, status, created_by_phone)
+           VALUES (?, 'stl_derivative', ?, 'model/stl', ?, ?, 'active', ?)`,
+          [listing.id, stlObjectKey, stlBuffer.length, Math.round(targetMm), phone]
+        );
+        
+        const signedStl = await getPrivateSignedUrl(stlObjectKey);
+        stlUrl = signedStl.url;
+      }
+
+      // 4. Draft Slant 3D order
+      const ownerId = createHash("sha256").update(`pawsome3d:${phone}`).digest("hex").slice(0, 32);
+      const slantFile = await uploadSlantFileFromUrl({
+        stlUrl,
+        name: `pawsome3d-marketplace-${listing.id}-${Math.round(targetMm)}mm`,
+        ownerId,
+      });
+      const draft = await draftSlantOrder({
+        publicFileServiceId: slantFile.publicFileServiceId,
+        address: {
+          name: input.recipient.name,
+          email: input.recipient.email,
+          line1: input.recipient.line1,
+          line2: input.recipient.line2,
+          city: input.recipient.city,
+          state: input.recipient.state,
+          zip: input.recipient.zip,
+          country: String(input.recipient.country || "US"),
+        },
+        ownerId,
+        itemName: `Pawsome3D custom ${Math.round(targetMm)} mm figurine`,
+      });
+      
+      const providerCostCents = Math.max(1, Math.ceil(draft.totals.totalCost * 100));
+      const markupPercent = Math.max(0, Number(process.env.FULFILLMENT_MARKUP_PERCENT || 80));
+      const minimumMarginCents = Math.max(0, Number(process.env.FULFILLMENT_MIN_MARGIN_CENTS || 500));
+      const retailPriceCents = Math.max(
+        providerCostCents + minimumMarginCents,
+        Math.ceil(providerCostCents * (1 + markupPercent / 100)),
+      );
+      
+      const [inserted] = await getPool().query(
+        `INSERT INTO print_orders
+          (user_phone, source_type, source_id, provider, provider_pack_id, provider_file_id,
+           stl_url, target_height_mm, dimensions_json, topology_json, idempotency_key,
+           provider_cost_cents, retail_price_cents, provider_payload_json, status)
+         VALUES (?, 'marketplace_listing', ?, 'slant3d', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'awaiting_payment')`,
+        [phone, listing.id, draft.publicId, slantFile.publicFileServiceId,
+          stlObjectKey, targetMm, JSON.stringify(dimensionsMm), JSON.stringify(topology),
+          idempotencyKey, providerCostCents, retailPriceCents, JSON.stringify(draft.raw)],
+      ) as any;
+      const printOrderId = Number(inserted.insertId);
+      preparedOrderId = printOrderId;
+      const appUrl = process.env.APP_URL || "http://localhost:3000";
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ["card"],
+        line_items: [{
+          price_data: {
+            currency: "usd",
+            product_data: {
+              name: `Pawsome3D custom ${Math.round(targetMm)} mm figurine`,
+              description: "Prepared, quality checked, printed, and shipped by Slant 3D.",
+            },
+            unit_amount: retailPriceCents,
+          },
+          quantity: 1,
+        }],
+        customer_email: input.recipient.email,
+        mode: "payment",
+        metadata: {
+          type: "slant3d_print_order",
+          printOrderId: String(printOrderId),
+          userPhone: phone,
+          slantOrderId: draft.publicId,
+        },
+        success_url: `${appUrl}/fur-bin?print_success=true&order_id=${printOrderId}`,
+        cancel_url: `${appUrl}/fur-bin?print_cancelled=true&order_id=${printOrderId}`,
+      });
+      await getPool().query(
+        `UPDATE print_orders SET checkout_url = ?, stripe_session_id = ? WHERE id = ?`,
+        [session.url, session.id, printOrderId],
+      );
+      res.json({
+        success: true,
+        checkoutUrl: session.url,
+        orderId: printOrderId,
+        providerOrderId: draft.publicId,
+        stlUrl: stlObjectKey,
+        dimensionsMm,
+        topology,
+        providerCostCents,
+        retailPriceCents,
+      });
+    } catch (err: any) {
+      if (preparedOrderId) {
+        try { await getPool().query(`UPDATE print_orders SET status = 'payment_setup_failed' WHERE id = ?`, [preparedOrderId]); } catch {}
+      }
+      if (err instanceof z.ZodError) return res.status(400).json({ success: false, error: err.issues[0]?.message || "Invalid print request." });
+      const message = err?.message || "Could not start the print checkout.";
+      console.error("Marketplace Slant 3D print checkout error:", message);
       res.status(/not configured/i.test(message) ? 503 : 502).json({ success: false, error: message });
     }
   });

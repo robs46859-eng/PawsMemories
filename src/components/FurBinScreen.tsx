@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import type { Creation, UserProfile, VoiceCloneAsset } from "../types";
-import { Download, Eye, FileImage, Film, HardDrive, PackageOpen, PawPrint, Printer, RefreshCw, ShieldAlert, ShieldCheck, Volume2, X } from "lucide-react";
+import { Download, Eye, FileImage, Film, HardDrive, PackageOpen, PawPrint, Printer, RefreshCw, ShieldAlert, ShieldCheck, Volume2, X, Loader2 } from "lucide-react";
 import StorageMeter from "./StorageMeter";
 import PetModelViewer from "./PetModelViewer";
-import { createSlant3dCheckout, fetchFulfillmentReadiness, fetchModelLibrary, fetchModelPrintOrders, fetchPawprintPrintOrders, listVoiceCloneAssets, type ModelLibraryItem, type ModelPrintOrder, type PawprintPrintOrder } from "../api";
+import { createSlant3dCheckout, createMarketplacePrintCheckout, fetchFulfillmentReadiness, fetchModelLibrary, fetchModelPrintOrders, fetchPawprintPrintOrders, listVoiceCloneAssets, fetchUserEntitlements, fetchDigitalOrderStatus, downloadDigitalListing, type ModelLibraryItem, type ModelPrintOrder, type PawprintPrintOrder } from "../api";
 
 interface FurBinScreenProps {
   userProfile: UserProfile;
@@ -31,11 +31,18 @@ export default function FurBinScreen({ creations, userProfile, onOpenCreditStore
   const [models, setModels] = useState<ModelLibraryItem[]>([]);
   const [printOrders, setPrintOrders] = useState<ModelPrintOrder[]>([]);
   const [pawprintPrintOrders, setPawprintPrintOrders] = useState<PawprintPrintOrder[]>([]);
+  const [marketplaceModels, setMarketplaceModels] = useState<any[]>([]);
+  
   const [selectedModel, setSelectedModel] = useState<ModelLibraryItem | null>(null);
   const [targetHeightMm, setTargetHeightMm] = useState(100);
   const [printBusy, setPrintBusy] = useState(false);
   const [printError, setPrintError] = useState("");
   const [modelPrintingAvailable, setModelPrintingAvailable] = useState(false);
+  
+  const [pollingOrder, setPollingOrder] = useState<{ id: string, status: string } | null>(null);
+  const [downloadingListing, setDownloadingListing] = useState<string | null>(null);
+  const [preparingViewerForListing, setPreparingViewerForListing] = useState<string | null>(null);
+
   const [printRecipient, setPrintRecipient] = useState({
     name: userProfile.fullName || "",
     email: userProfile.email || "",
@@ -50,15 +57,40 @@ export default function FurBinScreen({ creations, userProfile, onOpenCreditStore
   useEffect(() => {
     listVoiceCloneAssets().then(setVoiceAssets).catch(() => setVoiceAssets([]));
     let active = true;
+    
+    // Polling for new checkout
+    const params = new URLSearchParams(window.location.search);
+    const orderId = params.get("order_id");
+    let pollTimer: number | null = null;
+    
+    if (params.get("digital_success") === "true" && orderId) {
+      setPollingOrder({ id: orderId, status: "processing" });
+      pollTimer = window.setInterval(() => {
+        fetchDigitalOrderStatus(orderId).then(res => {
+          if (res.status === 'paid' && active) {
+            setPollingOrder({ id: orderId, status: "paid" });
+            fetchUserEntitlements().then(items => setMarketplaceModels(items)).catch(() => {});
+            if (pollTimer) window.clearInterval(pollTimer);
+          }
+        }).catch(() => {});
+      }, 3000);
+    }
+
     const refresh = () => {
       fetchModelLibrary().then((items) => active && setModels(items)).catch(() => {});
       fetchModelPrintOrders().then((items) => active && setPrintOrders(items)).catch(() => {});
       fetchPawprintPrintOrders().then((items) => active && setPawprintPrintOrders(items)).catch(() => {});
+      fetchUserEntitlements().then((items) => active && setMarketplaceModels(items)).catch(() => {});
       fetchFulfillmentReadiness().then((readiness) => active && setModelPrintingAvailable(readiness.modelPrinting.available)).catch(() => active && setModelPrintingAvailable(false));
     };
     refresh();
+    
     const timer = window.setInterval(refresh, 15_000);
-    return () => { active = false; window.clearInterval(timer); };
+    return () => { 
+      active = false; 
+      window.clearInterval(timer);
+      if (pollTimer) window.clearInterval(pollTimer);
+    };
   }, []);
 
   const visible = useMemo(() => [...creations]
@@ -71,17 +103,65 @@ export default function FurBinScreen({ creations, userProfile, onOpenCreditStore
     setPrintBusy(true);
     setPrintError("");
     try {
-      const result = await createSlant3dCheckout({
-        sourceType: selectedModel.source_type,
-        sourceId: selectedModel.id,
-        targetHeightMm,
-        recipient: printRecipient,
-      });
-      window.location.assign(result.checkoutUrl);
+      if (selectedModel.source_type === "marketplace_listing" && selectedModel.listing_uuid) {
+        const result = await createMarketplacePrintCheckout({
+          listingUuid: selectedModel.listing_uuid,
+          targetHeightMm,
+          recipient: printRecipient,
+        });
+        window.location.assign(result.checkoutUrl);
+      } else {
+        const result = await createSlant3dCheckout({
+          sourceType: selectedModel.source_type as "creation" | "avatar",
+          sourceId: selectedModel.id,
+          targetHeightMm,
+          recipient: printRecipient,
+        });
+        window.location.assign(result.checkoutUrl);
+      }
     } catch (err: any) {
       setPrintError(err?.message || "Could not prepare this model for printing.");
     } finally {
       setPrintBusy(false);
+    }
+  };
+
+  const handleDownloadMarketplaceModel = async (uuid: string) => {
+    setDownloadingListing(uuid);
+    try {
+      const res = await downloadDigitalListing(uuid);
+      window.location.assign(res.url);
+    } catch (err) {
+      console.error("Download failed:", err);
+      alert("Download failed. Please try again later.");
+    } finally {
+      setDownloadingListing(null);
+    }
+  };
+
+  const handlePrintMarketplaceModel = async (m: any) => {
+    setPreparingViewerForListing(m.listing_uuid);
+    setPrintError("");
+    try {
+      const res = await downloadDigitalListing(m.listing_uuid);
+      setSelectedModel({
+        id: m.entitlement_id,
+        source_type: "marketplace_listing",
+        listing_uuid: m.listing_uuid,
+        name: m.name,
+        breed: null,
+        image_url: m.preview_url,
+        model_url: res.url,
+        rigged_model_url: res.url,
+        status: "complete",
+        created_at: new Date().toISOString(),
+      });
+      setTargetHeightMm(100);
+    } catch (err: any) {
+      console.error("View failed:", err);
+      alert("Could not load this model for printing.");
+    } finally {
+      setPreparingViewerForListing(null);
     }
   };
 
@@ -108,9 +188,55 @@ export default function FurBinScreen({ creations, userProfile, onOpenCreditStore
       <div className="mt-6 flex flex-wrap gap-2" role="tablist" aria-label="FurBin output type">
         {(["all", "images", "videos", "models", "pawprints"] as BinFilter[]).map((item) => <button key={item} type="button" role="tab" aria-selected={filter === item} onClick={() => setFilter(item)} className={`min-h-10 rounded-full px-4 text-xs font-black capitalize transition ${filter === item ? "bg-primary text-on-primary" : "border border-outline-variant/45 bg-surface/80 text-on-surface-variant hover:text-primary"}`}>{item === "all" ? "All outputs" : item}</button>)}
       </div>
+      
+      {pollingOrder && pollingOrder.status === 'processing' && (
+        <div className="mt-6 flex items-center justify-center gap-3 rounded-[2rem] border border-primary/30 bg-primary/10 p-6 text-primary">
+          <Loader2 className="animate-spin" size={24} />
+          <div>
+            <p className="text-sm font-black">Processing your purchase...</p>
+            <p className="text-xs opacity-80">This usually takes a few seconds.</p>
+          </div>
+        </div>
+      )}
+
+      {(filter === "all" || filter === "models") && marketplaceModels.length > 0 && <section className="mt-7">
+        <div className="mb-3 flex items-center gap-2"><h2 className="text-sm font-black uppercase tracking-[.16em] text-on-surface">Marketplace models</h2><span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-black text-primary">{marketplaceModels.length}</span></div>
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
+          {marketplaceModels.map((m) => (
+             <article key={m.entitlement_id} className="overflow-hidden rounded-[1.6rem] border border-white/30 bg-surface/75 shadow-xl backdrop-blur-2xl">
+                <div className="aspect-square bg-surface-container-highest relative">
+                  <img src={m.preview_url || "https://placehold.co/400"} alt={m.name} className="h-full w-full object-cover" />
+                </div>
+                <div className="p-4">
+                  <h3 className="truncate text-sm font-black text-on-surface">{m.name}</h3>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button 
+                      type="button" 
+                      onClick={() => handleDownloadMarketplaceModel(m.listing_uuid)} 
+                      disabled={downloadingListing === m.listing_uuid}
+                      className="inline-flex min-h-10 w-full items-center justify-center gap-1 rounded-xl bg-primary px-2 text-xs font-black text-on-primary disabled:opacity-50"
+                    >
+                      {downloadingListing === m.listing_uuid ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                      {downloadingListing === m.listing_uuid ? "Getting..." : "GLB"}
+                    </button>
+                    <button 
+                      type="button" 
+                      onClick={() => handlePrintMarketplaceModel(m)} 
+                      disabled={preparingViewerForListing === m.listing_uuid}
+                      className="inline-flex min-h-10 w-full items-center justify-center gap-1 rounded-xl border border-primary/30 px-2 text-xs font-black text-primary disabled:opacity-50"
+                    >
+                      {preparingViewerForListing === m.listing_uuid ? <Loader2 size={14} className="animate-spin" /> : <Printer size={14} />}
+                      Print
+                    </button>
+                  </div>
+                </div>
+             </article>
+          ))}
+       </div>
+      </section>}
 
       {(filter === "all" || filter === "models") && <section className="mt-7">
-        <div className="mb-3 flex items-center gap-2"><h2 className="text-sm font-black uppercase tracking-[.16em] text-on-surface">3D models</h2><span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-black text-primary">{models.length}</span></div>
+        <div className="mb-3 flex items-center gap-2"><h2 className="text-sm font-black uppercase tracking-[.16em] text-on-surface">Custom 3D models</h2><span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-black text-primary">{models.length}</span></div>
         {models.length === 0 ? <div className="rounded-[2rem] border border-dashed border-outline-variant/50 bg-surface/80 p-10 text-center text-sm text-on-surface-variant">No completed 3D models yet. Building models will appear here automatically.</div> : <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {models.map((model) => { const modelUrl = model.rigged_model_url || model.model_url || ""; return <article key={`${model.source_type}-${model.id}`} className="overflow-hidden rounded-[1.6rem] border border-white/30 bg-surface/75 shadow-xl backdrop-blur-2xl"><div className="h-64 bg-gradient-to-br from-primary/10 via-surface to-secondary/10"><PetModelViewer src={modelUrl} poster={model.image_url || undefined} alt={model.name || "Your 3D model"} className="h-full w-full" /></div><div className="p-4"><h3 className="truncate text-sm font-black text-on-surface">{model.name || "3D model"}</h3><p className="mt-1 text-xs text-on-surface-variant">{model.breed || "Custom model"} · {new Date(model.created_at).toLocaleDateString()}</p><div className="mt-4 grid grid-cols-3 gap-2"><button type="button" onClick={() => setSelectedModel(model)} className="inline-flex min-h-10 items-center justify-center gap-1 rounded-xl bg-primary text-xs font-black text-on-primary"><Eye size={14} /> Open</button><a href={modelUrl} download className="inline-flex min-h-10 items-center justify-center gap-1 rounded-xl border border-primary/30 text-xs font-black text-primary"><Download size={14} /> GLB</a><button type="button" onClick={() => setSelectedModel(model)} className="inline-flex min-h-10 items-center justify-center gap-1 rounded-xl border border-primary/30 text-xs font-black text-primary"><Printer size={14} /> Print</button></div></div></article>; })}
         </div>}

@@ -1365,8 +1365,8 @@ export async function initDb(): Promise<void> {
         id CHAR(36) NOT NULL PRIMARY KEY,
         user_phone VARCHAR(32) NOT NULL,
         avatar_id INT NOT NULL,
-        job_type ENUM('rebake') NOT NULL DEFAULT 'rebake',
-        status ENUM('queued','processing','completed','failed') NOT NULL DEFAULT 'queued',
+        job_type ENUM('rebake','stylize') NOT NULL DEFAULT 'rebake',
+        status ENUM('queued','processing','rendering_views','stylizing','baking','completed','failed') NOT NULL DEFAULT 'queued',
         source_model_url TEXT NOT NULL,
         result_model_url TEXT NULL,
         stats_json JSON NULL,
@@ -1380,6 +1380,27 @@ export async function initDb(): Promise<void> {
         CONSTRAINT fk_texture_user FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
+
+    // Migrate texture_jobs for UV6/UV7 stylization
+    try {
+      const [tjCols] = await getPool().query(
+        `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'texture_jobs'`
+      ) as any;
+      const tjNames = new Set(tjCols.map((row: any) => String(row.COLUMN_NAME)));
+
+      if (!tjNames.has("prompt")) {
+        // Enlarge ENUM types safely
+        await getPool().query(`ALTER TABLE texture_jobs MODIFY COLUMN job_type ENUM('rebake','stylize') NOT NULL DEFAULT 'rebake'`);
+        await getPool().query(`ALTER TABLE texture_jobs MODIFY COLUMN status ENUM('queued','processing','rendering_views','stylizing','baking','completed','failed') NOT NULL DEFAULT 'queued'`);
+        // Add new columns
+        await getPool().query(`ALTER TABLE texture_jobs ADD COLUMN prompt VARCHAR(1000) NULL AFTER job_type`);
+        await getPool().query(`ALTER TABLE texture_jobs ADD COLUMN tier ENUM('draft','standard','studio') NULL AFTER prompt`);
+        await getPool().query(`ALTER TABLE texture_jobs ADD COLUMN identity_strength ENUM('high','medium','stylized') NULL AFTER tier`);
+      }
+    } catch (err) {
+      console.warn("⚠️ Could not migrate texture_jobs stylization columns:", err);
+    }
 
     console.log("✅ fidos_projects and wardrobe_wags tables ready.");
 

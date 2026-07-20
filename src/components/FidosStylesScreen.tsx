@@ -17,7 +17,7 @@ import {
   RotateCcw, Maximize2, Save, RefreshCw, ChevronDown, Star,
   PawPrint, Gift
 } from "lucide-react";
-import { authedFetch, createVoiceCloneAsset, fetchAvatars } from "../api";
+import { authedFetch, createVoiceCloneAsset, fetchAvatars, createTextureJob, rebakeTextureJob, getTextureJob, type TextureJobStatus } from "../api";
 import { AnimatorErrorBoundary } from "../animator/components/AnimatorErrorBoundary";
 import { CREDIT_PRICES } from "../pricing";
 import { WARDROBE_CATALOG, WAGS_EXCLUSIVE_CATALOG } from "../wardrobe/catalog";
@@ -34,7 +34,7 @@ interface FidosStylesScreenProps {
 }
 
 type LightMode = "warm" | "neutral" | "bright";
-type ActiveTool = "looks" | "wardrobe" | "texture" | "lighting" | "surface" | "voice" | "export";
+type ActiveTool = "looks" | "wardrobe" | "coat" | "texture" | "lighting" | "surface" | "voice" | "export";
 type QualityTier = "draft" | "standard" | "studio";
 
 interface TextureOverride {
@@ -273,6 +273,15 @@ export default function FidosStylesScreen({
   const [looksGenerating, setLooksGenerating] = useState(false);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ── Coat / UV Texture state ────────────────────────────────────────────────
+  const [coatPrompt, setCoatPrompt] = useState("");
+  const [coatTier, setCoatTier] = useState<QualityTier>("standard");
+  const [coatIdentity, setCoatIdentity] = useState<"high"|"medium"|"stylized">("high");
+  const [coatJob, setCoatJob] = useState<TextureJobStatus | null>(null);
+  const [coatGenerating, setCoatGenerating] = useState(false);
+  const [coatOverrides, setCoatOverrides] = useState<Record<number, string>>({});
+  const pollCoatRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // ── Texture state (T1) ─────────────────────────────────────────────────────
   const [textureTarget, setTextureTarget] = useState<string>("");   // wardrobeItem.id
   const [textureOverrides, setTextureOverrides] = useState<Record<string, TextureOverride>>({});
@@ -386,7 +395,8 @@ export default function FidosStylesScreen({
   const [rebakeOverrides, setRebakeOverrides] = useState<Record<number, string>>({});
   const [rebakeJob, setRebakeJob] = useState<{ id: string; status: string; resultUrl?: string | null; error?: string | null } | null>(null);
   const [rebakeBusy, setRebakeBusy] = useState(false);
-  const modelUrl = (typeof selectedId === "number" && rebakeOverrides[selectedId])
+  const modelUrl = (typeof selectedId === "number" && coatOverrides[selectedId])
+    || (typeof selectedId === "number" && rebakeOverrides[selectedId])
     || selected?.rigged_model_url || selected?.model_url || "";
 
   const startRebake = useCallback(async () => {
@@ -985,6 +995,123 @@ export default function FidosStylesScreen({
     );
   }
 
+  const startCoatStylization = useCallback(async () => {
+    if (typeof selectedId !== "number" || coatGenerating || !coatPrompt.trim()) return;
+    setCoatGenerating(true);
+    setCoatJob(null);
+    try {
+      const idempotencyKey = `stylize-${selectedId}-${Date.now()}`;
+      const data = await createTextureJob(idempotencyKey, {
+        avatar_id: selectedId,
+        prompt: coatPrompt,
+        tier: coatTier,
+        identity_strength: coatIdentity,
+      });
+      setCoatJob({ jobId: data.jobId, status: data.status as any });
+
+      const poll = async () => {
+        try {
+          const job = await getTextureJob(data.jobId);
+          setCoatJob(job);
+          if (job.status === "completed" && job.resultUrl) {
+            setCoatOverrides((prev) => ({ ...prev, [selectedId]: job.resultUrl! }));
+            setCoatGenerating(false);
+          } else if (job.status === "failed") {
+            setCoatGenerating(false);
+          } else {
+            pollCoatRef.current = setTimeout(poll, 3000);
+          }
+        } catch (err: any) {
+           setCoatJob({ jobId: data.jobId, status: "failed", error: err?.message || "Polling failed" });
+           setCoatGenerating(false);
+        }
+      };
+      pollCoatRef.current = setTimeout(poll, 3000);
+    } catch (e: any) {
+      setCoatJob({ jobId: "", status: "failed", error: e?.message || "Failed to start." });
+      setCoatGenerating(false);
+    }
+  }, [selectedId, coatGenerating, coatPrompt, coatTier, coatIdentity]);
+
+  function CoatPanel() {
+    return (
+      <div className="p-4 flex flex-col h-full">
+        <h2 className="text-sm font-black text-on-surface mb-2">Restyle Coat (Beta)</h2>
+        <p className="text-xs text-on-surface-variant mb-4">
+          Paint directly onto your pet's surface texture. This creates a new variant.
+        </p>
+
+        <label className="text-xs font-black text-on-surface mb-1 block">Style Prompt</label>
+        <textarea
+          value={coatPrompt}
+          onChange={(e) => setCoatPrompt(e.target.value)}
+          placeholder="e.g. galaxy fur, clay figurine, realistic orange tabby"
+          className="w-full rounded-xl border border-outline bg-surface p-3 text-sm font-bold text-on-surface focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary mb-4 resize-none h-20"
+        />
+
+        <div className="mb-4">
+           <label className="text-xs font-black text-on-surface mb-1 block">Identity Preservation</label>
+           <select 
+             value={coatIdentity} 
+             onChange={(e) => setCoatIdentity(e.target.value as any)}
+             className="w-full h-10 px-3 rounded-xl border border-outline bg-surface text-sm font-bold"
+           >
+             <option value="high">High (Keep exactly like original)</option>
+             <option value="medium">Medium (Allow some variation)</option>
+             <option value="stylized">Stylized (Allow full repaint)</option>
+           </select>
+        </div>
+
+        <div className="mb-4">
+           <label className="text-xs font-black text-on-surface mb-1 block">Quality Tier</label>
+           <div className="flex gap-2">
+             {(["draft", "standard", "studio"] as const).map(t => (
+               <button
+                 key={t}
+                 onClick={() => setCoatTier(t)}
+                 className={`flex-1 py-2 text-xs font-bold rounded-lg border ${
+                   coatTier === t ? "bg-primary text-on-primary border-primary" : "border-outline bg-surface text-on-surface"
+                 }`}
+               >
+                 {t.charAt(0).toUpperCase() + t.slice(1)}
+               </button>
+             ))}
+           </div>
+           <p className="text-[10px] text-on-surface-variant mt-1 text-center">
+             {coatTier === "draft" ? "Low resolution. Fast. (2 credits)" : coatTier === "studio" ? "High resolution + Seam repair pass. (20 credits)" : "Standard resolution. (8 credits)"}
+           </p>
+        </div>
+
+        <button
+          type="button"
+          disabled={coatGenerating || !coatPrompt.trim()}
+          onClick={startCoatStylization}
+          className="mt-auto w-full min-h-12 rounded-xl bg-primary text-on-primary font-black flex items-center justify-center gap-2 disabled:opacity-50"
+        >
+          {coatGenerating ? <RefreshCw size={16} className="animate-spin" /> : <Sparkles size={16} />}
+          {coatGenerating ? "Applying Style..." : "Apply Coat"}
+        </button>
+
+        {coatJob && coatJob.status !== "queued" && (
+          <div className="mt-3 p-3 bg-surface-container rounded-xl text-xs font-bold text-center">
+             Status: {coatJob.status}
+             {coatJob.error && <p className="text-error mt-1">{coatJob.error}</p>}
+          </div>
+        )}
+
+        {typeof selectedId === "number" && coatOverrides[selectedId] && (
+           <button
+             type="button"
+             onClick={() => setCoatOverrides(prev => { const n = {...prev}; delete n[selectedId]; return n; })}
+             className="w-full mt-2 min-h-11 rounded-xl border border-outline-variant text-sm font-black text-on-surface-variant flex items-center justify-center gap-2"
+           >
+             <RotateCcw size={15} /> Revert to Original
+           </button>
+        )}
+      </div>
+    );
+  }
+
   function SurfacePanel() {
     return (
       <div className="p-4 space-y-4">
@@ -1109,6 +1236,7 @@ export default function FidosStylesScreen({
   const TOOLS: { id: ActiveTool; icon: IconComponent; label: string }[] = [
     { id: "looks",    icon: Layers,    label: "Looks"    },
     { id: "wardrobe", icon: Shirt,     label: "Wardrobe" },
+    { id: "coat",     icon: Brush,     label: "Coat"     },
     { id: "texture",  icon: Palette,   label: "Texture"  },
     { id: "lighting", icon: SunMedium, label: "Light"    },
     { id: "surface",  icon: Grid3X3,   label: "Surface"  },
@@ -1119,6 +1247,7 @@ export default function FidosStylesScreen({
   const ConfigPanel =
     activeTool === "looks"    ? LooksPanel    :
     activeTool === "wardrobe" ? WardrobePanel :
+    activeTool === "coat"     ? CoatPanel     :
     activeTool === "texture"  ? TexturePanel  :
     activeTool === "lighting" ? LightingPanel :
     activeTool === "surface"  ? SurfacePanel  :

@@ -18,6 +18,17 @@ export const RebakeRequestSchema = z
 
 export type RebakeRequest = z.infer<typeof RebakeRequestSchema>;
 
+export const StylizeRequestSchema = z
+  .object({
+    avatar_id: z.number().int().positive(),
+    prompt: z.string().min(1).max(500),
+    tier: z.enum(["draft", "standard", "studio"]),
+    identity_strength: z.enum(["high", "medium", "stylized"]).default("high"),
+  })
+  .strict();
+
+export type StylizeRequest = z.infer<typeof StylizeRequestSchema>;
+
 /** Shape persisted by updateAvatarMultiview — front lives on image_url. */
 export const MultiviewJsonSchema = z
   .object({

@@ -363,7 +363,8 @@ export async function fetchCreations(): Promise<Creation[]> {
 
 export interface ModelLibraryItem {
   id: number;
-  source_type: "creation" | "avatar";
+  source_type: "creation" | "avatar" | "marketplace_listing";
+  listing_uuid?: string;
   name: string | null;
   breed: string | null;
   image_url: string | null;
@@ -414,9 +415,32 @@ export async function createSlant3dCheckout(input: {
   return await res.json();
 }
 
+export async function createMarketplacePrintCheckout(input: {
+  listingUuid: string;
+  targetHeightMm: number;
+  recipient: {
+    name: string;
+    email: string;
+    line1: string;
+    line2?: string;
+    city: string;
+    state: string;
+    zip: string;
+    country: string;
+  };
+}): Promise<{ checkoutUrl: string; stlUrl: string; dimensionsMm: { x: number; y: number; z: number } }> {
+  const res = await authedFetch(`/api/marketplace/listings/${input.listingUuid}/print/checkout`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(await parseError(res, "Could not prepare this listing for printing."));
+  return await res.json();
+}
+
 export interface ModelPrintOrder {
   id: number;
-  source_type: "creation" | "avatar";
+  source_type: "creation" | "avatar" | "marketplace_listing";
   source_id: number;
   provider: "slant3d";
   provider_pack_id: string;
@@ -943,4 +967,109 @@ export async function purchaseStorageGb(requestId: string): Promise<{ success: b
   } catch {
     return { success: false, error: "Network error" };
   }
+}
+
+// --- Public Marketplace & Entitlements --------------------------------------
+
+export async function fetchMarketplaceListings(params: Record<string, string | number> = {}): Promise<any> {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v != null && v !== "") qs.set(k, String(v));
+  }
+  const url = `/api/marketplace/listings${qs.toString() ? '?' + qs.toString() : ''}`;
+  const res = await fetch(url); // Unauthed
+  if (!res.ok) throw new Error(await parseError(res, "Could not load marketplace listings."));
+  return await res.json();
+}
+
+export async function checkoutDigitalListing(uuid: string, idempotencyKey: string): Promise<{ checkoutUrl: string }> {
+  const res = await authedFetch(`/api/marketplace/listings/${uuid}/checkout`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Idempotency-Key": idempotencyKey,
+    }
+  });
+  if (!res.ok) await throwApiError(res, "Checkout failed.");
+  return await res.json();
+}
+
+export async function fetchDigitalOrderStatus(orderId: string): Promise<{ status: string }> {
+  const res = await authedFetch(`/api/marketplace/orders/${orderId}`);
+  if (!res.ok) throw new Error(await parseError(res, "Could not get order status."));
+  return await res.json();
+}
+
+export async function fetchUserEntitlements(): Promise<any[]> {
+  const res = await authedFetch("/api/marketplace/entitlements");
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.entitlements || [];
+}
+
+export async function downloadDigitalListing(uuid: string): Promise<{ url: string }> {
+  const res = await authedFetch(`/api/marketplace/listings/${uuid}/download`);
+  if (!res.ok) await throwApiError(res, "Download failed.");
+  return await res.json();
+}
+
+// --- Texturizer API (Phase UV6) -----------------------------------------------
+
+export interface TextureJobStatus {
+  jobId: string;
+  avatarId?: number;
+  status: "queued" | "processing" | "rendering_views" | "stylizing" | "baking" | "completed" | "failed";
+  resultUrl?: string;
+  stats?: Record<string, any>;
+  error?: string;
+  idempotent?: boolean;
+}
+
+export async function createTextureJob(
+  idempotencyKey: string,
+  payload: {
+    avatar_id: number;
+    prompt: string;
+    tier: "draft" | "standard" | "studio";
+    identity_strength: "high" | "medium" | "stylized";
+  }
+): Promise<{ jobId: string; status: string; cost: number }> {
+  const res = await authedFetch("/api/texture/jobs", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Idempotency-Key": idempotencyKey,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to create texture job (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function rebakeTextureJob(
+  idempotencyKey: string,
+  payload: { avatar_id: number; texture_size?: number }
+): Promise<{ jobId: string; status: string; idempotent?: boolean; resultUrl?: string }> {
+  const res = await authedFetch("/api/texture/rebake", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Idempotency-Key": idempotencyKey,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to start rebake (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function getTextureJob(jobId: string): Promise<TextureJobStatus> {
+  const res = await authedFetch(`/api/texture/jobs/${jobId}`);
+  if (!res.ok) throw new Error("Failed to fetch texture job");
+  return res.json();
 }
