@@ -23,6 +23,7 @@ import {
   MarketplaceAdminError,
   listListingsWithCounts,
   listingPreviews,
+  listingAssets,
   createListing,
   updateListing,
   reorderListings,
@@ -1997,6 +1998,13 @@ async function startServer() {
     try {
       res.json({ previews: await listingPreviews(getPool() as any, Number(req.params.id)) });
     } catch (err: any) { sendAdminError(res, err, "Could not load previews."); }
+  });
+
+  app.get("/api/admin/marketplace/listings/:id/assets", requireAuth, async (req: AuthedRequest, res) => {
+    if (!await requireMarketplaceAdmin(req, res)) return;
+    try {
+      res.json(await listingAssets(getPool() as any, Number(req.params.id)));
+    } catch (err: any) { sendAdminError(res, err, "Could not load assets."); }
   });
 
   app.post("/api/admin/marketplace/listings", requireAuth, async (req: AuthedRequest, res) => {

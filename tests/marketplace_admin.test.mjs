@@ -19,6 +19,7 @@ test("every marketplace admin endpoint is server-guarded", () => {
   const endpoints = [
     'app.get("/api/admin/marketplace/listings"',
     'app.get("/api/admin/marketplace/listings/:id/previews"',
+    'app.get("/api/admin/marketplace/listings/:id/assets"',
     'app.post("/api/admin/marketplace/listings"',
     'app.patch("/api/admin/marketplace/listings/:id"',
     'app.post("/api/admin/marketplace/listings/:id/reorder"',
@@ -121,4 +122,66 @@ test("admin screen is wired and gated like the Wags panel", () => {
 test("screen uses the shared upload pipeline rather than reimplementing it", () => {
   assert.match(screen, /uploadMarketplaceAsset/);
   assert.doesNotMatch(screen, /XMLHttpRequest|crypto\.subtle/);
+});
+
+/* ------------------------------------------------------------------ */
+/* Listing editor form completeness                                    */
+/* ------------------------------------------------------------------ */
+
+test("editor covers every CreateListingSchema field", () => {
+  // Field names that must appear in the form data or UI
+  const requiredFields = [
+    "name", "slug", "breed", "category", "description", "tags",
+    "digital_price_cents", "physical_enabled",
+    "print_size_min_mm", "print_size_max_mm", "print_notes",
+    "dimensions", "sort_order",
+  ];
+  for (const field of requiredFields) {
+    assert.ok(screen.includes(field), `editor form must reference ${field}`);
+  }
+});
+
+test("editor enforces client-side validation mirroring schema rules", () => {
+  // Slug format validation
+  assert.match(screen, /SLUG_RE/);
+  assert.ok(screen.includes("^[a-z0-9]"), "slug regex pattern must be present");
+  // Physical requires size range
+  assert.match(screen, /Physical printing requires/);
+  // Price floor
+  assert.match(screen, /Price must be at least/);
+});
+
+test("preview images display via signed URLs from the assets endpoint", () => {
+  assert.match(screen, /\/api\/admin\/marketplace\/listings\/.*\/assets/);
+  assert.match(screen, /setPreviews/);
+  // Images rendered with src={p.url} — the signed URL
+  assert.match(screen, /src=\{p\.url\}/);
+});
+
+test("GLB slot shows version history and supports replace via replacesAssetId", () => {
+  assert.match(screen, /replacesAssetId/);
+  assert.match(screen, /superseded/);
+  assert.match(screen, /activeGlb/);
+  assert.match(screen, /Version history/i);
+});
+
+test("listing reorder uses the reorder endpoint", () => {
+  assert.match(screen, /\/reorder/);
+  assert.match(screen, /handleReorder/);
+});
+
+/* ------------------------------------------------------------------ */
+/* listingAssets server function                                       */
+/* ------------------------------------------------------------------ */
+
+test("listingAssets returns previews and glbs without exposing object_key", () => {
+  const fn = adminModule.slice(adminModule.indexOf("export async function listingAssets"));
+  assert.ok(fn.length > 0, "listingAssets function must exist");
+  // Queries marketplace_assets
+  assert.match(fn.slice(0, 1200), /FROM marketplace_assets/);
+  // Returns signed URLs for previews
+  assert.match(fn.slice(0, 1200), /getPrivateSignedUrl/);
+  // Does not include object_key in the return shape for previews
+  const returnBlock = fn.slice(fn.indexOf("previews.push"), fn.indexOf("previews.push") + 400);
+  assert.ok(!returnBlock.includes("object_key:"), "object_key must not be in preview response");
 });

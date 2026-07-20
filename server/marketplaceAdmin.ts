@@ -86,6 +86,48 @@ export async function listingPreviews(pool: Pool, listingId: number): Promise<
   return out;
 }
 
+/** All assets for a listing — editor needs GLB version history + preview images.
+ *  Private object_keys are NOT returned; preview images get short-lived signed
+ *  URLs and GLBs expose only id/version/status/size metadata. */
+export async function listingAssets(pool: Pool, listingId: number): Promise<{
+  previews: Array<{ id: number; sort_order: number; url: string; expiresAt: string; size_bytes: number; mime_type: string }>;
+  glbs: Array<{ id: number; version: number; status: string; size_bytes: number; mime_type: string; created_at: string }>;
+}> {
+  const [rows] = await pool.query(
+    `SELECT id, kind, status, object_key, sort_order, size_bytes, mime_type, version, created_at
+     FROM marketplace_assets WHERE listing_id = ?
+     ORDER BY kind, sort_order, version DESC`,
+    [listingId],
+  ) as any;
+
+  const previews: Array<{ id: number; sort_order: number; url: string; expiresAt: string; size_bytes: number; mime_type: string }> = [];
+  const glbs: Array<{ id: number; version: number; status: string; size_bytes: number; mime_type: string; created_at: string }> = [];
+
+  for (const row of rows as any[]) {
+    if (row.kind === "preview_image" && row.status === "active") {
+      const signed = await getPrivateSignedUrl(String(row.object_key));
+      previews.push({
+        id: row.id,
+        sort_order: row.sort_order,
+        url: signed.url,
+        expiresAt: signed.expiresAt,
+        size_bytes: row.size_bytes,
+        mime_type: row.mime_type,
+      });
+    } else if (row.kind === "source_glb") {
+      glbs.push({
+        id: row.id,
+        version: row.version,
+        status: row.status,
+        size_bytes: row.size_bytes,
+        mime_type: row.mime_type,
+        created_at: row.created_at,
+      });
+    }
+  }
+  return { previews, glbs };
+}
+
 export async function createListing(
   pool: Pool,
   adminPhone: string,
