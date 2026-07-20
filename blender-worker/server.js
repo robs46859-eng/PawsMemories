@@ -640,6 +640,65 @@ print("IMPORT_COMPLETE")
 });
 
 // =============================================================================
+// POST /texture/rebake — UV_TEXTURE_GENERATION_PLAN.md UV8
+// Re-projects the avatar's approved multiview reference images onto the mesh
+// and bakes a fresh base-color atlas (likeness repair — no generation step).
+// Receives: { glb_base64 | glb_url, views: {front|left|back|right: url}, texture_size? }
+// Returns:  { success, stats, glb_base64, size_bytes }
+// =============================================================================
+const REBAKE_SCRIPT_PATH = path.join(__dirname, "jobs", "rebake_texture.py");
+
+app.post("/texture/rebake", async (req, res) => {
+  try {
+    let { glb_base64, glb_url, views, texture_size, front_axis_deg } = req.body || {};
+    if (!glb_base64 && glb_url) {
+      const source = await fetch(glb_url);
+      if (!source.ok) throw new Error(`Failed to download glb_url (${source.status})`);
+      glb_base64 = Buffer.from(await source.arrayBuffer()).toString("base64");
+    }
+    if (!glb_base64) return res.status(400).json({ error: "glb_base64 or glb_url is required" });
+    if (!views || typeof views !== "object" || !Object.keys(views).length) {
+      return res.status(400).json({ error: "views {front|left|back|right: url} is required" });
+    }
+    if (glb_base64.startsWith("data:")) glb_base64 = glb_base64.split(",")[1] || glb_base64;
+
+    const tempGlbPath = `/tmp/rebake_input_${crypto.randomUUID()}.glb`;
+    const importRes = await bridge.executeCode(`
+import bpy, base64, os
+for obj in list(bpy.data.objects):
+    bpy.data.objects.remove(obj, do_unlink=True)
+glb_bytes = base64.b64decode("""${glb_base64}""")
+with open("${tempGlbPath}", "wb") as f:
+    f.write(glb_bytes)
+bpy.ops.import_scene.gltf(filepath="${tempGlbPath}")
+os.remove("${tempGlbPath}")
+print("IMPORT_COMPLETE")
+`);
+    if (!importRes.success) throw new Error(`GLB import failed: ${importRes.error}`);
+
+    const rebakeScript = fs.readFileSync(REBAKE_SCRIPT_PATH, "utf8");
+    const params = JSON.stringify({
+      views,
+      texture_size: Number(texture_size) || 1024,
+      front_axis_deg: Number(front_axis_deg) || 0,
+    });
+    const rebakeRes = await bridge.executeCode(
+      `${rebakeScript}\nrun_rebake(json.loads(r'''${params}'''))\n`
+    );
+    if (!rebakeRes.success) throw new Error(`rebake failed: ${rebakeRes.error}`);
+    const m = /REBAKE_RESULT:(\{.*\})/.exec(rebakeRes.stdout || "");
+    const stats = m ? JSON.parse(m[1]) : null;
+    if (!stats?.success) throw new Error(stats?.error || "Rebake produced no result.");
+
+    const exported = await bridge.exportGlb();
+    res.json({ success: true, stats, glb_base64: exported.glb_base64, size_bytes: exported.size_bytes });
+  } catch (err) {
+    console.error("[texture/rebake] error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// =============================================================================
 // POST /agent/build — Full multi-agent avatar build endpoint
 // Receives: { glb_base64, pet_analysis, build_config? }
 // Returns:  { jobId } immediately, poll /jobs/:jobId for results

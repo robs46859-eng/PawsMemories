@@ -1,6 +1,7 @@
 import express, { type ErrorRequestHandler, type Express } from "express";
 import { bumpDailyUsage, dbConfigured, getPool } from "../../db";
 import { EdgeHermesClient } from "./client";
+import { GeminiHermesAdapter } from "./gemini_adapter";
 import { loadHermesConfig } from "./config";
 import { createHermesRouter, type HermesRouterDeps } from "./router";
 import { MySqlHermesStore, type HermesStore } from "./store";
@@ -60,6 +61,19 @@ export async function createProductionHermesApp(): Promise<Express> {
     }
   }
 
+  // Gemini adapter — active whenever the Hermes bridge is disabled (the default).
+  // Uses the same GEMINI_API_KEY as the rest of the app so no new credentials
+  // are needed. GEMINI_HERMES_MODEL defaults to "gemini-2.5-flash".
+  const geminiApiKey = process.env.GEMINI_API_KEY;
+  const geminiHermesModel = process.env.GEMINI_HERMES_MODEL || "gemini-2.5-flash";
+  const geminiAdapter = geminiApiKey
+    ? new GeminiHermesAdapter(geminiApiKey, geminiHermesModel)
+    : undefined;
+
+  if (!config.enabled && !geminiAdapter) {
+    console.warn("[Hermes] Bridge disabled and GEMINI_API_KEY is not set — all Hermes endpoints will return 503.");
+  }
+
   return createHermesApp({
     enabled: config.enabled,
     client: config.enabled ? new EdgeHermesClient(config) : null,
@@ -67,5 +81,6 @@ export async function createProductionHermesApp(): Promise<Express> {
     dailyUsage: {
       increment: (owner, type) => bumpDailyUsage(owner, `hermes_${type}`),
     },
+    geminiAdapter,
   });
 }

@@ -5,7 +5,6 @@ import ResetPassword from "./components/ResetPassword";
 import AnimationStudio from "./components/AnimationStudio";
 import Welcome from "./components/Welcome";
 import Tutorial from "./components/Tutorial";
-import Dashboard from "./components/Dashboard";
 import HomePage from "./components/HomePage";
 import CreateScreen from "./components/CreateScreen";
 import CreateReferenceScreen from "./components/create-flow/CreateReferenceScreen";
@@ -26,7 +25,7 @@ const RandyChat = lazy(() => import("./components/RandyChat"));
 import AlbumView from "./components/AlbumView";
 import AlbumsPage from "./components/AlbumsPage";
 import { fetchMe, fetchCreations, fetchAlbums, createAlbum, clearToken, claimAchievement, claimDailyStreak, claimShareReward, confirmCreditsSession, acceptCurrentTerms } from "./api";
-import { Sun, Moon, LogOut, RefreshCw, Zap, Bell, ShoppingCart, Users, HelpCircle } from "lucide-react";
+import { Sun, Moon, LogOut, RefreshCw, Zap, Bell, ShoppingCart, Users, HelpCircle, PackageCheck } from "lucide-react";
 import CreditStore from "./components/CreditStore";
 const AvatarDashboard = lazy(() => import("./components/AvatarDashboard"));
 import Store from "./components/Store";
@@ -36,6 +35,8 @@ import HelpModal from "./components/HelpModal";
 const PawprintsScreen = lazy(() => import("./components/PawprintsScreen"));
 const FidosStylesScreen = lazy(() => import("./components/FidosStylesScreen"));
 const FurBinScreen = lazy(() => import("./components/FurBinScreen"));
+const WagsAdminPanel = lazy(() => import("./components/WagsAdminPanel"));
+const WagsInboxScreen = lazy(() => import("./components/WagsInboxScreen"));
 const AnimatorScreen = lazy(() => import("./animator/components/AnimatorScreen"));
 import WarehouseMode from "./components/WarehouseMode";
 import { MOBILE_NAV, SIDEBAR_NAV, TOP_PRIMARY_NAV } from "./shellNavigation";
@@ -67,6 +68,8 @@ const SCREEN_PATHS: Partial<Record<Screen, string>> = {
   [Screen.LANDING_MEMORIALS]: "/pet-memorial-models",
   [Screen.HOW_IT_WORKS]: "/how-it-works",
   [Screen.PRICING]: "/pricing",
+  [Screen.ADMIN_WAGS]: "/admin/wags",
+  [Screen.WAGS_INBOX]: "/wags",
 };
 
 function screenFromPath(pathname: string): Screen | null {
@@ -586,6 +589,16 @@ export default function App() {
                 <button onClick={() => setShowHelpModal(true)} className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full border border-outline-variant/30 bg-surface-container text-on-surface-variant hover:text-primary sm:flex" title="Help & Support" aria-label="Help and support">
                   <HelpCircle size={18} />
                 </button>
+                {userProfile.isAdmin && (
+                  <button
+                    onClick={() => setCurrentScreen(Screen.ADMIN_WAGS)}
+                    className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full border border-outline-variant/30 bg-surface-container text-on-surface-variant hover:text-primary sm:flex"
+                    title="Wags admin review"
+                    aria-label="Wardrobe Wags admin review"
+                  >
+                    <PackageCheck size={18} />
+                  </button>
+                )}
                 <button onClick={handleLogout} className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full border border-outline-variant/30 bg-surface-container text-on-surface-variant hover:bg-error/10 hover:text-error sm:flex" title="Log out" aria-label="Log out">
                   <LogOut size={18} />
                 </button>
@@ -597,7 +610,7 @@ export default function App() {
 
       <div className="flex-grow flex w-full relative">
         {/* Desktop Sidebar */}
-        {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN, Screen.CREATE, Screen.CREATE_REFERENCE, Screen.CREATE_CUSTOMIZE, Screen.CREATE_VALIDATE, Screen.CREATE_CHECKOUT, Screen.MARKETPLACE].includes(currentScreen) && (
+        {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN, Screen.CREATE, Screen.CREATE_REFERENCE, Screen.CREATE_CUSTOMIZE, Screen.CREATE_VALIDATE, Screen.CREATE_CHECKOUT, Screen.MARKETPLACE, Screen.ADMIN_WAGS, Screen.WAGS_INBOX].includes(currentScreen) && (
           <aside className="fixed bottom-0 left-0 top-16 z-40 hidden w-64 shrink-0 flex-col overflow-x-hidden overflow-y-auto border-r border-outline-variant/20 bg-surface/85 py-5 shadow-xl backdrop-blur-xl dark:bg-surface-dim/85 md:flex">
             <nav className="mt-4 flex-1 space-y-2 px-4">
               {SIDEBAR_NAV.map((item) => (
@@ -635,7 +648,6 @@ export default function App() {
             onOpenMarketplace={() => setCurrentScreen(Screen.MARKETPLACE)}
             onOpenPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
             onOpenFurball={() => setCurrentScreen(Screen.CREATE)} /* RD-6: Furball3D gated; route to Create */
-            onOpenAnimator={openAnimationStudio}
             onOpenFidos={() => setCurrentScreen(Screen.PAWLISHER)}
           />
         )}
@@ -782,11 +794,38 @@ export default function App() {
             )}
 
             {currentScreen === Screen.PAWLISHER && (
-              <UnderConstructionLock
-                featureName="Fido's Styles"
-                featureDescription="Wardrobe looks, style variations, and coat customization for your 3D models — coming soon."
-                onGoToCreate={() => setCurrentScreen(Screen.CREATE)}
-              />
+              <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
+                <FidosStylesScreen
+                  userProfile={userProfile}
+                  onGoToPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
+                  onUserUpdate={applyUser}
+                />
+              </Suspense>
+            )}
+
+            {currentScreen === Screen.WAGS_INBOX && (
+              <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
+                <WagsInboxScreen onGoToFidos={() => setCurrentScreen(Screen.PAWLISHER)} />
+              </Suspense>
+            )}
+
+            {/* Server-guarded too: every /api/admin/wags/* route checks isUserAdmin.
+                This client gate is cosmetic; non-admins landing here are bounced. */}
+            {currentScreen === Screen.ADMIN_WAGS && (
+              userProfile.isAdmin ? (
+                <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
+                  <WagsAdminPanel onClose={() => setCurrentScreen(Screen.DASHBOARD)} />
+                </Suspense>
+              ) : (
+                <HomePage
+                  userProfile={userProfile}
+                  onOpenCreate={() => setCurrentScreen(Screen.CREATE)}
+                  onOpenMarketplace={() => setCurrentScreen(Screen.MARKETPLACE)}
+                  onOpenPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
+                  onOpenFurball={() => setCurrentScreen(Screen.CREATE)}
+                  onOpenFidos={() => setCurrentScreen(Screen.PAWLISHER)}
+                />
+              )
             )}
 
             {currentScreen === Screen.FURBIN && (
@@ -812,7 +851,6 @@ export default function App() {
                 onOpenMarketplace={() => setCurrentScreen(Screen.MARKETPLACE)}
                 onOpenPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
                 onOpenFurball={() => setCurrentScreen(Screen.CREATE)} /* RD-6: Furball3D gated; route to Create */
-                onOpenAnimator={openAnimationStudio}
                 onOpenFidos={() => setCurrentScreen(Screen.PAWLISHER)}
               />
             )}
@@ -849,7 +887,7 @@ export default function App() {
       )}
 
       {/* Floating Bottom Navigator (only when signed in and past onboarding) */}
-      {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN, Screen.CREATE, Screen.MARKETPLACE].includes(currentScreen) && (
+      {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN, Screen.CREATE, Screen.MARKETPLACE, Screen.WAGS_INBOX].includes(currentScreen) && (
         <div className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 gap-1 rounded-t-2xl border-t border-outline-variant/30 bg-surface-container-lowest/90 px-1 py-2 shadow-[0_-8px_32px_0_rgba(68,42,34,0.08)] backdrop-blur-xl dark:bg-surface-dim/90 md:hidden">
           {MOBILE_NAV.map((item) => (
             <button

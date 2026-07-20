@@ -408,7 +408,147 @@ export async function initDb(): Promise<void> {
     } catch (migrationError) {
       console.warn("⚠️ Could not migrate Pawprint print order payment fields:", migrationError);
     }
-    
+
+    // =====================================================================
+    // Marketplace (IMPLEMENTATION_SPEC.md §4.3, migration 011_marketplace.sql)
+    // =====================================================================
+
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS marketplace_listings (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        uuid CHAR(36) NOT NULL,
+        slug VARCHAR(140) NOT NULL,
+        name VARCHAR(160) NOT NULL,
+        breed VARCHAR(120) NULL,
+        category ENUM('breed','memorial','accessories','seasonal') NOT NULL,
+        description TEXT NULL,
+        tags_json JSON NULL,
+        dimensions_json JSON NULL,
+        print_notes TEXT NULL,
+        digital_price_cents INT NULL,
+        physical_enabled TINYINT(1) NOT NULL DEFAULT 0,
+        print_size_min_mm DECIMAL(8,2) NULL,
+        print_size_max_mm DECIMAL(8,2) NULL,
+        status ENUM('draft','published','archived') NOT NULL DEFAULT 'draft',
+        sort_order INT NOT NULL DEFAULT 0,
+        created_by VARCHAR(32) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_marketplace_uuid (uuid),
+        UNIQUE KEY uniq_marketplace_slug (slug),
+        INDEX idx_marketplace_status_sort (status, sort_order),
+        INDEX idx_marketplace_category (category),
+        CONSTRAINT fk_marketplace_creator FOREIGN KEY (created_by) REFERENCES users(phone) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS marketplace_assets (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        listing_id BIGINT NOT NULL,
+        asset_uuid CHAR(36) NOT NULL,
+        kind ENUM('source_glb','preview_image','stl_derivative') NOT NULL,
+        bucket ENUM('public','private') NOT NULL,
+        object_key VARCHAR(512) NOT NULL,
+        mime_type VARCHAR(120) NOT NULL,
+        size_bytes BIGINT NOT NULL,
+        sha256 CHAR(64) NOT NULL,
+        version INT NOT NULL DEFAULT 1,
+        status ENUM('active','superseded') NOT NULL DEFAULT 'active',
+        sort_order INT NOT NULL DEFAULT 0,
+        derivative_height_mm DECIMAL(8,2) NULL,
+        source_provider ENUM('original','sketchfab') NOT NULL DEFAULT 'original',
+        source_url VARCHAR(512) NULL,
+        source_author VARCHAR(190) NULL,
+        source_license VARCHAR(40) NULL,
+        attribution_text VARCHAR(500) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_marketplace_asset_uuid (asset_uuid),
+        UNIQUE KEY uniq_marketplace_object_key (object_key),
+        INDEX idx_marketplace_asset_listing (listing_id, kind, status, sort_order),
+        CONSTRAINT fk_marketplace_asset_listing FOREIGN KEY (listing_id) REFERENCES marketplace_listings(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS marketplace_digital_orders (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        user_phone VARCHAR(32) NOT NULL,
+        listing_id BIGINT NOT NULL,
+        asset_id BIGINT NOT NULL,
+        price_cents INT NOT NULL,
+        currency CHAR(3) NOT NULL DEFAULT 'usd',
+        stripe_session_id VARCHAR(128) NULL,
+        stripe_payment_intent VARCHAR(128) NULL,
+        idempotency_key VARCHAR(128) NOT NULL,
+        status VARCHAR(40) NOT NULL DEFAULT 'awaiting_payment',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_marketplace_digital_idem (user_phone, idempotency_key),
+        INDEX idx_marketplace_digital_user (user_phone),
+        INDEX idx_marketplace_digital_session (stripe_session_id),
+        CONSTRAINT fk_marketplace_digital_user FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE,
+        CONSTRAINT fk_marketplace_digital_listing FOREIGN KEY (listing_id) REFERENCES marketplace_listings(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // The UNIQUE key is what makes Stripe webhook replay safe: the handler uses
+    // INSERT ... ON DUPLICATE KEY UPDATE id = id, so a redelivered event is a
+    // no-op rather than a duplicate grant or a 500 that triggers more retries.
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS marketplace_entitlements (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        user_phone VARCHAR(32) NOT NULL,
+        listing_id BIGINT NOT NULL,
+        asset_id BIGINT NOT NULL,
+        digital_order_id BIGINT NULL,
+        granted_reason ENUM('purchase','admin_grant','refund_reversal') NOT NULL DEFAULT 'purchase',
+        revoked_at TIMESTAMP NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_marketplace_entitlement (user_phone, listing_id, asset_id),
+        INDEX idx_marketplace_entitlement_user (user_phone),
+        CONSTRAINT fk_marketplace_ent_user FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE,
+        CONSTRAINT fk_marketplace_ent_listing FOREIGN KEY (listing_id) REFERENCES marketplace_listings(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS fidos_projects (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        user_phone VARCHAR(32) NOT NULL,
+        avatar_id INT NULL,
+        name VARCHAR(160) NOT NULL,
+        prompt TEXT NULL,
+        wardrobe_json JSON NULL,
+        settings_json JSON NULL,
+        quality_tier ENUM('draft','standard','studio') NOT NULL DEFAULT 'standard',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_fidos_user (user_phone, updated_at),
+        CONSTRAINT fk_fidos_user FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // Widen print_orders.source_type so marketplace listings reuse the existing
+    // Slant 3D fulfillment path. Additive: no existing row changes meaning and
+    // every current read path filters source_type explicitly. Guarded because
+    // this runs on every boot.
+    try {
+      const [sourceTypeCol] = await getPool().query(
+        `SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'print_orders' AND COLUMN_NAME = 'source_type'`,
+      ) as any;
+      const columnType = String(sourceTypeCol?.[0]?.COLUMN_TYPE || "");
+      if (columnType && !columnType.includes("marketplace_listing")) {
+        await getPool().query(
+          `ALTER TABLE print_orders MODIFY COLUMN source_type ENUM('creation','avatar','marketplace_listing') NOT NULL`,
+        );
+        console.log("✅ Migration: print_orders.source_type now accepts 'marketplace_listing'.");
+      }
+    } catch (migrationError) {
+      console.warn("⚠️ Could not widen print_orders.source_type:", migrationError);
+    }
+
     await getPool().query(`
       CREATE TABLE IF NOT EXISTS pets (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -1097,6 +1237,152 @@ export async function initDb(): Promise<void> {
     } catch (seedErr) {
       console.warn("⚠️ Admin seed skipped:", seedErr);
     }
+    // ── Fido's Styles: per-user, per-avatar project settings (Phase 6) ─────────
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS fidos_projects (
+        id            BIGINT AUTO_INCREMENT PRIMARY KEY,
+        user_phone    VARCHAR(32) NOT NULL,
+        avatar_id     INT NOT NULL,
+        settings_json JSON NOT NULL DEFAULT (JSON_OBJECT()),
+        created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_user_avatar (user_phone, avatar_id),
+        INDEX (user_phone),
+        FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // ── Wardrobe Wags: subscription, box, and item tables (Wags W1) ──────────
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS wardrobe_wags_subscriptions (
+        id                      BIGINT AUTO_INCREMENT PRIMARY KEY,
+        user_phone              VARCHAR(32) NOT NULL,
+        pet_id                  INT NOT NULL,
+        species                 ENUM('dog','cat') NOT NULL,
+        tier                    ENUM('basic','plus') NOT NULL DEFAULT 'basic',
+        billing_period          ENUM('monthly','annual') NOT NULL DEFAULT 'monthly',
+        stripe_subscription_id  VARCHAR(128) NOT NULL,
+        stripe_customer_id      VARCHAR(128) NOT NULL,
+        status                  ENUM('active','paused','cancelled') NOT NULL DEFAULT 'active',
+        current_period_start    DATE NOT NULL,
+        current_period_end      DATE NOT NULL,
+        annual_bonus_delivered_year INT NULL,
+        cancel_at_period_end    TINYINT(1) NOT NULL DEFAULT 0,
+        cancelled_at            TIMESTAMP NULL,
+        created_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_stripe_sub (stripe_subscription_id),
+        INDEX (user_phone),
+        INDEX (pet_id),
+        FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS wardrobe_wags_boxes (
+        id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+        subscription_id BIGINT NOT NULL,
+        user_phone      VARCHAR(32) NOT NULL,
+        box_month       CHAR(7) NOT NULL,
+        status          ENUM(
+          'pending_review','approved','rejected','delivered',
+          'delivered_flagged','reviewed_ok','reviewed_issue'
+        ) NOT NULL DEFAULT 'pending_review',
+        plan_json       JSON NULL,
+        admin_notes     TEXT NULL,
+        reviewed_by     VARCHAR(32) NULL,
+        reviewed_at     TIMESTAMP NULL,
+        delivered_at    TIMESTAMP NULL,
+        created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_sub_month (subscription_id, box_month),
+        INDEX (user_phone),
+        INDEX (status),
+        FOREIGN KEY (subscription_id) REFERENCES wardrobe_wags_subscriptions(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS wardrobe_wags_box_items (
+        id                    BIGINT AUTO_INCREMENT PRIMARY KEY,
+        box_id                BIGINT NOT NULL,
+        slot                  ENUM(
+          'accessory','seasonal','minimodel','pawprint',
+          'accessory_2','accessory_3',
+          'sticker_1','sticker_2','sticker_3','sticker_4','sticker_5',
+          'credit_pack','video_gen','restyle',
+          'calendar'
+        ) NOT NULL,
+        listing_id            BIGINT NULL,
+        asset_id              BIGINT NULL,
+        entitlement_type      VARCHAR(60) NULL,
+        credit_amount         INT NULL,
+        personalization_note  VARCHAR(200) NULL,
+        swapped_by_admin      TINYINT(1) NOT NULL DEFAULT 0,
+        created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX (box_id),
+        FOREIGN KEY (box_id) REFERENCES wardrobe_wags_boxes(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // W3 delivery columns. Guarded because these tables may already exist from
+    // the W1/W2 boot before delivery shipped.
+    try {
+      const [itemCols] = await getPool().query(
+        `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wardrobe_wags_box_items'`,
+      ) as any;
+      const itemNames = new Set(itemCols.map((row: any) => String(row.COLUMN_NAME)));
+      const itemMigrations: Array<[string, string]> = [
+        // Materialized plan copy: the inbox renders from box_items alone, so a
+        // later re-plan can never silently rewrite what a user already received.
+        ["title", "ADD COLUMN title VARCHAR(160) NULL AFTER entitlement_type"],
+        ["description", "ADD COLUMN description VARCHAR(600) NULL AFTER title"],
+        // Which renderable wardrobe item this slot unlocked (WAGS_EXCLUSIVE ids).
+        ["wardrobe_item_id", "ADD COLUMN wardrobe_item_id VARCHAR(64) NULL AFTER listing_id"],
+      ];
+      for (const [name, ddl] of itemMigrations) {
+        if (!itemNames.has(name)) await getPool().query(`ALTER TABLE wardrobe_wags_box_items ${ddl}`);
+      }
+      const [boxCols] = await getPool().query(
+        `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wardrobe_wags_boxes'`,
+      ) as any;
+      const boxNames = new Set(boxCols.map((row: any) => String(row.COLUMN_NAME)));
+      if (!boxNames.has("opened_at")) {
+        // Unboxing is a once-per-box reveal; opened_at records it server-side so
+        // the animation cannot replay on every visit.
+        await getPool().query(`ALTER TABLE wardrobe_wags_boxes ADD COLUMN opened_at TIMESTAMP NULL AFTER delivered_at`);
+      }
+    } catch (migrationError) {
+      console.warn("⚠️ Could not migrate Wags delivery columns:", migrationError);
+    }
+
+    // UV8 texture re-bake jobs (migration 012_texture_jobs.sql).
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS texture_jobs (
+        id CHAR(36) NOT NULL PRIMARY KEY,
+        user_phone VARCHAR(32) NOT NULL,
+        avatar_id INT NOT NULL,
+        job_type ENUM('rebake') NOT NULL DEFAULT 'rebake',
+        status ENUM('queued','processing','completed','failed') NOT NULL DEFAULT 'queued',
+        source_model_url TEXT NOT NULL,
+        result_model_url TEXT NULL,
+        stats_json JSON NULL,
+        error VARCHAR(400) NULL,
+        idempotency_key VARCHAR(128) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_texture_idem (user_phone, idempotency_key),
+        INDEX idx_texture_user (user_phone, created_at),
+        INDEX idx_texture_avatar (avatar_id),
+        CONSTRAINT fk_texture_user FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    console.log("✅ fidos_projects and wardrobe_wags tables ready.");
+
   } catch (err) {
     console.error("Failed to initialize database:", err);
   }

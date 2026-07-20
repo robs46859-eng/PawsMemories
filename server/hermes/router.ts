@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { requireAuth, type AuthedRequest } from "../../auth";
 import { HermesClientError, type HermesClient } from "./client";
+import type { GeminiAdapter } from "./gemini_adapter";
 import {
   HermesBridgeCreateResponseSchema,
   HermesBridgeStatusResponseSchema,
@@ -61,6 +62,12 @@ export interface HermesRouterDeps {
   dailyUsage: HermesDailyUsage;
   minuteLimits?: HermesMinuteLimits;
   idFactory?: () => string;
+  /**
+   * Gemini-backed adapter for all three job types.
+   * Used automatically when `enabled` is false (Hermes bridge disabled).
+   * If both `enabled` and `geminiAdapter` are absent, endpoints return 503.
+   */
+  geminiAdapter?: GeminiAdapter;
 }
 
 function requireStrictHermesAuth(req: AuthedRequest, res: Response, next: NextFunction): void {
@@ -176,9 +183,109 @@ export function createHermesRouter(deps: HermesRouterDeps): Router {
         validation: parsed.error.issues.map((issue) => issue.message),
       });
     }
+
+    // -----------------------------------------------------------------------
+    // Gemini adapter path — used when the Hermes bridge is disabled.
+    // Runs the Gemini call synchronously and stores the completed result, so
+    // the polling endpoint returns immediately on the first GET.
+    // -----------------------------------------------------------------------
     if (!deps.enabled || !deps.client) {
-      return res.status(503).json({ error: "Hermes is unavailable." });
+      if (!deps.geminiAdapter) {
+        return res.status(503).json({ error: "Hermes is unavailable." });
+      }
+
+      if (rejectMinuteLimit("create", req, res, limits)) return;
+
+      let dailyCount: number;
+      try {
+        dailyCount = await deps.dailyUsage.increment(req.user!.phone, type);
+      } catch {
+        return res.status(503).json({ error: "Hermes usage tracking is unavailable." });
+      }
+      const dailyCap = HERMES_DAILY_CAPS[type];
+      if (!Number.isInteger(dailyCount) || dailyCount < 1) {
+        return res.status(503).json({ error: "Hermes usage tracking is unavailable." });
+      }
+      if (dailyCount > dailyCap) {
+        return res.status(429).json({
+          error: `Daily Hermes ${type} limit reached.`,
+          cap: dailyCap,
+        });
+      }
+
+      const localId = HermesLocalJobIdSchema.safeParse(idFactory());
+      if (!localId.success) {
+        return res.status(500).json({ error: "Unable to create Hermes job." });
+      }
+
+      try {
+        await deps.store.createJob({
+          id: localId.data,
+          owner: req.user!.phone,
+          type,
+          status: "submitting",
+        });
+      } catch {
+        return res.status(500).json({ error: "Unable to create Hermes job." });
+      }
+
+      // Run Gemini synchronously.
+      let geminiResult: HermesJsonValue;
+      try {
+        geminiResult = await deps.geminiAdapter.run(type, parsed.data.payload);
+      } catch {
+        await safeUpdateJob(deps.store, {
+          id: localId.data,
+          owner: req.user!.phone,
+          status: "failed",
+          result: null,
+          error: HERMES_SANITIZED_ERRORS.submissionFailed,
+        });
+        return res.status(502).json({ error: "Hermes service is temporarily unavailable." });
+      }
+
+      // Validate looks result against the same schema the bridge path uses.
+      if (type === "looks") {
+        const constrained = HermesLookSpecSchema.safeParse(geminiResult);
+        if (!constrained.success) {
+          await safeUpdateJob(deps.store, {
+            id: localId.data,
+            owner: req.user!.phone,
+            status: "failed",
+            result: null,
+            error: HERMES_SANITIZED_ERRORS.jobFailed,
+          });
+          return res.status(502).json({ error: "Hermes returned an invalid Looks plan." });
+        }
+        // Store the Zod-parsed (and therefore type-safe) value.
+        geminiResult = constrained.data as unknown as HermesJsonValue;
+      }
+
+      try {
+        await deps.store.updateJob({
+          id: localId.data,
+          owner: req.user!.phone,
+          status: "completed",
+          result: geminiResult,
+          error: null,
+        });
+      } catch {
+        return res.status(500).json({ error: "Unable to save Hermes job." });
+      }
+
+      res.location(`/api/hermes/jobs/${localId.data}`);
+      // Return "completed" immediately — no polling required, but the client
+      // can still call GET /api/hermes/jobs/:id and receive the cached result.
+      return res.status(202).json({
+        id: localId.data,
+        type,
+        status: "completed",
+      });
     }
+
+    // -----------------------------------------------------------------------
+    // Hermes bridge path (HERMES_ENABLED=true)
+    // -----------------------------------------------------------------------
     if (rejectMinuteLimit("create", req, res, limits)) return;
 
     let dailyCount: number;
@@ -270,9 +377,10 @@ export function createHermesRouter(deps: HermesRouterDeps): Router {
     if (!parsedParams.success) {
       return res.status(400).json({ error: "Invalid Hermes job ID." });
     }
-    if (!deps.enabled || !deps.client) {
-      return res.status(503).json({ error: "Hermes is unavailable." });
-    }
+    // NOTE: The enabled-check is intentionally deferred until after we confirm
+    // the job is not already in a terminal state. Gemini-path jobs are stored
+    // as "completed" synchronously, so the first (and only) GET must succeed
+    // even when HERMES_ENABLED=false.
 
     let job: HermesJobRecord | null;
     try {
@@ -283,6 +391,10 @@ export function createHermesRouter(deps: HermesRouterDeps): Router {
     if (!job) return res.status(404).json({ error: "Hermes job not found." });
     if (rejectMinuteLimit("status", req, res, limits)) return;
 
+    // If the job is already terminal and has a result (or is a failure), return
+    // the cached record immediately — no bridge call required. This handles both
+    // the Gemini adapter path (bridgeJobId is null, status=completed) and
+    // previously resolved bridge jobs.
     const cachedTerminal = TERMINAL_STATUSES.has(job.status)
       && (FAILURE_STATUSES.has(job.status) || job.result != null);
     if (!job.bridgeJobId || cachedTerminal) {
@@ -291,6 +403,11 @@ export function createHermesRouter(deps: HermesRouterDeps): Router {
       } catch {
         return res.status(500).json({ error: "Unable to read Hermes job." });
       }
+    }
+
+    // Beyond this point a bridge round-trip is needed — require the bridge.
+    if (!deps.enabled || !deps.client) {
+      return res.status(503).json({ error: "Hermes is unavailable." });
     }
 
     let bridgeResponse: unknown;

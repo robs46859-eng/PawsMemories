@@ -3,10 +3,14 @@ import fs from "node:fs";
 import { test } from "node:test";
 
 test("Animator entry points hand off GLB URLs instead of avatar database ids", () => {
+  // Phase 6 (IMPLEMENTATION_SPEC §8.6): the rebuilt Fido's Styles workspace no
+  // longer links the animator at all — its onGoToAnimator prop was removed.
+  // AvatarDashboard remains an animator entry point and must still hand off a
+  // GLB URL rather than a database id.
   const pawlisher = fs.readFileSync("src/components/FidosStylesScreen.tsx", "utf8");
   const models = fs.readFileSync("src/components/AvatarDashboard.tsx", "utf8");
-  assert.match(pawlisher, /onGoToAnimator\?\.\(modelUrl\)/);
-  assert.doesNotMatch(pawlisher, /onGoToAnimator\?\.\(String\(selected\.id\)\)/);
+  assert.doesNotMatch(pawlisher, /onGoToAnimator/,
+    "Fido's Styles must not expose animator navigation while the studio is gated");
   assert.match(models, /onGoToAnimator\?\.\(glbUrl\)/);
   assert.doesNotMatch(models, /onGoToAnimator\?\.\(String\(avatar\.id\)\)/);
 });
@@ -35,12 +39,13 @@ test("Animator screen is gated with UnderConstructionLock in App.tsx", () => {
   // Animator mode state and openAnimationStudio helper are retained
   assert.match(app, /useState<"simple" \| "pro">\("simple"\)/);
   assert.match(app, /const openAnimationStudio = \(\) => \{[\s\S]*setAnimatorMode\("simple"\)/);
-  // But the ANIMATOR screen now renders UnderConstructionLock
+  // The ANIMATOR screen still renders UnderConstructionLock
   assert.match(app, /currentScreen === Screen\.ANIMATOR[\s\S]*UnderConstructionLock/);
   assert.match(app, /featureName="Animation Studio"/);
-  // Fido's Styles is also gated
-  assert.match(app, /currentScreen === Screen\.PAWLISHER[\s\S]*UnderConstructionLock/);
-  assert.match(app, /featureName="Fido's Styles"/);
+  // Phase 6: Fido's Styles is UNLOCKED — PAWLISHER renders the real workspace.
+  assert.match(app, /currentScreen === Screen\.PAWLISHER[\s\S]{0,400}FidosStylesScreen/);
+  assert.doesNotMatch(app, /featureName="Fido's Styles"/,
+    "Fido's Styles must no longer be wrapped in UnderConstructionLock");
 });
 
 test("RD-4: gated animator/lip-sync backends stay intact (gating must never become deletion)", () => {

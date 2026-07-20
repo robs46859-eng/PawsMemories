@@ -20,8 +20,6 @@ interface DashboardProps {
   onSelectAlbum: (album: Album) => void;
   onCreateAlbum: (name: string) => Promise<void>;
   onOpenAdminPanel?: () => void;
-  /** Navigate to the animation studio. */
-  onOpenAnimator?: () => void;
   /** Navigate to the Furball3D avatar builder. */
   onOpenFurball?: () => void;
   /** Navigate to Pawprints. */
@@ -30,7 +28,7 @@ interface DashboardProps {
   onOpenFidos?: () => void;
 }
 
-export default function Dashboard({ userProfile, streak, dailyStreakClaimed, onClaimDailyStreak, onCreate, onOpenAnimator, onOpenFurball, onOpenPawprints, onOpenFidos }: DashboardProps) {
+export default function Dashboard({ userProfile, streak, dailyStreakClaimed, onClaimDailyStreak, onCreate, onOpenFurball, onOpenPawprints, onOpenFidos }: DashboardProps) {
   const petName = userProfile.fullName.split(" ")[0] + "'s Pet"; // Defaulting to something nice
 
   return (
@@ -67,7 +65,6 @@ export default function Dashboard({ userProfile, streak, dailyStreakClaimed, onC
             { label: "Furball3D", title: "Build a 3D model", detail: "Turn a photo or prompt into a model.", image: "/brand/furball3d.jpg", action: () => (onOpenFurball ? onOpenFurball() : onCreate()), tour: "dashboard-create" },
             { label: "Fido's Styles", title: "Create the look", detail: "Build wardrobe looks and style variations.", image: "/brand/fidostyles.jpg", action: () => onOpenFidos?.() },
             { label: "Pawprints", title: "Make a keepsake", detail: "Add photos and words for any occasion.", image: "/brand/pawprints.png", action: () => onOpenPawprints?.() },
-            { label: "Animation Studio", title: "Bring it to life", detail: `Animate ${petName} with video or 3D scenes.`, image: "/brand/animation-studio.png", action: () => onOpenAnimator?.() },
           ].map((item) => (
             <button key={item.label} data-tour={item.tour} type="button" onClick={item.action} className="glass-tile group flex min-h-36 items-center gap-5 rounded-[1.75rem] p-5 text-left md:min-h-44 md:p-6">
               <img src={item.image} alt="" className="h-24 w-24 shrink-0 rounded-2xl object-cover shadow-md ring-1 ring-white/50 md:h-28 md:w-28" />

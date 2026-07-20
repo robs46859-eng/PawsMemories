@@ -16,6 +16,9 @@ import { isEndpointEnabled, dailyCapFor, withinDailyCap, type PaidEndpoint } fro
 import { classifyPetImage, type GenerateFn } from "./server/petClassify";
 import { semanticScan as runSemanticScan } from "./server/semanticScan";
 import { animatorRouter } from "./server/animator/routes.ts";
+import { planWagsBox, getPriorBoxHistory } from "./server/wags/planner";
+import { deliverBox, getOwnedWardrobeItems } from "./server/wags/delivery";
+import { RebakeRequestSchema, viewsFromAvatarRow } from "./server/textureSchemas";
 import { ANIMATOR_DATA_DIR } from "./server/animator/paths.ts";
 import { studioRouter } from "./server/animator/studio_proxy.ts";
 import { refundRouter } from "./server/refunds.ts";
@@ -29,7 +32,7 @@ import { privacyHtml, termsHtml, smsTermsHtml } from "./server/legal.ts";
 import { startWorker as startAnimatorWorker } from "./server/animator/worker.ts";
 import { phraseKey } from "./src/three/ar/voice";
 import { decayCompliance, pointsForTrial, creditsFromPoints, type TrialType } from "./src/brain";
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { resolveBreedProfile } from "./server/breedProfiles";
 import { decayDrives, DEFAULT_DRIVES, DEFAULT_HORMONES, weightsFromTemperament } from "./src/brain";
 import { uploadBase64Image, uploadBinaryFromUrl, fetchUrlAsBase64, uploadBase64Binary } from "./storage";
@@ -500,6 +503,88 @@ async function startServer() {
         const session = event.data.object as Stripe.Checkout.Session;
         console.log(`Async payment succeeded: ${session.id}`);
         await handleSuccessfulPayment(session);
+      } else if (event.type === "invoice.paid") {
+        // Wags monthly renewal — update period dates and queue a new box plan
+        const invoice = event.data.object as any;
+        const stripeSubId: string = invoice.subscription ?? "";
+        if (!stripeSubId) { res.json({ received: true }); return; }
+
+        const [subRows]: any = await getPool().query(
+          `SELECT id, user_phone, pet_id, species, tier, billing_period
+           FROM wardrobe_wags_subscriptions WHERE stripe_subscription_id = ? LIMIT 1`,
+          [stripeSubId],
+        );
+        if (!subRows?.length) { res.json({ received: true }); return; }
+        const sub = subRows[0];
+
+        // Update period dates from the invoice
+        const periodStart = invoice.period_start ? new Date(invoice.period_start * 1000).toISOString().slice(0, 10) : null;
+        const periodEnd   = invoice.period_end   ? new Date(invoice.period_end   * 1000).toISOString().slice(0, 10) : null;
+        if (periodStart && periodEnd) {
+          await getPool().query(
+            `UPDATE wardrobe_wags_subscriptions
+             SET current_period_start = ?, current_period_end = ?, status = 'active', updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [periodStart, periodEnd, sub.id],
+          );
+        }
+
+        // Determine box month (YYYY-MM from period start)
+        const boxMonth = (periodStart ?? new Date().toISOString()).slice(0, 7);
+
+        // Skip if a box already exists for this month
+        const [existingBox]: any = await getPool().query(
+          `SELECT id FROM wardrobe_wags_boxes WHERE subscription_id = ? AND box_month = ? LIMIT 1`,
+          [sub.id, boxMonth],
+        );
+        if (existingBox?.length) { res.json({ received: true }); return; }
+
+        // Look up pet profile for the avatar to get breed details
+        const [petRows]: any = await getPool().query(
+          `SELECT name, kind FROM pets WHERE id = ? LIMIT 1`,
+          [sub.pet_id],
+        );
+        const pet = petRows?.[0];
+
+        // Create pending_review box then plan it in the background
+        const [insertResult]: any = await getPool().query(
+          `INSERT INTO wardrobe_wags_boxes (subscription_id, user_phone, box_month, status)
+           VALUES (?, ?, ?, 'pending_review')`,
+          [sub.id, sub.user_phone, boxMonth],
+        );
+        const boxId: number = insertResult.insertId;
+
+        // Fire-and-forget Gemini planning — don't block the webhook response
+        (async () => {
+          try {
+            const { previous_themes, previous_item_titles } = await getPriorBoxHistory(sub.id, getPool());
+            const plan = await planWagsBox({
+              box_month: boxMonth,
+              tier: sub.tier,
+              pet_species: sub.species,
+              pet_breed: null,   // Phase 3.5: attach from pet_profiles
+              pet_name: pet?.name ?? null,
+              previous_themes,
+              previous_item_titles,
+            });
+            await getPool().query(
+              `UPDATE wardrobe_wags_boxes SET plan_json = ? WHERE id = ?`,
+              [JSON.stringify(plan), boxId],
+            );
+            console.log(`[Wags] Box ${boxId} planned for subscription ${sub.id} (${boxMonth}).`);
+          } catch (planErr: any) {
+            console.error(`[Wags] Box ${boxId} planning failed:`, planErr?.message || planErr);
+          }
+        })();
+      } else if (event.type === "customer.subscription.deleted") {
+        // Wags cancellation — mark subscription as cancelled
+        const stripeSub = event.data.object as any;
+        await getPool().query(
+          `UPDATE wardrobe_wags_subscriptions
+           SET status = 'cancelled', cancelled_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+           WHERE stripe_subscription_id = ?`,
+          [stripeSub.id],
+        ).catch((e: any) => console.error("[Wags] cancel sync failed:", e?.message));
       }
     } catch (error: any) {
       console.error("Stripe fulfillment webhook failed:", error?.message || error);
@@ -1340,6 +1425,521 @@ async function startServer() {
     }
   });
 
+  // ── Fido's Styles: project settings CRUD ──────────────────────────────────
+  // GET /api/fidos/projects?avatar_id=N  — load settings for a specific avatar
+  app.get("/api/fidos/projects", requireAuth, async (req: AuthedRequest, res) => {
+    const avatarId = Number(req.query.avatar_id);
+    if (!avatarId) return res.status(400).json({ error: "avatar_id required." });
+    try {
+      const [rows]: any = await getPool().query(
+        `SELECT id, avatar_id, settings_json FROM fidos_projects WHERE user_phone = ? AND avatar_id = ? LIMIT 1`,
+        [req.user!.phone, avatarId],
+      );
+      if (!rows?.length) return res.json(null);
+      const row = rows[0];
+      res.json({ id: row.id, avatar_id: row.avatar_id, settings_json: typeof row.settings_json === "string" ? JSON.parse(row.settings_json) : row.settings_json });
+    } catch (err: any) {
+      console.error("[fidos/projects GET]", err?.message || err);
+      res.status(500).json({ error: "Could not load project." });
+    }
+  });
+
+  // POST /api/fidos/projects — create a new project record
+  app.post("/api/fidos/projects", requireAuth, async (req: AuthedRequest, res) => {
+    const { avatar_id, settings_json } = req.body ?? {};
+    if (!avatar_id) return res.status(400).json({ error: "avatar_id required." });
+    const settings = (typeof settings_json === "object" && settings_json !== null) ? settings_json : {};
+    try {
+      const [result]: any = await getPool().query(
+        `INSERT INTO fidos_projects (user_phone, avatar_id, settings_json)
+         VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE settings_json = VALUES(settings_json), updated_at = CURRENT_TIMESTAMP`,
+        [req.user!.phone, Number(avatar_id), JSON.stringify(settings)],
+      );
+      const insertId = result.insertId || null;
+      // On DUPLICATE KEY UPDATE insertId may be 0; re-fetch the row id
+      if (!insertId) {
+        const [rows]: any = await getPool().query(
+          `SELECT id FROM fidos_projects WHERE user_phone = ? AND avatar_id = ? LIMIT 1`,
+          [req.user!.phone, Number(avatar_id)],
+        );
+        return res.json({ id: rows?.[0]?.id ?? null, avatar_id: Number(avatar_id) });
+      }
+      res.json({ id: insertId, avatar_id: Number(avatar_id) });
+    } catch (err: any) {
+      console.error("[fidos/projects POST]", err?.message || err);
+      res.status(500).json({ error: "Could not save project." });
+    }
+  });
+
+  // PATCH /api/fidos/projects/:id — update settings for an existing project
+  app.patch("/api/fidos/projects/:id", requireAuth, async (req: AuthedRequest, res) => {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ error: "Invalid project id." });
+    const { settings_json } = req.body ?? {};
+    if (typeof settings_json !== "object" || settings_json === null) return res.status(400).json({ error: "settings_json must be an object." });
+    try {
+      const [result]: any = await getPool().query(
+        `UPDATE fidos_projects SET settings_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_phone = ?`,
+        [JSON.stringify(settings_json), id, req.user!.phone],
+      );
+      if (!result.affectedRows) return res.status(404).json({ error: "Project not found." });
+      res.json({ id, settings_json });
+    } catch (err: any) {
+      console.error("[fidos/projects PATCH]", err?.message || err);
+      res.status(500).json({ error: "Could not update project." });
+    }
+  });
+
+  // ── Wardrobe Wags: subscription endpoints (W1) ─────────────────────────────
+  // POST /api/wags/subscribe — create a Stripe subscription for Wags
+  app.post("/api/wags/subscribe", requireAuth, async (req: AuthedRequest, res) => {
+    if (!stripe) return res.status(503).json({ error: "Payments not configured." });
+    const { pet_id, species, tier, billing_period, payment_method_id } = req.body ?? {};
+    if (!pet_id || !species || !tier || !billing_period || !payment_method_id)
+      return res.status(400).json({ error: "pet_id, species, tier, billing_period, payment_method_id are required." });
+    if (!["dog","cat"].includes(species)) return res.status(400).json({ error: "species must be dog or cat." });
+    if (!["basic","plus"].includes(tier)) return res.status(400).json({ error: "tier must be basic or plus." });
+    if (!["monthly","annual"].includes(billing_period)) return res.status(400).json({ error: "billing_period must be monthly or annual." });
+
+    const priceIdKey =
+      tier === "basic" && billing_period === "monthly" ? "WAGS_BASIC_MONTHLY_PRICE_ID" :
+      tier === "basic" && billing_period === "annual"  ? "WAGS_BASIC_ANNUAL_PRICE_ID"  :
+      tier === "plus"  && billing_period === "monthly" ? "WAGS_PLUS_MONTHLY_PRICE_ID"  :
+                                                          "WAGS_PLUS_ANNUAL_PRICE_ID";
+    const priceId = process.env[priceIdKey];
+    if (!priceId) return res.status(503).json({ error: `Stripe price for ${tier}/${billing_period} is not configured (${priceIdKey}).` });
+
+    try {
+      // Find or create Stripe customer
+      const [userRows]: any = await getPool().query(
+        "SELECT stripe_customer_id FROM users WHERE phone = ? LIMIT 1",
+        [req.user!.phone],
+      );
+      let customerId: string = userRows?.[0]?.stripe_customer_id || "";
+      if (!customerId) {
+        // Look up email from DB since it isn't on the JWT payload
+        const [meRows]: any = await getPool().query("SELECT email FROM users WHERE phone = ? LIMIT 1", [req.user!.phone]);
+        const userEmail: string | undefined = meRows?.[0]?.email ?? undefined;
+        const customer = await stripe.customers.create({
+          email: userEmail,
+          metadata: { user_phone: req.user!.phone },
+        });
+        customerId = customer.id;
+        await getPool().query("UPDATE users SET stripe_customer_id = ? WHERE phone = ?", [customerId, req.user!.phone]);
+      }
+      // Attach payment method
+      await stripe.paymentMethods.attach(payment_method_id, { customer: customerId });
+      await stripe.customers.update(customerId, { invoice_settings: { default_payment_method: payment_method_id } });
+
+      // Create subscription (cast to any to access period fields not always typed by SDK version)
+      const sub = await stripe.subscriptions.create({
+        customer: customerId,
+        items: [{ price: priceId }],
+        expand: ["latest_invoice.payment_intent"],
+        metadata: { user_phone: req.user!.phone, pet_id: String(pet_id), tier, billing_period, species },
+      }) as any;
+
+      const periodStart = new Date(sub.current_period_start * 1000).toISOString().slice(0, 10);
+      const periodEnd   = new Date(sub.current_period_end   * 1000).toISOString().slice(0, 10);
+
+      await getPool().query(
+        `INSERT INTO wardrobe_wags_subscriptions
+           (user_phone, pet_id, species, tier, billing_period, stripe_subscription_id, stripe_customer_id,
+            status, current_period_start, current_period_end)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+        [req.user!.phone, Number(pet_id), species, tier, billing_period, sub.id, customerId, periodStart, periodEnd],
+      );
+
+      res.json({ subscription_id: sub.id, status: sub.status });
+    } catch (err: any) {
+      console.error("[wags/subscribe]", err?.message || err);
+      res.status(500).json({ error: err.message || "Could not create subscription." });
+    }
+  });
+
+  // POST /api/wags/cancel — cancel a Wags subscription at period end
+  app.post("/api/wags/cancel", requireAuth, async (req: AuthedRequest, res) => {
+    if (!stripe) return res.status(503).json({ error: "Payments not configured." });
+    const { subscription_id } = req.body ?? {};
+    if (!subscription_id) return res.status(400).json({ error: "subscription_id required." });
+    try {
+      // Verify ownership
+      const [rows]: any = await getPool().query(
+        "SELECT id FROM wardrobe_wags_subscriptions WHERE stripe_subscription_id = ? AND user_phone = ? LIMIT 1",
+        [subscription_id, req.user!.phone],
+      );
+      if (!rows?.length) return res.status(404).json({ error: "Subscription not found." });
+
+      await stripe.subscriptions.update(subscription_id, { cancel_at_period_end: true });
+      await getPool().query(
+        "UPDATE wardrobe_wags_subscriptions SET cancel_at_period_end = 1 WHERE stripe_subscription_id = ? AND user_phone = ?",
+        [subscription_id, req.user!.phone],
+      );
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[wags/cancel]", err?.message || err);
+      res.status(500).json({ error: err.message || "Could not cancel subscription." });
+    }
+  });
+
+  // GET /api/wags/subscriptions — list the user's Wags subscriptions
+  app.get("/api/wags/subscriptions", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const [rows]: any = await getPool().query(
+        `SELECT id, pet_id, species, tier, billing_period, stripe_subscription_id,
+                status, current_period_start, current_period_end,
+                cancel_at_period_end, cancelled_at, created_at
+         FROM wardrobe_wags_subscriptions WHERE user_phone = ? ORDER BY created_at DESC`,
+        [req.user!.phone],
+      );
+      res.json({ subscriptions: rows ?? [] });
+    } catch (err: any) {
+      console.error("[wags/subscriptions GET]", err?.message || err);
+      res.status(500).json({ error: "Could not load subscriptions." });
+    }
+  });
+
+  // GET /api/wags/boxes — the user's Wags Inbox. Delivered boxes include their
+  // items; boxes still in curation appear as teasers with no contents, so the
+  // subscriber can see next month is coming without spoiling the reveal.
+  app.get("/api/wags/boxes", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const [boxes]: any = await getPool().query(
+        `SELECT b.id, b.box_month, b.status, b.delivered_at, b.opened_at, b.created_at,
+                s.tier, s.species
+         FROM wardrobe_wags_boxes b
+         JOIN wardrobe_wags_subscriptions s ON s.id = b.subscription_id
+         WHERE b.user_phone = ? AND b.status IN ('pending_review','approved','delivered','delivered_flagged','reviewed_ok')
+         ORDER BY b.box_month DESC
+         LIMIT 36`,
+        [req.user!.phone],
+      );
+      const deliveredIds = (boxes as any[])
+        .filter((b) => ["delivered", "delivered_flagged", "reviewed_ok"].includes(String(b.status)))
+        .map((b) => b.id);
+      let itemsByBox: Record<number, any[]> = {};
+      if (deliveredIds.length) {
+        const [items]: any = await getPool().query(
+          `SELECT box_id, slot, wardrobe_item_id, entitlement_type, credit_amount,
+                  title, description, personalization_note
+           FROM wardrobe_wags_box_items WHERE box_id IN (?) ORDER BY id`,
+          [deliveredIds],
+        );
+        for (const item of items as any[]) {
+          (itemsByBox[item.box_id] ||= []).push(item);
+        }
+      }
+      res.json({
+        boxes: (boxes as any[]).map((b) => ({
+          ...b,
+          // Curation states collapse to a single teaser status client-side.
+          status: ["delivered", "delivered_flagged", "reviewed_ok"].includes(String(b.status)) ? "delivered" : "curating",
+          items: itemsByBox[b.id] ?? [],
+        })),
+      });
+    } catch (err: any) {
+      console.error("[wags/boxes GET]", err?.message || err);
+      res.status(500).json({ error: "Could not load your Wags boxes." });
+    }
+  });
+
+  // POST /api/wags/boxes/:id/open — record the one-time unboxing reveal.
+  app.post("/api/wags/boxes/:id/open", requireAuth, async (req: AuthedRequest, res) => {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ error: "Invalid box id." });
+    try {
+      await getPool().query(
+        `UPDATE wardrobe_wags_boxes SET opened_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND user_phone = ? AND opened_at IS NULL
+           AND status IN ('delivered','delivered_flagged','reviewed_ok')`,
+        [id, req.user!.phone],
+      );
+      res.json({ id, opened: true });
+    } catch (err: any) {
+      console.error("[wags/boxes open]", err?.message || err);
+      res.status(500).json({ error: "Could not open the box." });
+    }
+  });
+
+  // GET /api/wags/wardrobe — wardrobe item ids unlocked through Wags boxes.
+  // Fido's Styles uses this to unlock exclusive items in the wardrobe panel.
+  app.get("/api/wags/wardrobe", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const owned = await getOwnedWardrobeItems(getPool() as any, req.user!.phone);
+      res.json({ owned: [...owned] });
+    } catch (err: any) {
+      console.error("[wags/wardrobe GET]", err?.message || err);
+      res.status(500).json({ error: "Could not load wardrobe entitlements." });
+    }
+  });
+
+  // ==========================================================================
+  // Texture re-bake (UV_TEXTURE_GENERATION_PLAN.md UV8 — likeness repair).
+  // Re-projects the avatar's approved reference views onto its mesh and bakes
+  // a fresh base-color atlas on the Blender worker. No generation step; the
+  // user's own approved views are the ground truth, so no credit charge —
+  // this repairs what they already paid to create. Rate-limited + idempotent.
+  // ==========================================================================
+
+  // POST /api/texture/rebake — start a re-bake for an avatar the user owns.
+  app.post("/api/texture/rebake", requireAuth, paidLimiter, async (req: AuthedRequest, res) => {
+    try {
+      const idempotencyKey = String(req.header("Idempotency-Key") || "").trim().slice(0, 128);
+      if (!idempotencyKey) return res.status(400).json({ error: "An idempotency key is required." });
+
+      const parsed = RebakeRequestSchema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.issues.map((i) => i.message).join("; ") });
+      }
+      const workerUrl = String(process.env.BLENDER_WORKER_URL || "").replace(/\/render$/, "").replace(/\/$/, "");
+      if (!workerUrl || !process.env.WORKER_SHARED_SECRET) {
+        return res.status(503).json({ error: "Texture re-bake is not configured." });
+      }
+
+      const phone = req.user!.phone;
+      const [existing]: any = await getPool().query(
+        `SELECT id, status, result_model_url FROM texture_jobs WHERE user_phone = ? AND idempotency_key = ? LIMIT 1`,
+        [phone, idempotencyKey],
+      );
+      if (existing?.[0]) {
+        return res.json({ jobId: existing[0].id, status: existing[0].status, resultUrl: existing[0].result_model_url, idempotent: true });
+      }
+
+      const [avatarRows]: any = await getPool().query(
+        `SELECT id, image_url, model_url, rigged_model_url, multiview_json
+         FROM avatars WHERE id = ? AND user_phone = ? LIMIT 1`,
+        [parsed.data.avatar_id, phone],
+      );
+      const avatar = avatarRows?.[0];
+      if (!avatar) return res.status(404).json({ error: "Avatar not found." });
+      const sourceModelUrl = avatar.rigged_model_url || avatar.model_url;
+      if (!sourceModelUrl) return res.status(422).json({ error: "This avatar has no 3D model yet." });
+
+      const views = viewsFromAvatarRow(avatar);
+      if (!views) return res.status(422).json({ error: "This avatar has no reference views to re-bake from." });
+
+      const jobId = randomUUID();
+      await getPool().query(
+        `INSERT INTO texture_jobs (id, user_phone, avatar_id, status, source_model_url, idempotency_key)
+         VALUES (?, ?, ?, 'processing', ?, ?)`,
+        [jobId, phone, avatar.id, sourceModelUrl, idempotencyKey],
+      );
+      res.status(202).json({ jobId, status: "processing" });
+
+      // Background: worker round-trip, upload, job update. The response has
+      // already gone out; the client polls GET /api/texture/jobs/:id.
+      (async () => {
+        try {
+          const workerRes = await fetch(`${workerUrl}/texture/rebake`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-worker-secret": process.env.WORKER_SHARED_SECRET || "",
+            },
+            body: JSON.stringify({
+              glb_url: sourceModelUrl,
+              views,
+              texture_size: parsed.data.texture_size || 1024,
+            }),
+            signal: AbortSignal.timeout(600_000),
+          });
+          const result: any = await workerRes.json().catch(() => ({}));
+          if (!workerRes.ok || !result?.success || !result?.glb_base64) {
+            throw new Error(result?.error || `Worker returned ${workerRes.status}`);
+          }
+          // Result GLB → public media bucket (same tier as look variations —
+          // it is the user's own deliverable, not a purchasable source asset).
+          const resultUrl = await uploadBase64Binary(result.glb_base64, "model/gltf-binary", "rebaked-models");
+          await getPool().query(
+            `UPDATE texture_jobs SET status = 'completed', result_model_url = ?, stats_json = ? WHERE id = ?`,
+            [resultUrl, JSON.stringify(result.stats ?? null), jobId],
+          );
+        } catch (err: any) {
+          const message = String(err?.message || err).slice(0, 400);
+          console.error(`[texture/rebake ${jobId}]`, message);
+          await getPool().query(
+            `UPDATE texture_jobs SET status = 'failed', error = ? WHERE id = ?`,
+            [message, jobId],
+          ).catch(() => {});
+        }
+      })();
+    } catch (err: any) {
+      console.error("[texture/rebake POST]", err?.message || err);
+      res.status(500).json({ error: "Could not start the texture re-bake." });
+    }
+  });
+
+  // GET /api/texture/jobs/:id — poll a re-bake job (owner only).
+  app.get("/api/texture/jobs/:id", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const [rows]: any = await getPool().query(
+        `SELECT id, avatar_id, status, result_model_url, stats_json, error, created_at, updated_at
+         FROM texture_jobs WHERE id = ? AND user_phone = ? LIMIT 1`,
+        [String(req.params.id), req.user!.phone],
+      );
+      const job = rows?.[0];
+      if (!job) return res.status(404).json({ error: "Job not found." });
+      res.json({
+        jobId: job.id,
+        avatarId: job.avatar_id,
+        status: job.status,
+        resultUrl: job.result_model_url,
+        stats: typeof job.stats_json === "string" ? JSON.parse(job.stats_json) : job.stats_json,
+        error: job.error,
+      });
+    } catch (err: any) {
+      console.error("[texture/jobs GET]", err?.message || err);
+      res.status(500).json({ error: "Could not load the job." });
+    }
+  });
+
+  // GET /api/texture/jobs — the user's recent re-bakes (Fur Bin variants list).
+  app.get("/api/texture/jobs", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const [rows]: any = await getPool().query(
+        `SELECT id, avatar_id, status, result_model_url, created_at
+         FROM texture_jobs WHERE user_phone = ? ORDER BY created_at DESC LIMIT 50`,
+        [req.user!.phone],
+      );
+      res.json({ jobs: rows ?? [] });
+    } catch (err: any) {
+      console.error("[texture/jobs list]", err?.message || err);
+      res.status(500).json({ error: "Could not load texture jobs." });
+    }
+  });
+
+  // ── Wags admin endpoints (admin only) ─────────────────────────────────────
+  // GET /api/admin/wags/boxes — list all boxes with subscription + user details
+  app.get("/api/admin/wags/boxes", requireAuth, async (req: AuthedRequest, res) => {
+    if (!req.user || !await isUserAdmin(req.user.phone)) return res.status(403).json({ error: "Admin only." });
+    const statusFilter = req.query.status as string | undefined;
+    const limitVal = Math.min(Number(req.query.limit ?? 50), 200);
+    const offsetVal = Number(req.query.offset ?? 0);
+    try {
+      const where = statusFilter ? `WHERE b.status = ?` : `WHERE 1=1`;
+      const params: any[] = statusFilter ? [statusFilter, limitVal, offsetVal] : [limitVal, offsetVal];
+      const [rows]: any = await getPool().query(
+        `SELECT
+           b.id, b.subscription_id, b.user_phone, b.box_month, b.status,
+           b.plan_json, b.admin_notes, b.reviewed_by, b.reviewed_at, b.delivered_at, b.created_at,
+           s.tier, s.billing_period, s.species, s.pet_id,
+           s.current_period_start, s.current_period_end
+         FROM wardrobe_wags_boxes b
+         JOIN wardrobe_wags_subscriptions s ON s.id = b.subscription_id
+         ${where}
+         ORDER BY b.created_at DESC
+         LIMIT ? OFFSET ?`,
+        params,
+      );
+      // Parse plan_json for each row
+      const boxes = (rows ?? []).map((row: any) => ({
+        ...row,
+        plan_json: typeof row.plan_json === "string" ? JSON.parse(row.plan_json) : row.plan_json,
+      }));
+      res.json({ boxes });
+    } catch (err: any) {
+      console.error("[admin/wags/boxes GET]", err?.message || err);
+      res.status(500).json({ error: "Could not load boxes." });
+    }
+  });
+
+  // POST /api/admin/wags/boxes/:subscriptionId/plan — (re-)plan a box with Gemini
+  app.post("/api/admin/wags/boxes/:subscriptionId/plan", requireAuth, async (req: AuthedRequest, res) => {
+    if (!req.user || !await isUserAdmin(req.user.phone)) return res.status(403).json({ error: "Admin only." });
+    const subscriptionId = Number(req.params.subscriptionId);
+    const boxMonth: string = req.body?.box_month ?? new Date().toISOString().slice(0, 7);
+    if (!subscriptionId) return res.status(400).json({ error: "subscriptionId required." });
+    try {
+      const [subRows]: any = await getPool().query(
+        `SELECT id, user_phone, pet_id, species, tier FROM wardrobe_wags_subscriptions WHERE id = ? LIMIT 1`,
+        [subscriptionId],
+      );
+      if (!subRows?.length) return res.status(404).json({ error: "Subscription not found." });
+      const sub = subRows[0];
+
+      const [petRows]: any = await getPool().query(
+        `SELECT name FROM pets WHERE id = ? AND user_phone = ? LIMIT 1`,
+        [sub.pet_id, sub.user_phone],
+      );
+      const petName = petRows?.[0]?.name ?? null;
+
+      const { previous_themes, previous_item_titles } = await getPriorBoxHistory(subscriptionId, getPool());
+      const plan = await planWagsBox({
+        box_month: boxMonth,
+        tier: sub.tier,
+        pet_species: sub.species,
+        pet_breed: null,
+        pet_name: petName,
+        previous_themes,
+        previous_item_titles,
+      });
+
+      // Upsert the box row
+      const [existing]: any = await getPool().query(
+        `SELECT id FROM wardrobe_wags_boxes WHERE subscription_id = ? AND box_month = ? LIMIT 1`,
+        [subscriptionId, boxMonth],
+      );
+      if (existing?.length) {
+        await getPool().query(
+          `UPDATE wardrobe_wags_boxes SET plan_json = ?, status = 'pending_review', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+          [JSON.stringify(plan), existing[0].id],
+        );
+        res.json({ box_id: existing[0].id, plan });
+      } else {
+        const [result]: any = await getPool().query(
+          `INSERT INTO wardrobe_wags_boxes (subscription_id, user_phone, box_month, status, plan_json)
+           VALUES (?, ?, ?, 'pending_review', ?)`,
+          [subscriptionId, sub.user_phone, boxMonth, JSON.stringify(plan)],
+        );
+        res.json({ box_id: result.insertId, plan });
+      }
+    } catch (err: any) {
+      console.error("[admin/wags/plan]", err?.message || err);
+      res.status(500).json({ error: err.message || "Planning failed." });
+    }
+  });
+
+  // PATCH /api/admin/wags/boxes/:id — approve or reject a box
+  app.patch("/api/admin/wags/boxes/:id", requireAuth, async (req: AuthedRequest, res) => {
+    if (!req.user || !await isUserAdmin(req.user.phone)) return res.status(403).json({ error: "Admin only." });
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ error: "Invalid box id." });
+    const { action, admin_notes } = req.body ?? {};
+    if (!["approve", "reject"].includes(action)) return res.status(400).json({ error: "action must be approve or reject." });
+
+    const newStatus = action === "approve" ? "approved" : "rejected";
+    try {
+      const [result]: any = await getPool().query(
+        `UPDATE wardrobe_wags_boxes
+         SET status = ?, admin_notes = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND status IN ('pending_review', 'rejected', 'approved')`,
+        [newStatus, admin_notes ?? null, req.user.phone, id],
+      );
+      if (!result.affectedRows) return res.status(404).json({ error: "Box not found or already delivered." });
+
+      // W3: approval delivers. Materializes plan_json into box_items, grants
+      // wardrobe unlocks + credits (idempotent — see server/wags/delivery.ts),
+      // and flips status to 'delivered'. Rejection stops here.
+      if (action === "approve") {
+        const [boxRows]: any = await getPool().query(
+          `SELECT id, user_phone, plan_json FROM wardrobe_wags_boxes WHERE id = ? LIMIT 1`,
+          [id],
+        );
+        const boxRow = boxRows?.[0];
+        const plan = boxRow?.plan_json
+          ? (typeof boxRow.plan_json === "string" ? JSON.parse(boxRow.plan_json) : boxRow.plan_json)
+          : null;
+        const delivery = await deliverBox(getPool(), { id, user_phone: boxRow.user_phone, plan_json: plan });
+        return res.json({ id, status: "delivered", delivery });
+      }
+      res.json({ id, status: newStatus });
+    } catch (err: any) {
+      console.error("[admin/wags/boxes PATCH]", err?.message || err);
+      res.status(500).json({ error: "Could not update box." });
+    }
+  });
+
   app.get("/api/pawprints/templates", (_req, res) => {
     const categories = getPawprintCategories();
     const templates = getPawprintTemplatesSync();
@@ -2108,7 +2708,7 @@ async function startServer() {
     if (!m) return null;
     const part = { inlineData: { data: m[2], mimeType: m[1] } };
     const instruction = extractPaletteInstruction(type);
-    for (const model of ["gemini-2.5-flash", "gemini-2.0-flash-exp"]) {
+    for (const model of TEXT_MODELS) {
       try {
         const response = await ai.models.generateContent({
           model,
@@ -2123,14 +2723,48 @@ async function startServer() {
     return null;
   }
 
+  /**
+   * Best-first TEXT model chain, used by extractPalette. Previously hardcoded as
+   * ["gemini-2.5-flash", "gemini-2.0-flash-exp"] while GEMINI_TEXT_FALLBACK_MODEL
+   * was declared in .env.example but read nowhere (GEMINI_CALL_AUDIT.md §4.1).
+   * Defaults preserve the exact previous behaviour; the env var now works.
+   */
+  // Only include the fallback when explicitly set — no default so the chain
+  // stays single-model (gemini-2.5-flash) and gemini-2.0-flash-exp never
+  // appears unless the operator deliberately opts in.
+  const TEXT_MODELS: string[] = [
+    (process.env.GEMINI_TEXT_MODEL || "gemini-2.5-flash").trim(),
+    process.env.GEMINI_TEXT_FALLBACK_MODEL?.trim() ?? "",
+  ].filter(Boolean);
+
   // Best-first image model chain (Nano Banana family, per ai.google.dev/models).
-  //  - gemini-3-pro-image      = Nano Banana Pro  (state-of-the-art, studio 4K) → best quality
-  //  - gemini-3.1-flash-image  = Nano Banana 2    (fast, production-scale)
-  //  - gemini-2.5-flash-image  = Nano Banana      (older, known generateContent-compatible fallback)
+  //  - gemini-3-pro-image          = Nano Banana Pro    (state-of-the-art, studio 4K) → best quality
+  //  - gemini-3.1-flash-image      = Nano Banana 2      (fast, production-scale)
+  //  - gemini-3.1-flash-lite-image = Nano Banana 2 Lite (ultra-low latency / cost)
+  //  - gemini-2.5-flash-image      = Nano Banana        (older, known generateContent-compatible fallback)
   // Override without a redeploy via GEMINI_IMAGE_MODELS (comma-separated).
   const IMAGE_MODELS: string[] = (process.env.GEMINI_IMAGE_MODELS ||
-    "gemini-3-pro-image,gemini-3.1-flash-image,gemini-2.5-flash-image")
+    "gemini-3-pro-image,gemini-3.1-flash-image,gemini-3.1-flash-lite-image,gemini-2.5-flash-image")
     .split(",").map((s) => s.trim()).filter(Boolean);
+
+  /**
+   * Per-tier image model chains for Fido's Styles quality tiers. Each falls back
+   * to the shared IMAGE_MODELS chain when unset, so tiers degrade to current
+   * behaviour rather than failing. Same comma-separated override contract as
+   * GEMINI_IMAGE_MODELS — see GEMINI_CALL_AUDIT.md §4.5.
+   */
+  const IMAGE_MODELS_BY_TIER: Record<"draft" | "standard" | "studio", string[]> = {
+    draft: (process.env.GEMINI_IMAGE_MODELS_DRAFT ||
+      "gemini-3.1-flash-lite-image,gemini-3.1-flash-image")
+      .split(",").map((s) => s.trim()).filter(Boolean),
+    standard: (process.env.GEMINI_IMAGE_MODELS_STANDARD ||
+      "gemini-3.1-flash-image,gemini-2.5-flash-image")
+      .split(",").map((s) => s.trim()).filter(Boolean),
+    studio: (process.env.GEMINI_IMAGE_MODELS_STUDIO ||
+      "gemini-3-pro-image,gemini-3.1-flash-image")
+      .split(",").map((s) => s.trim()).filter(Boolean),
+  };
+  void IMAGE_MODELS_BY_TIER; // wired by the Fido's Styles workspace (spec §6.5)
 
   /**
    * Generate one image from parts with model fallback; returns a data URL or null.
@@ -3044,8 +3678,22 @@ async function startServer() {
     }
   });
 
-  // Initialize Gemini API
-  const apiKey = process.env.GEMINI_API_KEY;
+  // Initialize Gemini API.
+  // Previously this silently fell back to the literal "placeholder-key", so a
+  // missing key surfaced as an opaque 4xx from Google at request time instead of
+  // a clear boot failure (GEMINI_CALL_AUDIT.md §4.3). Production now fails fast;
+  // dev and test keep the sentinel so the server still boots for offline work
+  // and for suites that inject mocks.
+  const apiKey = (process.env.GEMINI_API_KEY || "").trim();
+  if (!apiKey) {
+    const message =
+      "GEMINI_API_KEY is not set. Every Gemini-backed route (avatars, creations, " +
+      "video, classify, Randy) will fail.";
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(message);
+    }
+    console.warn(`⚠️ ${message} Continuing with a placeholder key (NODE_ENV=${process.env.NODE_ENV || "undefined"}).`);
+  }
   const ai = new GoogleGenAI({
     apiKey: apiKey || "placeholder-key",
     httpOptions: {
@@ -3652,69 +4300,44 @@ async function startServer() {
         const mimeType = matches[1];
         const base64Data = matches[2];
 
-        try {
-          // Call gemini-2.0-flash-exp to translate/style-transfer the input photo
-          const response = await ai.models.generateContent({
-            model: 'gemini-2.0-flash-exp',
-            contents: {
-              parts: [
-                {
-                  inlineData: {
-                    data: base64Data,
-                    mimeType: mimeType,
-                  },
-                },
-                ...(backdropPart ? [backdropPart] : []),
-                {
-                  text: `Please restyle and merge this pet's appearance into a new image matching this prompt description: ${promptText}. Ensure the pet's core features (dog/cat/fur patterns) are recognizable but beautifully rendered in the requested artistic style and background. Respond with only the generated image.`,
-                },
-              ],
-            },
-            config: {
-              responseModalities: ["IMAGE", "TEXT"],
-            }
+        // Restyle via the IMAGE_MODELS chain (same fallback machinery as avatar
+        // generation). generateImageWithFallback handles all error logging and
+        // model-iteration internally; null means every model failed → fall through.
+        const restyParts = [
+          { inlineData: { data: base64Data, mimeType: mimeType } },
+          ...(backdropPart ? [backdropPart] : []),
+          {
+            text: `Please restyle and merge this pet's appearance into a new image matching this prompt description: ${promptText}. Ensure the pet's core features (dog/cat/fur patterns) are recognizable but beautifully rendered in the requested artistic style and background. Respond with only the generated image.`,
+          },
+        ];
+        const generatedBase64 = await generateImageWithFallback(restyParts, "create-creation-restyle");
+
+        if (generatedBase64) {
+          // Phase 2: Upload to object storage
+          let finalImageUrl = generatedBase64;
+          try {
+            finalImageUrl = await uploadBase64Image(generatedBase64);
+          } catch (uploadErr) {
+            console.error("Failed to upload to object storage, falling back to base64:", uploadErr);
+          }
+
+          // Phase 1.3: Save to database for persistent album
+          const creationId = await saveCreation({
+            user_phone: userPhone,
+            media_type: 'still',
+            style,
+            backdrop_kind: location ? 'streetview' : 'preset',
+            preset_name: location ? null : background,
+            sv_lat: location?.lat || null,
+            sv_lng: location?.lng || null,
+            sv_heading: location?.heading || null,
+            sv_pitch: location?.pitch || null,
+            sv_fov: location?.fov || null,
+            place_label: location?.placeLabel || null,
+            image_url: finalImageUrl,
           });
 
-          // Check for inlineData image in candidates
-          let generatedBase64: string | null = null;
-          if (response.candidates && response.candidates[0]?.content?.parts) {
-            for (const part of response.candidates[0].content.parts) {
-              if (part.inlineData) {
-                generatedBase64 = `data:image/png;base64,${part.inlineData.data}`;
-                break;
-              }
-            }
-          }
-
-          if (generatedBase64) {
-            // Phase 2: Upload to object storage
-            let finalImageUrl = generatedBase64;
-            try {
-              finalImageUrl = await uploadBase64Image(generatedBase64);
-            } catch (uploadErr) {
-              console.error("Failed to upload to object storage, falling back to base64:", uploadErr);
-            }
-
-            // Phase 1.3: Save to database for persistent album
-            const creationId = await saveCreation({
-              user_phone: userPhone,
-              media_type: 'still',
-              style,
-              backdrop_kind: location ? 'streetview' : 'preset',
-              preset_name: location ? null : background,
-              sv_lat: location?.lat || null,
-              sv_lng: location?.lng || null,
-              sv_heading: location?.heading || null,
-              sv_pitch: location?.pitch || null,
-              sv_fov: location?.fov || null,
-              place_label: location?.placeLabel || null,
-              image_url: finalImageUrl,
-            });
-
-            return res.json({ success: true, imageUrl: finalImageUrl, creationId, mode: "transform" });
-          }
-        } catch (err: any) {
-          console.warn("Base64 translation template failed, attempting full fallback generation:", err);
+          return res.json({ success: true, imageUrl: finalImageUrl, creationId, mode: "transform" });
         }
       }
 
@@ -3759,37 +4382,24 @@ async function startServer() {
         
         return res.json({ success: true, imageUrl: finalImageUrl, creationId, mode: "generate" });
       } catch (e: any) {
-        console.error("Imagen model error, trying gemini-2.5-flash-image fallback:", e);
-        
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.0-flash-exp',
-          contents: {
-            parts: [{ text: `Generate a beautiful artistic image matching this prompt: ${promptText}` }]
-          },
-          config: {
-            responseModalities: ["IMAGE", "TEXT"],
-          }
-        });
-        
-        let generatedBase64: string | null = null;
-        if (response.candidates && response.candidates[0]?.content?.parts) {
-          for (const part of response.candidates[0].content.parts) {
-            if (part.inlineData) {
-              generatedBase64 = `data:image/png;base64,${part.inlineData.data}`;
-              break;
-            }
-          }
-        }
-        
+        // Imagen failed — fall back to the same IMAGE_MODELS generateContent chain
+        // used for avatar generation. TEXT_MODELS is not appropriate here because
+        // this path needs image output, not text (GEMINI_CALL_AUDIT.md §4.2).
+        console.error("Imagen model error, trying IMAGE_MODELS generateContent fallback:", e);
+
+        const generatedBase64 = await generateImageWithFallback(
+          [{ text: `Generate a beautiful artistic image matching this prompt: ${promptText}` }],
+          "create-creation-imagen-fallback",
+        );
+
         if (generatedBase64) {
-          // Phase 2: Upload to object storage
           let finalImageUrl = generatedBase64;
           try {
             finalImageUrl = await uploadBase64Image(generatedBase64);
           } catch (uploadErr) {
             console.error("Failed to upload to object storage, falling back to base64:", uploadErr);
           }
-          
+
           // Phase 1.3: Save to database for persistent album (fallback path)
           const creationId = await saveCreation({
             user_phone: userPhone,
@@ -3808,7 +4418,7 @@ async function startServer() {
 
           return res.json({ success: true, imageUrl: finalImageUrl, creationId, mode: "fallback" });
         }
-        
+
         throw new Error("All image generation methods failed.");
       }
     } catch (err: any) {

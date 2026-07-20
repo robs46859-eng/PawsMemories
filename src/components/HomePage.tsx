@@ -1,5 +1,5 @@
 import React from "react";
-import { ArrowRight, Camera, Palette, ShieldCheck, Printer, Lock, Construction, Bell, Sparkles, Star, Heart, Gift, Dog, PawPrint } from "lucide-react";
+import { ArrowRight, Camera, Palette, ShieldCheck, Printer, Bell, Sparkles, Star, Heart, Gift, Dog, PawPrint } from "lucide-react";
 import { UserProfile } from "../types";
 
 interface HomePageProps {
@@ -8,43 +8,47 @@ interface HomePageProps {
   onOpenMarketplace: () => void;
   onOpenPawprints: () => void;
   onOpenFurball: () => void;
-  onOpenAnimator: () => void;
   onOpenFidos: () => void;
 }
 
-/* Static showcase data — uses existing creation imagery */
+/* Featured showcase — local studio photography served from public/featured-models.
+   Previously four hotlinked lh3.googleusercontent.com URLs, which put a
+   third-party CDN on the critical path of the homepage above the fold.
+   Sources are center-cropped to 4:5 and encoded as WebP (~14-32 KB each,
+   down from ~4.6 MB of source PNG/JPEG). A matching .jpg sits alongside
+   each .webp on disk as a fallback asset. */
 const FEATURED_MODELS = [
   {
-    name: "Randy in Paris",
-    breed: "Golden Retriever",
-    style: "Clay",
+    name: "Chihuahua Classic",
+    breed: "Chihuahua",
+    style: "Realistic",
     size: '4" tall',
     price: "Example design",
-    image: "https://lh3.googleusercontent.com/aida-public/AB6AXuBU0nUa1m6O8-EVOuohKwONaRwJZZ1gEa5tLTsM6Pk1OPKho05x71b_umVngODZv7RWo73hOOvU9Pu2yXKJeirbxWxwhUK0Oc8ZFW0V8ZtACgsRSPZMsMbEYEEAO1esiiTpH2zeweZ3QKaShDtccGyScYK3DPYrRmCO8dvSv0zEfSO0vQfPknP_CW52xEaWsC4OY5-40p1XpbQMAuCeo0OUJO_pV-DEwfFkOxaCgZedlpRMbhqAEHqAtwegofQrEhqucTjtQ2OleIE",
+    image: "/featured-models/chihuahua.webp",
   },
   {
-    name: "Regal Cooper",
-    breed: "English Bulldog",
+    name: "Tuxedo Charmer",
+    breed: "Boston Terrier",
     style: "Realistic",
     size: '5" tall',
     price: "Example design",
-    image: "https://lh3.googleusercontent.com/aida-public/AB6AXuB8ObbseD9WagQBXRMd7E8BZ9RKHCgeVXiTKIOxDJMzlQsW7PyFS-UBTPelIFo5QDRzArLs-4-4Oy6SJRj96hu8uVRnQnCBEX1QpUj4KkwViPiT2O6z7A8hCU1m1tGqzsbjfqwTtmb-rdCuYzWTIV3knQxTGdj1wOIy_BZnirVnKurbIwHKukbwAZoLNP71iCjzmKKELvLlJFKabzz3CT54bzle2VywswLksCtnmOWoThBAC3PtfJYhh--0wQssrh3QDfwRSZgeL7o",
+    image: "/featured-models/boston-terrier.webp",
   },
   {
-    name: "Cabin Companion",
-    breed: "Labrador",
+    name: "Tuck",
+    breed: "Labradoodle",
     style: "Realistic",
-    size: '4" tall',
-    price: "Example design",
-    image: "https://lh3.googleusercontent.com/aida/AP1WRLtFDVEbGliaP7_evzZN_0TExPZntgmOewmauFKbkzvCbsDtKQs6KG-2t6XJ2X111LgZJF1OEymMFPWvAmWawCw-BCq6LT56LCOMv1teoRQytKnceBBh9acShCALXBygU3f_ABu8p4jiWEJVExClrbt0bTGdcCQ6GxFLGP4wYdtYKWhbchG9EG7JxIw39ErS7Lal4ujgb8uz8bxQOr-4H1dKF26Fv2zKJ4DWGHaAF7N7C4clV0ba9n8zADQ",
-  },
-  {
-    name: "Canyon Adventure",
-    breed: "Golden Retriever",
-    style: "Clay",
     size: '6" tall',
     price: "Example design",
-    image: "https://lh3.googleusercontent.com/aida/AP1WRLuMUevcjZpP-AN97I_CA6dOQYEMS0BevxX3U39ALuZBdr-amMVOAtfxg8xCDxKyqZaseVEV-unjiFTjJh3qvOeeJK_FEcahmc-CSgTOIEsW_C9-BNmA7cgFVAjjQTQW0l1qQNz2RYiP8fzGVMjSgv3FD75s1qC_ghJQ5_sKyBUcPn7Gt74S_qwQy21Mq7ObaMtDVUR3Joq0QE0DwBDmKXXRXS21S-v6gRkS_EAKEwhLJiVOuOIm8xWZVQ",
+    image: "/featured-models/tuck.webp",
+  },
+  {
+    name: "Snow Shiba",
+    breed: "Shiba Inu",
+    style: "Realistic",
+    size: '5" tall',
+    price: "Example design",
+    image: "/featured-models/shiba-inu.webp",
   },
 ];
 
@@ -67,12 +71,6 @@ const MARKETPLACE_CATEGORIES = [
   { title: "Memorial Pieces", desc: "Honoring companions who crossed the bridge.", icon: "🕊️" },
   { title: "Accessories", desc: "Collars, plaques, bases, and more.", icon: "🎀" },
   { title: "Seasonal", desc: "Holiday-themed and limited editions.", icon: "🎄" },
-];
-
-const LOCKED_MODULES = [
-  { name: "Animation Studio", desc: "Bring your 3D model to life with motion and video.", image: "/brand/animation-studio.png" },
-  { name: "Video Generation", desc: "Create cinematic clips starring your pet.", image: "/brand/furball3d.jpg" },
-  { name: "Fido's Styles", desc: "Wardrobe looks and style variations for your model.", image: "/brand/fidostyles.jpg" },
 ];
 
 export default function HomePage({
@@ -99,8 +97,9 @@ export default function HomePage({
                 Pawsome3D
               </p>
               <h1 className="text-3xl font-black leading-tight tracking-tight text-on-surface sm:text-4xl lg:text-5xl">
-                Turn your pet into something{" "}
-                <span className="text-primary">you can hold.</span>
+                Create a memory that{" "}
+                <span className="text-primary">lasts forever</span>{" "}
+                <span role="img" aria-label="paw print">🐾</span>
               </h1>
               <p className="mt-4 max-w-lg text-sm leading-relaxed text-on-surface-variant md:text-base">
                 Upload a photo, personalize the model, and print a one-of-a-kind keepsake
@@ -166,9 +165,12 @@ export default function HomePage({
                 <div className="relative aspect-[4/5] overflow-hidden">
                   <img
                     src={model.image}
-                    alt={model.name}
+                    alt={`${model.name} — ${model.breed} 3D model`}
+                    width={800}
+                    height={1000}
+                    loading="lazy"
+                    decoding="async"
                     className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                    referrerPolicy="no-referrer"
                   />
                   <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-4 pt-12">
                     <h3 className="text-sm font-black text-white">{model.name}</h3>
@@ -317,42 +319,6 @@ export default function HomePage({
         </div>
       </section>
 
-      {/* ─────────────── LOCKED MODULES ─────────────── */}
-      <section className="mt-16 px-4 sm:px-6">
-        <div className="mx-auto max-w-6xl">
-          <div className="mb-6 text-center">
-            <h2 className="text-xs font-black uppercase tracking-[.18em] text-on-surface-variant">Coming Soon</h2>
-          </div>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            {LOCKED_MODULES.map((mod) => (
-              <div
-                key={mod.name}
-                className="locked-module-overlay glass-tile relative flex items-center gap-4 rounded-[1.5rem] p-5"
-              >
-                <div className="relative shrink-0">
-                  <img
-                    src={mod.image}
-                    alt=""
-                    className="h-16 w-16 rounded-xl object-cover opacity-50 grayscale"
-                  />
-                  <div className="absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full bg-primary/80 text-on-primary shadow">
-                    <Lock size={10} />
-                  </div>
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-black text-on-surface">{mod.name}</h3>
-                    <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[9px] font-black uppercase text-primary">
-                      <Construction size={9} /> Under Construction
-                    </span>
-                  </div>
-                  <p className="mt-1 text-[11px] text-on-surface-variant">{mod.desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
     </div>
   );
 }

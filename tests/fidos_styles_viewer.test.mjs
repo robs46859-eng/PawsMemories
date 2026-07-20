@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const source = await readFile(new URL("../src/components/PawlisherScreen.tsx", import.meta.url), "utf8");
+// Component was renamed PawlisherScreen -> FidosStylesScreen; this path was
+// left stale and the suite had been failing on ENOENT ever since.
+const source = await readFile(new URL("../src/components/FidosStylesScreen.tsx", import.meta.url), "utf8");
 
 test("Fido's Styles viewer has no Edison bulb feature", () => {
   assert.doesNotMatch(source, /Edison bulb|Lightbulb|lightSettings|pawlisher_light/);

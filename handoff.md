@@ -448,3 +448,40 @@ blocker history.
   plan. It supplements but does not weaken `AR_PET_SIM_HARDENING_PLAN_V2.md`.
 - Production deployment remains on hold. `PETSIM_RIG_ENABLED=false` is mandatory, and a
   named human AR acceptance record is required before a production GO decision.
+
+## Gemini-for-Hermes replacement (2026-07-20)
+
+**Decision:** Hermes/Gemma replaced by Gemini for all three job types. `hermes-looks-worker/` (Outlines + Gemma 4 E2B) is no longer needed and can be decommissioned. The VPS Hermes endpoint and `HERMES_EDGE_BRIDGE_URL` / `HERMES_EDGE_PRODUCER_SECRET` configuration is not required.
+
+**What changed:**
+
+| File | Change |
+|---|---|
+| `server/hermes/gemini_adapter.ts` | **New.** `GeminiAdapter` interface + `GeminiHermesAdapter` class. `run(type, payload)` dispatches to `planLooks` / `translateText` / `answerKnowledge` via `generateContent`. |
+| `server/hermes/router.ts` | `HermesRouterDeps.geminiAdapter?: GeminiAdapter` added. `createHandler` uses Gemini synchronously when bridge disabled: job created (`status=submitting`), Gemini called, result stored (`status=completed`), 202 returned with `status=completed`. GET handler restructured: terminal-cache early-return now comes before the 503 guard so completed Gemini jobs are readable when `HERMES_ENABLED=false`. |
+| `server/hermes/app.ts` | Imports `GeminiHermesAdapter`, constructs it from `GEMINI_API_KEY` + `GEMINI_HERMES_MODEL` (default `gemini-2.5-flash`), passes as `geminiAdapter` dep. |
+
+**How it works at runtime:**
+
+`HERMES_ENABLED=false` (unchanged). Gemini adapter is active. POST to `/api/hermes/looks` (or `translate`, `knowledge`) runs the Gemini call synchronously within the request (~1–5 s), stores the result as `completed`, returns 202 with `status: "completed"`. Frontend polling with GET `/api/hermes/jobs/:id` returns the cached result immediately (no bridge round-trip needed).
+
+`looks` result is validated against `HermesLookSpecSchema` (same as the bridge path) before storage. Gemini's `responseSchema` constrained decoding at the token level means schema mismatches are rare; the Zod gate catches any remaining edge cases.
+
+**New env var:**
+
+```
+GEMINI_HERMES_MODEL="gemini-2.5-flash"   # optional, this is the default
+```
+
+`GEMINI_API_KEY` is already set (same key as image generation). No new credentials needed.
+
+**Latency spike (July 9):** The GenerateContent latency increase (49 ms → 7–25 s) correlates with Hermes/Gemma installation. With the bridge disabled and Gemma no longer running, the quota contention source is removed. Monitor GCP after deploy to confirm recovery. If latency persists, investigate `gemini-2.0-flash-exp` usage in three places in `server.ts` (L2113, L3657, L3764) — this model is not in the current stable lineup and may be throttled.
+
+**Still pending from GEMINI_CALL_AUDIT.md:**
+
+- Fix misleading error log at `server.ts` L3762 (says `gemini-2.5-flash-image`, calls `gemini-2.0-flash-exp`)
+- Replace `gemini-2.0-flash-exp` (3 uses) with stable equivalents (`gemini-2.5-flash` for text, `gemini-3.1-flash-image` for image fallback)
+- Wire or delete dead `GEMINI_TEXT_FALLBACK_MODEL` env var
+- Add `gemini-3.1-flash-lite-image` to image chain for Fido's Styles Draft tier (MARKETPLACE_AND_STYLES_SPEC.md Phase 6)
+
+**MARKETPLACE_AND_STYLES_SPEC.md Phase 0 status:** Resolved. Phase 0 was "repoint Hermes at VPS worker" — superseded by this Gemini replacement. Blocking item "VPS Hermes endpoint + secret" is no longer required. Phase 1 (hero copy, featured models, Coming Soon removal) remains unblocked.

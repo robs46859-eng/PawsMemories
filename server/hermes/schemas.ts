@@ -143,9 +143,14 @@ export const HermesLooksPayloadSchema = z
     identity_summary: NonBlankString(1_000),
     look_pack: z.string().trim().min(1).max(80).optional(),
     look_count: z.number().int().min(1).max(4),
-    reference_photo_count: z.number().int().min(10).max(30),
+    reference_photo_count: z.number().int().min(0).max(30),
     aspect_ratio: z.enum(["1:1", "4:5", "9:16", "16:9"]),
     output_schema: z.literal("pawsome.look-spec.v1"),
+    /** Controls which image model chain is used when the plan is rendered to images.
+     *  draft → gemini-3.1-flash-lite-image (1 look, ~10-20s, 2 cr)
+     *  standard → gemini-3.1-flash-image (4 looks, ~1-2min, 8 cr) [default]
+     *  studio → gemini-3-pro-image (4 looks upscaled, ~3-5min, 20 cr) */
+    quality_tier: z.enum(["draft", "standard", "studio"]).optional().default("standard"),
   })
   .strict()
   .refine(

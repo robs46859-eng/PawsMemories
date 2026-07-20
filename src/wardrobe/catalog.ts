@@ -53,3 +53,29 @@ export const WARDROBE_CATALOG: WardrobeItem[] = [
 ];
 
 export const WARDROBE_ITEM_IDS = new Set(WARDROBE_CATALOG.map(({ id }) => id));
+
+/**
+ * Wardrobe Wags exclusive variants — delivered only through the monthly box
+ * (W3 delivery grants; never in the free catalog). Same procedural geometry
+ * pathway as the base catalog until real GLBs land, so every item here renders
+ * in the viewer today. Seasonal recolors chosen to pair with planner themes.
+ */
+export const WAGS_EXCLUSIVE_CATALOG: WardrobeItem[] = [
+  item("wags-rose-collar", "Rose Garden Collar", "neck", "#c2547e", [0.42, 0.06, 0.42], [0, 0.92, 0]),
+  item("wags-midnight-collar", "Midnight Collar", "neck", "#1a2340", [0.42, 0.06, 0.42], [0, 0.92, 0]),
+  item("wags-copper-bow", "Copper Bow Tie", "neck", "#b26a3a", [0.34, 0.18, 0.1], [0, 0.83, 0.2]),
+  item("wags-sunset-bandana", "Sunset Bandana", "neck", "#d97742", [0.42, 0.3, 0.08], [0, 0.8, 0.18]),
+  item("wags-frost-cape", "Frost Cape", "back", "#7fa8c9", [0.62, 0.72, 0.08], [0, 0.68, -0.22]),
+  item("wags-ember-cape", "Ember Cape", "back", "#9c3a1e", [0.62, 0.72, 0.08], [0, 0.68, -0.22]),
+  item("wags-meadow-hat", "Meadow Party Hat", "head", "#5a9e4b", [0.3, 0.42, 0.3], [0, 1.42, 0]),
+  item("wags-star-hat", "Stargazer Hat", "head", "#2c2a5e", [0.48, 0.58, 0.48], [0, 1.42, 0]),
+  item("wags-silver-crown", "Silver Crown", "head", "#b8bfc9", [0.38, 0.3, 0.38], [0, 1.4, 0]),
+  item("wags-amber-glasses", "Amber Glasses", "face", "#c98a2d", [0.42, 0.16, 0.04], [0, 1.2, 0.24]),
+  item("wags-autumn-vest", "Autumn Vest", "body", "#8a5a2b", [0.58, 0.52, 0.34], [0, 0.68, 0]),
+  item("wags-spring-vest", "Spring Vest", "body", "#4c9e6e", [0.6, 0.54, 0.36], [0, 0.68, 0]),
+];
+
+export const WAGS_EXCLUSIVE_ITEM_IDS = new Set(WAGS_EXCLUSIVE_CATALOG.map(({ id }) => id));
+
+/** Every renderable wardrobe item — base plus Wags exclusives. */
+export const FULL_WARDROBE_CATALOG: WardrobeItem[] = [...WARDROBE_CATALOG, ...WAGS_EXCLUSIVE_CATALOG];

@@ -28,6 +28,8 @@ export enum Screen {
   LANDING_MEMORIALS = "LANDING_MEMORIALS",
   HOW_IT_WORKS = "HOW_IT_WORKS",
   PRICING = "PRICING",
+  ADMIN_WAGS = "ADMIN_WAGS",
+  WAGS_INBOX = "WAGS_INBOX",
 }
 
 // Randy AI guidance action types — used by /api/randy-chat response and RandyChat component

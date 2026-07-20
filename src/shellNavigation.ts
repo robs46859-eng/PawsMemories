@@ -18,6 +18,7 @@ export const SIDEBAR_NAV: ShellNavigationItem[] = [
   { id: "home", label: "Home", screen: Screen.DASHBOARD, materialIcon: "home" },
   { id: "fur-bin", label: "Fur Bin©️", screen: Screen.FURBIN, materialIcon: "inventory_2" },
   { id: "marketplace-side", label: "Marketplace", screen: Screen.MARKETPLACE, materialIcon: "storefront" },
+  { id: "wags-inbox", label: "Wags", screen: Screen.WAGS_INBOX, materialIcon: "redeem" },
   // RD-1: "Animate" removed while Animation Studio is gated behind
   // UnderConstructionLock — the shell must never navigate to a dead end.
   // Restore this entry when the studio unlocks.

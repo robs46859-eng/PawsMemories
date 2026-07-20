@@ -1,0 +1,336 @@
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+} from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { v4 as uuidv4 } from "uuid";
+import { createHash } from "node:crypto";
+
+/**
+ * PRIVATE object storage — purchasable marketplace assets only.
+ *
+ * WHY THIS FILE EXISTS SEPARATELY FROM storage.ts
+ * ------------------------------------------------
+ * Backblaze B2's S3-compatible API does NOT support object-level ACLs. Objects
+ * inherit their bucket's ACL, only the canned values "private" and "public-read"
+ * are accepted, and setting an object ACL that differs from its parent bucket
+ * returns 403. Access control on B2 is a bucket-level property.
+ *
+ * Consequence: the public MEDIA_BUCKET_NAME cannot hold paid assets. Anything
+ * written there is readable by anyone holding the URL, forever, with no way to
+ * revoke after a refund and no entitlement check anywhere on the path.
+ * Unguessable UUID keys do not fix this — that is obscurity, not access control,
+ * and it fails permanently the first time a URL is shared, logged, cached by a
+ * proxy, or leaked in a referrer header.
+ *
+ * So the bucket IS the security boundary:
+ *   storage.ts          -> MEDIA_BUCKET_NAME          (public-read)  previews, look variations
+ *   storage.private.ts  -> MEDIA_PRIVATE_BUCKET_NAME  (private)      source GLBs, STL derivatives
+ *
+ * Rules enforced here:
+ *   1. This module NEVER writes to the public bucket.
+ *   2. This module NEVER sends an ACL parameter. On a private bucket it is
+ *      redundant; on a public bucket it would 403. Omitting it keeps the bucket
+ *      as the single source of truth.
+ *   3. Object keys are server-minted UUIDs. User filenames are display metadata
+ *      only and never appear in a key path, so there is no traversal surface.
+ *   4. Reads leave the server only as short-lived presigned URLs, and only after
+ *      the caller has verified an entitlement.
+ *
+ * Ref: IMPLEMENTATION_SPEC.md §4, MARKETPLACE_AND_STYLES_SPEC.md §1.3
+ * Ref: https://www.backblaze.com/docs/cloud-storage-s3-compatible-api
+ */
+
+const publicBucketName = process.env.MEDIA_BUCKET_NAME;
+const privateBucketName = process.env.MEDIA_PRIVATE_BUCKET_NAME;
+const bucketEndpoint = process.env.MEDIA_BUCKET_URL;
+
+/** Private bucket may use its own credentials; otherwise it reuses the shared
+ *  all-buckets key. Both live in the same B2 account behind the same endpoint. */
+const accessKeyId =
+  process.env.MEDIA_PRIVATE_BUCKET_KEY || process.env.MEDIA_BUCKET_KEY;
+const secretAccessKey =
+  process.env.MEDIA_PRIVATE_BUCKET_SECRET || process.env.MEDIA_BUCKET_SECRET;
+
+const DEFAULT_SIGNED_URL_TTL_SECONDS = 900; // 15 minutes
+const MIN_TTL_SECONDS = 30;
+const MAX_TTL_SECONDS = 60 * 60 * 24 * 7; // B2/S3 presign ceiling is 7 days
+
+/** Upload presign window. Deliberately much shorter than the download TTL —
+ *  an admin uploads immediately after requesting the URL. */
+export const PRESIGNED_UPLOAD_TTL_SECONDS = 300;
+
+export const MAX_GLB_BYTES = 100 * 1024 * 1024; // 100 MB
+export const MAX_PREVIEW_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
+
+export const ALLOWED_GLB_MIME = new Set(["model/gltf-binary"]);
+export const ALLOWED_IMAGE_MIME = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+
+export class PrivateStorageError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PrivateStorageError";
+  }
+}
+
+/**
+ * Fail fast on a configuration that would silently expose paid assets.
+ *
+ * If both names resolve to the same bucket, every "private" write lands in a
+ * public-read bucket and every entitlement check becomes theatre. B2 gives us no
+ * per-object fallback to catch this at runtime, so it has to be caught at boot.
+ */
+export function assertPrivateStorageConfig(env: NodeJS.ProcessEnv = process.env): void {
+  const pub = env.MEDIA_BUCKET_NAME;
+  const priv = env.MEDIA_PRIVATE_BUCKET_NAME;
+
+  if (!priv) {
+    throw new PrivateStorageError(
+      "MEDIA_PRIVATE_BUCKET_NAME is not set. Marketplace source assets have nowhere " +
+        "safe to live — refusing to start rather than defaulting to the public bucket.",
+    );
+  }
+  if (pub && priv === pub) {
+    throw new PrivateStorageError(
+      `MEDIA_PRIVATE_BUCKET_NAME ("${priv}") is the same bucket as MEDIA_BUCKET_NAME. ` +
+        "Backblaze applies ACLs per bucket, so this would publish every paid asset. " +
+        "Point MEDIA_PRIVATE_BUCKET_NAME at a bucket whose type is Private.",
+    );
+  }
+  if (!env.MEDIA_BUCKET_URL) {
+    throw new PrivateStorageError("MEDIA_BUCKET_URL is required for private asset storage.");
+  }
+  const key = env.MEDIA_PRIVATE_BUCKET_KEY || env.MEDIA_BUCKET_KEY;
+  const secret = env.MEDIA_PRIVATE_BUCKET_SECRET || env.MEDIA_BUCKET_SECRET;
+  if (!key || !secret) {
+    throw new PrivateStorageError(
+      "No credentials for the private bucket. Set MEDIA_PRIVATE_BUCKET_KEY/_SECRET, " +
+        "or ensure MEDIA_BUCKET_KEY/_SECRET belong to a key scoped to all buckets " +
+        "(a key pinned to one bucket cannot reach the private one).",
+    );
+  }
+}
+
+/** True when the private bucket is usable. Lets callers degrade rather than crash. */
+export function isPrivateStorageConfigured(): boolean {
+  try {
+    assertPrivateStorageConfig();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+let cachedClient: S3Client | null = null;
+
+function client(): S3Client {
+  if (cachedClient) return cachedClient;
+  assertPrivateStorageConfig();
+  cachedClient = new S3Client({
+    region: "us-east-1", // Backblaze ignores this; the AWS SDK requires it
+    endpoint: bucketEndpoint,
+    credentials: {
+      accessKeyId: accessKeyId || "",
+      secretAccessKey: secretAccessKey || "",
+    },
+    forcePathStyle: true, // required for Backblaze B2
+  });
+  return cachedClient;
+}
+
+/** Test seam — drops the memoised client so env changes take effect. */
+export function resetPrivateStorageClient(): void {
+  cachedClient = null;
+}
+
+export type PrivateAssetKind = "source_glb" | "stl_derivative";
+
+const EXTENSION_BY_MIME: Record<string, string> = {
+  "model/gltf-binary": "glb",
+  "model/gltf+json": "gltf",
+  "model/stl": "stl",
+  "application/sla": "stl",
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
+
+export function extensionForMime(mimeType: string): string {
+  return EXTENSION_BY_MIME[mimeType] || "bin";
+}
+
+/**
+ * Mint an object key. Server-generated UUIDs only — a user-supplied filename
+ * never reaches this path, so `../` and absolute-path tricks have nowhere to go.
+ */
+export function mintObjectKey(listingUuid: string, mimeType: string): string {
+  if (!/^[0-9a-f-]{36}$/i.test(listingUuid)) {
+    throw new PrivateStorageError(`Invalid listing UUID: ${listingUuid}`);
+  }
+  return `marketplace/${listingUuid}/${uuidv4()}.${extensionForMime(mimeType)}`;
+}
+
+export function sha256Hex(buffer: Buffer): string {
+  return createHash("sha256").update(buffer).digest("hex");
+}
+
+function resolveTtl(seconds?: number): number {
+  const configured = Number(
+    process.env.MEDIA_SIGNED_URL_TTL_SECONDS || DEFAULT_SIGNED_URL_TTL_SECONDS,
+  );
+  const requested = seconds ?? configured;
+  if (!Number.isFinite(requested)) return DEFAULT_SIGNED_URL_TTL_SECONDS;
+  return Math.min(Math.max(Math.trunc(requested), MIN_TTL_SECONDS), MAX_TTL_SECONDS);
+}
+
+/** Upload bytes we already hold server-side (e.g. an STL from the Blender worker). */
+export async function putPrivateObject(
+  objectKey: string,
+  body: Buffer,
+  mimeType: string,
+): Promise<{ objectKey: string; sizeBytes: number; sha256: string }> {
+  await client().send(
+    new PutObjectCommand({
+      Bucket: privateBucketName,
+      Key: objectKey,
+      Body: body,
+      ContentType: mimeType,
+      // NO ACL — see the header comment. The bucket defines access.
+    }),
+  );
+  return { objectKey, sizeBytes: body.byteLength, sha256: sha256Hex(body) };
+}
+
+/**
+ * Presigned PUT so the browser uploads straight to Backblaze. Large GLB bodies
+ * never transit Hostinger.
+ *
+ * The returned URL is a capability: anyone holding it can write to that exact
+ * key until it expires. That is acceptable because the key is server-minted and
+ * unguessable, the window is 5 minutes, and nothing is trusted until
+ * headPrivateObject() confirms what actually landed.
+ */
+export async function createPresignedUpload(
+  objectKey: string,
+  mimeType: string,
+  ttlSeconds: number = PRESIGNED_UPLOAD_TTL_SECONDS,
+): Promise<{ uploadUrl: string; objectKey: string; expiresAt: string }> {
+  const expiresIn = Math.min(Math.max(Math.trunc(ttlSeconds), MIN_TTL_SECONDS), 3600);
+  const uploadUrl = await getSignedUrl(
+    client(),
+    new PutObjectCommand({
+      Bucket: privateBucketName,
+      Key: objectKey,
+      ContentType: mimeType,
+    }),
+    { expiresIn },
+  );
+  return {
+    uploadUrl,
+    objectKey,
+    expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
+  };
+}
+
+/**
+ * Read back what was actually stored.
+ *
+ * This is the trust boundary for browser uploads. The client tells us a size and
+ * a MIME type when asking for the presigned URL; neither is believed. Callers
+ * MUST compare this result against the claim before writing an asset row —
+ * otherwise a caller could register a 2 KB text file as a 90 MB GLB, or upload
+ * something entirely different from what was declared.
+ */
+export async function headPrivateObject(
+  objectKey: string,
+): Promise<{ sizeBytes: number; mimeType: string; etag: string | null } | null> {
+  try {
+    const head = await client().send(
+      new HeadObjectCommand({ Bucket: privateBucketName, Key: objectKey }),
+    );
+    return {
+      sizeBytes: Number(head.ContentLength ?? 0),
+      mimeType: String(head.ContentType || "application/octet-stream"),
+      etag: head.ETag ? head.ETag.replace(/"/g, "") : null,
+    };
+  } catch (err: any) {
+    const status = err?.$metadata?.httpStatusCode;
+    if (status === 404 || err?.name === "NotFound" || err?.name === "NoSuchKey") return null;
+    throw err;
+  }
+}
+
+/**
+ * Short-lived presigned GET.
+ *
+ * CALLER CONTRACT: only call this after confirming the requesting user holds a
+ * live, non-revoked entitlement for this asset. Nothing in this function checks
+ * ownership — it mints a capability for whoever asks.
+ */
+export async function getPrivateSignedUrl(
+  objectKey: string,
+  ttlSeconds?: number,
+): Promise<{ url: string; expiresAt: string; ttlSeconds: number }> {
+  const expiresIn = resolveTtl(ttlSeconds);
+  const url = await getSignedUrl(
+    client(),
+    new GetObjectCommand({ Bucket: privateBucketName, Key: objectKey }),
+    { expiresIn },
+  );
+  return {
+    url,
+    expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
+    ttlSeconds: expiresIn,
+  };
+}
+
+/** Fetch private bytes server-side, e.g. to hand a GLB to the Blender worker. */
+export async function getPrivateObjectBuffer(objectKey: string): Promise<Buffer> {
+  const res = await client().send(
+    new GetObjectCommand({ Bucket: privateBucketName, Key: objectKey }),
+  );
+  const body = res.Body as any;
+  if (!body) throw new PrivateStorageError(`Empty body for ${objectKey}`);
+  const chunks: Buffer[] = [];
+  for await (const chunk of body) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks);
+}
+
+/** Validate a declared upload before minting a presigned URL. */
+export function validateUploadClaim(
+  kind: "source_glb" | "preview_image",
+  mimeType: string,
+  sizeBytes: number,
+): { ok: true } | { ok: false; error: string } {
+  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
+    return { ok: false, error: "A positive file size is required." };
+  }
+  if (kind === "source_glb") {
+    if (!ALLOWED_GLB_MIME.has(mimeType)) {
+      return { ok: false, error: `Source models must be model/gltf-binary, received ${mimeType}.` };
+    }
+    if (sizeBytes > MAX_GLB_BYTES) {
+      return { ok: false, error: `Source models must be ${MAX_GLB_BYTES / (1024 * 1024)} MB or smaller.` };
+    }
+    return { ok: true };
+  }
+  if (!ALLOWED_IMAGE_MIME.has(mimeType)) {
+    return { ok: false, error: `Preview images must be JPEG, PNG, or WebP, received ${mimeType}.` };
+  }
+  if (sizeBytes > MAX_PREVIEW_IMAGE_BYTES) {
+    return { ok: false, error: `Preview images must be ${MAX_PREVIEW_IMAGE_BYTES / (1024 * 1024)} MB or smaller.` };
+  }
+  return { ok: true };
+}
+
+export const __privateStorageInternals = {
+  get privateBucketName() { return privateBucketName; },
+  get publicBucketName() { return publicBucketName; },
+  resolveTtl,
+};
