@@ -87,6 +87,7 @@ import { WARDROBE_CATALOG, WARDROBE_ITEM_IDS } from "./src/wardrobe/catalog";
 import { buildReferencePrompt, turnaroundViewsForType, paletteLockClause, extractPaletteInstruction, buildTextPrompt, geometryToTripo, type TextPromptFields, type ExtendedSubjectClass, getSubjectClassForSpecies, getBuildProfileForSpecies } from "./avatarPrompts";
 import { confirmPrintfulOrderIfDraft, createPrintfulOrder, getPrintfulOrder, verifyPrintfulConfiguration } from "./server/printful";
 import { printfulCatalogConfigured, searchProducts, listVariants, getTemplateContext, clearCatalogueCache } from "./server/printfulCatalog";
+import { handleCustomizeOrderPayment, registerCustomizerBuyerRoutes } from "./server/customizerCheckout";
 import { publicPawprintPrintProducts, requirePawprintPrintProduct } from "./server/pawprintProducts";
 import { buildFulfillmentReadiness } from "./server/fulfillmentReadiness";
 import { extractShipmentTracking } from "./server/fulfillmentTracking";
@@ -549,6 +550,9 @@ async function startServer() {
           await getPool().query(`UPDATE pawprint_print_orders SET status = 'payment_received' WHERE id = ?`, [printOrderId]);
           throw error;
         }
+      } else if (metadata.type === "customize_order" && metadata.customizeOrderId && metadata.userPhone) {
+        // Marketplace Product Customizer P1 — mirrors pawprint_print_order exactly.
+        await handleCustomizeOrderPayment(metadata as Record<string, string>);
       } else if (metadata.type === "slant3d_print_order" && metadata.printOrderId && metadata.userPhone) {
         const printOrderId = Number(metadata.printOrderId);
         const [claimed] = await getPool().query(
@@ -2674,6 +2678,10 @@ async function startServer() {
     clearCatalogueCache();
     res.json({ success: true });
   });
+
+  // ── Customizer P1: admin product management + buyer checkout ──────────────
+  // (server/customizerCheckout.ts — pure functions exported for tests)
+  registerCustomizerBuyerRoutes(app, { stripe, requireAuth, paidLimiter, requireMarketplaceAdmin });
 
   app.get("/api/admin/marketplace/listings/:id/assets", requireAuth, async (req: AuthedRequest, res) => {
     if (!await requireMarketplaceAdmin(req, res)) return;

@@ -1485,6 +1485,59 @@ export async function initDb(): Promise<void> {
     `);
 
     console.log("✅ pet_health_profiles and pet_health_logs tables ready.");
+
+    // ── Marketplace Product Customizer P1 (MARKETPLACE_CUSTOMIZER_SPEC.md §3) ──
+    // Admin-authored Printful blank templates + buyer order lifecycle.
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS customizable_products (
+        id                  BIGINT PRIMARY KEY AUTO_INCREMENT,
+        listing_id          BIGINT NOT NULL,
+        printful_product_id INT    NOT NULL,
+        printful_variant_id INT    NOT NULL,
+        placement           VARCHAR(32) NOT NULL DEFAULT 'default',
+        printfile_width_px  INT    NOT NULL,
+        printfile_height_px INT    NOT NULL,
+        printfile_dpi       INT    NOT NULL DEFAULT 150,
+        box_x               DECIMAL(6,5) NOT NULL,
+        box_y               DECIMAL(6,5) NOT NULL,
+        box_w               DECIMAL(6,5) NOT NULL,
+        box_h               DECIMAL(6,5) NOT NULL,
+        box_shape           ENUM('rect','circle','arch') NOT NULL DEFAULT 'rect',
+        overlay_asset_uuid  CHAR(36) NULL,
+        retail_price_cents  INT    NOT NULL,
+        status              ENUM('draft','published','archived') NOT NULL DEFAULT 'draft',
+        created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_custprod_listing (listing_id, status)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS customize_orders (
+        id                    BIGINT PRIMARY KEY AUTO_INCREMENT,
+        user_phone            VARCHAR(32) NOT NULL,
+        customizable_id       BIGINT NOT NULL,
+        source_photo_url      TEXT   NOT NULL,
+        source_kind           ENUM('upload','furbin') NOT NULL,
+        print_file_url        TEXT   NULL,
+        recipient_json        JSON   NOT NULL,
+        retail_price_cents    INT    NOT NULL,
+        checkout_url          TEXT   NULL,
+        stripe_session_id     VARCHAR(255) NULL,
+        provider_order_id     VARCHAR(64)  NULL,
+        provider_payload_json JSON   NULL,
+        status ENUM('draft','awaiting_payment','payment_received','submitting',
+                    'submitted','failed','refunded') NOT NULL DEFAULT 'draft',
+        idempotency_key       VARCHAR(128) NOT NULL,
+        created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_custorder_idem (user_phone, idempotency_key),
+        INDEX idx_custorder_status (status),
+        INDEX idx_custorder_user (user_phone, created_at DESC)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+
+    console.log("✅ customizable_products and customize_orders tables ready.");
     console.log("✅ fidos_projects and wardrobe_wags tables ready.");
 
   } catch (err) {
