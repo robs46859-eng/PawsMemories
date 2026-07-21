@@ -1402,6 +1402,60 @@ export async function initDb(): Promise<void> {
       console.warn("⚠️ Could not migrate texture_jobs stylization columns:", err);
     }
 
+    // -----------------------------------------------------------------------
+    // Pet Health — H1: persistent health profile per avatar
+    // -----------------------------------------------------------------------
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS pet_health_profiles (
+        id                    BIGINT AUTO_INCREMENT PRIMARY KEY,
+        avatar_id             INT NOT NULL,
+        user_phone            VARCHAR(32) NOT NULL,
+        birthday              DATE NULL,
+        weight_kg             DECIMAL(5,2) NULL,
+        weight_unit           ENUM('kg','lb') NOT NULL DEFAULT 'lb',
+        target_weight_kg      DECIMAL(5,2) NULL,
+        body_condition_score  TINYINT NULL COMMENT '1-9 BCS (5=ideal)',
+        sterilized            TINYINT(1) NOT NULL DEFAULT 0,
+        microchip_id          VARCHAR(60) NULL,
+        vet_name              VARCHAR(120) NULL,
+        vet_phone             VARCHAR(30) NULL,
+        vet_email             VARCHAR(120) NULL,
+        next_vet_visit        DATE NULL,
+        next_vaccine_due      DATE NULL,
+        insurance_provider    VARCHAR(120) NULL,
+        notes                 TEXT NULL,
+        created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_health_avatar (avatar_id),
+        INDEX idx_health_phone (user_phone),
+        FOREIGN KEY (avatar_id) REFERENCES avatars(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Static health profile, one per avatar';
+    `);
+
+    // H1: time-series health log entries (weight, vet, meds, symptoms)
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS pet_health_logs (
+        id                    BIGINT AUTO_INCREMENT PRIMARY KEY,
+        avatar_id             INT NOT NULL,
+        user_phone            VARCHAR(32) NOT NULL,
+        log_type              ENUM(
+          'weight','body_condition','vet_visit','vaccine',
+          'medication','symptom','note','dental','grooming'
+        ) NOT NULL,
+        logged_at             DATE NOT NULL,
+        weight_kg             DECIMAL(5,2) NULL,
+        body_condition_score  TINYINT NULL,
+        value_numeric         DECIMAL(8,2) NULL,
+        value_text            VARCHAR(400) NULL,
+        notes                 TEXT NULL,
+        created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_health_log_avatar (avatar_id, logged_at DESC),
+        INDEX idx_health_log_phone  (user_phone, logged_at DESC),
+        FOREIGN KEY (avatar_id) REFERENCES avatars(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Time-series health events';
+    `);
+
+    console.log("✅ pet_health_profiles and pet_health_logs tables ready.");
     console.log("✅ fidos_projects and wardrobe_wags tables ready.");
 
   } catch (err) {

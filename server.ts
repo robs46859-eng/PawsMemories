@@ -1481,6 +1481,238 @@ async function startServer() {
     }
   });
 
+  // ── Pet Health API (H1) ───────────────────────────────────────────────────
+  // GET /api/health/:avatarId — profile + live vitals + last 60 log entries
+  app.get("/api/health/:avatarId", requireAuth, async (req: AuthedRequest, res) => {
+    const avatarId = Number(req.params.avatarId);
+    if (!avatarId) return res.status(400).json({ error: "Invalid avatar id." });
+    try {
+      // Ownership check
+      const [avRows]: any = await getPool().query(
+        "SELECT id, name, image_url, animal_type, breed, food_level, water_level, needs_json FROM avatars WHERE id = ? AND user_phone = ? LIMIT 1",
+        [avatarId, req.user!.phone]
+      );
+      if (!avRows?.length) return res.status(404).json({ error: "Avatar not found." });
+      const avatar = avRows[0];
+
+      const [profRows]: any = await getPool().query(
+        "SELECT * FROM pet_health_profiles WHERE avatar_id = ? LIMIT 1",
+        [avatarId]
+      );
+      const profile = profRows?.[0] ?? null;
+
+      const [logRows]: any = await getPool().query(
+        `SELECT * FROM pet_health_logs WHERE avatar_id = ? ORDER BY logged_at DESC, id DESC LIMIT 60`,
+        [avatarId]
+      );
+
+      // Parse live needs from needs_json
+      let needs: any = null;
+      try {
+        const raw = avatar.needs_json;
+        needs = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : null;
+      } catch { /* ignored */ }
+
+      res.json({
+        avatar: {
+          id: avatar.id,
+          name: avatar.name,
+          image_url: avatar.image_url,
+          animal_type: avatar.animal_type,
+          breed: avatar.breed,
+        },
+        vitals: {
+          food:      needs?.food      ?? avatar.food_level  ?? 100,
+          water:     needs?.water     ?? avatar.water_level ?? 100,
+          energy:    needs?.energy    ?? 80,
+          happiness: needs?.happiness ?? 80,
+          bladder:   needs?.bladder   ?? 0,
+          bowel:     needs?.bowel     ?? 0,
+        },
+        profile: profile ? {
+          birthday:             profile.birthday,
+          weight_kg:            profile.weight_kg != null ? Number(profile.weight_kg) : null,
+          weight_unit:          profile.weight_unit,
+          target_weight_kg:     profile.target_weight_kg != null ? Number(profile.target_weight_kg) : null,
+          body_condition_score: profile.body_condition_score,
+          sterilized:           !!profile.sterilized,
+          microchip_id:         profile.microchip_id,
+          vet_name:             profile.vet_name,
+          vet_phone:            profile.vet_phone,
+          vet_email:            profile.vet_email,
+          next_vet_visit:       profile.next_vet_visit,
+          next_vaccine_due:     profile.next_vaccine_due,
+          insurance_provider:   profile.insurance_provider,
+          notes:                profile.notes,
+        } : null,
+        logs: (logRows ?? []).map((r: any) => ({
+          id:                   r.id,
+          log_type:             r.log_type,
+          logged_at:            r.logged_at,
+          weight_kg:            r.weight_kg != null ? Number(r.weight_kg) : null,
+          body_condition_score: r.body_condition_score,
+          value_numeric:        r.value_numeric != null ? Number(r.value_numeric) : null,
+          value_text:           r.value_text,
+          notes:                r.notes,
+          created_at:           r.created_at,
+        })),
+      });
+    } catch (err: any) {
+      console.error("[GET /api/health/:avatarId]", err?.message ?? err);
+      res.status(500).json({ error: "Could not load health data." });
+    }
+  });
+
+  // POST /api/health/:avatarId/profile — upsert health profile
+  app.post("/api/health/:avatarId/profile", requireAuth, async (req: AuthedRequest, res) => {
+    const avatarId = Number(req.params.avatarId);
+    if (!avatarId) return res.status(400).json({ error: "Invalid avatar id." });
+    try {
+      const [avRows]: any = await getPool().query(
+        "SELECT id FROM avatars WHERE id = ? AND user_phone = ? LIMIT 1",
+        [avatarId, req.user!.phone]
+      );
+      if (!avRows?.length) return res.status(404).json({ error: "Avatar not found." });
+
+      const {
+        birthday, weight_kg, weight_unit, target_weight_kg,
+        body_condition_score, sterilized, microchip_id,
+        vet_name, vet_phone, vet_email,
+        next_vet_visit, next_vaccine_due, insurance_provider, notes,
+      } = req.body ?? {};
+
+      await getPool().query(
+        `INSERT INTO pet_health_profiles
+           (avatar_id, user_phone, birthday, weight_kg, weight_unit, target_weight_kg,
+            body_condition_score, sterilized, microchip_id,
+            vet_name, vet_phone, vet_email,
+            next_vet_visit, next_vaccine_due, insurance_provider, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           birthday              = COALESCE(VALUES(birthday), birthday),
+           weight_kg             = COALESCE(VALUES(weight_kg), weight_kg),
+           weight_unit           = COALESCE(VALUES(weight_unit), weight_unit),
+           target_weight_kg      = COALESCE(VALUES(target_weight_kg), target_weight_kg),
+           body_condition_score  = COALESCE(VALUES(body_condition_score), body_condition_score),
+           sterilized            = COALESCE(VALUES(sterilized), sterilized),
+           microchip_id          = COALESCE(VALUES(microchip_id), microchip_id),
+           vet_name              = COALESCE(VALUES(vet_name), vet_name),
+           vet_phone             = COALESCE(VALUES(vet_phone), vet_phone),
+           vet_email             = COALESCE(VALUES(vet_email), vet_email),
+           next_vet_visit        = COALESCE(VALUES(next_vet_visit), next_vet_visit),
+           next_vaccine_due      = COALESCE(VALUES(next_vaccine_due), next_vaccine_due),
+           insurance_provider    = COALESCE(VALUES(insurance_provider), insurance_provider),
+           notes                 = COALESCE(VALUES(notes), notes)`,
+        [
+          avatarId, req.user!.phone,
+          birthday ?? null, weight_kg ?? null,
+          weight_unit ?? "lb", target_weight_kg ?? null,
+          body_condition_score ?? null, sterilized ? 1 : 0, microchip_id ?? null,
+          vet_name ?? null, vet_phone ?? null, vet_email ?? null,
+          next_vet_visit ?? null, next_vaccine_due ?? null,
+          insurance_provider ?? null, notes ?? null,
+        ]
+      );
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[POST /api/health/:avatarId/profile]", err?.message ?? err);
+      res.status(500).json({ error: "Could not save health profile." });
+    }
+  });
+
+  // POST /api/health/:avatarId/log — add a health log entry
+  app.post("/api/health/:avatarId/log", requireAuth, async (req: AuthedRequest, res) => {
+    const avatarId = Number(req.params.avatarId);
+    if (!avatarId) return res.status(400).json({ error: "Invalid avatar id." });
+    const VALID_LOG_TYPES = ["weight","body_condition","vet_visit","vaccine","medication","symptom","note","dental","grooming"];
+    const { log_type, logged_at, weight_kg, body_condition_score, value_numeric, value_text, notes } = req.body ?? {};
+    if (!log_type || !VALID_LOG_TYPES.includes(log_type)) return res.status(400).json({ error: "Valid log_type required." });
+    if (!logged_at) return res.status(400).json({ error: "logged_at (YYYY-MM-DD) required." });
+    try {
+      const [avRows]: any = await getPool().query(
+        "SELECT id FROM avatars WHERE id = ? AND user_phone = ? LIMIT 1",
+        [avatarId, req.user!.phone]
+      );
+      if (!avRows?.length) return res.status(404).json({ error: "Avatar not found." });
+
+      const [ins]: any = await getPool().query(
+        `INSERT INTO pet_health_logs
+           (avatar_id, user_phone, log_type, logged_at, weight_kg, body_condition_score,
+            value_numeric, value_text, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          avatarId, req.user!.phone, log_type, logged_at,
+          weight_kg ?? null, body_condition_score ?? null,
+          value_numeric ?? null, value_text ?? null, notes ?? null,
+        ]
+      );
+      // If weight log, mirror to health profile as current weight
+      if (log_type === "weight" && weight_kg != null) {
+        await getPool().query(
+          `INSERT INTO pet_health_profiles (avatar_id, user_phone, weight_kg)
+           VALUES (?, ?, ?)
+           ON DUPLICATE KEY UPDATE weight_kg = VALUES(weight_kg)`,
+          [avatarId, req.user!.phone, weight_kg]
+        );
+      }
+      // If BCS log, mirror to profile
+      if (log_type === "body_condition" && body_condition_score != null) {
+        await getPool().query(
+          `INSERT INTO pet_health_profiles (avatar_id, user_phone, body_condition_score)
+           VALUES (?, ?, ?)
+           ON DUPLICATE KEY UPDATE body_condition_score = VALUES(body_condition_score)`,
+          [avatarId, req.user!.phone, body_condition_score]
+        );
+      }
+      res.json({ ok: true, id: ins.insertId });
+    } catch (err: any) {
+      console.error("[POST /api/health/:avatarId/log]", err?.message ?? err);
+      res.status(500).json({ error: "Could not save health log." });
+    }
+  });
+
+  // DELETE /api/health/:avatarId/log/:logId — delete a log entry
+  app.delete("/api/health/:avatarId/log/:logId", requireAuth, async (req: AuthedRequest, res) => {
+    const avatarId = Number(req.params.avatarId);
+    const logId    = Number(req.params.logId);
+    if (!avatarId || !logId) return res.status(400).json({ error: "Invalid ids." });
+    try {
+      await getPool().query(
+        "DELETE FROM pet_health_logs WHERE id = ? AND avatar_id = ? AND user_phone = ?",
+        [logId, avatarId, req.user!.phone]
+      );
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: "Could not delete log." });
+    }
+  });
+
+  // GET /api/health/:avatarId/history?days=90 — time-series for charting
+  app.get("/api/health/:avatarId/history", requireAuth, async (req: AuthedRequest, res) => {
+    const avatarId = Number(req.params.avatarId);
+    const days = Math.min(Number(req.query.days ?? 90), 365);
+    if (!avatarId) return res.status(400).json({ error: "Invalid avatar id." });
+    try {
+      const [avRows]: any = await getPool().query(
+        "SELECT id FROM avatars WHERE id = ? AND user_phone = ? LIMIT 1",
+        [avatarId, req.user!.phone]
+      );
+      if (!avRows?.length) return res.status(404).json({ error: "Avatar not found." });
+      const [rows]: any = await getPool().query(
+        `SELECT log_type, logged_at, weight_kg, body_condition_score, value_numeric, value_text
+         FROM pet_health_logs
+         WHERE avatar_id = ? AND user_phone = ?
+           AND logged_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+         ORDER BY logged_at ASC, id ASC`,
+        [avatarId, req.user!.phone, days]
+      );
+      res.json({ history: rows ?? [] });
+    } catch (err: any) {
+      console.error("[GET /api/health/:avatarId/history]", err?.message ?? err);
+      res.status(500).json({ error: "Could not load history." });
+    }
+  });
+
   // ── Fido's Styles: project settings CRUD ──────────────────────────────────
   // GET /api/fidos/projects?avatar_id=N  — load settings for a specific avatar
   app.get("/api/fidos/projects", requireAuth, async (req: AuthedRequest, res) => {

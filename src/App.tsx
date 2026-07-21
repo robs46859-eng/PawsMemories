@@ -25,7 +25,7 @@ const RandyChat = lazy(() => import("./components/RandyChat"));
 import AlbumView from "./components/AlbumView";
 import AlbumsPage from "./components/AlbumsPage";
 import { fetchMe, fetchCreations, fetchAlbums, createAlbum, clearToken, claimAchievement, claimDailyStreak, claimShareReward, confirmCreditsSession, acceptCurrentTerms } from "./api";
-import { Sun, Moon, LogOut, RefreshCw, Zap, Bell, ShoppingCart, Users, HelpCircle, PackageCheck, ShoppingBag } from "lucide-react";
+import { Sun, Moon, LogOut, RefreshCw, Zap, Bell, ShoppingCart, Users, HelpCircle, PackageCheck, ShoppingBag, Activity } from "lucide-react";
 import CreditStore from "./components/CreditStore";
 const AvatarDashboard = lazy(() => import("./components/AvatarDashboard"));
 import Store from "./components/Store";
@@ -36,6 +36,7 @@ const PawprintsScreen = lazy(() => import("./components/PawprintsScreen"));
 const FidosStylesScreen = lazy(() => import("./components/FidosStylesScreen"));
 const FurBinScreen = lazy(() => import("./components/FurBinScreen"));
 const WagsAdminPanel = lazy(() => import("./components/WagsAdminPanel"));
+const PetHealthScreen = lazy(() => import("./components/PetHealthScreen"));
 const WagsInboxScreen = lazy(() => import("./components/WagsInboxScreen"));
 const MarketplaceAdminScreen = lazy(() => import("./components/MarketplaceAdminScreen"));
 const AnimatorScreen = lazy(() => import("./animator/components/AnimatorScreen"));
@@ -70,6 +71,7 @@ const SCREEN_PATHS: Partial<Record<Screen, string>> = {
   [Screen.HOW_IT_WORKS]: "/how-it-works",
   [Screen.PRICING]: "/pricing",
   [Screen.ADMIN_WAGS]: "/admin/wags",
+  [Screen.PET_HEALTH]: "/pet-health",
   [Screen.WAGS_INBOX]: "/wags",
   [Screen.ADMIN_MARKETPLACE]: "/admin/marketplace",
 };
@@ -537,6 +539,14 @@ export default function App() {
             {isAuthed && (
               <>
                 <button
+                  onClick={() => setCurrentScreen(Screen.PET_HEALTH)}
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition-colors ${currentScreen === Screen.PET_HEALTH ? "border-primary bg-primary text-on-primary" : "border-outline-variant/30 bg-surface-container text-on-surface-variant hover:text-primary"}`}
+                  title="Pet Health"
+                  aria-label="Pet health tracker"
+                >
+                  <Activity size={18} />
+                </button>
+                <button
                   onClick={() => setCurrentScreen(Screen.STORE)}
                   className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition-colors ${currentScreen === Screen.STORE ? "border-primary bg-primary text-on-primary" : "border-outline-variant/30 bg-surface-container text-on-surface-variant hover:text-primary"}`}
                   title="Shop"
@@ -622,7 +632,7 @@ export default function App() {
 
       <div className="flex-grow flex w-full relative">
         {/* Desktop Sidebar */}
-        {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN, Screen.CREATE, Screen.CREATE_REFERENCE, Screen.CREATE_CUSTOMIZE, Screen.CREATE_VALIDATE, Screen.CREATE_CHECKOUT, Screen.MARKETPLACE, Screen.ADMIN_WAGS, Screen.ADMIN_MARKETPLACE, Screen.WAGS_INBOX].includes(currentScreen) && (
+        {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN, Screen.CREATE, Screen.CREATE_REFERENCE, Screen.CREATE_CUSTOMIZE, Screen.CREATE_VALIDATE, Screen.CREATE_CHECKOUT, Screen.MARKETPLACE, Screen.ADMIN_WAGS, Screen.ADMIN_MARKETPLACE, Screen.WAGS_INBOX, Screen.PET_HEALTH].includes(currentScreen) && (
           <aside className="fixed bottom-0 left-0 top-16 z-40 hidden w-64 shrink-0 flex-col overflow-x-hidden overflow-y-auto border-r border-outline-variant/20 bg-surface/85 py-5 shadow-xl backdrop-blur-xl dark:bg-surface-dim/85 md:flex">
             <nav className="mt-4 flex-1 space-y-2 px-4">
               {SIDEBAR_NAV.map((item) => (
@@ -811,6 +821,15 @@ export default function App() {
                   userProfile={userProfile}
                   onGoToPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
                   onUserUpdate={applyUser}
+                />
+              </Suspense>
+            )}
+
+            {currentScreen === Screen.PET_HEALTH && (
+              <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
+                <PetHealthScreen
+                  userProfile={userProfile}
+                  onBack={() => setCurrentScreen(Screen.DASHBOARD)}
                 />
               </Suspense>
             )}
