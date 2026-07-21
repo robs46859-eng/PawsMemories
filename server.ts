@@ -86,6 +86,7 @@ import { buildAndVerifyShell } from "./server/bim/shell";
 import { WARDROBE_CATALOG, WARDROBE_ITEM_IDS } from "./src/wardrobe/catalog";
 import { buildReferencePrompt, turnaroundViewsForType, paletteLockClause, extractPaletteInstruction, buildTextPrompt, geometryToTripo, type TextPromptFields, type ExtendedSubjectClass, getSubjectClassForSpecies, getBuildProfileForSpecies } from "./avatarPrompts";
 import { confirmPrintfulOrderIfDraft, createPrintfulOrder, getPrintfulOrder, verifyPrintfulConfiguration } from "./server/printful";
+import { printfulCatalogConfigured, searchProducts, listVariants, getTemplateContext, clearCatalogueCache } from "./server/printfulCatalog";
 import { publicPawprintPrintProducts, requirePawprintPrintProduct } from "./server/pawprintProducts";
 import { buildFulfillmentReadiness } from "./server/fulfillmentReadiness";
 import { extractShipmentTracking } from "./server/fulfillmentTracking";
@@ -2629,6 +2630,49 @@ async function startServer() {
     try {
       res.json({ previews: await listingPreviews(getPool() as any, Number(req.params.id)) });
     } catch (err: any) { sendAdminError(res, err, "Could not load previews."); }
+  });
+
+  // ── Product customizer P0: Printful catalogue browse ───────────────────────
+  // Admin-only. Surfaces products/variants and the authoritative print-file
+  // geometry the admin needs to author a placement template. See
+  // MARKETPLACE_CUSTOMIZER_SPEC.md and server/printfulCatalog.ts.
+  app.get("/api/admin/customizer/products", requireAuth, async (req: AuthedRequest, res) => {
+    if (!await requireMarketplaceAdmin(req, res)) return;
+    if (!printfulCatalogConfigured()) {
+      return res.status(503).json({ error: "Printful is not configured (set PRINTFUL_API_KEY)." });
+    }
+    try {
+      const q = typeof req.query.q === "string" ? req.query.q : "";
+      res.json({ products: await searchProducts(q) });
+    } catch (err: any) { sendAdminError(res, err, "Could not load the Printful catalogue."); }
+  });
+
+  app.get("/api/admin/customizer/products/:productId/variants", requireAuth, async (req: AuthedRequest, res) => {
+    if (!await requireMarketplaceAdmin(req, res)) return;
+    if (!printfulCatalogConfigured()) {
+      return res.status(503).json({ error: "Printful is not configured (set PRINTFUL_API_KEY)." });
+    }
+    try {
+      res.json({ variants: await listVariants(Number(req.params.productId)) });
+    } catch (err: any) { sendAdminError(res, err, "Could not load variants."); }
+  });
+
+  // The print-file geometry that governs composite resolution for one variant.
+  app.get("/api/admin/customizer/products/:productId/variants/:variantId/template", requireAuth, async (req: AuthedRequest, res) => {
+    if (!await requireMarketplaceAdmin(req, res)) return;
+    if (!printfulCatalogConfigured()) {
+      return res.status(503).json({ error: "Printful is not configured (set PRINTFUL_API_KEY)." });
+    }
+    try {
+      res.json(await getTemplateContext(Number(req.params.productId), Number(req.params.variantId)));
+    } catch (err: any) { sendAdminError(res, err, "Could not load the print template."); }
+  });
+
+  // Manual cache bust after the owner changes products in Printful.
+  app.post("/api/admin/customizer/refresh", requireAuth, async (req: AuthedRequest, res) => {
+    if (!await requireMarketplaceAdmin(req, res)) return;
+    clearCatalogueCache();
+    res.json({ success: true });
   });
 
   app.get("/api/admin/marketplace/listings/:id/assets", requireAuth, async (req: AuthedRequest, res) => {
@@ -7095,6 +7139,13 @@ CRITICAL RULES:
   } else {
     console.log(`[Production] Serving static files from ${distPath}`);
     app.use(express.static(distPath, {
+      // index:false is load-bearing. express.static's `index` option defaults to
+      // "index.html", so a request for "/" is answered from disk here and never
+      // reaches the SPA catch-all below — which meant the homepage alone was
+      // served the raw template, skipping injectMeta() and keeping the generic
+      // title/description. Every other route was fine because no file matches
+      // them. Turning the directory index off lets "/" fall through.
+      index: false,
       setHeaders(res, filePath) {
         // Vite fingerprints asset filenames, so hashed assets are safe to cache
         // forever. index.html must stay uncached so new deploys are picked up.

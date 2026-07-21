@@ -98,6 +98,28 @@ test("the homepage canonical keeps its trailing slash", () => {
   assert.match(canonicalFor("/"), /\/$/);
 });
 
+test("static middleware must not serve the SPA shell for /", () => {
+  // Regression: express.static's `index` option defaults to "index.html", so a
+  // request for "/" was answered from disk and never reached the catch-all —
+  // the homepage alone shipped the raw template with the generic title, while
+  // every other route was injected correctly. Caught in production, not by the
+  // unit tests, because injectMeta() itself was fine; it simply wasn't called.
+  const source = fs.readFileSync(path.join(process.cwd(), "server.ts"), "utf8");
+  const staticBlock = source.match(/express\.static\(distPath,\s*\{[\s\S]*?\n\s*\}\)\)/);
+  assert.ok(staticBlock, "expected an express.static(distPath, {...}) call");
+  assert.match(
+    staticBlock[0],
+    /index:\s*false/,
+    "express.static(distPath) must set index:false, or GET / bypasses injectMeta()"
+  );
+});
+
+test("the homepage gets injected copy, not the template default", () => {
+  const home = injectMeta(TEMPLATE, "/");
+  assert.equal(title(home), PAGE_META["/"].title.replace(/&/g, "&amp;"));
+  assert.notEqual(title(home), title(TEMPLATE), "homepage must not keep the generic title");
+});
+
 test("metadata is HTML-escaped", () => {
   const html = injectMeta(TEMPLATE, "/");
   assert.ok(!/<title>[^<]*[<>]/.test(html.match(/<title>[\s\S]*?<\/title>/)[0].slice(7, -8)));
