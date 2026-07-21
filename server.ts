@@ -11,9 +11,10 @@ import sharp from "sharp";
 import { sendSms } from "./server/sms";
 import { sendMail } from "./server/mail";
 import rateLimit from "express-rate-limit";
-import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, restoreReservedGenerationCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimFreeAvatar, releaseFreeAvatar, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor, getStorageUsage, recordStorageAddHot, recordStorageRemoveHot, purchaseColdStorage, updateUserProfile, checkAndGrantProfileBonus, verifyUserPhone, verifyUserEmail, generateReferralCode, recordReferral, creditReferralIfComplete, getPawprintCategories, getPawprintTemplatesSync, acceptTermsVersion, createVoiceCloneAsset, listVoiceCloneAssets, createPasswordReset, consumePasswordReset, setUserPassword, insertBimBuild, listBimBuilds } from "./db";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, restoreReservedGenerationCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, hideAvatar, unhideAvatar, getHiddenAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimFreeAvatar, releaseFreeAvatar, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor, getStorageUsage, recordStorageAddHot, recordStorageRemoveHot, purchaseColdStorage, updateUserProfile, checkAndGrantProfileBonus, verifyUserPhone, verifyUserEmail, generateReferralCode, recordReferral, creditReferralIfComplete, getPawprintCategories, getPawprintTemplatesSync, acceptTermsVersion, createVoiceCloneAsset, listVoiceCloneAssets, createPasswordReset, consumePasswordReset, setUserPassword, insertBimBuild, listBimBuilds } from "./db";
 import { isEndpointEnabled, dailyCapFor, withinDailyCap, type PaidEndpoint } from "./server/paidApiGuards";
 import { classifyPetImage, type GenerateFn } from "./server/petClassify";
+import { injectMeta } from "./server/seoMeta";
 import { semanticScan as runSemanticScan } from "./server/semanticScan";
 import { animatorRouter } from "./server/animator/routes.ts";
 import { planWagsBox, getPriorBoxHistory } from "./server/wags/planner";
@@ -4261,14 +4262,56 @@ async function startServer() {
   // Delete an avatar from the user's roster (owner-scoped). Removes the DB row;
   // storage files are not touched. Frees a slot under the model cap and clears
   // orphaned rows whose GLBs were already deleted from storage.
+  /**
+   * Remove a model from the user's roster.
+   *
+   * This is a soft hide, not a row delete. The old behaviour destroyed the
+   * avatar row while leaving the GLB in object storage — orphaned bytes that
+   * were still billed, could no longer be reclaimed, and left the user with no
+   * way to undo. `?purge=1` is retained for the admin/cleanup path that really
+   * does want the row gone (orphans whose storage was already deleted).
+   */
   app.delete("/api/avatars/:id", requireAuth, async (req: AuthedRequest, res) => {
     try {
-      const success = await deleteAvatar(Number(req.params.id), req.user!.phone);
-      if (!success) return res.status(404).json({ success: false, error: "Avatar not found." });
-      res.json({ success: true });
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) {
+        return res.status(400).json({ success: false, error: "Invalid avatar id." });
+      }
+      const purge = req.query.purge === "1" && (await isUserAdmin(req.user!.phone));
+      const success = purge
+        ? await deleteAvatar(id, req.user!.phone)
+        : await hideAvatar(id, req.user!.phone);
+      if (!success) return res.status(404).json({ success: false, error: "Model not found." });
+      res.json({ success: true, hidden: !purge });
     } catch (err: any) {
       console.error("[DELETE /api/avatars/:id] Error:", err?.message || err);
-      res.status(500).json({ success: false, error: "Failed to delete avatar." });
+      res.status(500).json({ success: false, error: "Failed to remove model." });
+    }
+  });
+
+  /** Models the user has removed from their roster but not purged. */
+  app.get("/api/avatars/hidden", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      res.json({ success: true, avatars: await getHiddenAvatars(req.user!.phone) });
+    } catch (err: any) {
+      console.error("[GET /api/avatars/hidden] Error:", err?.message || err);
+      res.status(500).json({ success: false, error: "Failed to load removed models." });
+    }
+  });
+
+  /** Undo a removal — puts the model back on the roster. */
+  app.post("/api/avatars/:id/restore", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) {
+        return res.status(400).json({ success: false, error: "Invalid avatar id." });
+      }
+      const success = await unhideAvatar(id, req.user!.phone);
+      if (!success) return res.status(404).json({ success: false, error: "Removed model not found." });
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("[POST /api/avatars/:id/restore] Error:", err?.message || err);
+      res.status(500).json({ success: false, error: "Failed to restore model." });
     }
   });
 
@@ -7068,12 +7111,37 @@ CRITICAL RULES:
     // fetch(...).json()) choke on "<!doctype ...". SPA routes (no file extension)
     // still fall through to index.html.
     const ASSET_EXT = /\.(glb|gltf|bin|hdr|exr|ktx2|basis|png|jpe?g|webp|avif|gif|svg|mp4|webm|mp3|wav|ogg|json|wasm|woff2?|ttf|otf)$/i;
+
+    // Read the SPA shell once — it only changes on deploy. Every route used to
+    // get this file verbatim, which meant every page declared the homepage as
+    // its canonical and self-excluded itself from the index. injectMeta()
+    // rewrites the canonical, og:url, title and description per route before
+    // sending, so crawlers and social scrapers (which never run JS) see the
+    // right tags in the initial HTML. See server/seoMeta.ts.
+    const indexHtmlPath = path.join(distPath, 'index.html');
+
+    // NODE_ENV=production can be set on a host where `npm run build` has not
+    // run yet, in which case this file does not exist. Fail with a sentence
+    // that names the cause instead of an ENOENT stack trace at boot — a
+    // half-built deploy is the single most common deployment failure here
+    // (DEPLOYMENT_NOTES.md §1).
+    if (!fs.existsSync(indexHtmlPath)) {
+      throw new Error(
+        `[Production] ${indexHtmlPath} is missing. The deploy did not run "npm run build". ` +
+        `Run the build before "npm start" — serving the repo-root index.html will not work, ` +
+        `it references /src/main.tsx which only exists under the Vite dev server.`
+      );
+    }
+
+    // Read once — this file only changes on deploy.
+    const INDEX_HTML = fs.readFileSync(indexHtmlPath, 'utf8');
+
     app.get('*', (req, res) => {
       if (ASSET_EXT.test(req.path)) {
         return res.status(404).type("txt").send("Not found");
       }
       res.setHeader("Cache-Control", "no-cache");
-      res.sendFile(path.join(distPath, 'index.html'));
+      res.type("html").send(injectMeta(INDEX_HTML, req.path));
     });
   }
 

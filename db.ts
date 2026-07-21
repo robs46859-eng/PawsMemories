@@ -678,6 +678,11 @@ export async function initDb(): Promise<void> {
       // generation time so the build/rig stage never re-analyzes the image.
       { name: "generation_analysis", ddl: "ADD COLUMN generation_analysis JSON NULL" },
       { name: "retry_count",         ddl: "ADD COLUMN retry_count INT NOT NULL DEFAULT 0" },
+      // Soft-hide: removing a model from the roster must not destroy the row.
+      // The GLB in object storage outlives a DELETE, so a hard delete leaves
+      // orphaned bytes that are still billed and can no longer be reclaimed —
+      // and the user can't undo it. See hideAvatar()/unhideAvatar().
+      { name: "hidden_at",           ddl: "ADD COLUMN hidden_at TIMESTAMP NULL DEFAULT NULL" },
     ];
     for (const col of requiredAvatarColumns) {
       if (!avatarColumnNames.includes(col.name)) {
@@ -2432,8 +2437,50 @@ export async function getAvatarById(id: number, phone: string): Promise<AvatarRo
   return arr.length ? arr[0] : null;
 }
 
-export async function getAvatars(phone: string): Promise<AvatarRow[]> {
-  const [rows] = await getPool().query(`SELECT * FROM avatars WHERE user_phone = ? ORDER BY created_at ASC`, [phone]);
+/**
+ * The user's visible model roster. Hidden models are excluded here (and so also
+ * excluded from the model-cap count) but remain in the table — see hideAvatar.
+ */
+export async function getAvatars(phone: string, includeHidden = false): Promise<AvatarRow[]> {
+  const [rows] = await getPool().query(
+    includeHidden
+      ? `SELECT * FROM avatars WHERE user_phone = ? ORDER BY created_at ASC`
+      : `SELECT * FROM avatars WHERE user_phone = ? AND hidden_at IS NULL ORDER BY created_at ASC`,
+    [phone]
+  );
+  return rows as unknown as AvatarRow[];
+}
+
+/**
+ * Remove a model from the user's roster without deleting anything.
+ *
+ * This is what the UI's "Remove" action calls. The row, the rigged GLB, the pet
+ * profile and any marketplace listing all survive; the model just stops showing
+ * up and stops occupying a slot. Reversible via unhideAvatar().
+ */
+export async function hideAvatar(id: number, phone: string): Promise<boolean> {
+  const [result] = await getPool().query(
+    `UPDATE avatars SET hidden_at = CURRENT_TIMESTAMP WHERE id = ? AND user_phone = ? AND hidden_at IS NULL`,
+    [id, phone]
+  ) as any;
+  return result.affectedRows === 1;
+}
+
+/** Restore a hidden model to the roster. */
+export async function unhideAvatar(id: number, phone: string): Promise<boolean> {
+  const [result] = await getPool().query(
+    `UPDATE avatars SET hidden_at = NULL WHERE id = ? AND user_phone = ? AND hidden_at IS NOT NULL`,
+    [id, phone]
+  ) as any;
+  return result.affectedRows === 1;
+}
+
+/** Models the user has hidden — the "recently removed" list. */
+export async function getHiddenAvatars(phone: string): Promise<AvatarRow[]> {
+  const [rows] = await getPool().query(
+    `SELECT * FROM avatars WHERE user_phone = ? AND hidden_at IS NOT NULL ORDER BY hidden_at DESC`,
+    [phone]
+  );
   return rows as unknown as AvatarRow[];
 }
 

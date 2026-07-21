@@ -65,4 +65,16 @@ export const SIDEBAR_NAV: ShellNavigationItem[] = [
   // Restore this entry when the studio unlocks.
 ];
 
-export const MOBILE_NAV = [...SIDEBAR_NAV, { id: "profile", label: "Profile", screen: Screen.PROFILE, materialIcon: "person" }];
+/**
+ * MOBILE_NAV — the bottom bar on small screens.
+ *
+ * Deliberately NOT `SIDEBAR_NAV + Profile`. Profile and Marketplace are both
+ * reachable from the header's SHELL_ICON_NAV on every screen, so repeating them
+ * in the bottom bar spent two of five slots on duplicates — and with the Help
+ * button the row was rendering six items into a five-column grid, squeezing
+ * every label. Bottom bar now carries only destinations that have no other
+ * one-tap route.
+ */
+export const MOBILE_NAV: ShellNavigationItem[] = SIDEBAR_NAV.filter(
+  (item) => item.screen !== Screen.PROFILE && item.screen !== Screen.MARKETPLACE
+);

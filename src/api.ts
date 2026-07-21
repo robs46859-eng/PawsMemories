@@ -911,9 +911,27 @@ export async function generateTextReference(
 }
 
 /** Delete an avatar/model from the user's roster (removes the DB row). */
+/**
+ * Remove a model from the roster. Server-side this is a soft hide — the row and
+ * the GLB survive and the removal can be undone with restoreAvatar().
+ */
 export async function deleteAvatar(id: number): Promise<void> {
   const res = await authedFetch(`/api/avatars/${id}`, { method: "DELETE" });
-  if (!res.ok) await throwApiError(res, "Failed to delete model.");
+  if (!res.ok) await throwApiError(res, "Failed to remove model.");
+}
+
+/** Models the user removed from their roster; still restorable. */
+export async function fetchHiddenAvatars(): Promise<any[]> {
+  const res = await authedFetch("/api/avatars/hidden");
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.avatars || [];
+}
+
+/** Undo a removal. */
+export async function restoreAvatar(id: number): Promise<void> {
+  const res = await authedFetch(`/api/avatars/${id}/restore`, { method: "POST" });
+  if (!res.ok) await throwApiError(res, "Failed to restore model.");
 }
 
 /** Public per-site config (deployTarget + printEmail). No auth required. */

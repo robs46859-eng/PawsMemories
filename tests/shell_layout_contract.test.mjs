@@ -38,7 +38,20 @@ test("header shows exactly four stencil destinations", () => {
   assert.equal(entries.length, 4, `expected 4 shell icons, found ${entries.length}`);
 });
 
-test("mobile shell reserves five fixed columns", () => {
-  assert.match(source, /grid-cols-5/);
+test("mobile shell derives its column count from MOBILE_NAV", () => {
+  // Was `grid-cols-5` hard-coded. That silently broke when MOBILE_NAV changed
+  // length: six items (nav + Help) rendered into five columns and squeezed
+  // every label. The grid now sizes itself, so this asserts the derivation is
+  // present rather than pinning a magic number that has to be edited in lockstep.
   assert.match(source, /MOBILE_NAV\.map/);
+  assert.match(
+    source,
+    /gridTemplateColumns:\s*`repeat\(\$\{MOBILE_NAV\.length \+ 1\}/,
+    "bottom bar column count must be derived from MOBILE_NAV.length + 1 (the Help button)"
+  );
+  assert.doesNotMatch(
+    source,
+    /grid-cols-5[^"']*md:hidden|md:hidden[^"']*grid-cols-5/,
+    "bottom bar must not re-introduce a hard-coded column count"
+  );
 });

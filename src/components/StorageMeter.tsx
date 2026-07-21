@@ -43,10 +43,17 @@ function fmtBytes(bytes: number): string {
 
 interface StorageMeterProps {
   compact?: boolean;
+  /**
+   * "health" renders a single-line status pill with a thin bar and an
+   * "Add more" CTA — sized to sit inside a page header rather than occupy a
+   * full-width panel. FurBin used the full panel, which pushed the actual
+   * library content below the fold on a phone.
+   */
+  variant?: "panel" | "health";
   onRefresh?: () => void;
 }
 
-export default function StorageMeter({ compact, onRefresh }: StorageMeterProps) {
+export default function StorageMeter({ compact, variant = "panel", onRefresh }: StorageMeterProps) {
   const [usage, setUsage] = useState<StorageData | null>(null);
   const [purchasing, setPurchasing] = useState(false);
 
@@ -105,6 +112,53 @@ export default function StorageMeter({ compact, onRefresh }: StorageMeterProps) 
             {purchasing ? "Purchasing..." : "Add 1 GB (4 cr)"}
           </button>
         )}
+      </div>
+    );
+  }
+
+  if (variant === "health") {
+    // Colour is the signal here: green under 75%, amber approaching the cap,
+    // red at the cap. The number is secondary to "am I fine or not".
+    const tone =
+      hotPct >= 100 ? "error" : hotPct >= 75 ? "amber" : "ok";
+    const barClass =
+      tone === "error" ? "bg-error" : tone === "amber" ? "bg-amber-500" : "bg-emerald-500";
+    const textClass =
+      tone === "error" ? "text-error" : tone === "amber" ? "text-amber-600" : "text-emerald-600";
+
+    return (
+      <div className="flex w-full items-center gap-3 rounded-2xl border border-outline-variant/40 bg-surface-container-lowest/70 px-3.5 py-2.5 sm:w-auto sm:min-w-[15rem]">
+        <HardDrive size={16} className={`shrink-0 ${textClass}`} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-[10px] font-black uppercase tracking-[.14em] text-on-surface-variant">
+              Storage
+            </span>
+            <span className={`font-mono text-[11px] font-bold ${textClass}`}>{hotPct}%</span>
+          </div>
+          <div
+            className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-surface-container"
+            role="progressbar"
+            aria-valuenow={hotPct}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label="FurBin storage used"
+          >
+            <div className={`h-full rounded-full transition-all ${barClass}`} style={{ width: `${hotPct}%` }} />
+          </div>
+          <div className="mt-1 truncate text-[10px] text-on-surface-variant">
+            {fmtBytes(usage.bytesHot)} of {fmtBytes(usage.freeLimit)}
+            {usage.coldGbPurchased > 0 ? ` · +${fmtBytes(usage.coldLimit)} cold` : ""}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={handlePurchase}
+          disabled={purchasing}
+          className="shrink-0 rounded-full bg-primary px-3 py-1.5 text-[11px] font-black text-on-primary transition hover:opacity-90 active:scale-95 disabled:opacity-40"
+        >
+          {purchasing ? "…" : "Add more"}
+        </button>
       </div>
     );
   }

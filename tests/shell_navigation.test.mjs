@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Screen } from "../src/types.ts";
-import { MOBILE_NAV, SIDEBAR_NAV, TOP_PRIMARY_NAV } from "../src/shellNavigation.ts";
+import { MOBILE_NAV, SIDEBAR_NAV, TOP_PRIMARY_NAV, SHELL_ICON_NAV } from "../src/shellNavigation.ts";
 
 test("top panel exposes Create, Marketplace, Pawprints", () => {
   assert.deepEqual(TOP_PRIMARY_NAV.map(({ screen }) => screen), [
@@ -20,14 +20,37 @@ test("desktop sidebar keeps creation studios out of the global shell", () => {
     Screen.MARKETPLACE,
     Screen.WAGS_INBOX,
   ]);
+  // MOBILE_NAV is NOT "sidebar + Profile". Profile and Marketplace both have a
+  // permanent one-tap route in the header (SHELL_ICON_NAV), so repeating them
+  // in the bottom bar spent two of five slots on duplicates — and with the Help
+  // button the row rendered six items into a five-column grid.
   assert.deepEqual(MOBILE_NAV.map(({ screen }) => screen), [
     Screen.DASHBOARD,
     Screen.FURBIN,
-    Screen.MARKETPLACE,
     Screen.WAGS_INBOX,
-    Screen.PROFILE,
   ]);
   assert.ok(!SIDEBAR_NAV.some(({ screen }) => screen === Screen.MODELS || screen === Screen.PAWLISHER));
+});
+
+test("mobile bottom bar does not duplicate header destinations", () => {
+  // The rule, rather than the specific list: anything already reachable from
+  // the header icons must not also occupy a bottom-bar slot.
+  const headerScreens = new Set(SHELL_ICON_NAV.map(({ screen }) => screen));
+  const duplicated = MOBILE_NAV.filter(({ screen }) => headerScreens.has(screen));
+  assert.deepEqual(
+    duplicated.map(({ id }) => id),
+    [],
+    "bottom bar must not repeat a destination the header already offers"
+  );
+});
+
+test("mobile bottom bar fits its grid alongside the Help button", () => {
+  // App.tsx renders MOBILE_NAV plus a trailing Help button. Five total is the
+  // most that stays legible at phone widths.
+  assert.ok(
+    MOBILE_NAV.length + 1 <= 5,
+    `bottom bar would render ${MOBILE_NAV.length + 1} columns; 5 is the maximum`
+  );
 });
 
 test("RD-1: no shell entry routes to a gated (UnderConstructionLock) screen", () => {
