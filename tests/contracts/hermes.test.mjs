@@ -235,13 +235,29 @@ test("Hermes defaults disabled and disabled routes do no quota, storage, or prov
   );
   assert.equal(createResponse.status, 503);
 
+  // A GET for an unknown job is 404, NOT 503 — and that is deliberate.
+  //
+  // router.ts defers the enabled-check until after the job lookup, because
+  // Gemini-path jobs are written as "completed" synchronously and must remain
+  // readable while HERMES_ENABLED=false. So the status route answers the
+  // question actually asked ("does this job exist for me?") rather than
+  // reporting the bridge's availability. For a random UUID the honest answer
+  // is "no such job"; 503 would claim the service is down when the real
+  // problem is that the caller asked for a job that was never created.
+  //
+  // This assertion previously expected 503, from before the Gemini adapter
+  // path existed. The behaviour it was guarding is preserved below: a
+  // disabled Hermes still performs no quota, provider, or write work.
   const statusResponse = await request
     .get(`/api/hermes/jobs/${randomUUID()}`)
     .set("Authorization", `Bearer ${tokenFor("owner-a")}`);
-  assert.equal(statusResponse.status, 503);
-  assert.equal(dailyUsage.calls.length, 0);
-  assert.equal(client.createCalls.length, 0);
-  assert.deepEqual(store.calls, { create: 0, setBridge: 0, get: 0, update: 0 });
+  assert.equal(statusResponse.status, 404);
+
+  assert.equal(dailyUsage.calls.length, 0, "a disabled Hermes must not consume quota");
+  assert.equal(client.createCalls.length, 0, "a disabled Hermes must not call the provider");
+  // `get: 1` is the lookup that produced the 404 above — a read is how we know
+  // the job is absent. The guarantee under test is that nothing was WRITTEN.
+  assert.deepEqual(store.calls, { create: 0, setBridge: 0, get: 1, update: 0 });
 });
 
 test("create relays the exact contract with local UUID idempotency and returns no bridge ID", async () => {
@@ -278,7 +294,16 @@ test("Looks uses the fixed Outlines schema contract and accepts a schema-valid r
   const created = await post(request, "/api/hermes/looks", "looks-owner", LOOKS_BODY);
   assert.equal(created.status, 202);
   assert.equal(created.body.type, "looks");
-  assert.deepEqual(client.createCalls[0].payload, LOOKS_BODY.payload);
+  // The provider receives the PARSED payload, not the raw request body.
+  // HermesLooksPayloadSchema declares `quality_tier` with .default("standard"),
+  // so Zod materialises it when the caller omits it — and it must reach the
+  // provider, since the tier is what selects the model chain (Draft/Standard/
+  // Studio). Comparing against the raw body would assert that schema defaults
+  // are silently dropped, which is the opposite of what we want.
+  assert.deepEqual(client.createCalls[0].payload, {
+    ...LOOKS_BODY.payload,
+    quality_tier: "standard",
+  });
   assert.deepEqual(dailyUsage.calls, [{ owner: "looks-owner", type: "looks" }]);
 
   client.getImpl = async () => ({ status: "completed", result: VALID_LOOK_SPEC, error: null });
