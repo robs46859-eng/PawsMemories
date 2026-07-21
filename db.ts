@@ -1402,6 +1402,30 @@ export async function initDb(): Promise<void> {
       console.warn("⚠️ Could not migrate texture_jobs stylization columns:", err);
     }
 
+    // Marketplace digital orders — add checkout_url (migration 013).
+    //
+    // checkoutDigital() has always SELECTed this column to resume an in-flight
+    // purchase by Idempotency-Key, but 011_marketplace.sql never created it, so
+    // the query failed with ER_BAD_FIELD_ERROR on every call and the route threw
+    // before reaching Stripe. Storing the hosted-checkout URL lets a user who
+    // closes the tab and retries land back on the SAME Stripe session instead of
+    // being charged twice.
+    try {
+      const [mdCols] = await getPool().query(
+        `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'marketplace_digital_orders'`
+      ) as any;
+      const mdNames = new Set(mdCols.map((row: any) => String(row.COLUMN_NAME)));
+      if (mdCols.length > 0 && !mdNames.has("checkout_url")) {
+        await getPool().query(
+          `ALTER TABLE marketplace_digital_orders ADD COLUMN checkout_url VARCHAR(600) NULL AFTER stripe_session_id`
+        );
+        console.log("✅ marketplace_digital_orders.checkout_url added.");
+      }
+    } catch (err) {
+      console.warn("⚠️ Could not add marketplace_digital_orders.checkout_url:", err);
+    }
+
     // -----------------------------------------------------------------------
     // Pet Health — H1: persistent health profile per avatar
     // -----------------------------------------------------------------------

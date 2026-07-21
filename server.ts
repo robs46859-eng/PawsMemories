@@ -2536,13 +2536,22 @@ async function startServer() {
       }
       
       const session = await stripe.checkout.sessions.create({
-        payment_method_types: ["card", "us_bank_account", "cashapp"],
+        // Card only. us_bank_account (ACH) and cashapp can settle asynchronously
+        // — the buyer would pay, wait days, and only then receive a download that
+        // the product presents as instant. Entitlements are granted on
+        // checkout.session.completed, so a delayed method also leaves the order
+        // sitting in awaiting_payment with no user-visible explanation. Revisit
+        // when there is a pending-payment state in the UI to match.
+        payment_method_types: ["card"],
         line_items: [{
           price_data: {
             currency: "usd",
             product_data: {
-              name: `Pawsome3D Digital Model`, // Phase 4 doesn't dynamically fetch title for stripe product, just generic
-              description: `Digital download of 3D model`,
+              // Name the actual listing. This string is what the buyer sees on
+              // the Stripe page and, in truncated form, on their statement — a
+              // generic name is a known driver of "unrecognised charge" disputes.
+              name: result.title || "Pawsome3D Digital Model",
+              description: "Digital 3D model download — instant access after payment.",
             },
             unit_amount: result.priceCents,
           },
