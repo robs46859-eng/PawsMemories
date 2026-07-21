@@ -172,9 +172,12 @@ async function runCreatePipelineRigStage(job: { id: number; user_phone: string; 
     const petAnalysis: PetAnalysis = {
       species,
       breed: session?.breed || "Mixed",
-      bodyType: isBiped ? "biped" : "quadruped",
+      // A bird is neither a biped nor a quadruped — it stands on two legs and
+      // has wings where forelimbs would be. Describing it as a four-legged
+      // animal was the same class of error as calling a person one.
+      bodyType: isBiped ? "biped" : isWinged ? "winged" : "quadruped",
       estimatedPose: "standing",
-      legCount: isBiped ? 2 : 4,
+      legCount: isBiped || isWinged ? 2 : 4,
       // Humans have no tail; a bird's tail is feathers, not a tail rig chain.
       hasTail: !isBiped && !isWinged,
       hasWings: isWinged,
@@ -6105,23 +6108,34 @@ async function startServer() {
 
       // We need to generate a candidate image. Re-using generatePetReferenceImage
       // (This will act as the "real" image generator for Phase 2).
-      // In text mode there is deliberately no photo: the description IS the
-      // reference, so hasFace is false and the generator works from prompt alone.
-      const photos = referenceMode === "text" || !inputPhotoUrl ? [] : [inputPhotoUrl];
-      const hasFace = referenceMode === "image" && !!inputPhotoUrl;
-
       let candidateUrl = null;
       try {
-        candidateUrl = await generatePetReferenceImage(
-          photos,
-          intent || null,
-          species as ExtendedSubjectClass,
-          hasFace,
-          referenceMode === "text" ? textPrompt : "",
-          {},
-          style || "Realistic",
-          breed || null
-        );
+        if (referenceMode === "text") {
+          // Text mode needs a different generator, not the same one with an
+          // empty photo array. generatePetReferenceImage bails at its first
+          // guard when there are no image parts:
+          //     if (imageParts.length === 0) return null;   (server.ts ~3618)
+          // so passing [] would fail 100% of the time regardless of how good
+          // the description is. This mirrors /api/text-to-reference, which is
+          // the already-working text→image path.
+          const fields: TextPromptFields = { subject: textPrompt, style: style || "Realistic" };
+          candidateUrl = await generateImageWithFallback(
+            [{ text: buildTextPrompt(fields) }],
+            "create-pipeline-text-reference",
+          );
+        } else {
+          const photos = inputPhotoUrl ? [inputPhotoUrl] : [];
+          candidateUrl = await generatePetReferenceImage(
+            photos,
+            intent || null,
+            species as ExtendedSubjectClass,
+            !!inputPhotoUrl,
+            "",
+            {},
+            style || "Realistic",
+            breed || null
+          );
+        }
       } catch (genErr) {
         console.error("Reference generation error:", genErr);
         return res.status(500).json({ success: false, error: "Failed to generate candidate image. No PupCoins were deducted." });

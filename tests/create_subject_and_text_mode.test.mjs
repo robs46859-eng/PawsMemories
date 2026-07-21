@@ -51,11 +51,12 @@ test("the rig stage derives anatomy from the profile mapper, not a hardcoded che
   );
 });
 
-test("biped anatomy is coherent", () => {
+test("anatomy is coherent for bipeds, quadrupeds and birds", () => {
   const block = server.slice(server.indexOf("const buildProfile ="), server.indexOf("coatPattern"));
-  assert.match(block, /bodyType: isBiped \? "biped" : "quadruped"/);
-  assert.match(block, /legCount: isBiped \? 2 : 4/);
-  // A person has no tail and a bird's tail is feathers, not a rig chain.
+  // A bird is neither biped nor quadruped: two legs, wings for forelimbs.
+  // Describing it as four-legged was the same error as calling a person one.
+  assert.match(block, /bodyType: isBiped \? "biped" : isWinged \? "winged" : "quadruped"/);
+  assert.match(block, /legCount: isBiped \|\| isWinged \? 2 : 4/);
   assert.match(block, /hasTail: !isBiped && !isWinged/);
   assert.match(block, /hasWings: isWinged/);
 });
@@ -110,14 +111,38 @@ test("text mode sends the description and withholds the photo", () => {
 test("the server accepts text mode and validates it", () => {
   assert.match(server, /referenceMode/);
   assert.match(server, /A description is required/, "empty descriptions must be rejected");
-  // The description goes into generatePetReferenceImage's free-text slot.
+});
+
+test("text mode uses a text generator, not the image one with no images", () => {
+  // This is the assertion that matters, and an earlier version of this file got
+  // it wrong. generatePetReferenceImage starts with:
+  //     if (imageParts.length === 0) return null;
+  // so calling it with an empty photos array fails unconditionally, no matter
+  // how the description is passed. The first implementation did exactly that
+  // and these tests still passed, because they matched the SHAPE of the call
+  // rather than whether it could succeed. Text mode must branch to
+  // generateImageWithFallback + buildTextPrompt, as /api/text-to-reference does.
+  const block = server.slice(
+    server.indexOf('app.post("/api/create-pipeline/generate-reference"'),
+    server.indexOf("candidateUrl", server.indexOf('app.post("/api/create-pipeline/generate-reference"')) + 2000,
+  );
+  assert.match(block, /if \(referenceMode === "text"\)/, "text mode must take its own branch");
+  assert.match(block, /buildTextPrompt/, "text mode must build a prompt from the description");
+  assert.match(block, /generateImageWithFallback/, "text mode must use the text→image generator");
+
+  // And the image path must not be handed the description as a photo.
+  assert.match(block, /const photos = inputPhotoUrl \? \[inputPhotoUrl\] : \[\]/);
+});
+
+test("generatePetReferenceImage still bails on empty input", () => {
+  // The guard that makes the branch above necessary. If this is ever relaxed,
+  // the two-path split can be revisited — but silently removing it would make
+  // text mode look like it works while producing photo-less garbage.
   assert.match(
     server,
-    /referenceMode === "text" \? textPrompt : ""/,
-    "the description must reach the generator's extra/prompt argument",
+    /if \(imageParts\.length === 0\) return null;/,
+    "the image generator's empty-input guard is load-bearing for the text branch",
   );
-  // No photo in text mode.
-  assert.match(server, /referenceMode === "text" \|\| !inputPhotoUrl \? \[\] : \[inputPhotoUrl\]/);
 });
 
 test("the description is length-bounded on both sides", () => {

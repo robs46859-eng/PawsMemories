@@ -34,12 +34,16 @@ test("the facial add-on is disclosed BEFORE the user is charged", () => {
   // chosen, and it precedes CreateCheckoutScreen. A warning shown after payment
   // is not disclosure.
   const warningAt = screen.search(/early development/i);
-  const checkoutRef = screen.search(/CreateCheckout|onNext|Continue/i);
   assert.ok(warningAt > -1, "expected the warning in the customize step");
-  if (checkoutRef > -1) {
+
+  // The warning must appear before the control that advances to checkout.
+  // (An earlier version of this test compared warningAt against screen.length,
+  // which is trivially true and asserted nothing.)
+  const advanceAt = screen.search(/onNext|CreateCheckout|Screen\.CREATE_CHECKOUT/);
+  if (advanceAt > -1) {
     assert.ok(
-      warningAt < screen.length,
-      "the warning must render within the selection step, not a later screen",
+      warningAt < advanceAt,
+      `warning at ${warningAt} must precede the advance-to-checkout control at ${advanceAt}`,
     );
   }
 });

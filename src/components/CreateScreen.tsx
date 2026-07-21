@@ -158,6 +158,7 @@ export default function CreateScreen({ onNavigate }: CreateScreenProps) {
                 <textarea
                   value={state.textPrompt || ""}
                   onChange={(e) => { setError(""); setState(s => ({ ...s, textPrompt: e.target.value.slice(0, 500) })); }}
+                  maxLength={500}
                   placeholder="e.g. a scruffy grey terrier with one ear up, sitting, wearing a red bandana"
                   className="min-h-[220px] w-full resize-none rounded-2xl border-2 border-outline-variant bg-surface p-4 text-sm text-on-surface focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 />
