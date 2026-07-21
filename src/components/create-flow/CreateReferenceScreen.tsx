@@ -29,7 +29,11 @@ export default function CreateReferenceScreen({ onNavigate }: CreateReferenceScr
           petName: state.petName,
           intent: state.intent,
           style: state.style,
-          inputPhotoUrl: state.inputPhotoUrl,
+          // Only send a photo in image mode — passing a stale one alongside a
+          // description would make the generator condition on the wrong subject.
+          inputPhotoUrl: state.inputMode === "text" ? null : state.inputPhotoUrl,
+          inputMode: state.inputMode ?? "image",
+          textPrompt: state.inputMode === "text" ? (state.textPrompt || "").trim() : undefined,
         })
       });
 
