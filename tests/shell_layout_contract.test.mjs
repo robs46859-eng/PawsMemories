@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 const source = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
@@ -15,7 +16,26 @@ test("global shell keeps stable desktop dimensions", () => {
 
 test("signed-out shell does not expose product navigation", () => {
   assert.match(source, /\{isAuthed && \(/);
-  assert.match(source, /TOP_PRIMARY_NAV\.map/);
+  // The header icon row replaced the old TOP_PRIMARY_NAV centre nav. The
+  // guarantee under test is unchanged — product destinations must not render
+  // for signed-out visitors — so this asserts the gate wraps the new mechanism
+  // rather than merely that the mechanism exists.
+  assert.match(source, /SHELL_ICON_NAV\.map/);
+  const gate = source.indexOf("{isAuthed && (");
+  const iconNav = source.indexOf("SHELL_ICON_NAV.map");
+  assert.ok(gate !== -1 && iconNav !== -1, "expected both the auth gate and the icon nav");
+  assert.ok(gate < iconNav, "SHELL_ICON_NAV must render inside an isAuthed gate");
+});
+
+test("header shows exactly four stencil destinations", () => {
+  // Guards the brief: one logo left, four icons right. If a fifth destination
+  // is ever appended to SHELL_ICON_NAV, that is a design decision that should
+  // fail here first rather than silently re-crowding the header.
+  const nav = readFileSync(new URL("../src/shellNavigation.ts", import.meta.url), "utf8");
+  const block = nav.match(/export const SHELL_ICON_NAV[^=]*=\s*\[([\s\S]*?)\n\];/);
+  assert.ok(block, "expected a SHELL_ICON_NAV array literal");
+  const entries = block[1].match(/\{\s*\n?\s*id:/g) || block[1].match(/\{\s*id:/g) || [];
+  assert.equal(entries.length, 4, `expected 4 shell icons, found ${entries.length}`);
 });
 
 test("mobile shell reserves five fixed columns", () => {

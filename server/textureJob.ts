@@ -1,3 +1,45 @@
+/**
+ * ⚠️ QUARANTINED — NON-FUNCTIONAL. DO NOT ENABLE WITHOUT READING THIS.
+ * =====================================================================
+ *
+ * UV3/UV4/UV5 stylization orchestrator. Committed as "Phase UV3-UV9" but never
+ * executed successfully: `texture_jobs` contains zero rows in production, and
+ * each of the four defects below is independently fatal.
+ *
+ * Its caller, POST /api/texture/jobs, is gated to 503 behind
+ * TEXTURE_STYLIZE_ENABLED (default false). Lifting that flag without fixing
+ * all four turns a route that currently fails loudly into one that charges
+ * users and then fails.
+ *
+ * DEFECT 1 — worker endpoints do not exist.
+ *   Calls `${worker}/texture/render-views` and `${worker}/texture/bake`.
+ *   The worker's only texture route is /texture/rebake. UV2 introduces
+ *   render-views; /texture/bake still needs building (UV4).
+ *
+ * DEFECT 2 — the Gemini call is not image-to-image.
+ *   `ai.models.generateImages({ model, prompt, config })` passes NO source
+ *   image. The plan's D2 requires low-strength img2img conditioned on the
+ *   source render; this is text-to-image, so every view is invented
+ *   independently and cross-view consistency is impossible by construction.
+ *   `identity_strength` only appends a sentence to the prompt — the likeness
+ *   guarantee it advertises is not enforced. The inline comments admit this
+ *   ("we simulate returning a stylized view").
+ *
+ * DEFECT 3 — the creations INSERT targets columns that do not exist.
+ *   Uses (id, avatar_id, type, title, status). The real table is
+ *   (id AUTO_INCREMENT, user_phone, album_id, media_type, style, ...,
+ *   model_url, pet_name, pet_breed, asset_type). This throws on every run.
+ *
+ * DEFECT 4 — the model chain is hardcoded and unverified.
+ *   IMAGE_MODELS_BY_TIER below is a local literal rather than the shared
+ *   IMAGE_MODELS chain the rest of the app resolves through, so it cannot
+ *   inherit fallbacks and the names have never been checked against the API.
+ *
+ * Rewrite guidance is in UV_TEXTURE_COMPLETION_PLAN.md (UV3). The working
+ * reference for the bake half is server.ts's /api/texture/rebake, which is
+ * complete, tested, and measured by server/textureLikeness.ts.
+ */
+
 import { randomUUID } from "node:crypto";
 import { getPool } from "../db";
 import { uploadBase64Binary } from "../storage";

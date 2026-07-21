@@ -1,6 +1,7 @@
 import React from "react";
 import { ArrowRight, Camera, Palette, ShieldCheck, Printer, Bell, Sparkles, Star, Heart, Gift, Dog, PawPrint } from "lucide-react";
 import { UserProfile } from "../types";
+import HeroScroller from "./HeroScroller";
 
 interface HomePageProps {
   userProfile: UserProfile;
@@ -146,6 +147,21 @@ export default function HomePage({
             </div>
           </div>
         </div>
+      </section>
+
+      {/* ─────────────── QUICK HITS ───────────────
+          Four scroll-snapped cards sitting directly under the hero, each with
+          its own callout. Placed above Featured Models because these are the
+          offers we want read first; Featured Models is browsing, not an offer. */}
+      <section className="mt-8 md:mt-10">
+        <div className="mx-auto mb-3 max-w-6xl px-4 sm:px-6 lg:px-8">
+          <h2 className="text-xs font-black uppercase tracking-[.18em] text-primary">Quick hits</h2>
+        </div>
+        <HeroScroller
+          onOpenCreate={onOpenCreate}
+          onOpenPawprints={onOpenPawprints}
+          onOpenMarketplace={onOpenMarketplace}
+        />
       </section>
 
       {/* ─────────────── FEATURED MODELS ─────────────── */}

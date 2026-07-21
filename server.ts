@@ -3,7 +3,7 @@ import { z } from "zod";
 import compression from "compression";
 import path from "path";
 // Vite is imported dynamically below — only in dev mode
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, GenerateVideosOperation } from "@google/genai";
 import dotenv from "dotenv";
 import Stripe from "stripe";
 import fs from "fs";
@@ -19,6 +19,7 @@ import { animatorRouter } from "./server/animator/routes.ts";
 import { planWagsBox, getPriorBoxHistory } from "./server/wags/planner";
 import { deliverBox, getOwnedWardrobeItems } from "./server/wags/delivery";
 import { RebakeRequestSchema, StylizeRequestSchema, viewsFromAvatarRow } from "./server/textureSchemas";
+import type { RebakeLikenessReport } from "./server/textureLikeness";
 import {
   MarketplaceAdminError,
   listListingsWithCounts,
@@ -98,6 +99,32 @@ import { objectBuildProfile, humanRigHints } from "./server/subjectProfiles";
 // one retry, both gated by the worker's physics_validate (gravity 9.8 m/s²).
 // ---------------------------------------------------------------------------
 const pipelineRigLocks = new Set<number>();
+
+/**
+ * Poll a Veo video operation by its stored operation name.
+ *
+ * WHY THIS WRAPPER EXISTS
+ * -----------------------
+ * `ai.operations.getVideosOperation()` does NOT accept a plain `{ name }`
+ * object. After fetching the raw payload it calls `operation._fromAPIResponse()`
+ * on whatever you handed it — that method lives on the `GenerateVideosOperation`
+ * prototype, so an object literal produces:
+ *
+ *     TypeError: operation._fromAPIResponse is not a function
+ *
+ * Both video pollers previously passed `{ name } as any`. The `as any` silenced
+ * the type error that would have caught this at compile time, so every Veo job
+ * died at poll time — see generation_jobs rows 16/19/20. Note the HTTP request
+ * succeeds before the throw: the video really was generated and paid for, we
+ * just crashed reading the result and then refunded, so the cost was eaten
+ * silently on both ends.
+ *
+ * Passing a real instance keeps the SDK's own parsing (which normalises the
+ * mldev vs Vertex response shapes) instead of us hand-rolling it.
+ */
+function veoOperationHandle(operationName: string): GenerateVideosOperation {
+  return Object.assign(new GenerateVideosOperation(), { name: operationName });
+}
 
 async function runCreatePipelineRigStage(job: { id: number; user_phone: string; creation_id: number | null }, glbUrl: string): Promise<void> {
   if (pipelineRigLocks.has(job.id)) return;
@@ -2039,9 +2066,57 @@ async function startServer() {
           // Result GLB → public media bucket (same tier as look variations —
           // it is the user's own deliverable, not a purchasable source asset).
           const resultUrl = await uploadBase64Binary(result.glb_base64, "model/gltf-binary", "rebaked-models");
+
+          // UV8 acceptance gate. The worker's stats say the bake RAN (coverage,
+          // views used, materials retargeted); none of them say it HELPED.
+          // Scoring palette distance to the user's own reference photos before
+          // and after is the plan's literal "done when" condition, and running
+          // it here rather than only in fixtures means every production re-bake
+          // reports whether it actually improved likeness.
+          //
+          // Deliberately after the upload and wrapped so it can never fail the
+          // job: the deliverable already exists and is already stored. Losing a
+          // good bake because a PNG decode threw would be a strictly worse
+          // outcome than losing the metric.
+          let likeness: RebakeLikenessReport = {
+            before: null, after: null, delta: null, improved: null, note: "not scored",
+          };
+          try {
+            const { scoreRebake } = await import("./server/textureLikeness");
+            const fetchBuf = async (url: string) => {
+              const r = await fetch(url, { signal: AbortSignal.timeout(60_000) });
+              if (!r.ok) throw new Error(`${r.status} fetching ${url.slice(0, 80)}`);
+              return Buffer.from(await r.arrayBuffer());
+            };
+            const [originalGlb, refImages] = await Promise.all([
+              fetchBuf(sourceModelUrl),
+              Promise.all(
+                Object.values(views)
+                  .filter((u): u is string => typeof u === "string")
+                  .map((u) => fetchBuf(u).catch(() => null)),
+              ).then((b) => b.filter((x): x is Buffer => x !== null)),
+            ]);
+            const rebakedGlb = Buffer.from(result.glb_base64, "base64");
+            likeness = await scoreRebake(originalGlb, rebakedGlb, refImages);
+            if (likeness.improved === false) {
+              // Not an error — a faithful re-bake of an already-good texture can
+              // legitimately move sideways. Logged so a systematic regression is
+              // visible without having to query stats_json.
+              console.warn(
+                `[texture/rebake ${jobId}] likeness did not improve: ` +
+                  `before=${likeness.before} after=${likeness.after}`,
+              );
+            }
+          } catch (scoreErr: any) {
+            likeness = {
+              before: null, after: null, delta: null, improved: null,
+              note: `scoring skipped: ${String(scoreErr?.message || scoreErr).slice(0, 160)}`,
+            };
+          }
+
           await getPool().query(
             `UPDATE texture_jobs SET status = 'completed', result_model_url = ?, stats_json = ? WHERE id = ?`,
-            [resultUrl, JSON.stringify(result.stats ?? null), jobId],
+            [resultUrl, JSON.stringify({ ...(result.stats ?? {}), likeness }), jobId],
           );
         } catch (err: any) {
           const message = String(err?.message || err).slice(0, 400);
@@ -2058,7 +2133,42 @@ async function startServer() {
     }
   });
   // POST /api/texture/jobs — Start a stylization texture job (UV6)
+  //
+  // QUARANTINED. Disabled by default; set TEXTURE_STYLIZE_ENABLED=true to lift.
+  //
+  // The handler below is written against infrastructure that does not exist.
+  // Verified against the running database and the worker's route table:
+  //
+  //   1. It debits `user_credits` and writes `credit_ledger`. Neither table
+  //      exists. This app bills through `users.credits` + `credit_transactions`
+  //      via deductCredits()/addCredits() in db.ts. The query throws
+  //      ER_NO_SUCH_TABLE, so today the route 500s — which is the only reason
+  //      it has never actually taken money for an impossible job.
+  //   2. It calls the worker at /texture/render-views and /texture/bake.
+  //      The worker exposes neither; the only texture route is /texture/rebake.
+  //      (UV2 adds render-views — see UV_TEXTURE_COMPLETION_PLAN.md.)
+  //   3. Its Gemini call passes no source image, making it text-to-image, not
+  //      the low-strength img2img the plan's D2 requires. `identity_strength`
+  //      is concatenated into a prompt string and otherwise unused, so the
+  //      likeness guarantee it names is not enforced anywhere.
+  //   4. Its INSERT INTO creations uses columns (id, avatar_id, type, title,
+  //      status) that are not on that table.
+  //
+  // The gate returns before any credit, database, or provider work. A route
+  // that cannot succeed must not be able to bill, and must say so plainly
+  // rather than surfacing a 500 the caller has to guess at.
+  const TEXTURE_STYLIZE_ENABLED =
+    String(process.env.TEXTURE_STYLIZE_ENABLED || "").toLowerCase() === "true";
+
   app.post("/api/texture/jobs", requireAuth, async (req: AuthedRequest, res) => {
+    if (!TEXTURE_STYLIZE_ENABLED) {
+      return res.status(503).json({
+        error:
+          "Coat restyling is not available yet. Texture repair (re-bake from your photos) is available now.",
+        feature: "texture_stylize",
+        available: false,
+      });
+    }
     try {
       const idempotencyKey = String(req.header("Idempotency-Key") || "").trim().slice(0, 128);
       if (!idempotencyKey) return res.status(400).json({ error: "An idempotency key is required." });
@@ -6508,7 +6618,7 @@ async function startServer() {
         // --- Veo (Gemini) branch ---
         if (job.operation_name) {
           try {
-            const op: any = await ai.operations.getVideosOperation({ operation: { name: job.operation_name } as any });
+            const op: any = await ai.operations.getVideosOperation({ operation: veoOperationHandle(job.operation_name) });
             if (op.done) {
               if (op.response?.generatedVideos?.[0]?.video) {
                 const videoData: any = op.response.generatedVideos[0].video;
@@ -6616,9 +6726,10 @@ async function startServer() {
                 await restoreReservedGenerationCredits(job.user_phone, job.credits_reserved);
               }
             }
-          } catch (err) {
+          } catch (err: any) {
+            const reason = String(err?.message || err).slice(0, 480);
             console.error(`Background HeyGen poller error for job ${job.id}:`, err);
-            await updateJobStatus(job.id, "failed", "Poller error");
+            await updateJobStatus(job.id, "failed", `HeyGen poll failed: ${reason}`);
             await restoreReservedGenerationCredits(job.user_phone, job.credits_reserved);
           }
           continue;
@@ -6647,16 +6758,20 @@ async function startServer() {
                 await restoreReservedGenerationCredits(job.user_phone, job.credits_reserved);
               }
             }
-          } catch (err) {
-            console.error(`Background Meshy poller error for job ${job.id}:`, err);
-            await updateJobStatus(job.id, "failed", "Poller error");
+          } catch (err: any) {
+            // Preserve the real cause. This previously stored the literal string
+            // "Poller error", which is why jobs 21-23 are unactionable in the DB:
+            // the message that would have explained them was thrown away.
+            const reason = String(err?.message || err).slice(0, 480);
+            console.error(`Background Tripo poller error for job ${job.id}:`, err);
+            await updateJobStatus(job.id, "failed", `Tripo poll failed: ${reason}`);
             await restoreReservedGenerationCredits(job.user_phone, job.credits_reserved);
           }
           continue;
         }
         // --- Veo (Gemini) branch ---
         try {
-          const op: any = await ai.operations.getVideosOperation({ operation: { name: job.operation_name } as any });
+          const op: any = await ai.operations.getVideosOperation({ operation: veoOperationHandle(job.operation_name) });
           if (op.done) {
             if (op.response?.generatedVideos?.[0]?.video) {
               const videoData: any = op.response.generatedVideos[0].video;

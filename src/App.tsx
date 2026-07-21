@@ -25,7 +25,7 @@ const RandyChat = lazy(() => import("./components/RandyChat"));
 import AlbumView from "./components/AlbumView";
 import AlbumsPage from "./components/AlbumsPage";
 import { fetchMe, fetchCreations, fetchAlbums, createAlbum, clearToken, claimAchievement, claimDailyStreak, claimShareReward, confirmCreditsSession, acceptCurrentTerms } from "./api";
-import { Sun, Moon, LogOut, RefreshCw, Zap, Bell, ShoppingCart, Users, HelpCircle, PackageCheck, ShoppingBag, Activity } from "lucide-react";
+import { Sun, Moon, LogOut, RefreshCw, Zap, Bell, ShoppingCart, Users, HelpCircle, PackageCheck, ShoppingBag, Activity, PlusCircle, Store as StoreIcon, PawPrint, User as UserIcon, MoreHorizontal } from "lucide-react";
 import CreditStore from "./components/CreditStore";
 const AvatarDashboard = lazy(() => import("./components/AvatarDashboard"));
 import Store from "./components/Store";
@@ -41,7 +41,7 @@ const WagsInboxScreen = lazy(() => import("./components/WagsInboxScreen"));
 const MarketplaceAdminScreen = lazy(() => import("./components/MarketplaceAdminScreen"));
 const AnimatorScreen = lazy(() => import("./animator/components/AnimatorScreen"));
 import WarehouseMode from "./components/WarehouseMode";
-import { MOBILE_NAV, SIDEBAR_NAV, TOP_PRIMARY_NAV } from "./shellNavigation";
+import { MOBILE_NAV, SIDEBAR_NAV, TOP_PRIMARY_NAV, SHELL_ICON_NAV } from "./shellNavigation";
 import { syncSeoMetadata } from "./seo";
 
 const EMPTY_PROFILE: UserProfile = { fullName: "", email: "", credits: 0, treats: 0, isAdmin: false, city: "", ageVerified: false, acceptedTermsVersion: null, currentTermsVersion: undefined, requiresTermsAcceptance: false };
@@ -131,6 +131,21 @@ const getBackgroundImage = (screen: Screen) => {
   }
 };
 
+/**
+ * Glyphs for the four shell icons, keyed by SHELL_ICON_NAV id.
+ *
+ * Kept here rather than in shellNavigation.ts so that module stays free of JSX
+ * and importable by non-React code (tests, the mobile nav builder). All four are
+ * stroke-only lucide icons drawn at strokeWidth 1.75 for a consistent stencil
+ * weight — no filled or duotone glyphs in this row.
+ */
+const SHELL_ICONS: Record<string, React.ComponentType<{ size?: number; strokeWidth?: number; "aria-hidden"?: boolean | "true" | "false" }>> = {
+  create: PlusCircle,
+  marketplace: StoreIcon,
+  pawprints: PawPrint,
+  profile: UserIcon,
+};
+
 export default function App() {
   // Auth gating state
   const [isAuthed, setIsAuthed] = useState(false);
@@ -150,6 +165,8 @@ export default function App() {
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [requestSuccessMsg, setRequestSuccessMsg] = useState("");
   const [showHelpModal, setShowHelpModal] = useState(false);
+  /** Header overflow menu — holds the controls demoted from the icon row. */
+  const [showShellMenu, setShowShellMenu] = useState(false);
 
   const [albums, setAlbums] = useState<Album[]>([]);
   const [creations, setCreations] = useState<Creation[]>([]);
@@ -386,6 +403,33 @@ export default function App() {
     setCurrentScreen(Screen.SIGN_UP);
   };
 
+  /**
+   * Header overflow menu contents.
+   *
+   * Every entry here was previously its own always-visible button in the header
+   * corner. They are preserved verbatim (same handler, same admin gating) — the
+   * only change is that they now sit one click deeper so the four primary
+   * icons can read as primary. Order runs most- to least-used.
+   */
+  const SHELL_MENU_ITEMS: {
+    id: string;
+    label: string;
+    icon: React.ComponentType<{ size?: number; strokeWidth?: number; "aria-hidden"?: boolean | "true" | "false" }>;
+    run: () => void;
+    adminOnly?: boolean;
+    danger?: boolean;
+  }[] = [
+    { id: "credits", label: "Buy PupCoins", icon: Zap, run: () => setShowCreditStore(true) },
+    { id: "store", label: "Shop", icon: ShoppingCart, run: () => setCurrentScreen(Screen.STORE) },
+    { id: "community", label: "Community", icon: Users, run: () => setCurrentScreen(Screen.COMMUNITY) },
+    { id: "health", label: "Pet Health", icon: Activity, run: () => setCurrentScreen(Screen.PET_HEALTH) },
+    { id: "theme", label: isDarkMode ? "Light mode" : "Dark mode", icon: isDarkMode ? Sun : Moon, run: toggleDarkMode },
+    { id: "help", label: "Help & Support", icon: HelpCircle, run: () => setShowHelpModal(true) },
+    { id: "admin-wags", label: "Wags admin", icon: PackageCheck, run: () => setCurrentScreen(Screen.ADMIN_WAGS), adminOnly: true },
+    { id: "admin-market", label: "Marketplace admin", icon: ShoppingBag, run: () => setCurrentScreen(Screen.ADMIN_MARKETPLACE), adminOnly: true },
+    { id: "logout", label: "Log out", icon: LogOut, run: handleLogout, danger: true },
+  ];
+
   const handleWelcomeNext = () => setCurrentScreen(Screen.TUTORIAL);
 
   const handleTutorialComplete = () => setCurrentScreen(Screen.DASHBOARD);
@@ -510,123 +554,134 @@ export default function App() {
 
       {/* Dynamic Upper Header Bar */}
       <header className="fixed inset-x-0 top-0 z-50 h-16 bg-surface/85 backdrop-blur-xl shadow-[0_8px_32px_0_rgba(68,42,34,0.08)]">
-        <nav className="mx-auto grid h-16 w-full max-w-[96rem] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 px-3 sm:px-5 lg:px-8">
-          <div className="flex min-w-0 items-center gap-2">
-            <img src="/brand/pawsome-logo.png" alt="Pawsome3D" className="h-9 w-9 shrink-0 rounded-lg object-contain" />
-          </div>
+        {/* Two corners only: brand on the left, four stencil icons on the right.
+            The centre is intentionally empty — the old middle nav duplicated
+            Create/Marketplace/Pawprints, which now live in the icon row. */}
+        <nav className="mx-auto flex h-16 w-full max-w-[96rem] items-center justify-between gap-2 px-3 sm:px-5 lg:px-8">
+          <button
+            type="button"
+            onClick={() => setCurrentScreen(isAuthed ? Screen.DASHBOARD : Screen.WELCOME)}
+            className="flex min-w-0 shrink-0 items-center gap-2.5 rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+            aria-label="Pawsome3D home"
+          >
+            <img src="/brand/pawsome-logo.png" alt="" className="h-9 w-9 shrink-0 rounded-lg object-contain" />
+            <span className="hidden text-base font-black tracking-tight text-on-surface sm:block">
+              Pawsome<span className="text-primary">3D</span>
+            </span>
+          </button>
 
-          <div className="min-w-0">
-            <div className="hidden items-center justify-center gap-1 whitespace-nowrap lg:flex xl:gap-3">
-              {isAuthed && (
-                <>
-              {TOP_PRIMARY_NAV.map((item) => (
+          {isAuthed && (
+            <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
+              {SHELL_ICON_NAV.map((item) => {
+                const Icon = SHELL_ICONS[item.id];
+                const active = item.screens.includes(currentScreen);
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    data-tour={item.id === "create" ? "nav-create" : undefined}
+                    onClick={() => setCurrentScreen(item.screen)}
+                    title={item.label}
+                    aria-label={item.label}
+                    aria-current={active ? "page" : undefined}
+                    className={`group relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                      active ? "text-primary" : "text-on-surface-variant hover:text-primary"
+                    }`}
+                  >
+                    <Icon size={22} strokeWidth={1.75} aria-hidden="true" />
+                    {/* Active marker is a dot, not a filled pill — keeps all
+                        four glyphs at identical visual weight. */}
+                    <span
+                      className={`pointer-events-none absolute bottom-1.5 h-1 w-1 rounded-full bg-primary transition-opacity ${
+                        active ? "opacity-100" : "opacity-0"
+                      }`}
+                    />
+                  </button>
+                );
+              })}
+
+              {/* Overflow — everything the old header crowded into the corner.
+                  Nothing was removed, only demoted one level. */}
+              <div className="relative">
                 <button
-                  key={item.id}
-                  data-tour={item.screen === Screen.CREATE ? "nav-create" : undefined}
-                  onClick={() => item.screen === Screen.ANIMATOR ? openAnimationStudio() : setCurrentScreen(item.screen)}
-                  className={`min-h-10 px-2.5 text-sm font-medium transition-colors xl:px-3 ${[item.screen, Screen.CREATE_REFERENCE, Screen.CREATE_CUSTOMIZE, Screen.CREATE_VALIDATE, Screen.CREATE_CHECKOUT].includes(currentScreen) && item.screen === Screen.CREATE ? "border-b-2 border-primary font-bold text-primary" : currentScreen === item.screen ? "border-b-2 border-primary font-bold text-primary" : "text-on-surface-variant hover:text-primary"}`}
+                  type="button"
+                  onClick={() => setShowShellMenu((open) => !open)}
+                  title="More"
+                  aria-label="More options"
+                  aria-haspopup="menu"
+                  aria-expanded={showShellMenu}
+                  className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                    showShellMenu ? "text-primary" : "text-on-surface-variant hover:text-primary"
+                  }`}
                 >
-                  {item.imageSrc ? <img src={item.imageSrc} alt={item.label} className="h-8 w-8 rounded-lg object-cover" /> : item.label}
-                  <span className={item.imageSrc ? "sr-only" : undefined}>{item.label}</span>
+                  <MoreHorizontal size={22} strokeWidth={1.75} aria-hidden="true" />
                 </button>
-              ))}
-                </>
-              )}
+
+                {showShellMenu && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      aria-hidden="true"
+                      onClick={() => setShowShellMenu(false)}
+                    />
+                    <div
+                      role="menu"
+                      className="absolute right-0 top-[52px] z-50 w-60 overflow-hidden rounded-2xl border border-outline-variant/25 bg-surface-container-high shadow-2xl"
+                    >
+                      {userProfile.fullName && (
+                        <div className="flex items-center gap-2.5 border-b border-outline-variant/20 px-4 py-3">
+                          {userProfile.profilePhotoUrl ? (
+                            <img src={userProfile.profilePhotoUrl} alt="" className="h-8 w-8 rounded-full object-cover" />
+                          ) : (
+                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-[11px] font-black text-on-primary">
+                              {userProfile.fullName.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase() || "U"}
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <p className="truncate text-xs font-bold text-on-surface">{userProfile.fullName.split(" ")[0]}</p>
+                            <p className="text-[11px] font-bold text-secondary">{userProfile.credits} PupCoins</p>
+                          </div>
+                        </div>
+                      )}
+                      {SHELL_MENU_ITEMS.map((entry) => {
+                        if (entry.adminOnly && !userProfile.isAdmin) return null;
+                        const EntryIcon = entry.icon;
+                        return (
+                          <button
+                            key={entry.id}
+                            role="menuitem"
+                            type="button"
+                            onClick={() => {
+                              setShowShellMenu(false);
+                              entry.run();
+                            }}
+                            className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-medium transition-colors hover:bg-surface-container-highest ${
+                              entry.danger ? "text-error" : "text-on-surface"
+                            }`}
+                          >
+                            <EntryIcon size={17} strokeWidth={1.75} aria-hidden="true" />
+                            {entry.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
-          <div className="flex min-w-0 items-center justify-end gap-1 sm:gap-2">
-            {isAuthed && (
-              <>
-                <button
-                  onClick={() => setCurrentScreen(Screen.PET_HEALTH)}
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition-colors ${currentScreen === Screen.PET_HEALTH ? "border-primary bg-primary text-on-primary" : "border-outline-variant/30 bg-surface-container text-on-surface-variant hover:text-primary"}`}
-                  title="Pet Health"
-                  aria-label="Pet health tracker"
-                >
-                  <Activity size={18} />
-                </button>
-                <button
-                  onClick={() => setCurrentScreen(Screen.STORE)}
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition-colors ${currentScreen === Screen.STORE ? "border-primary bg-primary text-on-primary" : "border-outline-variant/30 bg-surface-container text-on-surface-variant hover:text-primary"}`}
-                  title="Shop"
-                  aria-label="Open shop"
-                >
-                  <ShoppingCart size={18} />
-                </button>
-                <button
-                  onClick={() => setCurrentScreen(Screen.COMMUNITY)}
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition-colors ${currentScreen === Screen.COMMUNITY ? "border-primary bg-primary text-on-primary" : "border-outline-variant/30 bg-surface-container text-on-surface-variant hover:text-primary"}`}
-                  title="Community"
-                  aria-label="Open community"
-                >
-                  <Users size={18} />
-                </button>
-              </>
-            )}
+          {!isAuthed && (
             <button
+              type="button"
               onClick={toggleDarkMode}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-outline-variant/30 bg-surface-container text-on-surface hover:bg-outline-variant/35"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-on-surface-variant transition-colors hover:text-primary"
               title={isDarkMode ? "Turn on Light Mode" : "Turn on Dark Mode"}
               aria-label={isDarkMode ? "Turn on light mode" : "Turn on dark mode"}
             >
-              {isDarkMode ? <Sun size={14} className="text-amber-400" /> : <Moon size={14} className="text-slate-600" />}
+              {isDarkMode ? <Sun size={20} strokeWidth={1.75} /> : <Moon size={20} strokeWidth={1.75} />}
             </button>
-
-            {isAuthed && userProfile.fullName && (
-              <>
-                <button
-                  onClick={() => setCurrentScreen(Screen.PROFILE)}
-                  title="View profile"
-                  className={`hidden h-10 min-w-10 shrink-0 items-center justify-center gap-2 rounded-full border bg-surface-container-high px-2.5 shadow-sm transition-all hover:bg-surface-container-highest md:flex ${currentScreen === Screen.PROFILE ? "border-primary" : "border-outline-variant/40"}`}
-                >
-                  {userProfile.profilePhotoUrl ? (
-                    <img src={userProfile.profilePhotoUrl} alt="" className="h-5 w-5 rounded-full object-cover" />
-                  ) : (
-                    <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[9px] font-black text-on-primary">
-                      {userProfile.fullName.split(" ").map((name) => name[0]).join("").slice(0, 2).toUpperCase() || "U"}
-                    </div>
-                  )}
-                  <span className="hidden max-w-[72px] truncate text-xs font-bold text-on-surface xl:block">{userProfile.fullName.split(" ")[0]}</span>
-                  <span className="hidden text-xs font-bold text-secondary xl:block">{userProfile.credits} PupCoins</span>
-                </button>
-                <button
-                  data-tour="buy-credits"
-                  onClick={() => setShowCreditStore(true)}
-                  className="hidden h-10 shrink-0 items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-2.5 text-[10px] font-black uppercase text-primary hover:bg-primary/20 xl:flex"
-                  title="Buy more PupCoins"
-                >
-                  <Zap size={11} className="fill-primary" /> PupCoins
-                </button>
-                <button onClick={() => setShowHelpModal(true)} className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full border border-outline-variant/30 bg-surface-container text-on-surface-variant hover:text-primary sm:flex" title="Help & Support" aria-label="Help and support">
-                  <HelpCircle size={18} />
-                </button>
-                {userProfile.isAdmin && (
-                  <button
-                    onClick={() => setCurrentScreen(Screen.ADMIN_WAGS)}
-                    className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full border border-outline-variant/30 bg-surface-container text-on-surface-variant hover:text-primary sm:flex"
-                    title="Wags admin review"
-                    aria-label="Wardrobe Wags admin review"
-                  >
-                    <PackageCheck size={18} />
-                  </button>
-                )}
-                {userProfile.isAdmin && (
-                  <button
-                    onClick={() => setCurrentScreen(Screen.ADMIN_MARKETPLACE)}
-                    className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full border border-outline-variant/30 bg-surface-container text-on-surface-variant hover:text-primary sm:flex"
-                    title="Marketplace admin"
-                    aria-label="Marketplace catalog manager"
-                  >
-                    <ShoppingBag size={18} />
-                  </button>
-                )}
-                <button onClick={handleLogout} className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full border border-outline-variant/30 bg-surface-container text-on-surface-variant hover:bg-error/10 hover:text-error sm:flex" title="Log out" aria-label="Log out">
-                  <LogOut size={18} />
-                </button>
-              </>
-            )}
-          </div>
+          )}
         </nav>
       </header>
 

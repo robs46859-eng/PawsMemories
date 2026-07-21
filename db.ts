@@ -1941,13 +1941,49 @@ export interface JobRow {
   updated_at: string;
 }
 
+export type JobKind = 'still' | 'video' | 'model';
+
+export const JOB_KINDS: readonly JobKind[] = ['still', 'video', 'model'] as const;
+
+/**
+ * Guard the generation_jobs.kind enum in application code.
+ *
+ * The production database runs with sql_mode =
+ * "IGNORE_SPACE,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION" — note the absence
+ * of STRICT_TRANS_TABLES. MariaDB in non-strict mode does not reject an invalid
+ * ENUM value; it silently coerces it to the empty string and returns success.
+ * Rows 21-23 in generation_jobs carry kind='' for exactly this reason.
+ *
+ * That makes the column's type declaration decorative: the only place an
+ * invalid kind can actually be caught is here, before the INSERT. Callers that
+ * pass `jobData: any` (commitPipelineSessionBuild, recoverPipelineSession) have
+ * no compile-time protection, so this runtime check is the only backstop.
+ */
+export function isJobKind(kind: unknown): kind is JobKind {
+  return typeof kind === 'string' && JOB_KINDS.includes(kind as JobKind);
+}
+
+export function jobKindError(kind: unknown): string {
+  return (
+    `Invalid generation_jobs.kind: ${JSON.stringify(kind)}. ` +
+    `Expected one of ${JOB_KINDS.join(', ')}. Refusing the insert — the database ` +
+    `runs non-strict and would silently store '' instead of rejecting this.`
+  );
+}
+
+/** Throwing form, for callers that return a bare value and have no error channel. */
+export function assertJobKind(kind: unknown): asserts kind is JobKind {
+  if (!isJobKind(kind)) throw new Error(jobKindError(kind));
+}
+
 export async function createJob(data: {
   user_phone: string;
   creation_id?: number | null;
-  kind: 'still' | 'video' | 'model';
+  kind: JobKind;
   credits_reserved: number;
   operation_name?: string | null;
 }): Promise<number> {
+  assertJobKind(data.kind);
   const [result] = await getPool().query(
     `INSERT INTO generation_jobs (user_phone, creation_id, kind, credits_reserved, operation_name, status)
      VALUES (?, ?, ?, ?, ?, 'queued')`,
@@ -3778,7 +3814,17 @@ export async function reservePipelineSessionForBuild(sessionId: string, userPhon
   }
 }
 
-export async function commitPipelineSessionBuild(sessionId: string, userPhone: string, jobData: any, creationData: any): Promise<{ success: boolean; error?: string }> {
+export async function commitPipelineSessionBuild(sessionId: string, userPhone: string, jobData: { kind: JobKind; credits_reserved: number; operation_name?: string | null }, creationData: any): Promise<{ success: boolean; error?: string }> {
+  // This path INSERTs into generation_jobs directly rather than via createJob(),
+  // so it needs its own guard — see assertJobKind for why the DB won't do it.
+  //
+  // Reported through the {success,error} return rather than thrown: this
+  // function's contract is that callers branch on `success`, and the route
+  // handler relies on that to release the session reservation. Throwing here
+  // would skip that cleanup and strand the session in 'build_starting'.
+  if (!isJobKind(jobData?.kind)) {
+    return { success: false, error: jobKindError(jobData?.kind) };
+  }
   const connection = await getPool().getConnection();
   try {
     await connection.query('START TRANSACTION');
@@ -3838,7 +3884,10 @@ export async function getPipelineSessionByProviderHandle(providerHandle: string)
   return rows[0] || null;
 }
 
-export async function recoverPipelineSession(sessionId: string, userPhone: string, jobData: any, creationData: any): Promise<{ success: boolean; error?: string; alreadyRecovered?: boolean }> {
+export async function recoverPipelineSession(sessionId: string, userPhone: string, jobData: { kind: JobKind; credits_reserved: number; operation_name?: string | null }, creationData: any): Promise<{ success: boolean; error?: string; alreadyRecovered?: boolean }> {
+  if (!isJobKind(jobData?.kind)) {
+    return { success: false, error: jobKindError(jobData?.kind) };
+  }
   const connection = await getPool().getConnection();
   try {
     await connection.query('START TRANSACTION');

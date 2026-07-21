@@ -23,6 +23,17 @@ import { CREDIT_PRICES } from "../pricing";
 import { WARDROBE_CATALOG, WAGS_EXCLUSIVE_CATALOG } from "../wardrobe/catalog";
 import { WardrobeLayer } from "../wardrobe/WardrobeLayer";
 
+/**
+ * Client mirror of the server's TEXTURE_STYLIZE_ENABLED gate.
+ *
+ * Kept as a build-time constant rather than fetched: the server is the
+ * authority (it returns 503 regardless), so this only decides whether we render
+ * a form the user cannot submit. Both default off and must be flipped together
+ * when UV3/UV4 land — see UV_TEXTURE_COMPLETION_PLAN.md.
+ */
+const COAT_STYLIZE_AVAILABLE =
+  String(import.meta.env.VITE_TEXTURE_STYLIZE_ENABLED || "").toLowerCase() === "true";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -393,7 +404,14 @@ export default function FidosStylesScreen({
   // UV8 re-bake: a completed job can swap the viewer to the rebaked GLB.
   // The override is per-avatar and reversible — the original is never lost.
   const [rebakeOverrides, setRebakeOverrides] = useState<Record<number, string>>({});
-  const [rebakeJob, setRebakeJob] = useState<{ id: string; status: string; resultUrl?: string | null; error?: string | null } | null>(null);
+  const [rebakeJob, setRebakeJob] = useState<{
+    id: string;
+    status: string;
+    resultUrl?: string | null;
+    error?: string | null;
+    /** UV8 gate result, surfaced so the user sees whether the repair helped. */
+    likeness?: { before: number | null; after: number | null; delta: number | null; improved: boolean | null } | null;
+  } | null>(null);
   const [rebakeBusy, setRebakeBusy] = useState(false);
   const modelUrl = (typeof selectedId === "number" && coatOverrides[selectedId])
     || (typeof selectedId === "number" && rebakeOverrides[selectedId])
@@ -425,7 +443,13 @@ export default function FidosStylesScreen({
       const poll = async () => {
         const jr = await authedFetch(`/api/texture/jobs/${data.jobId}`);
         const job = await jr.json();
-        setRebakeJob({ id: data.jobId, status: job.status, resultUrl: job.resultUrl, error: job.error });
+        setRebakeJob({
+          id: data.jobId,
+          status: job.status,
+          resultUrl: job.resultUrl,
+          error: job.error,
+          likeness: job.stats?.likeness ?? null,
+        });
         if (job.status === "completed" && job.resultUrl) {
           setRebakeOverrides((prev) => ({ ...prev, [selectedId]: job.resultUrl }));
           setRebakeBusy(false);
@@ -1034,6 +1058,35 @@ export default function FidosStylesScreen({
   }, [selectedId, coatGenerating, coatPrompt, coatTier, coatIdentity]);
 
   function CoatPanel() {
+    // The stylization backend is quarantined (see server/textureJob.ts) — the
+    // pipeline it orchestrates cannot complete. Rather than let the form submit
+    // into a 503, the panel states the position and points at Texture repair,
+    // which does work today. Offering a control that always fails is worse than
+    // not offering it: it costs the user a wait and teaches them the feature is
+    // broken rather than pending.
+    if (!COAT_STYLIZE_AVAILABLE) {
+      return (
+        <div className="p-4 flex flex-col h-full">
+          <h2 className="text-sm font-black text-on-surface mb-2">Restyle Coat</h2>
+          <div className="rounded-xl border border-outline-variant/50 bg-surface-container p-3">
+            <p className="text-xs font-black text-on-surface mb-1">Coming soon</p>
+            <p className="text-[11px] leading-snug text-on-surface-variant">
+              Prompt-driven coat restyling is still in development. In the
+              meantime, <span className="font-black text-primary">Texture repair</span>{" "}
+              re-bakes your pet&apos;s coat from your own approved photos — the
+              most likeness-faithful result available, at no extra cost.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActiveTool("texture")}
+            className="mt-3 w-full min-h-11 rounded-xl bg-primary text-on-primary text-sm font-black flex items-center justify-center gap-2"
+          >
+            <Brush size={14} /> Go to Texture repair
+          </button>
+        </div>
+      );
+    }
     return (
       <div className="p-4 flex flex-col h-full">
         <h2 className="text-sm font-black text-on-surface mb-2">Restyle Coat (Beta)</h2>
@@ -1146,6 +1199,29 @@ export default function FidosStylesScreen({
           </button>
           {rebakeJob?.status === "failed" && (
             <p className="text-[11px] font-bold text-red-500">{rebakeJob.error || "Re-bake failed — please try again."}</p>
+          )}
+          {/* UV8 gate readout. Phrased as colour match rather than a raw
+              CIEDE2000 figure — the number is meaningful to us, not to a pet
+              owner. Shown only when scoring actually ran. */}
+          {rebakeJob?.status === "completed" && rebakeJob.likeness?.improved !== null
+            && rebakeJob.likeness?.before != null && rebakeJob.likeness?.after != null && (
+            <p className="text-[11px] leading-snug text-on-surface-variant">
+              {rebakeJob.likeness.improved ? (
+                <>
+                  <span className="font-black text-primary">Closer to your photos.</span>{" "}
+                  Colour match improved by{" "}
+                  {Math.round(
+                    ((rebakeJob.likeness.before - rebakeJob.likeness.after) / rebakeJob.likeness.before) * 100,
+                  )}
+                  %.
+                </>
+              ) : (
+                <>
+                  <span className="font-black text-on-surface">Original was already a close match.</span>{" "}
+                  The re-bake didn&apos;t improve colour accuracy — keep whichever you prefer.
+                </>
+              )}
+            </p>
           )}
           {typeof selectedId === "number" && rebakeOverrides[selectedId] && (
             <div className="flex items-center justify-between gap-2 rounded-xl border border-primary/30 bg-primary/5 px-3 py-2">
