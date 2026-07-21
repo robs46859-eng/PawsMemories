@@ -10,6 +10,7 @@ const {
   buildReferencePrompt,
   buildHumanReferenceStyle,
   humanStyleClause,
+  selectedStyleClause,
 } = await import("../avatarPrompts.ts");
 
 test("CLASS_DEFINITIONS states canonical human anatomy counts", () => {
@@ -83,4 +84,22 @@ test("humanStyleClause maps auto/undefined to hyper-realistic", () => {
   assert.match(humanStyleClause(undefined), /hyper-realistic|photoreal/i);
   assert.match(humanStyleClause("auto"), /hyper-realistic|photoreal/i);
   assert.match(humanStyleClause("chibi"), /chibi/i);
+});
+
+test("pet and object prompts honor distinct selected output styles", () => {
+  const petClay = buildReferencePrompt("dog", null, false, 1, "claymation").toLowerCase();
+  const petVoxel = buildReferencePrompt("dog", null, false, 1, "voxel").toLowerCase();
+  const objectWood = buildReferencePrompt("object", null, false, 1, "wood").toLowerCase();
+  assert.match(petClay, /claymation|modeling-clay/);
+  assert.match(petVoxel, /voxel|cubic blocks/);
+  assert.match(objectWood, /wood grain|wooden/);
+  assert.notEqual(petClay, petVoxel);
+});
+
+test("pet Auto is neutral and does not silently force a glossy cartoon finish", () => {
+  const automatic = selectedStyleClause("auto").toLowerCase();
+  const prompt = buildReferencePrompt("dog", null, false, 1, "auto").toLowerCase();
+  assert.match(automatic, /reconstruction|accurate proportions|surface details/);
+  assert.doesNotMatch(automatic, /pixar|vinyl|glossy/);
+  assert.match(prompt, /do not impose.*cartoon.*glossy.*pixar/);
 });

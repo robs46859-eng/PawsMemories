@@ -9,6 +9,7 @@ import { BehaviorEmoteBridge } from "./behaviorEmotes.ts";
 import { ANIMATOR_DEFAULTS } from "../defaults.ts";
 import { buildLegIK, headLookAt, pelvisHeightFromPaws } from "../../three/ar/ik.ts";
 import { authedFetch } from "../../api.ts";
+import { createProceduralClips } from "./proceduralClips.ts";
 
 export function createSceneController(): SceneController & { getScene(): THREE.Scene; getActiveActorId(): string | null } {
   const scene = new THREE.Scene();
@@ -92,6 +93,9 @@ export function createSceneController(): SceneController & { getScene(): THREE.S
         gltf = { scene: placeholder, animations: [] as THREE.AnimationClip[] } as any;
       }
       const clonedScene = SkeletonUtils.clone(gltf.scene);
+      const suppliedClips = Array.isArray(gltf.animations) ? [...gltf.animations] : [];
+      const existingNames = new Set(suppliedClips.map((clip) => clip.name));
+      const proceduralClips = createProceduralClips(clonedScene).filter((clip) => !existingNames.has(clip.name));
       
       const actorId = uuidv4();
       
@@ -119,7 +123,7 @@ export function createSceneController(): SceneController & { getScene(): THREE.S
       
       ikRigs.set(actorId, buildLegIK(clonedScene));
       
-      const controller = createAnimationController(clonedScene, gltf.animations);
+      const controller = createAnimationController(clonedScene, [...suppliedClips, ...proceduralClips]);
       controller.setSpeed(globalSpeed);
       controllers.set(actorId, controller);
       behaviorBridges.set(actorId, new BehaviorEmoteBridge(controller));

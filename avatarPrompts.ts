@@ -1,3 +1,5 @@
+import type { PetSpecies } from "./src/types";
+
 /**
  * Canonical subject class used across the generator pipeline. 'dog' is the
  * animal value kept on the wire for backward-compat (DB default, existing rows);
@@ -5,6 +7,35 @@
  * is NOT rigged or animated.
  */
 export type SubjectClass = 'dog' | 'human' | 'object';
+
+export type ExtendedSubjectClass = PetSpecies | 'human' | 'object';
+
+export function getBuildProfileForSpecies(species: ExtendedSubjectClass): 'quadruped' | 'winged' | 'reptile' | 'small_animal' | 'human' | 'object' | 'other' {
+  if (species === 'human') return 'human';
+  if (species === 'object') return 'object';
+  switch (species) {
+    case 'dog':
+    case 'cat':
+    case 'rabbit':
+    case 'horse':
+      return 'quadruped';
+    case 'bird':
+      return 'winged';
+    case 'reptile':
+      return 'reptile';
+    case 'small_animal':
+      return 'small_animal';
+    default:
+      return 'other';
+  }
+}
+
+export function getSubjectClassForSpecies(species: ExtendedSubjectClass): SubjectClass {
+  if (species === 'human') return 'human';
+  if (species === 'object') return 'object';
+  // All other animal species fall back to the generic 'dog' (animal) pipeline for tripo rig building
+  return 'dog';
+}
 
 /**
  * Positive/negative definitions of each class. Shared by the auto-detection +
@@ -16,7 +47,7 @@ export const CLASS_DEFINITIONS =
   `- "human": a real living person or clearly human character. Canonical human anatomy: exactly ONE head; TWO eyes; TWO ears; ONE nose with TWO nostrils; ONE mouth; TWO arms ending in TWO hands, each hand with FIVE fingers (four fingers + one thumb); TWO legs ending in TWO feet; a human face, skin and hair. ` +
   `Missing, extra or duplicated features (e.g. one eye, three arms, six fingers, no nose) are ANATOMY ANOMALIES to be flagged, not new classes. ` +
   `NOT a doll, mannequin, action figure, statue, or costume of a person, and NOT an animal.\n` +
-  `- "dog": a living (or lifelike) animal with animal anatomy — a body on legs (usually four), a head with a muzzle/snout or beak, fur/feathers/scales, usually a tail. Dogs, cats, birds, rabbits, etc. ` +
+  `- "animal" (e.g. dog, cat, bird, rabbit, horse, reptile, small_animal, other): a living (or lifelike) animal with animal anatomy — a body on legs (usually four) or wings, a head with a muzzle/snout or beak, fur/feathers/scales, usually a tail. ` +
   `NOT a plush toy, figurine, statue or drawing of an animal, and NOT a human.\n` +
   `- "object": anything that is NOT a live human or animal — props, furniture, vehicles, toys, food, plants, gadgets, buildings — INCLUDING toys, figurines and statues that merely depict a human or animal. ` +
   `The test is: is this a living subject we should rig and animate, or an inanimate thing? If inanimate, it is "object" even if it is shaped like a dog or person.\n\n` +
@@ -46,9 +77,10 @@ export const REFERENCE_STYLE_OBJECT =
   `Plain neutral light-gray seamless studio background, no other objects, no hands, no people, no props, no text, no watermark.`;
 
 export const REFERENCE_STYLE_DOG =
-  `Render the pet as a premium Pixar-style stylized 3D character: soft appealing proportions, slightly enlarged ` +
-  `expressive eyes, subsurface-scattered skin/nose, and RICHLY TEXTURED groomed fur with visible individual strand ` +
-  `clumps, whiskers, and natural sheen — like a frame from a modern animated feature film. ` +
+  `Render the pet as a clean, high-fidelity, 3D-reconstruction-friendly subject. ` +
+  `Do not impose a cartoon, glossy vinyl, Pixar, toy-like, or exaggerated finish unless that exact output style is explicitly selected. ` +
+  `Use the selected output style exactly; when Auto is selected, preserve the natural appearance of the source pet with realistic ` +
+  `fur, skin, nose and eye materials rather than converting it into an animated-feature character. ` +
   `Faithfully preserve the pet's exact fur colors, markings, patterns, eye color, ear shape, and breed ` +
   `characteristics as seen across ALL reference photos. ` +
   `Pay EXTREME attention to FACIAL FEATURES: eye shape and color, nose/snout shape and color, ear position, shape ` +
@@ -126,6 +158,12 @@ export function humanStyleClause(styleId?: string | null): string {
   return STYLE_CLAUSES[id] || STYLE_CLAUSES["hyperrealistic"];
 }
 
+/** Selected output finish for pet/object reference renders. */
+export function selectedStyleClause(styleId?: string | null): string {
+  const id = styleId && styleId !== "auto" ? styleId : "auto";
+  return STYLE_CLAUSES[id] || STYLE_CLAUSES.auto;
+}
+
 /**
  * Build the human REFERENCE-IMAGE style block for a given render style.
  * The look/finish varies by style; anatomy, proportions and full-body framing
@@ -177,13 +215,17 @@ export const ACCENT_PROMPTS: Record<string, string> = {
 };
 
 export function buildReferencePrompt(
-  type: SubjectClass,
+  type: ExtendedSubjectClass,
   accent?: string | null,
   hasFacePhoto?: boolean,
   photoCount?: number,
   style?: string | null,
+  subjectSubtype?: string | null,
 ): string {
   const accentClause = (accent && ACCENT_PROMPTS[accent]) || "";
+  const subtypeClause = subjectSubtype
+    ? `The user explicitly identified the subject subtype as "${subjectSubtype.replace(/[^a-zA-Z0-9 -]/g, "").slice(0, 40)}"; preserve the anatomy and construction appropriate to that subtype. `
+    : "";
 
   if (type === 'object') {
     const multi = (photoCount && photoCount > 1)
@@ -191,8 +233,11 @@ export function buildReferencePrompt(
       : ``;
     return (
       `You are given one or more reference photos, all of the SAME object. ` + multi +
+      subtypeClause +
       `Generate ONE image of this exact object seen DIRECTLY FROM THE FRONT (standard front-facing view), showing its overall shape clearly. ` +
-      REFERENCE_STYLE_OBJECT + ` Respond with only the generated image.`
+      REFERENCE_STYLE_OBJECT +
+      ` SELECTED OUTPUT STYLE (authoritative): render the object as ${selectedStyleClause(style)}. ` +
+      `Keep its dimensions and recognizable construction unchanged while applying that finish. Respond with only the generated image.`
     );
   }
 
@@ -212,21 +257,24 @@ export function buildReferencePrompt(
   if (type === 'human') {
     return (
       `You are given one or more reference photos, all of the SAME person. ` +
-      faceClause + multiPhotoClause +
+      faceClause + multiPhotoClause + subtypeClause +
       `Generate ONE image of this exact person seen DIRECTLY FROM THE FRONT (head and body facing straight toward the camera). ` +
       buildHumanReferenceStyle(style) + accentClause + ` Respond with only the generated image.`
     );
   } else {
     return (
       `You are given one or more reference photos, all of the SAME pet. ` +
-      faceClause + multiPhotoClause +
+      faceClause + multiPhotoClause + subtypeClause +
       `Generate ONE image of this exact pet seen DIRECTLY FROM THE FRONT (head and body facing straight toward the camera). ` +
-      REFERENCE_STYLE_DOG + accentClause + ` Respond with only the generated image.`
+      REFERENCE_STYLE_DOG +
+      ` SELECTED OUTPUT STYLE (authoritative): render the pet as ${selectedStyleClause(style)}. ` +
+      `Preserve the pet's identity, markings, body proportions, neutral rigging pose, and reconstruction-safe framing. ` +
+      accentClause + ` Respond with only the generated image.`
     );
   }
 }
 
-export function turnaroundViewsForType(type: SubjectClass): { view: "left" | "back" | "right"; prompt: string }[] {
+export function turnaroundViewsForType(type: ExtendedSubjectClass): { view: "left" | "back" | "right"; prompt: string }[] {
   if (type === 'object') {
     return [
       {
@@ -303,7 +351,7 @@ export function turnaroundViewsForType(type: SubjectClass): { view: "left" | "ba
   }
 }
 
-export function paletteLockClause(type: SubjectClass, palette: string | null): string {
+export function paletteLockClause(type: ExtendedSubjectClass, palette: string | null): string {
   const subject = type === 'human' ? 'human' : type === 'object' ? 'object' : 'pet';
   const detail = type === 'human' ? 'skin, hair, clothing colours'
     : type === 'object' ? 'materials and colours'
@@ -316,7 +364,7 @@ export function paletteLockClause(type: SubjectClass, palette: string | null): s
   );
 }
 
-export function extractPaletteInstruction(type: SubjectClass): string {
+export function extractPaletteInstruction(type: ExtendedSubjectClass): string {
   if (type === 'object') {
     return (
       `Describe this object's exact colours and materials as a short, comma-separated palette an artist could match precisely: ` +

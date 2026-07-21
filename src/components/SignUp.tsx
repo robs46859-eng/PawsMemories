@@ -18,7 +18,7 @@ interface SignUpProps {
 type Step = "login" | "signup" | "profile" | "pets" | "forgot";
 
 export default function SignUp({ onAuthenticated }: SignUpProps) {
-  const [step, setStep] = useState<Step>("login");
+  const [step, setStep] = useState<Step>("signup");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -167,7 +167,7 @@ export default function SignUp({ onAuthenticated }: SignUpProps) {
           </h1>
           <p className="text-xs font-medium text-on-surface-variant opacity-80">
             {step === "login" && "Log in with your email and password."}
-            {step === "signup" && "Sign up with your email. New here? You'll get 50 free credits."}
+            {step === "signup" && "Create your account and claim one free avatar."}
             {step === "profile" && "Just a couple details and you're in."}
             {step === "pets" && "Tell us about your furry friends!"}
           </p>

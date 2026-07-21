@@ -4,7 +4,7 @@
   "label": "Security Ops Center",
   "backdrop": {
     "kind": "image",
-    "url": "/animator-files/environments/soc_arkham.jpg"
+    "url": "/animator/environments/soc_arkham.webp"
   },
   "ground": {
     "color": "#3a3f42"

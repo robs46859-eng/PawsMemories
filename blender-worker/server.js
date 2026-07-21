@@ -41,9 +41,22 @@ class BlenderBridgeClient {
       const id = ++this._requestId;
       const socket = new net.Socket();
       let buffer = "";
+      let settled = false;
+      const fail = (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      };
+      const succeed = (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        resolve(value);
+      };
       const timeout = setTimeout(() => {
         socket.destroy();
-        reject(new Error(`Bridge request timed out after 600s: ${method}`));
+        fail(new Error(`Bridge request timed out after 600s: ${method}`));
       }, 600000);
 
       socket.connect(this.port, this.host, () => {
@@ -60,24 +73,27 @@ class BlenderBridgeClient {
           try {
             const response = JSON.parse(line);
             if (response.error) {
-              reject(new Error(response.error.message || JSON.stringify(response.error)));
+              fail(new Error(response.error.message || JSON.stringify(response.error)));
             } else {
-              resolve(response.result);
+              succeed(response.result);
             }
           } catch (e) {
-            reject(new Error(`Invalid JSON from bridge: ${line.slice(0, 200)}`));
+            fail(new Error(`Invalid JSON from bridge: ${line.slice(0, 200)}`));
           }
           socket.end();
         }
       });
 
       socket.on("error", (err) => {
-        clearTimeout(timeout);
-        reject(new Error(`Bridge connection error: ${err.message}`));
+        fail(new Error(`Bridge connection error: ${err.message}`));
       });
 
       socket.on("close", () => {
-        clearTimeout(timeout);
+        // Blender can be killed after writing an export but before sending
+        // the JSON-RPC response. Treat the closed socket as a real failure so
+        // Hostinger records the job failure immediately instead of waiting for
+        // the 600-second request timeout.
+        if (!settled) fail(new Error(`Blender bridge closed before replying to ${method}`));
       });
     });
   }
@@ -112,6 +128,14 @@ class BlenderBridgeClient {
 
   async exportGlb(outputPath) {
     return this.send("export_glb", { output_path: outputPath });
+  }
+
+  async preparePrintStl(targetHeightMm) {
+    return this.send("prepare_print_stl", { target_height_mm: targetHeightMm });
+  }
+
+  async physicsValidate(profile, facial) {
+    return this.send("physics_validate", { profile, facial: !!facial });
   }
 
   async ping() {
@@ -196,6 +220,9 @@ async function ensureBridgeReady() {
     });
     bridgeProcess.on("exit", (code, signal) => {
       console.warn(`[Bridge] Blender TCP bridge exited: code=${code} signal=${signal}`);
+      // A dead child must not be treated as a healthy autostart process. The
+      // next request will call ensureBridgeReady and start a fresh bridge.
+      bridgeProcess = null;
     });
     bridgeProcess.on("error", (spawnErr) => {
       console.error(`[Bridge] Failed to start Blender TCP bridge: ${spawnErr.message}`);
@@ -391,7 +418,24 @@ app.use([
   "/import-glb",
   "/agent/build",
   "/bake-lod",
+  // These three already receive x-worker-secret from server.ts but were never
+  // checked here, so they were reachable unauthenticated on the public Render
+  // URL — each one downloads an arbitrary glb_url and drives Blender, which is
+  // free CPU and outbound fetch for anyone who finds the host. Adding them is
+  // safe precisely because every existing caller already sends the header:
+  //   /prepare-print        server.ts:5367, 5563
+  //   /texture/rebake       server.ts /api/texture/rebake
+  //   /texture/render-views server/textureJob.ts (UV2)
+  "/prepare-print",
+  "/texture/rebake",
+  "/texture/render-views",
 ], requireWorkerAuth, requireBridge);
+
+// NOT protected, deliberately, for now: /render, /rig-model, /bake-clips,
+// /bake-sprites, /physics-validate. Their callers do NOT send the secret yet,
+// so adding them here would break avatar generation and rigging in production.
+// Closing that gap means adding the header at each call site first, then
+// extending the list above — a separate change with its own deploy.
 
 // Read the current Blender scene graph
 app.get("/scene", async (req, res) => {
@@ -480,6 +524,46 @@ app.post("/export-glb", async (req, res) => {
   }
 });
 
+// Convert the currently imported GLB to a physically calibrated STL derivative.
+app.post("/prepare-print", async (req, res) => {
+  try {
+    let { glb_base64, glb_url, target_height_mm } = req.body || {};
+    if (!glb_base64 && glb_url) {
+      const source = await fetch(glb_url);
+      if (!source.ok) throw new Error(`Failed to download glb_url (${source.status})`);
+      glb_base64 = Buffer.from(await source.arrayBuffer()).toString("base64");
+    }
+    if (!glb_base64) return res.status(400).json({ error: "glb_base64 or glb_url is required" });
+    const imported = await bridge.send("import_glb", { glb_base64 });
+    if (!imported?.success) throw new Error(imported?.error || "GLB import failed");
+    const result = await bridge.preparePrintStl(Number(target_height_mm || 100));
+    res.status(result?.success ? 200 : 422).json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Rig quality gates: anatomy + physics validation at gravity 9.8 m/s^2.
+// Accepts an already-imported scene, or a glb_base64/glb_url to import first.
+app.post("/physics-validate", async (req, res) => {
+  try {
+    let { glb_base64, glb_url, profile, facial } = req.body || {};
+    if (!glb_base64 && glb_url) {
+      const source = await fetch(glb_url);
+      if (!source.ok) throw new Error(`Failed to download glb_url (${source.status})`);
+      glb_base64 = Buffer.from(await source.arrayBuffer()).toString("base64");
+    }
+    if (glb_base64) {
+      const imported = await bridge.send("import_glb", { glb_base64 });
+      if (!imported?.success) throw new Error(imported?.error || "GLB import failed");
+    }
+    const result = await bridge.physicsValidate(String(profile || "quadruped"), !!facial);
+    res.status(result?.success ? 200 : 422).json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Import a base64 GLB into the persistent Blender scene
 app.post("/import-glb", async (req, res) => {
   try {
@@ -552,7 +636,7 @@ print("IMPORT_COMPLETE")
 
     // 2) Load bake_lod.py and run it with the bonemap.
     const bakeScript = fs.readFileSync(BAKE_LOD_SCRIPT_PATH, "utf8");
-    const params = JSON.stringify({ out_path: outPath, bonemap });
+    const params = JSON.stringify({ out_path: outPath, bonemap, avatar_type });
     const bakeRes = await bridge.executeCode(
       `${bakeScript}\nrun_bake_lod(json.loads(r'''${params}'''))\n`
     );
@@ -573,10 +657,142 @@ print("IMPORT_COMPLETE")
 });
 
 // =============================================================================
+// POST /texture/rebake — UV_TEXTURE_GENERATION_PLAN.md UV8
+// Re-projects the avatar's approved multiview reference images onto the mesh
+// and bakes a fresh base-color atlas (likeness repair — no generation step).
+// Receives: { glb_base64 | glb_url, views: {front|left|back|right: url}, texture_size? }
+// Returns:  { success, stats, glb_base64, size_bytes }
+// =============================================================================
+const REBAKE_SCRIPT_PATH = path.join(__dirname, "jobs", "rebake_texture.py");
+
+app.post("/texture/rebake", async (req, res) => {
+  try {
+    let { glb_base64, glb_url, views, texture_size, front_axis_deg } = req.body || {};
+    if (!glb_base64 && glb_url) {
+      const source = await fetch(glb_url);
+      if (!source.ok) throw new Error(`Failed to download glb_url (${source.status})`);
+      glb_base64 = Buffer.from(await source.arrayBuffer()).toString("base64");
+    }
+    if (!glb_base64) return res.status(400).json({ error: "glb_base64 or glb_url is required" });
+    if (!views || typeof views !== "object" || !Object.keys(views).length) {
+      return res.status(400).json({ error: "views {front|left|back|right: url} is required" });
+    }
+    if (glb_base64.startsWith("data:")) glb_base64 = glb_base64.split(",")[1] || glb_base64;
+
+    const tempGlbPath = `/tmp/rebake_input_${crypto.randomUUID()}.glb`;
+    const importRes = await bridge.executeCode(`
+import bpy, base64, os
+for obj in list(bpy.data.objects):
+    bpy.data.objects.remove(obj, do_unlink=True)
+glb_bytes = base64.b64decode("""${glb_base64}""")
+with open("${tempGlbPath}", "wb") as f:
+    f.write(glb_bytes)
+bpy.ops.import_scene.gltf(filepath="${tempGlbPath}")
+os.remove("${tempGlbPath}")
+print("IMPORT_COMPLETE")
+`);
+    if (!importRes.success) throw new Error(`GLB import failed: ${importRes.error}`);
+
+    const rebakeScript = fs.readFileSync(REBAKE_SCRIPT_PATH, "utf8");
+    const params = JSON.stringify({
+      views,
+      texture_size: Number(texture_size) || 1024,
+      front_axis_deg: Number(front_axis_deg) || 0,
+    });
+    const rebakeRes = await bridge.executeCode(
+      `${rebakeScript}\nrun_rebake(json.loads(r'''${params}'''))\n`
+    );
+    if (!rebakeRes.success) throw new Error(`rebake failed: ${rebakeRes.error}`);
+    const m = /REBAKE_RESULT:(\{.*\})/.exec(rebakeRes.stdout || "");
+    const stats = m ? JSON.parse(m[1]) : null;
+    if (!stats?.success) throw new Error(stats?.error || "Rebake produced no result.");
+
+    const exported = await bridge.exportGlb();
+    res.json({ success: true, stats, glb_base64: exported.glb_base64, size_bytes: exported.size_bytes });
+  } catch (err) {
+    console.error("[texture/rebake] error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// =============================================================================
 // POST /agent/build — Full multi-agent avatar build endpoint
 // Receives: { glb_base64, pet_analysis, build_config? }
 // Returns:  { jobId } immediately, poll /jobs/:jobId for results
 // =============================================================================
+// =============================================================================
+// POST /texture/render-views — UV_TEXTURE_GENERATION_PLAN.md UV2
+// Renders N calibrated canonical views of a pet mesh plus the camera parameters
+// needed to re-project them. These are the source images UV3 conditions on.
+//
+// Cameras use the SAME convention as /texture/rebake (see jobs/render_views.py)
+// so views rendered here can be baked back by the existing projection bake.
+//
+// Receives: { glb_base64 | glb_url, tier?, views?, resolution?, transparent? }
+// Returns:  { success, views: {name: base64png}, cameras, bounds, resolution }
+// =============================================================================
+const RENDER_VIEWS_SCRIPT_PATH = path.join(__dirname, "jobs", "render_views.py");
+
+app.post("/texture/render-views", async (req, res) => {
+  try {
+    let { glb_base64, glb_url, tier, views, resolution, transparent } = req.body || {};
+    if (!glb_base64 && glb_url) {
+      const source = await fetch(glb_url);
+      if (!source.ok) throw new Error(`Failed to download glb_url (${source.status})`);
+      glb_base64 = Buffer.from(await source.arrayBuffer()).toString("base64");
+    }
+    if (!glb_base64) return res.status(400).json({ error: "glb_base64 or glb_url is required" });
+    if (glb_base64.startsWith("data:")) glb_base64 = glb_base64.split(",")[1] || glb_base64;
+
+    const tempGlbPath = `/tmp/render_views_input_${crypto.randomUUID()}.glb`;
+    const importRes = await bridge.executeCode(`
+import bpy, base64, os
+for obj in list(bpy.data.objects):
+    bpy.data.objects.remove(obj, do_unlink=True)
+glb_bytes = base64.b64decode("""${glb_base64}""")
+with open("${tempGlbPath}", "wb") as f:
+    f.write(glb_bytes)
+bpy.ops.import_scene.gltf(filepath="${tempGlbPath}")
+os.remove("${tempGlbPath}")
+print("IMPORT_COMPLETE")
+`);
+    if (!importRes.success) throw new Error(`GLB import failed: ${importRes.error}`);
+
+    const renderScript = fs.readFileSync(RENDER_VIEWS_SCRIPT_PATH, "utf8");
+    const params = JSON.stringify({
+      tier: tier || "standard",
+      views: Array.isArray(views) && views.length ? views : null,
+      resolution: Number(resolution) || null,
+      transparent: transparent === undefined ? true : Boolean(transparent),
+    });
+    const renderRes = await bridge.executeCode(
+      `${renderScript}\nrun_render_views(json.loads(r'''${params}'''))\n`
+    );
+    if (!renderRes.success) throw new Error(`render-views failed: ${renderRes.error}`);
+
+    // The payload carries base64 PNGs, so the result line can be very large —
+    // match against the last RENDER_VIEWS_RESULT marker on its own line rather
+    // than a greedy scan of stdout.
+    const m = /RENDER_VIEWS_RESULT:(\{[\s\S]*\})/.exec(renderRes.stdout || "");
+    const result = m ? JSON.parse(m[1]) : null;
+    if (!result?.success) throw new Error(result?.error || "Render produced no result.");
+
+    res.json({
+      success: true,
+      views: result.views,
+      cameras: result.cameras,
+      bounds: result.bounds,
+      tier: result.tier,
+      resolution: result.resolution,
+      transparent: result.transparent,
+      convention: result.convention,
+    });
+  } catch (err) {
+    console.error("[texture/render-views] error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post("/agent/build", async (req, res) => {
   const jobId = crypto.randomUUID();
 

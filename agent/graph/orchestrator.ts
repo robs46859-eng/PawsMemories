@@ -62,8 +62,9 @@ export async function runBuildPipeline(
   glbBase64: string,
   onProgress?: ProgressCallback,
   originalImageBase64?: string | null,
+  options?: { facialVisemes?: boolean },
 ): Promise<BuildState> {
-  let state = createInitialState(petAnalysis, glbBase64, originalImageBase64);
+  let state = createInitialState(petAnalysis, glbBase64, originalImageBase64, options);
 
   console.log("[Orchestrator] Starting multi-agent build pipeline");
   console.log(`[Orchestrator] Pet: ${petAnalysis.species} (${petAnalysis.breed}), ${petAnalysis.bodyType}`);

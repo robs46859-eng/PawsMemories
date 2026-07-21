@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useMemo } from "react";
 import * as THREE from "three";
 import { Canvas, useThree, useFrame } from "@react-three/fiber";
 import { OrbitControls, Environment, ContactShadows } from "@react-three/drei";
-import { Play, Pause, FastForward, Video, Plus, X, List, Clapperboard, Download, Square, Sun, CloudRain, Volume2, VolumeX, Mic } from "lucide-react";
+import { Play, Pause, FastForward, Video, Plus, X, List, Clapperboard, Download, Square, Sun, CloudRain, Volume2, VolumeX, Mic, Shuffle, MousePointer2, Move3D, Rotate3D, Scaling, Camera, Bone, Grid3X3, ShieldCheck, Repeat2, Wand2 } from "lucide-react";
 import { useSceneController, SceneTicker } from "../controller/useSceneController.ts";
 import { useCaptureSession } from "../capture/useCaptureSession.ts";
 import { ANIMATOR_DEFAULTS } from "../defaults.ts";
@@ -36,24 +36,28 @@ function SceneBackdrop({ backdrop }: { backdrop?: { kind?: string; url?: string 
   const url = backdrop?.url;
   const mobile = isMobile();
 
-  // Flat image renders (kind: "image") can't be a drei <Environment>; set them as
-  // scene.background so they fill the viewport no matter where the camera orbits.
+  // Load every shipped JPEG/WebP ourselves. This keeps missing/corrupt assets in
+  // a local fallback instead of allowing drei's Suspense loader to trip the
+  // whole-studio error boundary when a script changes environments.
   useEffect(() => {
-    if (kind !== "image" || !url || mobile) {
-      if (scene.background instanceof THREE.Texture) {
-        scene.background.dispose();
-      }
-      scene.background = null;
-      return;
-    }
+    if (!url || mobile || !["image", "hdri", "dome360"].includes(String(kind))) return;
     let disposed = false;
+    let loadedTexture: THREE.Texture | null = null;
+    const previousBackground = scene.background;
+    const previousEnvironment = scene.environment;
+    scene.background = new THREE.Color(kind === "image" ? "#29323a" : "#8aa0b5");
     const loader = new THREE.TextureLoader();
     loader.setCrossOrigin("anonymous");
     loader.load(
       url,
       (tex) => {
         if (disposed) { tex.dispose(); return; }
+        loadedTexture = tex;
         tex.colorSpace = THREE.SRGBColorSpace;
+        if (kind === "hdri" || kind === "dome360") {
+          tex.mapping = THREE.EquirectangularReflectionMapping;
+          scene.environment = tex;
+        }
         scene.background = tex;
       },
       undefined,
@@ -61,25 +65,20 @@ function SceneBackdrop({ backdrop }: { backdrop?: { kind?: string; url?: string 
     );
     return () => {
       disposed = true;
-      if (scene.background instanceof THREE.Texture) {
-        scene.background.dispose();
-        scene.background = null;
-      }
+      if (scene.background === loadedTexture) scene.background = previousBackground;
+      if (scene.environment === loadedTexture) scene.environment = previousEnvironment;
+      loadedTexture?.dispose();
     };
-  }, [kind, url, scene]);
+  }, [kind, mobile, url, scene]);
 
   if (mobile) {
     return <Environment preset="city" background />;
   }
   
-  if (kind === "hdri" || kind === "dome360") {
-    // 360° map: lights the pet AND shows as the visible background.
-    return url ? <Environment files={url} background /> : <Environment preset="city" />;
-  }
   if (kind === "image") {
-    // Image is the scene.background (above); light the pet with a neutral studio env.
     return <Environment preset="apartment" />;
   }
+  if (kind === "hdri" || kind === "dome360") return null;
   // procedural / glb-scene(unbuilt) / none → neutral visible environment.
   return <Environment preset="city" background />;
 }
@@ -205,10 +204,12 @@ function Viewport({
 
 export default function AnimatorScreen({
   initialAssetId,
-  onClose
+  onClose,
+  onOpenVideoCreator,
 }: {
   initialAssetId: string | null;
   onClose: () => void;
+  onOpenVideoCreator?: () => void;
 }) {
   const sceneController = useSceneController();
   const [isPlaying, setIsPlaying] = useState(true);
@@ -222,10 +223,19 @@ export default function AnimatorScreen({
   const [userAvatars, setUserAvatars] = useState<any[]>([]);
   const [libraryClips, setLibraryClips] = useState<any[]>([]);
   const [activeDirectorScript, setActiveDirectorScript] = useState<any>(null);
+  const [directorSearch, setDirectorSearch] = useState("");
   const [castAssignments, setCastAssignments] = useState<Record<string, string>>({});
   const [mappedRoles, setMappedRoles] = useState<Record<string, string>>({});
   const [ikOptions, setIkOptions] = useState<Record<string, { groundIK: boolean, lookAtCamera: boolean }>>({});
   const [proMode, setProMode] = useState(false);
+  const [workspaceTool, setWorkspaceTool] = useState<"select" | "move" | "rotate" | "scale" | "camera" | "rig" | "voice">("select");
+  const [timelineView, setTimelineView] = useState<"timeline" | "dope" | "xsheet">("timeline");
+  const [timelineFps, setTimelineFps] = useState<12 | 24 | 30>(24);
+  const [loopPlayback, setLoopPlayback] = useState(true);
+  const [showViewerGrid, setShowViewerGrid] = useState(true);
+  const [showSafeArea, setShowSafeArea] = useState(true);
+  const [sceneName, setSceneName] = useState("PAWSOME_SCENE_01");
+  const [studioNotice, setStudioNotice] = useState("");
   
   const { cameraObj } = useTheatreSheet(proMode, "PawsMemories");
   
@@ -259,15 +269,31 @@ export default function AnimatorScreen({
   const captureSession = useCaptureSession(canvasRef);
   const voicePreviewRef = useRef<LiveSpeechHandle | null>(null);
   const voicePreviewAbortRef = useRef<AbortController | null>(null);
+  const directorRuntimeRef = useRef<{ scriptId: string; lastTime: number; clips: Record<string, string> }>({
+    scriptId: "",
+    lastTime: 0,
+    clips: {},
+  });
 
   const actors = sceneController.listActors();
   const activeActorId = sceneController.getActiveActorId();
   const activeController = activeActorId ? sceneController.getActorController(activeActorId) : null;
   
   const duration = activeController ? activeController.getDuration() : 10;
+
+  useEffect(() => {
+    activeController?.setLoop(loopPlayback);
+  }, [activeController, loopPlayback]);
   
   const activeEnv = environments.find(e => e.id === activeEnvId);
   const activeSequence = ANIMATOR_DEFAULTS.sequences.find(s => s.id === activeSequenceId) as SceneSequence | undefined;
+  const visibleDirectorScripts = useMemo(() => {
+    const query = directorSearch.trim().toLowerCase();
+    if (!query) return directorScripts;
+    return directorScripts.filter((script) =>
+      [script.name, script.category, script.description].some((value) => String(value || "").toLowerCase().includes(query))
+    );
+  }, [directorScripts, directorSearch]);
   
   const [cameraState, setCameraState] = useState({ 
     position: ANIMATOR_DEFAULTS.camera.position as [number, number, number], 
@@ -360,12 +386,19 @@ export default function AnimatorScreen({
         if (state.cameraTarget) {
           setCameraState(state.cameraTarget);
         }
-        if (state.clipTarget && activeController) {
-          activeController.selectClip(state.clipTarget);
+        if (activeController) {
+          const target = state.clipTargets[activeActorId || "default"];
+          if (target) activeController.selectClip(target);
         }
       }
       
       if (activeDirectorScript) {
+        const runtime = directorRuntimeRef.current;
+        if (runtime.scriptId !== activeDirectorScript.id || currentTime + 0.05 < runtime.lastTime) {
+          runtime.scriptId = activeDirectorScript.id;
+          runtime.clips = {};
+        }
+        runtime.lastTime = currentTime;
         const state = runScript(activeDirectorScript, currentTime);
         if (state.cameraTarget) setCameraState(state.cameraTarget);
         if (state.weatherTarget) setWeather(state.weatherTarget as WeatherType);
@@ -376,13 +409,24 @@ export default function AnimatorScreen({
           const actorId = mappedRoles[roleId];
           if (actorId) {
             const controller = sceneController.getActorController(actorId);
-            if (controller) {
+            if (controller && runtime.clips[roleId] !== clipTarget.name) {
+              const requested = String(clipTarget.name || "");
+              const clips = controller.listClips();
+              const normalized = requested.toLowerCase().replace(/[_\s]+/g, "-");
+              const playable = clips.find((clip) => clip.name === requested)
+                || clips.find((clip) => clip.name.toLowerCase().replace(/[_\s]+/g, "-") === normalized)
+                || clips.find((clip) => clip.name.toLowerCase() === "idle");
+              if (!playable) {
+                setStudioNotice(`The cast model has no playable rig clips for “${requested}”.`);
+                continue;
+              }
               const blend = clipTarget.blend || 0;
               if (blend > 0) {
-                controller.crossFadeTo(clipTarget.name, blend);
+                controller.crossFadeTo(playable.name, blend);
               } else {
-                controller.selectClip(clipTarget.name, 0);
+                controller.selectClip(playable.name, 0);
               }
+              runtime.clips[roleId] = requested;
             }
           }
         }
@@ -392,7 +436,7 @@ export default function AnimatorScreen({
     };
     rafRef.current = requestAnimationFrame(updateTimeline);
     return () => cancelAnimationFrame(rafRef.current!);
-  }, [activeController, activeSequence, activeDirectorScript]);
+  }, [activeController, activeSequence, activeDirectorScript, mappedRoles, sceneController]);
 
   // Load initial asset
   useEffect(() => {
@@ -424,6 +468,13 @@ export default function AnimatorScreen({
   const handleSpeed = (v: number) => {
     setSpeed(v);
     sceneController.setGlobalSpeed(v);
+  };
+
+  const selectWorkspaceTool = (tool: typeof workspaceTool) => {
+    setWorkspaceTool(tool);
+    if (tool === "camera" || tool === "voice") setMode("scene");
+    else setMode("cast");
+    if (tool === "camera") setProMode(true);
   };
 
   const handleAddActor = (e: React.FormEvent) => {
@@ -529,21 +580,69 @@ export default function AnimatorScreen({
 
   const handleApplyCast = async () => {
     if (!activeDirectorScript) return;
-    sceneController.dispose(); // clear existing actors
-    const newMappedRoles: Record<string, string> = {};
-    for (const role of activeDirectorScript.roles || []) {
-      const avatarId = castAssignments[role.id];
-      if (avatarId) {
-        const avatar = userAvatars.find(a => String(a.id) === avatarId);
-        if (avatar) {
-          const glbUrl = resolveAvatarGlbUrl(avatar);
-          const actorId = await sceneController.addActor(glbUrl, { label: avatar.name || role.name });
-          newMappedRoles[role.id] = actorId;
+    try {
+      setStudioNotice("Loading cast and preparing motion…");
+      sceneController.dispose(); // clear existing actors
+      const newMappedRoles: Record<string, string> = {};
+      for (const role of activeDirectorScript.roles || []) {
+        const avatarId = castAssignments[role.id];
+        if (avatarId) {
+          const avatar = userAvatars.find(a => String(a.id) === avatarId);
+          const glbUrl = avatar ? resolveAvatarGlbUrl(avatar) : null;
+          if (avatar && glbUrl) {
+            const actorId = await sceneController.addActor(glbUrl, { label: avatar.name || role.name });
+            if (actorId) newMappedRoles[role.id] = actorId;
+          }
         }
       }
+      if (Object.keys(newMappedRoles).length === 0) {
+        setStudioNotice("Choose at least one ready rigged model for the script cast.");
+        return;
+      }
+      setMappedRoles(newMappedRoles);
+      directorRuntimeRef.current = { scriptId: activeDirectorScript.id, lastTime: 0, clips: {} };
+      sceneController.seekAll(0);
+      sceneController.playAll();
+      setTimeline(0);
+      setIsPlaying(true);
+      setStudioNotice("Script is playing. Motion is generated from the model rig and updated every frame.");
+    } catch (error: any) {
+      console.error("[Animator] Could not apply director cast", error);
+      setStudioNotice(error?.message || "The script could not load this cast.");
     }
-    setMappedRoles(newMappedRoles);
-    setIsPlaying(true);
+  };
+
+  const selectDirectorScript = (script: any) => {
+    if (!script || !Array.isArray(script.events) || !Array.isArray(script.roles)) {
+      setStudioNotice("That script is incomplete and was not loaded.");
+      return;
+    }
+    setActiveDirectorScript(script);
+    setStudioNotice("Script selected. Confirm the cast, then choose Apply Cast & Play.");
+    setActiveSequenceId("");
+    directorRuntimeRef.current = { scriptId: script.id, lastTime: 0, clips: {} };
+    if (script.recommendedEnvironment) {
+      const environment = environments.find((candidate) => candidate.id === script.recommendedEnvironment);
+      if (environment) setActiveEnvId(environment.id);
+    }
+    const initialCast: Record<string, string> = {};
+    (script.roles || []).forEach((role: any, index: number) => {
+      if (userAvatars[index]) initialCast[role.id] = String(userAvatars[index].id);
+    });
+    setCastAssignments(initialCast);
+  };
+
+  const selectRandomVoiceScript = () => {
+    if (scripts.length === 0) return;
+    const script = scripts[Math.floor(Math.random() * scripts.length)];
+    setVoiceoverText(script.text);
+    if (activeController && script.suggestedClip) activeController.crossFadeTo(script.suggestedClip, 0.35);
+  };
+
+  const selectRandomDirectorScript = () => {
+    const choices = visibleDirectorScripts.length > 0 ? visibleDirectorScripts : directorScripts;
+    if (choices.length === 0) return;
+    selectDirectorScript(choices[Math.floor(Math.random() * choices.length)]);
   };
 
   const handleApplyLibraryClip = async (clipData: any) => {
@@ -573,43 +672,82 @@ export default function AnimatorScreen({
 
   return (
     <AnimatorErrorBoundary hasWebGL2={webGL2} onClose={onClose}>
-      <div className="fixed inset-0 z-50 bg-black text-white flex flex-col font-sans">
+      <div className="relative z-0 flex h-[calc(100dvh-10rem)] min-h-[40rem] w-full flex-col overflow-hidden bg-black font-sans text-white md:h-[calc(100dvh-4rem)]">
           {actorLoadError && (
             <div role="status" className="absolute top-16 left-1/2 -translate-x-1/2 z-20 rounded-xl bg-amber-500/90 px-4 py-2 text-sm text-black shadow-lg">
               Couldn't load the selected model — the studio is still available
             </div>
           )}
-          {/* Top Bar */}
-          <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center z-10 bg-gradient-to-b from-black/80 to-transparent">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <Clapperboard className="text-primary" />
-                <h1 className="font-extrabold text-lg tracking-tight">Studio Animator</h1>
-              </div>
-              
-              <div className="flex bg-white/10 rounded-full p-1 border border-white/10 ml-4">
-                <button 
-                  onClick={() => setMode("cast")}
-                  className={`px-4 py-1 rounded-full text-xs font-bold transition-colors ${mode === "cast" ? "bg-primary text-white shadow-lg" : "text-white/60 hover:text-white"}`}
-                >
-                  Cast
-                </button>
-                <button 
-                  onClick={() => setMode("scene")}
-                  className={`px-4 py-1 rounded-full text-xs font-bold transition-colors ${mode === "scene" ? "bg-primary text-white shadow-lg" : "text-white/60 hover:text-white"}`}
-                >
-                  Scene
-                </button>
+          {studioNotice && (
+            <button type="button" onClick={() => setStudioNotice("")} className="absolute left-1/2 top-16 z-30 max-w-[min(90vw,42rem)] -translate-x-1/2 rounded-xl border border-primary/40 bg-slate-950/95 px-4 py-2 text-left text-xs text-white shadow-xl">
+              {studioNotice}
+            </button>
+          )}
+          {/* Production workbench header — adapted from the supplied CELFORGE interface. */}
+          <div className="absolute inset-x-0 top-0 z-30 flex h-14 items-center gap-2 border-b border-white/15 bg-slate-950/95 px-2 shadow-xl backdrop-blur-xl sm:px-4">
+            <div className="flex min-w-0 items-center gap-2">
+              <Clapperboard className="shrink-0 text-primary" size={20} />
+              <div className="min-w-0">
+                <h1 className="truncate text-sm font-black tracking-wide sm:text-base">3D Animation Builder</h1>
+                <input
+                  aria-label="Scene name"
+                  value={sceneName}
+                  onChange={(event) => setSceneName(event.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, "_"))}
+                  className="block w-32 bg-transparent font-mono text-[9px] text-white/45 outline-none sm:w-48"
+                />
               </div>
             </div>
-            
-            <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors">
-              <X size={20} />
+
+            <div className="ml-auto hidden items-center rounded-lg border border-white/10 bg-white/5 p-0.5 sm:flex">
+              <button onClick={() => setMode("cast")} className={`min-h-9 px-3 text-[10px] font-black uppercase tracking-wider ${mode === "cast" ? "bg-primary text-on-primary" : "text-white/55 hover:text-white"}`}>Cast &amp; Rig</button>
+              <button onClick={() => setMode("scene")} className={`min-h-9 px-3 text-[10px] font-black uppercase tracking-wider ${mode === "scene" ? "bg-primary text-on-primary" : "text-white/55 hover:text-white"}`}>Scene</button>
+            </div>
+
+            {onOpenVideoCreator && (
+              <button type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onOpenVideoCreator(); }} aria-label="Back to Video Creator" title="Back to Video Creator" className="relative z-40 flex h-9 min-w-9 items-center justify-center gap-1.5 rounded-lg border border-white/15 px-2 text-[10px] font-black uppercase tracking-wider text-white/70 hover:border-primary hover:text-primary md:px-3">
+                <Wand2 size={13} /><span className="hidden md:inline">Video Creator</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={captureSession.isRecording ? captureSession.stop : captureSession.start}
+              disabled={!webCodecs}
+              className="min-h-9 rounded-lg bg-primary px-3 text-[10px] font-black uppercase tracking-wider text-on-primary disabled:opacity-40"
+            >
+              {captureSession.isRecording ? "Stop" : "Render"}
+            </button>
+            <button onClick={onClose} aria-label="Back to Video Creator" title="Back to Video Creator" className="grid h-9 w-9 place-items-center rounded-lg hover:bg-white/10">
+              <X size={18} />
             </button>
           </div>
 
+          <aside className="absolute bottom-36 left-0 top-14 z-20 hidden w-16 flex-col border-r border-white/10 bg-slate-950/90 p-2 backdrop-blur md:flex">
+            <span className="mb-2 text-center text-[8px] font-black uppercase tracking-widest text-white/35">Tools</span>
+            {([
+              ["select", "Select", MousePointer2],
+              ["move", "Move", Move3D],
+              ["rotate", "Rotate", Rotate3D],
+              ["scale", "Scale", Scaling],
+              ["camera", "Camera", Camera],
+              ["rig", "Rig", Bone],
+              ["voice", "Voice", Mic],
+            ] as const).map(([id, label, Icon]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => selectWorkspaceTool(id)}
+                title={label}
+                aria-label={`${label} tool`}
+                className={`mb-1 grid min-h-11 place-items-center rounded-lg border transition ${workspaceTool === id ? "border-primary bg-primary text-on-primary" : "border-transparent text-white/55 hover:border-white/20 hover:text-white"}`}
+              >
+                <Icon size={18} />
+              </button>
+            ))}
+            <span className="mt-auto text-center font-mono text-[8px] uppercase text-white/30">{workspaceTool}</span>
+          </aside>
+
           {/* 3D Viewport */}
-          <div className="flex-1 w-full h-full relative">
+          <div className="absolute bottom-36 left-0 right-0 top-14 md:left-16">
             {contextLost && (
               <div className="absolute inset-0 z-40 bg-black/80 flex items-center justify-center text-white p-6 text-center" onClick={() => setContextLost(false)}>
                 <div>
@@ -662,10 +800,18 @@ export default function AnimatorScreen({
                 cameraObj={cameraObj}
               />
             </Canvas>
+            {showViewerGrid && (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 opacity-20"
+                style={{ backgroundImage: "linear-gradient(rgba(255,255,255,.18) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.18) 1px, transparent 1px)", backgroundSize: "40px 40px" }}
+              />
+            )}
+            {showSafeArea && <div aria-hidden="true" className="pointer-events-none absolute inset-[8%] border border-dashed border-white/35" />}
           </div>
 
       {/* HUD Overlays */}
-      <div className="absolute bottom-0 left-0 right-0 p-4 md:p-6 flex flex-col gap-4 pointer-events-none">
+      <div className="absolute bottom-0 left-0 right-0 flex flex-col gap-3 p-2 pointer-events-none md:left-16 md:p-3">
         
         {/* Middle HUD */}
         <div className="flex justify-between items-end w-full max-w-7xl mx-auto">
@@ -853,7 +999,7 @@ export default function AnimatorScreen({
                       onClick={() => setActiveEnvId(env.id)}
                       className={`text-xs p-2 rounded-xl text-center border transition-all truncate ${activeEnvId === env.id ? 'bg-primary/30 border-primary' : 'bg-white/5 border-transparent hover:bg-white/10'}`}
                     >
-                      {env.name}
+                      {env.label || env.name}
                     </button>
                   ))}
                 </div>
@@ -925,6 +1071,15 @@ export default function AnimatorScreen({
                         <option key={s.id} value={s.text}>{s.title}</option>
                       ))}
                     </select>
+                    <button
+                      type="button"
+                      onClick={selectRandomVoiceScript}
+                      disabled={scripts.length === 0}
+                      title="Choose a different voice script"
+                      className="bg-white/10 text-white text-[10px] font-bold px-2.5 py-1.5 rounded-full disabled:opacity-50 hover:bg-white/20 transition-colors"
+                    >
+                      <Shuffle size={11} className="inline mr-1" /> Surprise me
+                    </button>
                     <div className="flex gap-1.5">
                       <button
                         onClick={isVoicePreviewRunning ? stopVoicePreview : handlePreviewVoice}
@@ -970,32 +1125,36 @@ export default function AnimatorScreen({
                 {/* Director Scripts Panel */}
                 <div className="bg-black/60 backdrop-blur-md rounded-2xl border border-white/10 p-4 flex flex-col gap-3 pointer-events-auto min-w-[200px]">
                   <h3 className="text-xs font-bold text-white/60 uppercase tracking-wider flex items-center gap-1">
-                    <Play size={12} /> Director Scripts
+                    <Play size={12} /> Director Scripts ({directorScripts.length})
                   </h3>
+                  <div className="flex gap-2">
+                    <input
+                      value={directorSearch}
+                      onChange={(event) => setDirectorSearch(event.target.value)}
+                      placeholder="Find a scene..."
+                      aria-label="Search director scripts"
+                      className="min-w-0 flex-1 bg-black/50 border border-white/20 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-primary"
+                    />
+                    <button
+                      type="button"
+                      onClick={selectRandomDirectorScript}
+                      disabled={directorScripts.length === 0}
+                      title="Choose a fresh scene"
+                      className="rounded-lg bg-primary/20 px-2 text-primary hover:bg-primary/40 disabled:opacity-50"
+                    >
+                      <Shuffle size={14} />
+                    </button>
+                  </div>
                   <div className="flex flex-col gap-1 max-h-[30vh] overflow-y-auto">
-                    {directorScripts.length === 0 && <span className="text-xs text-white/40 italic">No scripts found.</span>}
-                    {directorScripts.map(script => (
+                    {visibleDirectorScripts.length === 0 && <span className="text-xs text-white/40 italic">No scripts found.</span>}
+                    {visibleDirectorScripts.map(script => (
                       <div 
                         key={script.id}
-                        onClick={() => {
-                          setActiveDirectorScript(script);
-                          setActiveSequenceId("");
-                          if (script.recommendedEnvironment) {
-                            const env = environments.find(e => e.id === script.recommendedEnvironment);
-                            if (env) setActiveEnvId(env.id);
-                          }
-                          // Pre-fill castAssignments if possible
-                          const initialCast: Record<string, string> = {};
-                          (script.roles || []).forEach((r: any, i: number) => {
-                             if (userAvatars[i]) {
-                               initialCast[r.id] = String(userAvatars[i].id);
-                             }
-                          });
-                          setCastAssignments(initialCast);
-                        }}
+                        onClick={() => selectDirectorScript(script)}
                         className={`p-2 rounded-lg cursor-pointer text-sm font-medium transition-colors ${activeDirectorScript?.id === script.id ? 'bg-primary/20 text-primary border border-primary/50' : 'hover:bg-white/5 border border-transparent'}`}
                       >
-                        {script.name}
+                        <div>{script.name}</div>
+                        <div className="text-[10px] font-normal text-white/40 mt-0.5">{script.category}</div>
                       </div>
                     ))}
                   </div>
@@ -1030,82 +1189,55 @@ export default function AnimatorScreen({
           )}
         </div>
 
-        {/* Bottom Transport Controls */}
-        <div className="bg-black/80 backdrop-blur-xl rounded-2xl border border-white/10 p-4 w-full max-w-7xl mx-auto flex items-center gap-4 pointer-events-auto shadow-2xl">
-          
-          <button 
-            onClick={handlePlayPause}
-            className="w-12 h-12 flex items-center justify-center rounded-full bg-primary hover:bg-primary/90 text-on-primary transition-transform active:scale-95 flex-shrink-0 shadow-lg shadow-primary/20"
-          >
-            {isPlaying ? <Pause size={20} className="fill-current" /> : <Play size={20} className="fill-current ml-1" />}
-          </button>
-
-          <div className="flex-1 flex flex-col gap-1">
-            <input 
-              type="range" 
-              min="0" max="1" step="0.001" 
-              value={timeline} 
-              onChange={handleSeek}
-              className="w-full accent-primary h-2 bg-white/20 rounded-full appearance-none cursor-pointer"
-            />
-            <div className="flex justify-between text-[10px] text-white/40 font-mono">
-              <span>{(timeline * duration).toFixed(2)}s</span>
-              <span>{duration.toFixed(2)}s</span>
+        {/* Timeline + transport, using the supplied workstation's three editing views. */}
+        <div className="pointer-events-auto mx-auto flex w-full max-w-7xl flex-col overflow-hidden rounded-xl border border-white/15 bg-slate-950/95 shadow-2xl backdrop-blur-xl">
+          <div className="flex min-h-9 items-center gap-1 border-b border-white/10 px-2">
+            {(["timeline", "dope", "xsheet"] as const).map((view) => (
+              <button key={view} type="button" onClick={() => setTimelineView(view)} className={`min-h-8 px-3 text-[9px] font-black uppercase tracking-widest ${timelineView === view ? "bg-primary text-on-primary" : "text-white/45 hover:text-white"}`}>
+                {view === "dope" ? "Dope Sheet" : view === "xsheet" ? "X-Sheet" : "Timeline"}
+              </button>
+            ))}
+            <div className="ml-auto flex items-center gap-1">
+              <select aria-label="Timeline frames per second" value={timelineFps} onChange={(event) => setTimelineFps(Number(event.target.value) as 12 | 24 | 30)} className="h-8 rounded border border-white/10 bg-white/5 px-2 text-[9px] font-bold text-white outline-none">
+                <option value={12} className="bg-slate-900">12 FPS</option>
+                <option value={24} className="bg-slate-900">24 FPS</option>
+                <option value={30} className="bg-slate-900">30 FPS</option>
+              </select>
+              <button type="button" onClick={() => setShowViewerGrid((value) => !value)} aria-pressed={showViewerGrid} title="Toggle grid" className={`grid h-8 w-8 place-items-center rounded border ${showViewerGrid ? "border-primary bg-primary text-on-primary" : "border-white/10 text-white/45"}`}><Grid3X3 size={13} /></button>
+              <button type="button" onClick={() => setShowSafeArea((value) => !value)} aria-pressed={showSafeArea} title="Toggle safe area" className={`grid h-8 w-8 place-items-center rounded border ${showSafeArea ? "border-primary bg-primary text-on-primary" : "border-white/10 text-white/45"}`}><ShieldCheck size={13} /></button>
+              <button type="button" onClick={() => setLoopPlayback((value) => !value)} aria-pressed={loopPlayback} title="Toggle loop" className={`grid h-8 w-8 place-items-center rounded border ${loopPlayback ? "border-primary bg-primary text-on-primary" : "border-white/10 text-white/45"}`}><Repeat2 size={13} /></button>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 bg-white/5 rounded-full px-3 py-1 border border-white/10">
-            <FastForward size={14} className="text-white/60" />
-            <select 
-              value={speed} 
-              onChange={(e) => handleSpeed(parseFloat(e.target.value))}
-              className="bg-transparent text-xs font-bold text-white outline-none cursor-pointer"
-            >
-              <option value={0.5} className="bg-slate-900">0.5x</option>
-              <option value={1.0} className="bg-slate-900">1.0x</option>
-              <option value={1.5} className="bg-slate-900">1.5x</option>
-              <option value={2.0} className="bg-slate-900">2.0x</option>
-            </select>
+          <div className="hidden grid-cols-[132px_minmax(0,1fr)] border-b border-white/10 sm:grid">
+            <div className="border-r border-white/10 px-3 py-2 font-mono text-[9px] uppercase text-white/45">
+              {timelineView === "timeline" ? (actors[0]?.label || "Empty stage") : timelineView === "dope" ? `${Math.max(actors.length, 1)} channels` : `Frame ${String(Math.round(timeline * duration * timelineFps) + 1).padStart(3, "0")}`}
+            </div>
+            <div className="relative h-9 overflow-hidden bg-white/[.025]" style={{ backgroundImage: "linear-gradient(90deg, rgba(255,255,255,.1) 1px, transparent 1px)", backgroundSize: "10% 100%" }}>
+              {[0, 0.18, 0.42, 0.68, 1].map((position, index) => (
+                <button key={position} type="button" aria-label={`Go to keyframe ${index + 1}`} onClick={() => { setTimeline(position); sceneController.seekAll(position * duration); }} className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rotate-45 border border-primary bg-slate-950" style={{ left: `${position * 100}%` }} />
+              ))}
+              <div className="pointer-events-none absolute inset-y-0 w-px bg-primary shadow-[0_0_8px_currentColor]" style={{ left: `${timeline * 100}%` }} />
+            </div>
           </div>
 
-          {webCodecs && (
-            <>
-              <div className="w-px h-8 bg-white/20 mx-2"></div>
-
-              {captureSession.isRecording ? (
-                <button 
-                  onClick={captureSession.stop}
-                  className="flex items-center gap-2 px-4 py-2 bg-white text-red-600 rounded-full text-xs font-bold uppercase tracking-wider transition-all active:scale-95 shadow-lg shadow-white/20"
-                >
-                  <Square size={16} className="fill-current" /> Stop
-                </button>
-              ) : captureSession.hasRecording ? (
-                <div className="flex items-center gap-2">
-                  <button 
-                    onClick={captureSession.download}
-                    className="flex items-center gap-2 px-4 py-2 bg-secondary text-white rounded-full text-xs font-bold uppercase tracking-wider transition-all active:scale-95 shadow-lg shadow-secondary/20"
-                  >
-                    <Download size={16} /> Save
-                  </button>
-                  <button 
-                    onClick={captureSession.start}
-                    className="w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition-all text-white/80"
-                    title="Record Again"
-                  >
-                    <Video size={16} />
-                  </button>
-                </div>
-              ) : (
-                <button 
-                  onClick={captureSession.start}
-                  className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-full text-xs font-bold uppercase tracking-wider transition-all active:scale-95 shadow-lg shadow-red-600/20"
-                >
-                  <Video size={16} /> Record
-                </button>
-              )}
-            </>
-          )}
-
+          <div className="flex items-center gap-2 p-2 sm:gap-4">
+            <button onClick={handlePlayPause} aria-label={isPlaying ? "Pause timeline" : "Play timeline"} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary text-on-primary transition active:scale-95">
+              {isPlaying ? <Pause size={18} className="fill-current" /> : <Play size={18} className="ml-0.5 fill-current" />}
+            </button>
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <input type="range" min="0" max="1" step="0.001" value={timeline} onChange={handleSeek} aria-label="Timeline position" className="h-2 w-full cursor-pointer appearance-none rounded-full bg-white/20 accent-primary" />
+              <div className="flex justify-between font-mono text-[9px] text-white/40"><span>{(timeline * duration).toFixed(2)}s</span><span>{duration.toFixed(2)}s</span></div>
+            </div>
+            <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2 py-1">
+              <FastForward size={13} className="text-white/50" />
+              <select value={speed} onChange={(event) => handleSpeed(parseFloat(event.target.value))} aria-label="Playback speed" className="bg-transparent text-[10px] font-bold text-white outline-none">
+                <option value={0.5} className="bg-slate-900">0.5x</option><option value={1} className="bg-slate-900">1.0x</option><option value={1.5} className="bg-slate-900">1.5x</option><option value={2} className="bg-slate-900">2.0x</option>
+              </select>
+            </div>
+            {webCodecs && captureSession.hasRecording && !captureSession.isRecording && <button onClick={captureSession.download} className="hidden min-h-9 items-center gap-1.5 rounded-lg bg-secondary px-3 text-[10px] font-black uppercase sm:flex"><Download size={14} /> Save</button>}
+            {webCodecs && <button onClick={captureSession.isRecording ? captureSession.stop : captureSession.start} className={`hidden min-h-9 items-center gap-1.5 rounded-lg px-3 text-[10px] font-black uppercase sm:flex ${captureSession.isRecording ? "bg-white text-red-600" : "bg-red-600 text-white"}`}>{captureSession.isRecording ? <Square size={14} className="fill-current" /> : <Video size={14} />}{captureSession.isRecording ? "Stop" : "Record"}</button>}
+          </div>
         </div>
       </div>
 

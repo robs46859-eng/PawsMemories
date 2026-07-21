@@ -14,6 +14,8 @@ export interface CreateModelOptions {
   subject?: string;
   palette?: string | null;
   style?: string;
+  selectionMode: 'auto' | 'manual';
+  subjectSubtype?: string;
 }
 
 interface CreateAvatarDialogProps {
@@ -23,6 +25,7 @@ interface CreateAvatarDialogProps {
 }
 
 const MAX_PHOTOS = 5;
+const MAX_PHOTO_BYTES = 15 * 1024 * 1024;
 
 const PALETTES = [
   { id: "auto",       label: "Auto",       swatch: "linear-gradient(135deg,#a3a3a3,#e5e5e5)" },
@@ -33,7 +36,7 @@ const PALETTES = [
   { id: "monochrome", label: "Mono",       swatch: "linear-gradient(135deg,#525252,#d4d4d4)" },
 ];
 
-function downscaleImage(dataUrl: string, maxDim = 1536): Promise<string> {
+function downscaleImage(dataUrl: string, maxDim = 2048): Promise<string> {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
@@ -87,11 +90,14 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
   const [name, setName] = useState("");
   const [inputMode, setInputMode] = useState<'image' | 'text'>('image');
   const [avatarType, setAvatarType] = useState<'dog' | 'human' | 'object'>("dog");
+  const [selectionMode, setSelectionMode] = useState<'auto' | 'manual'>('auto');
+  const [subjectSubtype, setSubjectSubtype] = useState("dog");
   
   // Image mode state
   const [facePhoto, setFacePhoto] = useState<string | null>(null);
   const [photos, setPhotos] = useState<string[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [photoError, setPhotoError] = useState("");
   
   // Text mode state
   const [subject, setSubject] = useState("");
@@ -104,36 +110,43 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
   const fileInputRef = useRef<HTMLInputElement>(null);
   const faceInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFilesSelect = (files: FileList | File[]) => {
-    const list = Array.from(files);
-    for (const file of list) {
-      if (!file.type.startsWith("image/")) {
-        alert("Please select image files only (jpg, png, webp).");
-        return;
-      }
-    }
-    const remaining = MAX_PHOTOS - photos.length;
-    list.slice(0, remaining).forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        const raw = e.target?.result as string;
-        const optimized = await downscaleImage(raw);
-        setPhotos((prev) => (prev.length >= MAX_PHOTOS ? prev : [...prev, optimized]));
-      };
-      reader.readAsDataURL(file);
-    });
+  const validatePhoto = (file: File): string | null => {
+    if (!/^image\/(jpeg|png|webp|heic|heif)$/i.test(file.type)) return "Choose JPG, PNG, WebP, HEIC, or HEIF images.";
+    if (file.size > MAX_PHOTO_BYTES) return `${file.name} is larger than 15 MB.`;
+    return null;
   };
 
-  const handleFaceFileSelect = (files: FileList | File[]) => {
-    const file = Array.from(files)[0];
-    if (!file || !file.type.startsWith("image/")) return;
+  const optimizeFile = (file: File): Promise<string> => new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = async (e) => {
-      const raw = e.target?.result as string;
-      const optimized = await downscaleImage(raw);
-      setFacePhoto(optimized);
-    };
+    reader.onerror = () => reject(new Error(`Could not read ${file.name}.`));
+    reader.onload = async (event) => resolve(await downscaleImage(String(event.target?.result || "")));
     reader.readAsDataURL(file);
+  });
+
+  const handleFilesSelect = async (files: FileList | File[]) => {
+    const list = Array.from(files);
+    for (const file of list) {
+      const issue = validatePhoto(file);
+      if (issue) { setPhotoError(issue); return; }
+    }
+    const remaining = MAX_PHOTOS - photos.length;
+    setPhotoError("");
+    try {
+      const optimized = await Promise.all(list.slice(0, remaining).map(optimizeFile));
+      setPhotos((previous) => [...previous, ...optimized].slice(0, MAX_PHOTOS));
+    } catch (error: any) {
+      setPhotoError(error.message || "One of the photos could not be read.");
+    }
+  };
+
+  const handleFaceFileSelect = async (files: FileList | File[]) => {
+    const file = Array.from(files)[0];
+    if (!file) return;
+    const issue = validatePhoto(file);
+    if (issue) { setPhotoError(issue); return; }
+    setPhotoError("");
+    try { setFacePhoto(await optimizeFile(file)); }
+    catch (error: any) { setPhotoError(error.message || "The face photo could not be read."); }
   };
 
   const removePhoto = (index: number) => setPhotos((prev) => prev.filter((_, i) => i !== index));
@@ -165,10 +178,12 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
       subject: inputMode === 'text' ? subject : undefined,
       palette: palette === "auto" ? null : palette,
       style,
+      selectionMode,
+      subjectSubtype: selectionMode === 'manual' ? subjectSubtype : undefined,
     });
   };
 
-  const subjectLabel = avatarType === "dog" ? "pet" : avatarType === "human" ? "person" : "object";
+  const subjectLabel = selectionMode === 'auto' ? "subject" : avatarType === "dog" ? "animal" : avatarType === "human" ? "person" : "object";
   const typeIcon = avatarType === "dog" ? "🐾" : avatarType === "human" ? "🧑" : "🧊";
 
   return (
@@ -206,43 +221,66 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
         </div>
 
         {/* Avatar Type Segmented Control */}
-        <div className="flex bg-surface border border-outline-variant/30 rounded-2xl p-1 mb-5">
+        <div className="grid grid-cols-2 sm:grid-cols-4 bg-surface border border-outline-variant/30 rounded-2xl p-1 mb-3 gap-1">
           <button
             type="button"
-            onClick={() => setAvatarType("dog")}
-            className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
-              avatarType === "dog" ? "bg-primary text-white shadow-md" : "text-on-surface-variant hover:bg-outline-variant/10"
-            }`}
+            onClick={() => setSelectionMode("auto")}
+            className={`py-2 text-xs font-bold rounded-xl transition-all ${selectionMode === "auto" ? "bg-primary text-white shadow-md" : "text-on-surface-variant hover:bg-outline-variant/10"}`}
           >
-            🐕 Dog
+            ✨ Auto Detect
           </button>
           <button
             type="button"
-            onClick={() => setAvatarType("human")}
+            onClick={() => { setSelectionMode("manual"); setAvatarType("dog"); setSubjectSubtype("dog"); }}
             className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
-              avatarType === "human" ? "bg-primary text-white shadow-md" : "text-on-surface-variant hover:bg-outline-variant/10"
+              selectionMode === "manual" && avatarType === "dog" ? "bg-primary text-white shadow-md" : "text-on-surface-variant hover:bg-outline-variant/10"
+            }`}
+          >
+            🐾 Animal
+          </button>
+          <button
+            type="button"
+            onClick={() => { setSelectionMode("manual"); setAvatarType("human"); setSubjectSubtype("human"); }}
+            className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
+              selectionMode === "manual" && avatarType === "human" ? "bg-primary text-white shadow-md" : "text-on-surface-variant hover:bg-outline-variant/10"
             }`}
           >
             🧑 Human
           </button>
           <button
             type="button"
-            onClick={() => setAvatarType("object")}
+            onClick={() => { setSelectionMode("manual"); setAvatarType("object"); setSubjectSubtype("prop"); }}
             className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
-              avatarType === "object" ? "bg-primary text-white shadow-md" : "text-on-surface-variant hover:bg-outline-variant/10"
+              selectionMode === "manual" && avatarType === "object" ? "bg-primary text-white shadow-md" : "text-on-surface-variant hover:bg-outline-variant/10"
             }`}
           >
             🧊 Object
           </button>
         </div>
 
+        {selectionMode === 'manual' && avatarType === 'dog' && (
+          <PromptSelect label="Animal type" value={subjectSubtype} onChange={setSubjectSubtype} options={[
+            { id: "dog", label: "Dog" }, { id: "cat", label: "Cat" }, { id: "horse", label: "Horse" },
+            { id: "rabbit", label: "Rabbit" }, { id: "bird", label: "Bird" }, { id: "other-animal", label: "Other animal" },
+          ]} />
+        )}
+        {selectionMode === 'manual' && avatarType === 'object' && (
+          <PromptSelect label="Object type" value={subjectSubtype} onChange={setSubjectSubtype} options={[
+            { id: "prop", label: "Prop / general object" }, { id: "structure", label: "Structure" },
+            { id: "vehicle", label: "Vehicle" }, { id: "plant", label: "Plant" }, { id: "food", label: "Food" },
+            { id: "part", label: "Mechanical part" }, { id: "collectible", label: "Collectible / toy" },
+          ]} />
+        )}
+
         {/* Info Banner */}
         <div className="bg-primary/10 border border-primary/20 text-on-surface rounded-xl p-3 text-xs flex gap-2 items-start mb-5">
           <Camera size={16} className="shrink-0 mt-0.5 text-primary" />
           <p className="opacity-80">
-            {avatarType === "object" 
+            {selectionMode === 'auto'
+              ? "We will detect Animal, Human, or Object first, then build using that detected workflow. Choose a type above when you want your selection to override detection."
+              : avatarType === "object"
               ? "Generate a static GLB 3D model. No rigging or animations will be applied."
-              : "Generate a fully rigged and animated 3D character with idle behaviors and an AI brain."}
+              : "Generate one static, rig-ready 3D character. Add motion later in the separate Animation Builder."}
           </p>
         </div>
 
@@ -264,19 +302,20 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
             {avatarType !== 'object' && (
               <div className="mb-4">
                 <label className="block text-[10px] font-bold mb-1 opacity-60 uppercase tracking-wider text-on-surface-variant">
-                  {typeIcon} Face Close-Up (recommended)
+                  {typeIcon} {selectionMode === 'auto' ? 'Primary Subject Photo' : 'Face Close-Up (recommended)'}
                 </label>
                 {facePhoto ? (
-                  <div className="relative w-full max-w-[150px] aspect-square rounded-2xl overflow-hidden border-2 border-primary/40 bg-surface">
+                  <div className="relative w-full min-h-56 aspect-[4/3] rounded-2xl overflow-hidden border-2 border-primary/40 bg-surface">
                     <img src={facePhoto} alt="Face" className="w-full h-full object-cover" />
                     <button onClick={() => setFacePhoto(null)} className="absolute top-1 right-1 bg-red-500 text-white w-6 h-6 rounded-full flex items-center justify-center">
                       <X size={12} />
                     </button>
                   </div>
                 ) : (
-                  <button onClick={() => faceInputRef.current?.click()} className="w-full max-w-[150px] aspect-square rounded-2xl border-2 border-dashed border-primary/40 flex flex-col items-center justify-center gap-2 hover:bg-primary/5 transition-all">
-                    <User size={20} className="text-primary" />
-                    <span className="text-[10px] font-bold text-on-surface">Upload face</span>
+                  <button type="button" onClick={() => faceInputRef.current?.click()} className="w-full min-h-56 rounded-2xl border-2 border-dashed border-primary/40 flex flex-col items-center justify-center gap-2 hover:bg-primary/5 transition-all">
+                    <User size={32} className="text-primary" />
+                    <span className="text-sm font-bold text-on-surface">Choose a clear face photo</span>
+                    <span className="text-xs text-on-surface-variant">JPG, PNG, WebP or HEIC · up to 15 MB</span>
                   </button>
                 )}
                 <input ref={faceInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.length && handleFaceFileSelect(e.target.files)} />
@@ -306,12 +345,21 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
                   )}
                 </div>
               ) : (
-                <div onClick={() => fileInputRef.current?.click()} className="cursor-pointer rounded-2xl border-2 border-dashed flex flex-col items-center p-4 hover:bg-surface-variant/50 transition-all border-outline-variant/40 text-center">
-                  <Upload size={20} className="text-on-surface-variant mb-2" />
-                  <span className="text-xs font-bold text-on-surface">Upload {avatarType === 'object' ? 'photos of the object' : 'body/angle photos'}</span>
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragEnter={(event) => { event.preventDefault(); setIsDragging(true); }}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDragLeave={() => setIsDragging(false)}
+                  onDrop={(event) => { event.preventDefault(); setIsDragging(false); void handleFilesSelect(event.dataTransfer.files); }}
+                  className={`cursor-pointer min-h-56 rounded-2xl border-2 border-dashed flex flex-col items-center justify-center p-8 transition-all text-center ${isDragging ? "border-primary bg-primary/10" : "border-outline-variant/40 hover:bg-surface-variant/50"}`}
+                >
+                  <Upload size={32} className="text-primary mb-3" />
+                  <span className="text-sm font-bold text-on-surface">Drop or choose {avatarType === 'object' ? 'object photos' : 'body and angle photos'}</span>
+                  <span className="mt-1 text-xs text-on-surface-variant">Up to 5 images, 15 MB each</span>
                 </div>
               )}
               <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => e.target.files?.length && handleFilesSelect(e.target.files)} />
+              {photoError && <p role="alert" className="mt-2 text-xs font-bold text-error">{photoError}</p>}
             </div>
           </>
         ) : (
@@ -378,7 +426,7 @@ export default function CreateAvatarDialog({ onClose, onSubmit, isDarkMode }: Cr
           className="w-full bg-primary text-white py-3.5 rounded-xl font-black uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-primary/90 transition-all shadow-lg active:scale-95"
         >
           <Sparkles size={18} />
-          Create Model ({avatarGenerationCost(avatarType, inputMode)} cr)
+          Create Model ({selectionMode === 'auto' ? 'up to ' : ''}{avatarGenerationCost(avatarType, inputMode)} PupCoins)
         </button>
       </div>
     </div>

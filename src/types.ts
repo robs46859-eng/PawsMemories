@@ -16,6 +16,22 @@ export enum Screen {
   PAWPRINTS = "PAWPRINTS",
   PAWLISHER = "PAWLISHER",
   FURBIN = "FURBIN",
+  CREATIONS = "CREATIONS",
+  CREATE = "CREATE",
+  CREATE_REFERENCE = "CREATE_REFERENCE",
+  CREATE_CUSTOMIZE = "CREATE_CUSTOMIZE",
+  CREATE_VALIDATE = "CREATE_VALIDATE",
+  CREATE_CHECKOUT = "CREATE_CHECKOUT",
+  MARKETPLACE = "MARKETPLACE",
+  LANDING_MODELS = "LANDING_MODELS",
+  LANDING_DOGS = "LANDING_DOGS",
+  LANDING_MEMORIALS = "LANDING_MEMORIALS",
+  HOW_IT_WORKS = "HOW_IT_WORKS",
+  PRICING = "PRICING",
+  ADMIN_WAGS = "ADMIN_WAGS",
+  PET_HEALTH = "PET_HEALTH",
+  WAGS_INBOX = "WAGS_INBOX",
+  ADMIN_MARKETPLACE = "ADMIN_MARKETPLACE",
 }
 
 // Randy AI guidance action types — used by /api/randy-chat response and RandyChat component
@@ -29,6 +45,8 @@ export interface RandyAction {
 }
 
 export type RandyHeadState = 'idle' | 'listen' | 'think' | 'talk' | 'happy';
+
+export type PetSpecies = 'dog' | 'cat' | 'bird' | 'rabbit' | 'horse' | 'reptile' | 'small_animal' | 'other';
 
 export type StyleType = "Realistic" | "Sketch" | "Clay" | "Artistic" | "Anime" | "3D" | "Retro";
 
@@ -66,6 +84,8 @@ export interface Creation {
   created_at: string;
   // Legacy / frontend-only fields
   name?: string;
+  pet_name?: string | null;
+  pet_breed?: string | null;
   breed?: string;
   background?: BackgroundType;
   isCustomUploaded?: boolean;
@@ -82,6 +102,7 @@ export interface UserProfile {
   fullName: string;
   email?: string;
   credits: number;
+  freeAvatarAvailable?: boolean;
   treats: number;
   isAdmin?: boolean;
   city?: string;
@@ -105,6 +126,7 @@ export interface PublicUser {
   fullName: string;
   email: string;
   credits: number;
+  freeAvatarAvailable?: boolean;
   treats: number;
   city: string;
   birthdate: string;
@@ -196,6 +218,8 @@ export interface Avatar {
   avatar_type?: 'dog' | 'human';
   generation_status: 'pending' | 'generating_mesh' | 'rigging' | 'retargeting' | 'baking_clips' | 'baking_sprites' | 'done' | 'failed';
   generation_error?: string | null;
+  /** Build analysis JSON; may carry a "Fix the vibe" restyle preset chosen on regeneration. */
+  generation_analysis?: { stylePreset?: string; styleHint?: string; [k: string]: unknown } | string | null;
   food_level: number;
   water_level: number;
   last_fed: string;

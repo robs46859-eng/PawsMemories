@@ -1,0 +1,16 @@
+{
+  "name": "Pawsome3D",
+  "short_name": "Pawsome3D",
+  "description": "Create 3D pet models, animated videos, and keepsakes from photos.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#f257b5",
+  "icons": [
+    {
+      "src": "/brand/pawsome-logo.png",
+      "sizes": "any",
+      "type": "image/png"
+    }
+  ]
+}

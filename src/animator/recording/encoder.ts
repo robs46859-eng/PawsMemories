@@ -39,8 +39,13 @@ export function createMp4Encoder(config: RecordingConfig): EncoderLifecycle {
       height: config.height,
       bitrate: config.bitrate,
       framerate: config.fps,
-      // avc: { format: 'annexb' } // needed for mp4-muxer? Actually mp4-muxer handles avc just fine.
-    });
+      colorSpace: {
+        primaries: "bt709",
+        transfer: "srgb",
+        matrix: "bt709",
+        fullRange: true
+      }
+    } as any);
   };
 
   return {

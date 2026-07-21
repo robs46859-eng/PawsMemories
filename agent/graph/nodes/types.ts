@@ -158,6 +158,11 @@ export interface BuildState {
   consecutiveErrors: number;
   checkpoints: string[];
 
+  /** P4: synthesize viseme blendshapes during export. Defaults to true
+   *  (legacy avatar behavior); the create-pipeline rig stage sets it from the
+   *  paid facial-rig checkbox. */
+  facialVisemes?: boolean;
+
   // Output
   riggedGlbBase64: string | null;
   spriteSheetBase64: string | null;
@@ -172,11 +177,12 @@ export interface BuildState {
 // Initial State Factory
 // ---------------------------------------------------------------------------
 
-export function createInitialState(petAnalysis: PetAnalysis, glbBase64: string, originalImageBase64?: string | null): BuildState {
+export function createInitialState(petAnalysis: PetAnalysis, glbBase64: string, originalImageBase64?: string | null, options?: { facialVisemes?: boolean }): BuildState {
   return {
     petAnalysis,
     glbBase64,
     originalImageBase64: originalImageBase64 ?? null,
+    facialVisemes: options?.facialVisemes !== false,
     buildPlan: [],
     currentStep: 0,
     sceneState: null,

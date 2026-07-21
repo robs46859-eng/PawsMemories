@@ -15,13 +15,25 @@ const SUPPORT_EMAIL = "rob@stelar.host";
 const EFFECTIVE = "July 12, 2026";
 
 function layout(title: string, body: string): string {
+  const pageTitle = `${title} — ${BRAND}`;
+  const pageDescription = `${title} for ${BRAND}. Learn how we handle the Pawsome3D service and your account.`;
+  const canonical = `https://${DOMAIN}/legal/${title === "Privacy Policy" ? "privacy" : title === "SMS Terms" ? "sms" : "terms"}`;
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${title} — ${BRAND}</title>
+<title>${pageTitle}</title>
+<meta name="description" content="${pageDescription}">
 <meta name="robots" content="index,follow">
+<link rel="canonical" href="${canonical}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="${BRAND}">
+<meta property="og:title" content="${pageTitle}">
+<meta property="og:description" content="${pageDescription}">
+<meta property="og:url" content="${canonical}">
+<meta name="twitter:card" content="summary">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","name":"${pageTitle}","url":"${canonical}","isPartOf":{"@type":"WebSite","name":"${BRAND}","url":"https://${DOMAIN}/"}}</script>
 <style>
   :root { color-scheme: light dark; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -147,7 +159,7 @@ export function termsHtml(): string {
 <p>You may only create voice clones of a voice you own or have documented permission to use. You represent that you have the necessary rights and consent for any voice you submit.</p>
 
 <h2>Platform intellectual property</h2>
-<p>${BRAND}, and its templates, rigs, motion and voice libraries, software, and brand marks (including ${BRAND}, Furball3D, Pawprints, Pawlisher, and Fur Bin) are our property. You may not resell, redistribute, or reverse-engineer platform templates or libraries, use other users' shared models without permission, or train third-party models on platform outputs without our consent.</p>
+<p>${BRAND}, and its templates, rigs, motion and voice libraries, software, and brand marks (including ${BRAND}, Furball3D, Pawprints, Fido's Styles, and Fur Bin) are our property. You may not resell, redistribute, or reverse-engineer platform templates or libraries, use other users' shared models without permission, or train third-party models on platform outputs without our consent.</p>
 
 <h2>SMS notifications</h2>
 <p>If you opt in, we send account notifications by SMS under our <a href="/legal/sms">SMS Terms</a>. Message and data rates may apply; reply STOP to opt out.</p>

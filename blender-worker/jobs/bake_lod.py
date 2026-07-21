@@ -28,6 +28,18 @@ MAX_BONES = 40
 TEXTURE_SIZE = 1024
 MAX_GLB_BYTES = 4 * 1024 * 1024
 CLIP_FPS = 24
+VISEME_NAMES = ("A", "B", "C", "D", "E", "F", "G", "H", "X")
+VISEME_ALIASES = {
+    "A": ("viseme_A", "viseme_MBP", "mouthClose"),
+    "B": ("viseme_B", "viseme_EE"),
+    "C": ("viseme_C", "viseme_EH"),
+    "D": ("viseme_D", "viseme_AA", "jawOpen", "mouthOpen"),
+    "E": ("viseme_E", "viseme_OH"),
+    "F": ("viseme_F", "viseme_OO", "mouthPucker"),
+    "G": ("viseme_G", "viseme_FV"),
+    "H": ("viseme_H", "viseme_L"),
+    "X": ("viseme_X",),
+}
 
 
 def _meshes():
@@ -168,6 +180,66 @@ def resample_actions(fps=CLIP_FPS):
     bpy.context.scene.render.fps_base = 1.0
 
 
+def _normalise_name(value):
+    return "".join(ch.lower() for ch in value if ch.isalnum())
+
+
+def _face_mesh(arm):
+    """Prefer a named face mesh, then a mesh weighted to the canonical head."""
+    meshes = _meshes()
+    by_name = [mesh for mesh in meshes if any(term in mesh.name.lower() for term in ("face", "head", "mouth", "snout"))]
+    if by_name:
+        return max(by_name, key=lambda mesh: len(mesh.data.vertices))
+    head_weighted = []
+    for mesh in meshes:
+        group = mesh.vertex_groups.get("head")
+        if group is None:
+            continue
+        weighted = sum(1 for vertex in mesh.data.vertices if any(weight.group == group.index and weight.weight > 0.1 for weight in vertex.groups))
+        if weighted:
+            head_weighted.append((weighted, mesh))
+    return max(head_weighted, default=(0, None), key=lambda pair: pair[0])[1]
+
+
+def _copy_shape_key(source, target):
+    for index, point in enumerate(source.data):
+        target.data[index].co = point.co.copy()
+
+
+def ensure_viseme_blendshapes(avatar_type):
+    """
+    Preserve high-quality provider morphs when they exist and canonicalize their
+    names. Never synthesize geometry from a generated mesh: that can deform the
+    neck, torso, or arms when the provider's head weights are imperfect.
+    """
+    if avatar_type == "object":
+        return {"available": False, "mode": "not_applicable", "shapes": [], "detail": "Static objects do not receive a synthetic face."}
+    arm = _armature()
+    mesh = _face_mesh(arm)
+    if mesh is None or len(mesh.data.vertices) < 16:
+        return {"available": False, "mode": "bone_fallback", "shapes": [], "detail": "No face mesh or head-weighted geometry was found; jaw-bone lip sync remains available."}
+
+    if not mesh.data.shape_keys or not mesh.data.shape_keys.key_blocks.get("Basis"):
+        mesh.shape_key_add(name="Basis", from_mix=False)
+    keys = mesh.data.shape_keys.key_blocks
+    existing = {_normalise_name(key.name): key for key in keys}
+    canonical = {}
+    for shape in VISEME_NAMES:
+        key_name = "viseme_" + shape
+        target = keys.get(key_name)
+        source = next((existing.get(_normalise_name(alias)) for alias in VISEME_ALIASES[shape] if existing.get(_normalise_name(alias))), None)
+        if target is None and source is not None:
+            target = mesh.shape_key_add(name=key_name, from_mix=False)
+            _copy_shape_key(source, target)
+        if target is not None:
+            canonical[shape] = target
+
+    shapes = ["viseme_" + shape for shape in canonical]
+    if shapes:
+        return {"available": True, "mode": "provider", "shapes": shapes, "mesh": mesh.name, "detail": "Preserved and canonicalized provider facial morphs."}
+    return {"available": False, "mode": "bone_fallback", "shapes": [], "mesh": mesh.name, "detail": "No authored facial morphs were found; jaw-bone lip sync is used without changing mesh geometry."}
+
+
 def export_glb(path):
     bpy.ops.export_scene.gltf(
         filepath=path,
@@ -191,6 +263,7 @@ def run_bake_lod(params):
     matched, total, missing_map = rename_bones(bonemap)
     legs_ok, missing_legs = validate_leg_chains(bonemap)
     resample_actions(CLIP_FPS)
+    viseme = ensure_viseme_blendshapes(params.get("avatar_type"))
 
     size = export_glb(out_path)
 
@@ -211,6 +284,12 @@ def run_bake_lod(params):
         "missing_leg_bones": missing_legs,
         "within_budget": (tris <= MAX_TRIS and bone_count() <= MAX_BONES and size <= MAX_GLB_BYTES),
         "out_path": out_path,
+        "viseme": viseme,
+        "validation": [{
+            "rule": "ANIM-LIP-03-viseme-contract",
+            "pass": bool(viseme.get("available")),
+            "detail": viseme.get("detail", "No facial-viseme result."),
+        }],
     }
     print("BAKE_RESULT:" + json.dumps(stats))
     return stats

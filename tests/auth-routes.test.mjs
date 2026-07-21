@@ -51,7 +51,13 @@ before(async () => {
   port = await reserveFreePort();
   apiUrl = `http://127.0.0.1:${port}`;
   return new Promise((resolve, reject) => {
-    const env = { ...process.env, PORT: String(port), JWT_SECRET: MOCK_JWT_SECRET };
+    const env = {
+      ...process.env,
+      PORT: String(port),
+      JWT_SECRET: MOCK_JWT_SECRET,
+      NODE_ENV: "test",
+      DB_DISABLED: "1",
+    };
     // Explicitly disable DB so initDb() gracefully skips rather than blocking
     // on a connection refused / retry loop when no MySQL is reachable (CI).
     delete env.DB_NAME;

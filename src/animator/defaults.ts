@@ -42,29 +42,83 @@ export const ANIMATOR_DEFAULTS = {
     {
       id: "hero-intro",
       name: "Hero Intro",
-      steps: [
-        { timeSeconds: 0, action: 'cut_camera', target: { position: [0, 1, 3], fov: 45 } },
-        { timeSeconds: 0, action: 'play_clip', target: 'idle' },
-        { timeSeconds: 3, action: 'cut_camera', target: { position: [2, 1, 2], fov: 50 } },
-        { timeSeconds: 3, action: 'play_clip', target: 'run' }
+      version: 1,
+      fps: 30,
+      durationSeconds: 10,
+      lanes: [
+        {
+          id: "cam-lane",
+          type: "camera",
+          keyframes: [
+            { timeSeconds: 0, value: { position: [0, 1, 3], fov: 45 } },
+            { timeSeconds: 3, value: { position: [2, 1, 2], fov: 50 } },
+          ]
+        },
+        {
+          id: "clip-lane",
+          type: "clip",
+          actorId: "default", // Assuming a default actor
+          keyframes: [
+            { timeSeconds: 0, value: 'idle' },
+            { timeSeconds: 3, value: 'run' }
+          ]
+        }
       ]
     },
     {
       id: "playful",
       name: "Playful",
-      steps: [
-        { timeSeconds: 0, action: 'cut_camera', target: { position: [0, 0.5, 4], fov: 60 } },
-        { timeSeconds: 0, action: 'play_clip', target: 'run' },
-        { timeSeconds: 5, action: 'play_clip', target: 'idle' }
+      version: 1,
+      fps: 30,
+      durationSeconds: 10,
+      lanes: [
+        {
+          id: "cam-lane",
+          type: "camera",
+          keyframes: [
+            { timeSeconds: 0, value: { position: [0, 0.5, 4], fov: 60 } },
+          ]
+        },
+        {
+          id: "clip-lane",
+          type: "clip",
+          actorId: "default",
+          keyframes: [
+            { timeSeconds: 0, value: 'run' },
+            { timeSeconds: 5, value: 'idle' }
+          ]
+        }
       ]
     },
     {
       id: "sleepy",
       name: "Sleepy",
-      steps: [
-        { timeSeconds: 0, action: 'cut_camera', target: { position: [0, 0.5, 2], fov: 40 } },
-        { timeSeconds: 0, action: 'set_weather', target: 'fog' },
-        { timeSeconds: 0, action: 'play_clip', target: 'idle' }
+      version: 1,
+      fps: 30,
+      durationSeconds: 10,
+      lanes: [
+        {
+          id: "cam-lane",
+          type: "camera",
+          keyframes: [
+            { timeSeconds: 0, value: { position: [0, 0.5, 2], fov: 40 } },
+          ]
+        },
+        {
+          id: "weather-lane",
+          type: "weather",
+          keyframes: [
+            { timeSeconds: 0, value: 'fog' }
+          ]
+        },
+        {
+          id: "clip-lane",
+          type: "clip",
+          actorId: "default",
+          keyframes: [
+            { timeSeconds: 0, value: 'idle' }
+          ]
+        }
       ]
     }
   ]

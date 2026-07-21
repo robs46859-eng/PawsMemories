@@ -9,6 +9,7 @@
 
 import type { BuildState, StepResult } from "./types";
 import { executeBlenderTool } from "../../tools/blender_mcp";
+import { facialVisemeBpyScript } from "./facialVisemes";
 import { retrieveBlenderContext, formatContextForPrompt } from "../../knowledge/retriever";
 import { generateGeminiText } from "../../gemini";
 import { lookupBreedAnatomy, generateVertexGroupCode, getBoneProportions } from "../../knowledge/breed-anatomy";
@@ -421,6 +422,22 @@ except Exception as e:
 print(f"[Deterministic] Bound {mesh.name} to {armature.name} with {len(bone_names)} breed-aware vertex groups")`;
   }
 
+  if (description.includes("clear inherited animation") || description.includes("restore neutral pose")) {
+    return `import bpy
+from mathutils import Matrix
+print("[Deterministic] Clearing inherited motion and restoring neutral pose")
+for obj in bpy.context.scene.objects:
+    if obj.animation_data:
+        obj.animation_data_clear()
+    if obj.type == 'ARMATURE':
+        for bone in obj.pose.bones:
+            bone.matrix_basis = Matrix.Identity(4)
+for action in list(bpy.data.actions):
+    bpy.data.actions.remove(action)
+bpy.context.scene.frame_set(1)
+print(f"[Deterministic] Static model ready; remaining actions={len(bpy.data.actions)}")`;
+  }
+
   const animationMatch = description.match(/create (eating|drinking|running|playing|sleeping|photo) animation/);
   if (animationMatch) {
     const name = animationMatch[1];
@@ -772,6 +789,14 @@ export async function actNode(state: BuildState): Promise<Partial<BuildState>> {
 
   // Special case: export step
   if (action.type === "finalize" || action.stepDescription.toLowerCase().includes("export")) {
+    // L2 face targets are part of the exported model contract. This is safe to
+    // repeat: existing provider shape keys are retained and missing names are
+    // filled before the GLB leaves Blender.
+    // P4: skipped when the facial rig was not purchased (facialVisemes=false).
+    if (state.facialVisemes !== false) {
+      const visemeResult = await executeBlenderTool("execute_bpy", { code: facialVisemeBpyScript() });
+      if (!visemeResult.success) console.warn("[Act] Facial viseme synthesis skipped:", visemeResult.error || visemeResult.data?.error);
+    }
     const exportResult = await executeBlenderTool("export_glb", {});
     
     const stepResult: StepResult = {

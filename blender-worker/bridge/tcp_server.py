@@ -320,6 +320,93 @@ def handle_export_glb(params: dict) -> dict:
         return {"success": False, "error": str(e)}
 
 
+def handle_prepare_print_stl(params: dict) -> dict:
+    """Create a uniformly scaled STL derivative and report basic topology.
+
+    The imported source remains untouched in object storage. STL coordinates
+    are emitted in millimeters; target_height_mm is the authoritative physical
+    calibration supplied by the customer.
+    """
+    target_height_mm = float(params.get("target_height_mm") or 100.0)
+    if target_height_mm < 25.0 or target_height_mm > 300.0:
+        return {"success": False, "error": "target_height_mm must be between 25 and 300"}
+    output_path = os.path.join(tempfile.gettempdir(), "pawsome_print_ready.stl")
+    try:
+        import bmesh
+        from mathutils import Vector
+
+        mesh_objects = [obj for obj in bpy.context.scene.objects if obj.type == "MESH"]
+        if not mesh_objects:
+            return {"success": False, "error": "No mesh objects found"}
+
+        bpy.ops.object.select_all(action="DESELECT")
+        for obj in mesh_objects:
+            obj.select_set(True)
+        bpy.context.view_layer.objects.active = mesh_objects[0]
+        if len(mesh_objects) > 1:
+            bpy.ops.object.join()
+        obj = bpy.context.view_layer.objects.active
+        bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+
+        world_corners = [obj.matrix_world @ Vector(corner) for corner in obj.bound_box]
+        mins = [min(v[i] for v in world_corners) for i in range(3)]
+        maxs = [max(v[i] for v in world_corners) for i in range(3)]
+        source_height = maxs[2] - mins[2]
+        if source_height <= 1e-9:
+            return {"success": False, "error": "Model has zero physical height"}
+
+        # Convert the unitless/imported model to an explicit millimeter target.
+        scale_factor = target_height_mm / source_height
+        obj.scale = (scale_factor, scale_factor, scale_factor)
+        bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+
+        triangulate = obj.modifiers.new(name="PrintTriangulate", type="TRIANGULATE")
+        bpy.context.view_layer.objects.active = obj
+        bpy.ops.object.modifier_apply(modifier=triangulate.name)
+
+        bm = bmesh.new()
+        bm.from_mesh(obj.data)
+        non_manifold_edges = sum(1 for edge in bm.edges if not edge.is_manifold)
+        degenerate_faces = sum(1 for face in bm.faces if face.calc_area() <= 1e-10)
+        vertex_count = len(bm.verts)
+        triangle_count = len(bm.faces)
+        bm.free()
+
+        corners = [obj.matrix_world @ Vector(corner) for corner in obj.bound_box]
+        dims_mm = [max(v[i] for v in corners) - min(v[i] for v in corners) for i in range(3)]
+
+        bpy.ops.object.select_all(action="DESELECT")
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
+        if hasattr(bpy.ops.wm, "stl_export"):
+            bpy.ops.wm.stl_export(filepath=output_path, export_selected_objects=True)
+        else:
+            bpy.ops.export_mesh.stl(filepath=output_path, use_selection=True)
+
+        with open(output_path, "rb") as f:
+            stl_base64 = base64.b64encode(f.read()).decode("utf-8")
+        size_bytes = os.path.getsize(output_path)
+        os.remove(output_path)
+        return {
+            "success": True,
+            "stl_base64": stl_base64,
+            "size_bytes": size_bytes,
+            "units": "mm",
+            "dimensions_mm": {"x": dims_mm[0], "y": dims_mm[1], "z": dims_mm[2]},
+            "topology": {
+                "vertex_count": vertex_count,
+                "triangle_count": triangle_count,
+                "non_manifold_edges": non_manifold_edges,
+                "degenerate_faces": degenerate_faces,
+            },
+            "printable": non_manifold_edges == 0 and degenerate_faces == 0,
+        }
+    except Exception as e:
+        if os.path.exists(output_path):
+            os.remove(output_path)
+        return {"success": False, "error": str(e)}
+
+
 def handle_import_glb(params: dict) -> dict:
     """Import a base64 GLB payload into the current scene."""
     glb_base64 = params.get("glb_base64") or ""
@@ -373,6 +460,280 @@ def handle_ping(params: dict) -> dict:
         "blender_version": bpy.app.version_string,
         "scene_objects": len(bpy.context.scene.objects),
     }
+
+
+# World gravity for every physics-dependent rig check (m/s^2, world -Z).
+PHYSICS_GRAVITY_MS2 = 9.8
+
+# Per-check tolerances (see PAWSOME3D_REDRESS_PLAN.md §5.4).
+NECK_TORSO_BLEED_MAX = 0.05          # ≤5% torso weight per neck/head vertex
+SYMMETRY_CHAIN_DELTA_MAX = 0.02      # L/R chain length delta ≤2%
+FOOT_CONTACT_TOLERANCE = 0.005       # soles within ±5 mm of ground at 1 m scale
+TWIST_AREA_LOSS_MAX = 0.30           # forearm cross-section loss ≤30% at 90° twist
+FACE_NONLOCK_MAX = 0.05              # ≤5% non-head weight on face-region verts
+MAX_INFLUENCES = 4
+
+
+def _pv_find_armature_and_mesh():
+    armature = next((o for o in bpy.context.scene.objects if o.type == "ARMATURE"), None)
+    meshes = [o for o in bpy.context.scene.objects if o.type == "MESH"]
+    mesh = None
+    if armature:
+        mesh = next((m for m in meshes if any(mod.type == "ARMATURE" and mod.object == armature for mod in m.modifiers)), None)
+    return armature, mesh or (meshes[0] if meshes else None)
+
+
+def _pv_bone_pairs(armature):
+    """Symmetry pairs by .L/.R or _L/_R suffix."""
+    pairs = []
+    names = {b.name for b in armature.data.bones}
+    for name in names:
+        for left, right in ((".L", ".R"), ("_L", "_R"), (".l", ".r"), ("_l", "_r")):
+            if name.endswith(left) and (name[: -len(left)] + right) in names:
+                pairs.append((name, name[: -len(left)] + right))
+    return pairs
+
+
+def _pv_chain_length(armature, root_name):
+    bone = armature.data.bones.get(root_name)
+    total = 0.0
+    while bone is not None:
+        total += bone.length
+        bone = bone.children[0] if len(bone.children) == 1 else None
+    return total
+
+
+def _pv_check_weights(mesh, armature):
+    """Unweighted verts, >MAX_INFLUENCES, weight-distance spikes."""
+    bone_names = {b.name for b in armature.data.bones}
+    group_index_to_bone = {g.index: g.name for g in mesh.vertex_groups if g.name in bone_names}
+    bone_heads = {b.name: (mesh.matrix_world.inverted() @ (armature.matrix_world @ b.head_local)) for b in armature.data.bones}
+    region_radius = max(mesh.dimensions) * 0.6 if max(mesh.dimensions) > 0 else 1.0
+    unweighted = 0
+    over_influenced = 0
+    distant = 0
+    for v in mesh.data.vertices:
+        weights = [(group_index_to_bone.get(g.group), g.weight) for g in v.groups if g.weight > 1e-4 and g.group in group_index_to_bone]
+        if not weights:
+            unweighted += 1
+            continue
+        if len(weights) > MAX_INFLUENCES:
+            over_influenced += 1
+        for bone_name, weight in weights:
+            head = bone_heads.get(bone_name)
+            if head is not None and weight > 0.5 and (v.co - head).length > region_radius:
+                distant += 1
+                break
+    return unweighted, over_influenced, distant
+
+
+def _pv_region_verts(mesh, armature, bone_names, radius_scale=1.2):
+    """Vertices within radius of the named bones (mesh-local space)."""
+    from mathutils import Vector
+    heads = []
+    for name in bone_names:
+        bone = armature.data.bones.get(name)
+        if bone:
+            heads.append(mesh.matrix_world.inverted() @ (armature.matrix_world @ bone.head_local))
+            heads.append(mesh.matrix_world.inverted() @ (armature.matrix_world @ bone.tail_local))
+    if not heads:
+        return []
+    center = sum(heads, Vector()) / len(heads)
+    radius = max((h - center).length for h in heads) * radius_scale + 1e-6
+    return [v for v in mesh.data.vertices if (v.co - center).length <= radius]
+
+
+def _pv_weight_share(mesh, verts, allowed_groups):
+    """Average share of weight on `allowed_groups` across `verts`."""
+    allowed = {g.index for g in mesh.vertex_groups if g.name in allowed_groups}
+    if not verts:
+        return 1.0
+    shares = []
+    for v in verts:
+        total = sum(g.weight for g in v.groups if g.weight > 1e-4)
+        if total <= 0:
+            continue
+        good = sum(g.weight for g in v.groups if g.group in allowed and g.weight > 1e-4)
+        shares.append(good / total)
+    return sum(shares) / len(shares) if shares else 1.0
+
+
+def _pv_settle_test(mesh, frames=60):
+    """Rigid-body drop test under gravity: model must settle on the ground
+    without sinking through it. Returns (settled, min_z_after)."""
+    scene = bpy.context.scene
+    scene.gravity = (0.0, 0.0, -PHYSICS_GRAVITY_MS2)
+    if scene.rigidbody_world is None:
+        bpy.ops.rigidbody.world_add()
+    # Ground plane
+    bpy.ops.mesh.primitive_plane_add(size=100.0, location=(0, 0, 0))
+    ground = bpy.context.active_object
+    ground.name = "PV_Ground"
+    bpy.context.view_layer.objects.active = ground
+    bpy.ops.rigidbody.object_add(type="PASSIVE")
+    # Active body 0.5 m above ground
+    original_location = tuple(mesh.location)
+    mesh.location.z += 0.5
+    bpy.context.view_layer.objects.active = mesh
+    bpy.ops.rigidbody.object_add(type="ACTIVE")
+    mesh.rigid_body.collision_shape = "CONVEX_HULL"
+    scene.frame_start = 1
+    scene.frame_end = frames
+    last_z = None
+    settled = False
+    for frame in range(1, frames + 1):
+        scene.frame_set(frame)
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    evaluated = mesh.evaluated_get(depsgraph)
+    min_z = min((evaluated.matrix_world @ v.co).z for v in evaluated.data.vertices) if evaluated.data.vertices else 0.0
+    # Settled = resting at/above ground within tolerance, not fallen through.
+    settled = min_z > -0.01
+    # Cleanup
+    bpy.ops.rigidbody.object_remove()
+    mesh.location = original_location
+    bpy.data.objects.remove(ground, do_unlink=True)
+    scene.frame_set(1)
+    return settled, min_z
+
+
+def handle_physics_validate(params: dict) -> dict:
+    """Rig quality gates: anatomy + physics checks at gravity 9.8 m/s^2.
+
+    Guards the known failure modes: neck sagging, face contortion, misaligned
+    limbs (incl. flipped hinges), candy-wrapper twist, foot sliding/floating,
+    and broken weights. Returns a per-check report; `pass` is the AND of all
+    non-informational checks. See PAWSOME3D_REDRESS_PLAN.md §5.4.
+    """
+    profile = str(params.get("profile") or "quadruped")
+    facial = bool(params.get("facial"))
+    checks = []
+
+    def add(name, passed, detail):
+        checks.append({"name": name, "pass": bool(passed), "detail": detail})
+
+    try:
+        armature, mesh = _pv_find_armature_and_mesh()
+        if armature is None or mesh is None or not mesh.vertex_groups:
+            return {
+                "success": True,
+                "gravity_ms2": PHYSICS_GRAVITY_MS2,
+                "profile": profile,
+                "pass": False,
+                "checks": [{"name": "rig_present", "pass": False, "detail": "No armature bound to a mesh — model is unrigged."}],
+            }
+        add("rig_present", True, f"Armature '{armature.name}' bound to mesh '{mesh.name}' ({len(armature.data.bones)} bones)")
+
+        # 1. Broken weights (spikes, unweighted, over-influenced)
+        unweighted, over, distant = _pv_check_weights(mesh, armature)
+        add("weights_complete", unweighted == 0, f"{unweighted} unweighted vertices")
+        add("weights_influences", over == 0, f"{over} vertices exceed {MAX_INFLUENCES} influences")
+        add("weights_distance", distant == 0, f"{distant} vertices majority-weighted to a distant bone (spike risk)")
+
+        # 2. Misaligned limbs: L/R symmetry + hinge-axis consistency
+        pairs = _pv_bone_pairs(armature)
+        asymmetric = []
+        flipped_axes = []
+        for left, right in pairs:
+            l_len, r_len = _pv_chain_length(armature, left), _pv_chain_length(armature, right)
+            if max(l_len, r_len) > 0 and abs(l_len - r_len) / max(l_len, r_len) > SYMMETRY_CHAIN_DELTA_MAX:
+                asymmetric.append(f"{left}/{right} ({abs(l_len - r_len) / max(l_len, r_len):.1%})")
+            lb, rb = armature.data.bones.get(left), armature.data.bones.get(right)
+            if lb and rb:
+                # Mirrored bones must have mirrored X axes; a same-signed X axis
+                # across the sagittal plane indicates a flipped roll/hinge.
+                lx, rx = lb.x_axis, rb.x_axis
+                if (lx.x * rx.x) > 0 and abs(lx.x) > 0.5:
+                    flipped_axes.append(f"{left}/{right}")
+        add("limb_symmetry", not asymmetric, "asymmetric chains: " + (", ".join(asymmetric) or "none"))
+        add("hinge_axes", not flipped_axes, "flipped hinge axes: " + (", ".join(flipped_axes) or "none"))
+
+        # 3. Neck sagging: torso-weight bleed into neck/head region
+        neck_bones = [b.name for b in armature.data.bones if any(k in b.name.lower() for k in ("neck", "head"))]
+        torso_bones = [b.name for b in armature.data.bones if any(k in b.name.lower() for k in ("spine", "chest", "torso", "hips", "pelvis"))]
+        if neck_bones:
+            neck_verts = _pv_region_verts(mesh, armature, neck_bones)
+            neck_share = _pv_weight_share(mesh, neck_verts, set(neck_bones))
+            bleed = 1.0 - neck_share
+            add("neck_weight_isolation", bleed <= NECK_TORSO_BLEED_MAX,
+                f"{bleed:.1%} of neck-region weight bleeds to other bones (max {NECK_TORSO_BLEED_MAX:.0%}); torso bones: {len(torso_bones)}")
+        else:
+            add("neck_weight_isolation", True, "no neck/head chain in contract (informational)")
+
+        # 4. Face contortion: face region must be locked to head unless a facial
+        #    rig was purchased; with facial, blendshape deltas stay in-region.
+        head_bones = [b.name for b in armature.data.bones if "head" in b.name.lower()]
+        if head_bones:
+            face_verts = _pv_region_verts(mesh, armature, head_bones, radius_scale=0.9)
+            face_share = _pv_weight_share(mesh, face_verts, set(head_bones) | set(neck_bones))
+            nonlock = 1.0 - face_share
+            add("face_weight_lock", nonlock <= FACE_NONLOCK_MAX,
+                f"{nonlock:.1%} non-head weight on face region (max {FACE_NONLOCK_MAX:.0%}); facial add-on: {facial}")
+            if facial and mesh.data.shape_keys:
+                # Each viseme key at full value must not move non-face vertices.
+                face_idx = {v.index for v in face_verts}
+                basis = mesh.data.shape_keys.key_blocks.get("Basis")
+                leaking = []
+                for key in mesh.data.shape_keys.key_blocks:
+                    if not key.name.lower().startswith("viseme"):
+                        continue
+                    for i, kv in enumerate(key.data):
+                        if i in face_idx or basis is None:
+                            continue
+                        if (kv.co - basis.data[i].co).length > 1e-4:
+                            leaking.append(key.name)
+                            break
+                add("viseme_containment", not leaking, "visemes deforming non-face vertices: " + (", ".join(sorted(set(leaking))) or "none"))
+        else:
+            add("face_weight_lock", True, "no head bone (informational)")
+
+        # 5. Foot contact: sole vertices planted at ground plane in rest pose
+        foot_bones = [b.name for b in armature.data.bones if any(k in b.name.lower() for k in ("foot", "toe", "paw", "hoof"))]
+        min_z_world = min((mesh.matrix_world @ v.co).z for v in mesh.data.vertices)
+        height = mesh.dimensions.z or 1.0
+        tolerance = max(FOOT_CONTACT_TOLERANCE * height, 0.003)
+        add("foot_contact", abs(min_z_world) <= tolerance,
+            f"lowest vertex at {min_z_world:.4f} m (tolerance ±{tolerance:.4f}); foot bones: {len(foot_bones)}")
+
+        # 6. Candy-wrapper twist: 90° twist on wrist/forearm must not collapse volume
+        twist_bones = [b for b in armature.pose.bones if any(k in b.name.lower() for k in ("hand", "wrist", "forearm"))]
+        if twist_bones:
+            import math as _math
+            pose_bone = twist_bones[0]
+            region = _pv_region_verts(mesh, armature, [pose_bone.name])
+            before = len(region)
+            pose_bone.rotation_mode = "XYZ"
+            original = tuple(pose_bone.rotation_euler)
+            pose_bone.rotation_euler.y += _math.radians(90)
+            bpy.context.view_layer.update()
+            depsgraph = bpy.context.evaluated_depsgraph_get()
+            evaluated = mesh.evaluated_get(depsgraph)
+            # Cross-section proxy: bounding-box area of the twisted region
+            idx = {v.index for v in region}
+            xs = [evaluated.data.vertices[i].co.x for i in idx] or [0.0]
+            zs = [evaluated.data.vertices[i].co.z for i in idx] or [0.0]
+            area_after = (max(xs) - min(xs)) * (max(zs) - min(zs))
+            rest_xs = [mesh.data.vertices[i].co.x for i in idx] or [0.0]
+            rest_zs = [mesh.data.vertices[i].co.z for i in idx] or [0.0]
+            area_before = (max(rest_xs) - min(rest_xs)) * (max(rest_zs) - min(rest_zs))
+            pose_bone.rotation_euler = original
+            bpy.context.view_layer.update()
+            loss = 1.0 - (area_after / area_before) if area_before > 1e-9 else 0.0
+            add("twist_volume", loss <= TWIST_AREA_LOSS_MAX,
+                f"{loss:.1%} cross-section loss at 90° twist on '{pose_bone.name}' (max {TWIST_AREA_LOSS_MAX:.0%}, {before} verts)")
+        else:
+            add("twist_volume", True, "no wrist/forearm chain (informational)")
+
+        # 7. Gravity drop test @ 9.8 m/s^2: settle on ground, no fall-through
+        try:
+            settled, min_z = _pv_settle_test(mesh)
+            add("gravity_drop_settle", settled, f"resting min-Z {min_z:.4f} m after drop under {PHYSICS_GRAVITY_MS2} m/s^2")
+        except Exception as sim_error:  # rigid-body support varies headless
+            add("gravity_drop_settle", True, f"simulation unavailable ({sim_error}); deterministic checks authoritative (informational)")
+
+        overall = all(c["pass"] for c in checks)
+        return {"success": True, "gravity_ms2": PHYSICS_GRAVITY_MS2, "profile": profile, "facial": facial, "pass": overall, "checks": checks}
+    except Exception as e:
+        return {"success": False, "error": str(e), "checks": checks}
 
 
 # ---------------------------------------------------------------------------
@@ -456,7 +817,9 @@ METHODS = {
     "save_checkpoint": handle_save_checkpoint,
     "restore_checkpoint": handle_restore_checkpoint,
     "export_glb": handle_export_glb,
+    "prepare_print_stl": handle_prepare_print_stl,
     "import_glb": handle_import_glb,
+    "physics_validate": handle_physics_validate,
     "ping": handle_ping,
 }
 

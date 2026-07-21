@@ -5,7 +5,15 @@ import ResetPassword from "./components/ResetPassword";
 import AnimationStudio from "./components/AnimationStudio";
 import Welcome from "./components/Welcome";
 import Tutorial from "./components/Tutorial";
-import Dashboard from "./components/Dashboard";
+import HomePage from "./components/HomePage";
+import CreateScreen from "./components/CreateScreen";
+import CreateReferenceScreen from "./components/create-flow/CreateReferenceScreen";
+import CreateCustomizeScreen from "./components/create-flow/CreateCustomizeScreen";
+import CreateValidateScreen from "./components/create-flow/CreateValidateScreen";
+import CreateCheckoutScreen from "./components/create-flow/CreateCheckoutScreen";
+import { CreateFlowProvider } from "./components/create-flow/CreateFlowContext";
+import MarketplaceScreen from "./components/MarketplaceScreen";
+import UnderConstructionLock from "./components/UnderConstructionLock";
 import EditMemory from "./components/EditMemory";
 import RequestMemory from "./components/RequestMemory";
 import AdminRequestPanel from "./components/AdminRequestPanel";
@@ -17,7 +25,7 @@ const RandyChat = lazy(() => import("./components/RandyChat"));
 import AlbumView from "./components/AlbumView";
 import AlbumsPage from "./components/AlbumsPage";
 import { fetchMe, fetchCreations, fetchAlbums, createAlbum, clearToken, claimAchievement, claimDailyStreak, claimShareReward, confirmCreditsSession, acceptCurrentTerms } from "./api";
-import { Sun, Moon, LogOut, RefreshCw, Zap, Bell, ShoppingCart, Users } from "lucide-react";
+import { Sun, Moon, LogOut, RefreshCw, Zap, Bell, ShoppingCart, Users, HelpCircle, PackageCheck, ShoppingBag, Activity, PlusCircle, Store as StoreIcon, PawPrint, User as UserIcon, MoreHorizontal } from "lucide-react";
 import CreditStore from "./components/CreditStore";
 const AvatarDashboard = lazy(() => import("./components/AvatarDashboard"));
 import Store from "./components/Store";
@@ -25,13 +33,56 @@ import ProfileScreen from "./components/ProfileScreen";
 import Community from "./components/Community";
 import HelpModal from "./components/HelpModal";
 const PawprintsScreen = lazy(() => import("./components/PawprintsScreen"));
-const PawlisherScreen = lazy(() => import("./components/PawlisherScreen"));
+const FidosStylesScreen = lazy(() => import("./components/FidosStylesScreen"));
 const FurBinScreen = lazy(() => import("./components/FurBinScreen"));
+const WagsAdminPanel = lazy(() => import("./components/WagsAdminPanel"));
+const PetHealthScreen = lazy(() => import("./components/PetHealthScreen"));
+const WagsInboxScreen = lazy(() => import("./components/WagsInboxScreen"));
+const MarketplaceAdminScreen = lazy(() => import("./components/MarketplaceAdminScreen"));
 const AnimatorScreen = lazy(() => import("./animator/components/AnimatorScreen"));
 import WarehouseMode from "./components/WarehouseMode";
-import { MOBILE_NAV, SIDEBAR_NAV, TOP_PRIMARY_NAV } from "./shellNavigation";
+import { MOBILE_NAV, SIDEBAR_NAV, TOP_PRIMARY_NAV, SHELL_ICON_NAV } from "./shellNavigation";
+import { syncSeoMetadata } from "./seo";
 
 const EMPTY_PROFILE: UserProfile = { fullName: "", email: "", credits: 0, treats: 0, isAdmin: false, city: "", ageVerified: false, acceptedTermsVersion: null, currentTermsVersion: undefined, requiresTermsAcceptance: false };
+
+const SCREEN_PATHS: Partial<Record<Screen, string>> = {
+  [Screen.DASHBOARD]: "/",
+  [Screen.SIGN_UP]: "/sign-up",
+  [Screen.MODELS]: "/furball3d",
+  [Screen.ANIMATOR]: "/animator",
+  [Screen.PAWPRINTS]: "/pawprints",
+  [Screen.PAWLISHER]: "/fidos-styles",
+  [Screen.FURBIN]: "/fur-bin",
+  [Screen.STORE]: "/store",
+  [Screen.COMMUNITY]: "/community",
+  [Screen.PROFILE]: "/profile",
+  [Screen.ALBUMS]: "/albums",
+  [Screen.REQUEST_MEMORY]: "/request-memory",
+  [Screen.CREATE]: "/create",
+  [Screen.CREATE_REFERENCE]: "/create/reference",
+  [Screen.CREATE_CUSTOMIZE]: "/create/customize",
+  [Screen.CREATE_VALIDATE]: "/create/validate",
+  [Screen.CREATE_CHECKOUT]: "/create/checkout",
+  [Screen.MARKETPLACE]: "/marketplace",
+  [Screen.LANDING_MODELS]: "/3d-pet-models",
+  [Screen.LANDING_DOGS]: "/custom-dog-figurines",
+  [Screen.LANDING_MEMORIALS]: "/pet-memorial-models",
+  [Screen.HOW_IT_WORKS]: "/how-it-works",
+  [Screen.PRICING]: "/pricing",
+  [Screen.ADMIN_WAGS]: "/admin/wags",
+  [Screen.PET_HEALTH]: "/pet-health",
+  [Screen.WAGS_INBOX]: "/wags",
+  [Screen.ADMIN_MARKETPLACE]: "/admin/marketplace",
+};
+
+function screenFromPath(pathname: string): Screen | null {
+  const normalized = pathname.replace(/\/+$/, "") || "/";
+  if (normalized === "/creations") return Screen.FURBIN;
+  if (normalized === "/home" || normalized === "/") return Screen.DASHBOARD;
+  const entry = Object.entries(SCREEN_PATHS).find(([, path]) => path === normalized);
+  return entry ? entry[0] as Screen : null;
+}
 
 const getBackgroundImage = (screen: Screen) => {
   switch (screen) {
@@ -51,6 +102,12 @@ const getBackgroundImage = (screen: Screen) => {
     case Screen.PAWPRINTS:
     case Screen.PAWLISHER:
     case Screen.FURBIN:
+    case Screen.CREATE:
+    case Screen.CREATE_REFERENCE:
+    case Screen.CREATE_CUSTOMIZE:
+    case Screen.CREATE_VALIDATE:
+    case Screen.CREATE_CHECKOUT:
+    case Screen.MARKETPLACE:
       return {
         url: "/MAIN2.jpg",
         className: "opacity-45 blur-[1px]"
@@ -74,14 +131,30 @@ const getBackgroundImage = (screen: Screen) => {
   }
 };
 
+/**
+ * Glyphs for the four shell icons, keyed by SHELL_ICON_NAV id.
+ *
+ * Kept here rather than in shellNavigation.ts so that module stays free of JSX
+ * and importable by non-React code (tests, the mobile nav builder). All four are
+ * stroke-only lucide icons drawn at strokeWidth 1.75 for a consistent stencil
+ * weight — no filled or duotone glyphs in this row.
+ */
+const SHELL_ICONS: Record<string, React.ComponentType<{ size?: number; strokeWidth?: number; "aria-hidden"?: boolean | "true" | "false" }>> = {
+  create: PlusCircle,
+  marketplace: StoreIcon,
+  pawprints: PawPrint,
+  profile: UserIcon,
+};
+
 export default function App() {
   // Auth gating state
   const [isAuthed, setIsAuthed] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
 
-  const [currentScreen, setCurrentScreen] = useState<Screen>(Screen.SIGN_UP);
+  const [currentScreen, setCurrentScreen] = useState<Screen>(Screen.DASHBOARD);
   const [animatorAssetId, setAnimatorAssetId] = useState<string | null>(null);
-  // "simple" = default Veo image+prompt→video; "pro" = the full 3D in-scene studio.
+  // Video Creator is the Animate landing screen; the full 3D builder is its
+  // advanced workspace, opened from within that parent module.
   const [animatorMode, setAnimatorMode] = useState<"simple" | "pro">("simple");
   const [userProfile, setUserProfile] = useState<UserProfile>(EMPTY_PROFILE);
 
@@ -92,11 +165,24 @@ export default function App() {
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [requestSuccessMsg, setRequestSuccessMsg] = useState("");
   const [showHelpModal, setShowHelpModal] = useState(false);
+  /** Header overflow menu — holds the controls demoted from the icon row. */
+  const [showShellMenu, setShowShellMenu] = useState(false);
 
   const [albums, setAlbums] = useState<Album[]>([]);
   const [creations, setCreations] = useState<Creation[]>([]);
   const [activeAlbum, setActiveAlbum] = useState<Album | null>(null);
   const [selectedCreationForShare, setSelectedCreationForShare] = useState<Creation | null>(null);
+
+  const refreshCreations = async () => {
+    const serverCreations = await fetchCreations();
+    setCreations(serverCreations);
+  };
+
+  const openAnimationStudio = () => {
+    setAnimatorAssetId(null);
+    setAnimatorMode("simple");
+    setCurrentScreen(Screen.ANIMATOR);
+  };
 
   // Dynamic Theme state
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
@@ -123,10 +209,16 @@ export default function App() {
       if (user && user.profileComplete) {
         applyUser(user);
         setIsAuthed(true);
-        setCurrentScreen(Screen.DASHBOARD);
+        setCurrentScreen(screenFromPath(window.location.pathname) || Screen.DASHBOARD);
+        // Login/check-in rewards are server-side and idempotent per calendar day.
+        try {
+          const checkedIn = await claimDailyStreak();
+          applyUser(checkedIn);
+        } catch {
+          // A reward outage must never block a returning user from entering the app.
+        }
         // Phase 1.7: Fetch persistent creations from backend
-        const serverCreations = await fetchCreations();
-        setCreations(serverCreations);
+        await refreshCreations();
         const serverAlbums = await fetchAlbums();
         setAlbums(serverAlbums);
       } else {
@@ -139,6 +231,28 @@ export default function App() {
       cancelled = true;
     };
   }, []);
+
+  // Keep state-driven navigation addressable and make browser back/forward work.
+  React.useEffect(() => {
+    if (!authChecked || !isAuthed) return;
+    const path = SCREEN_PATHS[currentScreen];
+    if (path && window.location.pathname !== path) window.history.pushState({ screen: currentScreen }, "", path);
+  }, [authChecked, isAuthed, currentScreen]);
+
+  React.useEffect(() => {
+    const onPopState = () => {
+      const screen = screenFromPath(window.location.pathname);
+      if (screen) setCurrentScreen(screen);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  // Public entry is indexable; every account-specific studio route stays out of
+  // search results even though this is a client-routed application.
+  React.useEffect(() => {
+    syncSeoMetadata(currentScreen, isAuthed);
+  }, [currentScreen, isAuthed]);
 
   // Per-site mode: "main" (pawsome3d.com) vs "warehouse" (mypets.cc). Read from
   // the public /api/config endpoint (driven by the DEPLOY_TARGET env var).
@@ -163,13 +277,13 @@ export default function App() {
       const newUrl = window.location.pathname;
       window.history.replaceState({}, document.title, newUrl);
     } else if (orderCancelled === "true") {
-      alert("Order cancelled. Your payment was not processed and no credits were deducted.");
+      alert("Order cancelled. Your payment was not processed and no PupCoins were deducted.");
       const newUrl = window.location.pathname;
       window.history.replaceState({}, document.title, newUrl);
     } else if (params.get("credits_success") === "true") {
       const added = params.get("added") || "?";
       const sessionId = params.get("session_id");
-      setCreditSuccessMsg(`🎉 ${added} credits added to your account!`);
+      setCreditSuccessMsg(`🎉 ${added} PupCoins added to your account!`);
       // Confirm the purchase server-side (credits it if the webhook hasn't yet),
       // then re-fetch so the displayed balance is accurate even if the webhook failed.
       (async () => {
@@ -277,7 +391,7 @@ export default function App() {
       setCurrentScreen(Screen.WELCOME);
     } else {
       setCurrentScreen(Screen.DASHBOARD);
-      fetchCreations().then(setCreations);
+      refreshCreations().catch(() => {});
       fetchAlbums().then(setAlbums);
     }
   };
@@ -289,12 +403,39 @@ export default function App() {
     setCurrentScreen(Screen.SIGN_UP);
   };
 
+  /**
+   * Header overflow menu contents.
+   *
+   * Every entry here was previously its own always-visible button in the header
+   * corner. They are preserved verbatim (same handler, same admin gating) — the
+   * only change is that they now sit one click deeper so the four primary
+   * icons can read as primary. Order runs most- to least-used.
+   */
+  const SHELL_MENU_ITEMS: {
+    id: string;
+    label: string;
+    icon: React.ComponentType<{ size?: number; strokeWidth?: number; "aria-hidden"?: boolean | "true" | "false" }>;
+    run: () => void;
+    adminOnly?: boolean;
+    danger?: boolean;
+  }[] = [
+    { id: "credits", label: "Buy PupCoins", icon: Zap, run: () => setShowCreditStore(true) },
+    { id: "store", label: "Shop", icon: ShoppingCart, run: () => setCurrentScreen(Screen.STORE) },
+    { id: "community", label: "Community", icon: Users, run: () => setCurrentScreen(Screen.COMMUNITY) },
+    { id: "health", label: "Pet Health", icon: Activity, run: () => setCurrentScreen(Screen.PET_HEALTH) },
+    { id: "theme", label: isDarkMode ? "Light mode" : "Dark mode", icon: isDarkMode ? Sun : Moon, run: toggleDarkMode },
+    { id: "help", label: "Help & Support", icon: HelpCircle, run: () => setShowHelpModal(true) },
+    { id: "admin-wags", label: "Wags admin", icon: PackageCheck, run: () => setCurrentScreen(Screen.ADMIN_WAGS), adminOnly: true },
+    { id: "admin-market", label: "Marketplace admin", icon: ShoppingBag, run: () => setCurrentScreen(Screen.ADMIN_MARKETPLACE), adminOnly: true },
+    { id: "logout", label: "Log out", icon: LogOut, run: handleLogout, danger: true },
+  ];
+
   const handleWelcomeNext = () => setCurrentScreen(Screen.TUTORIAL);
 
   const handleTutorialComplete = () => setCurrentScreen(Screen.DASHBOARD);
 
   const handleClaimDailyBonus = async () => {
-    // Persist server-side (reuses the daily-streak grant: +5 credits & a treat).
+    // Persist server-side (reuses the daily-streak grant: +5 PupCoins & a treat).
     try {
       const updatedUser = await claimDailyStreak();
       applyUser(updatedUser);
@@ -308,7 +449,7 @@ export default function App() {
     try {
       const { reward, user } = await claimShareReward(platform);
       applyUser(user);
-      alert(`Thanks for sharing to ${platform}! +${reward} credits added.`);
+      alert(`Thanks for sharing to ${platform}! +${reward} PupCoins added.`);
     } catch (err: any) {
       alert(err.message || "Couldn't grant the share reward right now.");
     }
@@ -413,201 +554,228 @@ export default function App() {
 
       {/* Dynamic Upper Header Bar */}
       <header className="fixed inset-x-0 top-0 z-50 h-16 bg-surface/85 backdrop-blur-xl shadow-[0_8px_32px_0_rgba(68,42,34,0.08)]">
-        <nav className="mx-auto grid h-16 w-full max-w-[96rem] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 px-3 sm:px-5 lg:px-8">
-          <div className="min-w-0">
-            <span className="block truncate text-lg font-extrabold text-primary sm:text-xl">Pawsome3D</span>
-          </div>
-
-          <div className="hidden items-center gap-1 whitespace-nowrap lg:flex xl:gap-3">
-            {TOP_PRIMARY_NAV.map((item) => (
-              <button
-                key={item.id}
-                data-tour={item.screen === Screen.MODELS ? "nav-models" : undefined}
-                onClick={() => setCurrentScreen(item.screen)}
-                className={`min-h-10 px-2.5 text-sm font-medium transition-colors xl:px-3 ${currentScreen === item.screen ? "border-b-2 border-primary font-bold text-primary" : "text-on-surface-variant hover:text-primary"}`}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex min-w-0 items-center justify-end gap-1 sm:gap-2">
+        {/* Two corners only: brand on the left, four stencil icons on the right.
+            The centre is intentionally empty — the old middle nav duplicated
+            Create/Marketplace/Pawprints, which now live in the icon row. */}
+        <nav className="mx-auto flex h-16 w-full max-w-[96rem] items-center justify-between gap-2 px-3 sm:px-5 lg:px-8">
           <button
-            onClick={() => setCurrentScreen(Screen.STORE)}
-            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition-colors ${currentScreen === Screen.STORE ? "border-primary bg-primary text-on-primary" : "border-outline-variant/30 bg-surface-container text-on-surface-variant hover:text-primary"}`}
-            title="Shop"
-            aria-label="Open shop"
+            type="button"
+            onClick={() => setCurrentScreen(isAuthed ? Screen.DASHBOARD : Screen.WELCOME)}
+            className="flex min-w-0 shrink-0 items-center gap-2.5 rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+            aria-label="Pawsome3D home"
           >
-            <ShoppingCart size={18} />
-          </button>
-          <button
-            onClick={() => setCurrentScreen(Screen.COMMUNITY)}
-            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition-colors ${currentScreen === Screen.COMMUNITY ? "border-primary bg-primary text-on-primary" : "border-outline-variant/30 bg-surface-container text-on-surface-variant hover:text-primary"}`}
-            title="Community"
-            aria-label="Open community"
-          >
-            <Users size={18} />
-          </button>
-          {/* Theme Mode trigger button */}
-          <button
-            onClick={toggleDarkMode}
-            className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full border border-outline-variant/30 bg-surface-container text-on-surface hover:bg-outline-variant/35 sm:flex"
-            title={isDarkMode ? "Turn on Light Mode" : "Turn on Dark Mode"}
-            aria-label={isDarkMode ? "Turn on light mode" : "Turn on dark mode"}
-          >
-            {isDarkMode ? <Sun size={14} className="text-amber-400" /> : <Moon size={14} className="text-slate-600" />}
+            <img src="/brand/pawsome-logo.png" alt="" className="h-9 w-9 shrink-0 rounded-lg object-contain" />
+            <span className="hidden text-base font-black tracking-tight text-on-surface sm:block">
+              Pawsome<span className="text-primary">3D</span>
+            </span>
           </button>
 
-          {/* User Profile and Credits display (only when signed in) */}
-          {isAuthed && userProfile.fullName && (
-            <>
-              <button
-                onClick={() => setCurrentScreen(Screen.PROFILE)}
-                title="View profile"
-                className={`hidden h-10 min-w-10 shrink-0 items-center justify-center gap-2 bg-surface-container-high px-2.5 rounded-full border shadow-sm transition-all cursor-pointer hover:bg-surface-container-highest md:flex ${currentScreen === Screen.PROFILE ? 'border-primary' : 'border-outline-variant/40'}`}
-              >
-                {userProfile.profilePhotoUrl ? (
-                  <img src={userProfile.profilePhotoUrl} alt="" className="w-5 h-5 rounded-full object-cover" />
-                ) : (
-                  <div className="w-5 h-5 rounded-full bg-primary text-on-primary flex items-center justify-center text-[9px] font-black leading-none">
-                    {userProfile.fullName.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase() || "U"}
-                  </div>
+          {isAuthed && (
+            <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
+              {SHELL_ICON_NAV.map((item) => {
+                const Icon = SHELL_ICONS[item.id];
+                const active = item.screens.includes(currentScreen);
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    data-tour={item.id === "create" ? "nav-create" : undefined}
+                    onClick={() => setCurrentScreen(item.screen)}
+                    title={item.label}
+                    aria-label={item.label}
+                    aria-current={active ? "page" : undefined}
+                    className={`group relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                      active ? "text-primary" : "text-on-surface-variant hover:text-primary"
+                    }`}
+                  >
+                    <Icon size={22} strokeWidth={1.75} aria-hidden="true" />
+                    {/* Active marker is a dot, not a filled pill — keeps all
+                        four glyphs at identical visual weight. */}
+                    <span
+                      className={`pointer-events-none absolute bottom-1.5 h-1 w-1 rounded-full bg-primary transition-opacity ${
+                        active ? "opacity-100" : "opacity-0"
+                      }`}
+                    />
+                  </button>
+                );
+              })}
+
+              {/* Overflow — everything the old header crowded into the corner.
+                  Nothing was removed, only demoted one level. */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowShellMenu((open) => !open)}
+                  title="More"
+                  aria-label="More options"
+                  aria-haspopup="menu"
+                  aria-expanded={showShellMenu}
+                  className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                    showShellMenu ? "text-primary" : "text-on-surface-variant hover:text-primary"
+                  }`}
+                >
+                  <MoreHorizontal size={22} strokeWidth={1.75} aria-hidden="true" />
+                </button>
+
+                {showShellMenu && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      aria-hidden="true"
+                      onClick={() => setShowShellMenu(false)}
+                    />
+                    <div
+                      role="menu"
+                      className="absolute right-0 top-[52px] z-50 w-60 overflow-hidden rounded-2xl border border-outline-variant/25 bg-surface-container-high shadow-2xl"
+                    >
+                      {userProfile.fullName && (
+                        <div className="flex items-center gap-2.5 border-b border-outline-variant/20 px-4 py-3">
+                          {userProfile.profilePhotoUrl ? (
+                            <img src={userProfile.profilePhotoUrl} alt="" className="h-8 w-8 rounded-full object-cover" />
+                          ) : (
+                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-[11px] font-black text-on-primary">
+                              {userProfile.fullName.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase() || "U"}
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <p className="truncate text-xs font-bold text-on-surface">{userProfile.fullName.split(" ")[0]}</p>
+                            <p className="text-[11px] font-bold text-secondary">{userProfile.credits} PupCoins</p>
+                          </div>
+                        </div>
+                      )}
+                      {SHELL_MENU_ITEMS.map((entry) => {
+                        if (entry.adminOnly && !userProfile.isAdmin) return null;
+                        const EntryIcon = entry.icon;
+                        return (
+                          <button
+                            key={entry.id}
+                            role="menuitem"
+                            type="button"
+                            onClick={() => {
+                              setShowShellMenu(false);
+                              entry.run();
+                            }}
+                            className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-medium transition-colors hover:bg-surface-container-highest ${
+                              entry.danger ? "text-error" : "text-on-surface"
+                            }`}
+                          >
+                            <EntryIcon size={17} strokeWidth={1.75} aria-hidden="true" />
+                            {entry.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
                 )}
-                <span className="hidden max-w-[72px] truncate text-xs font-bold leading-none text-on-surface xl:block">
-                  {userProfile.fullName.split(" ")[0]}
-                </span>
-                <div className="hidden h-3 w-px bg-outline-variant xl:block"></div>
-                <div className="hidden items-center gap-1 xl:flex">
-                  <span className="text-xs">🪙</span>
-                  <span className="text-xs font-bold text-secondary font-mono leading-none">
-                    {userProfile.credits}cr
-                  </span>
-                </div>
-              </button>
-              {/* Buy Credits button */}
-              <button
-                data-tour="buy-credits"
-                onClick={() => setShowCreditStore(true)}
-                className="hidden h-10 shrink-0 items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-2.5 text-[10px] font-black uppercase text-primary hover:bg-primary/20 xl:flex"
-                title="Buy more credits"
-              >
-                <Zap size={11} className="fill-primary" />
-                <span className="hidden sm:inline">Buy</span> Credits
-              </button>
-              <button
-                onClick={handleLogout}
-                className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full border border-outline-variant/30 bg-surface-container text-on-surface-variant hover:bg-error/10 hover:text-error sm:flex"
-                title="Log out"
-                aria-label="Log out"
-              >
-                <LogOut size={18} />
-              </button>
-            </>
+              </div>
+            </div>
           )}
-        </div>
+
+          {!isAuthed && (
+            <button
+              type="button"
+              onClick={toggleDarkMode}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-on-surface-variant transition-colors hover:text-primary"
+              title={isDarkMode ? "Turn on Light Mode" : "Turn on Dark Mode"}
+              aria-label={isDarkMode ? "Turn on light mode" : "Turn on dark mode"}
+            >
+              {isDarkMode ? <Sun size={20} strokeWidth={1.75} /> : <Moon size={20} strokeWidth={1.75} />}
+            </button>
+          )}
         </nav>
       </header>
 
       <div className="flex-grow flex w-full relative">
         {/* Desktop Sidebar */}
-        {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN].includes(currentScreen) && (
+        {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN, Screen.CREATE, Screen.CREATE_REFERENCE, Screen.CREATE_CUSTOMIZE, Screen.CREATE_VALIDATE, Screen.CREATE_CHECKOUT, Screen.MARKETPLACE, Screen.ADMIN_WAGS, Screen.ADMIN_MARKETPLACE, Screen.WAGS_INBOX, Screen.PET_HEALTH].includes(currentScreen) && (
           <aside className="fixed bottom-0 left-0 top-16 z-40 hidden w-64 shrink-0 flex-col overflow-x-hidden overflow-y-auto border-r border-outline-variant/20 bg-surface/85 py-5 shadow-xl backdrop-blur-xl dark:bg-surface-dim/85 md:flex">
-            <div className="mb-5 px-6">
-              <button
-                onClick={() => setCurrentScreen(Screen.PROFILE)}
-                title="View profile"
-                className="w-full flex flex-col items-center p-4 bg-primary-container rounded-xl gap-2 text-center shadow-inner hover:brightness-95 transition-all cursor-pointer"
-              >
-                <div className="w-16 h-16 rounded-full border-4 border-primary-fixed-dim overflow-hidden bg-primary text-on-primary flex items-center justify-center text-xl font-black">
-                  {userProfile.profilePhotoUrl ? (
-                    <img src={userProfile.profilePhotoUrl} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    userProfile.fullName.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase() || "U"
-                  )}
-                </div>
-                <div>
-                  <h3 className="font-headline-lg text-[18px] leading-tight text-on-primary-container font-bold">{userProfile.fullName.split(" ")[0]}'s Pet</h3>
-                </div>
-              </button>
-            </div>
-            
-            <nav className="flex-1 space-y-2 px-4">
+            <nav className="mt-4 flex-1 space-y-2 px-4">
               {SIDEBAR_NAV.map((item) => (
                 <button
                   key={item.id}
-                  onClick={() => setCurrentScreen(item.screen)}
-                  className={`flex min-h-12 w-full items-center gap-4 rounded-lg px-4 py-3 text-left transition-all duration-300 ${currentScreen === item.screen ? "bg-primary text-on-primary shadow-[0_0_20px_rgba(68,42,34,0.15)]" : "text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30"}`}
+                  onClick={() => item.screen === Screen.ANIMATOR ? openAnimationStudio() : setCurrentScreen(item.screen)}
+                  className={`flex min-h-12 w-full items-center gap-4 rounded-lg px-4 py-3 text-left transition-all ${currentScreen === item.screen ? "bg-primary text-on-primary shadow-sm" : "text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30"}`}
                 >
                   <span className="material-symbols-outlined shrink-0 font-sans" style={{ fontVariationSettings: currentScreen === item.screen ? "'FILL' 1" : "'FILL' 0" }}>{item.materialIcon}</span>
                   <span className="min-w-0 truncate font-medium">{item.label}</span>
                 </button>
               ))}
-              <button
-                onClick={() => setShowHelpModal(true)}
-                className="flex min-h-12 w-full items-center gap-4 rounded-lg px-4 py-3 text-left text-on-surface-variant transition-all hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30"
-              >
-                <span className="material-symbols-outlined shrink-0 font-sans">help</span>
-                <span className="min-w-0 truncate font-medium">Help / Support</span>
-              </button>
             </nav>
-            
-            <div className="px-4 py-6 mt-auto border-t border-outline-variant/20 mx-4">
-              <div className="space-y-2">
-                <button onClick={handleLogout} className="w-full flex items-center gap-4 text-on-surface-variant hover:bg-secondary-container/30 rounded-lg px-4 py-2 transition-all">
-                  <span className="material-symbols-outlined font-sans">logout</span>
-                  <span className="text-body-sm">Logout</span>
-                </button>
-              </div>
+            <div className="mx-4 mt-auto space-y-2 border-t border-outline-variant/20 px-4 py-6">
+              <button onClick={() => setCurrentScreen(Screen.PROFILE)} className={`flex w-full items-center gap-4 rounded-lg px-4 py-2 transition-all ${currentScreen === Screen.PROFILE ? "bg-primary text-on-primary" : "text-on-surface-variant hover:bg-secondary-container/30"}`}>
+                <span className="material-symbols-outlined shrink-0 font-sans">person</span>
+                <span className="text-body-sm">Profile</span>
+              </button>
+              <button onClick={() => setShowHelpModal(true)} className="flex w-full items-center gap-4 rounded-lg px-4 py-2 text-on-surface-variant transition-all hover:bg-secondary-container/30">
+                <span className="material-symbols-outlined shrink-0 font-sans">help</span>
+                <span className="text-body-sm">Help / Support</span>
+              </button>
             </div>
           </aside>
         )}
 
       {/* Main Content Router viewport */}
+      <CreateFlowProvider>
       <main className={`flex min-w-0 flex-grow flex-col items-center justify-center pt-16 pb-24 md:pb-0 ${isAuthed ? 'relative w-full md:ml-64 md:w-[calc(100%-16rem)]' : 'w-full'}`}>
-        {/* When not authenticated, the only reachable screen is sign-up. */}
-        {!isAuthed ? (
+        {/* Render public screens regardless of auth state */}
+        {[Screen.DASHBOARD, Screen.LANDING_MODELS, Screen.LANDING_DOGS, Screen.LANDING_MEMORIALS, Screen.HOW_IT_WORKS, Screen.PRICING].includes(currentScreen) && (
+          <HomePage
+            userProfile={userProfile}
+            onOpenCreate={() => !isAuthed ? setCurrentScreen(Screen.SIGN_UP) : setCurrentScreen(Screen.CREATE)}
+            onOpenMarketplace={() => setCurrentScreen(Screen.MARKETPLACE)}
+            onOpenPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
+            onOpenFurball={() => setCurrentScreen(Screen.CREATE)} /* RD-6: Furball3D gated; route to Create */
+            onOpenFidos={() => setCurrentScreen(Screen.PAWLISHER)}
+          />
+        )}
+
+        {currentScreen === Screen.CREATE && (
+          <CreateScreen onNavigate={setCurrentScreen} />
+        )}
+        {currentScreen === Screen.CREATE_REFERENCE && (
+          <CreateReferenceScreen onNavigate={setCurrentScreen} />
+        )}
+        {currentScreen === Screen.CREATE_CUSTOMIZE && (
+          <CreateCustomizeScreen onNavigate={setCurrentScreen} />
+        )}
+        {currentScreen === Screen.CREATE_VALIDATE && (
+          <CreateValidateScreen onNavigate={setCurrentScreen} />
+        )}
+        {currentScreen === Screen.CREATE_CHECKOUT && (
+          <CreateCheckoutScreen onNavigate={setCurrentScreen} userProfile={userProfile} />
+        )}
+
+        {currentScreen === Screen.MARKETPLACE && (
+          <MarketplaceScreen onOpenCreate={() => !isAuthed ? setCurrentScreen(Screen.SIGN_UP) : setCurrentScreen(Screen.CREATE)} />
+        )}
+
+        {currentScreen === Screen.PAWPRINTS && (
+          <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
+            <PawprintsScreen userProfile={userProfile} creations={creations} onOpenCreditStore={() => setShowCreditStore(true)} onUserUpdate={applyUser} onCreationSaved={refreshCreations} />
+          </Suspense>
+        )}
+
+        {/* When not authenticated and screen is not public, render sign-up. */}
+        {!isAuthed && ![Screen.DASHBOARD, Screen.CREATE, Screen.CREATE_REFERENCE, Screen.CREATE_CUSTOMIZE, Screen.CREATE_VALIDATE, Screen.CREATE_CHECKOUT, Screen.MARKETPLACE, Screen.PAWPRINTS, Screen.LANDING_MODELS, Screen.LANDING_DOGS, Screen.LANDING_MEMORIALS, Screen.HOW_IT_WORKS, Screen.PRICING].includes(currentScreen) ? (
           <SignUp onAuthenticated={handleAuthenticated} />
         ) : (
-          <>
-            {currentScreen === Screen.WELCOME && (
-              <Welcome
-                userName={userProfile.fullName}
-                onNext={handleWelcomeNext}
-                onBackToSignUp={handleLogout}
-              />
-            )}
+          isAuthed && (
+            <>
+              {currentScreen === Screen.WELCOME && (
+                <Welcome
+                  userName={userProfile.fullName}
+                  onNext={handleWelcomeNext}
+                  onBackToSignUp={handleLogout}
+                />
+              )}
 
-            {currentScreen === Screen.TUTORIAL && <Tutorial onComplete={handleTutorialComplete} />}
+              {currentScreen === Screen.TUTORIAL && <Tutorial onComplete={handleTutorialComplete} />}
 
-            {currentScreen === Screen.DASHBOARD && (
-              <Dashboard
-                userProfile={userProfile}
-                albums={albums}
-                creations={creations}
-                onAddMemory={() => setCurrentScreen(userProfile.isAdmin ? Screen.EDIT_MEMORY : Screen.REQUEST_MEMORY)}
-                onCreate={() => setCurrentScreen(Screen.MODELS)}
-                onClaimDailyBonus={handleClaimDailyBonus}
-                onShareCompleted={handleShareCompleted}
-                onSelectCreation={handleSelectCreation}
-                streak={dailyStreak}
-                achievements={achievements}
-                onClaimReward={handleClaimReward}
-                onClaimDailyStreak={handleClaimDailyStreak}
-                dailyStreakClaimed={dailyStreakClaimed}
-                onSelectAlbum={(album) => {
-                  setActiveAlbum(album);
-                  setCurrentScreen(Screen.ALBUM_VIEW);
-                }}
-                onCreateAlbum={handleCreateAlbum}
-                onOpenAdminPanel={userProfile.isAdmin ? () => setShowAdminPanel(true) : undefined}
-              />
-            )}
-
-            {currentScreen === Screen.EDIT_MEMORY && userProfile.isAdmin && (
-              <EditMemory
-                credits={userProfile.credits}
-                isAdmin={userProfile.isAdmin}
-                onCreationSaved={handleCreationSaved}
+              {currentScreen === Screen.EDIT_MEMORY && userProfile.isAdmin && (
+                <EditMemory
+                  credits={userProfile.credits}
+                  isAdmin={userProfile.isAdmin}
+                  onCreationSaved={handleCreationSaved}
                 onCreationGenerated={handleCreationGenerated}
                 onCreationUpdated={handleCreationUpdated}
                 onDeductCredits={handleDeductCredits}
@@ -645,8 +813,8 @@ export default function App() {
             {currentScreen === Screen.ALBUM_VIEW && activeAlbum && (
               <AlbumView
                 album={activeAlbum}
-                creations={creations}
-                onBack={() => setCurrentScreen(Screen.DASHBOARD)}
+                creations={creations.filter(c => c.album_id?.toString() === activeAlbum.id)}
+                onBack={() => setCurrentScreen(Screen.ALBUMS)}
                 onSelectCreation={(c) => setSelectedCreationForShare(c)}
                 onPlayVideo={() => {}}
                 animatingJobs={{}}
@@ -663,28 +831,18 @@ export default function App() {
             )}
 
             {currentScreen === Screen.MODELS && (
-              <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
-                <AvatarDashboard
-                  userProfile={userProfile}
-                  onUpdateUser={(updatedUser) => {
-                    setUserProfile(updatedUser);
-                  }}
-                  isDarkMode={isDarkMode}
-                  onOpenCreditStore={() => setShowCreditStore(true)}
-                  onGoToAnimator={(assetId) => {
-                    setAnimatorAssetId(assetId);
-                    setAnimatorMode("simple");
-                    setCurrentScreen(Screen.ANIMATOR);
-                  }}
+                <UnderConstructionLock
+                  featureName="Furball3D"
+                  featureDescription="The legacy Furball3D builder is offline while we migrate to the new create-to-print workflow."
+                  onGoToCreate={() => setCurrentScreen(Screen.CREATE)}
                 />
-              </Suspense>
-            )}
+              )}
 
             {currentScreen === Screen.STORE && (
               <Store
                 userProfile={userProfile}
                 onOpenCreditStore={() => setShowCreditStore(true)}
-                onGoToAvatars={() => setCurrentScreen(Screen.MODELS)}
+                onGoToAvatars={() => setCurrentScreen(Screen.CREATE)} /* RD-6: avatars gated; route to Create */
                 albums={albums}
                 creations={creations}
                 onSelectCreation={handleSelectCreation}
@@ -712,79 +870,98 @@ export default function App() {
               <Community userProfile={userProfile} />
             )}
 
-            {currentScreen === Screen.PAWPRINTS && (
+            {currentScreen === Screen.PAWLISHER && (
               <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
-                <PawprintsScreen userProfile={userProfile} creations={creations} onOpenCreditStore={() => setShowCreditStore(true)} onUserUpdate={applyUser} onGoToFurBin={() => setCurrentScreen(Screen.FURBIN)} />
+                <FidosStylesScreen
+                  userProfile={userProfile}
+                  onGoToPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
+                  onUserUpdate={applyUser}
+                />
               </Suspense>
             )}
 
-            {currentScreen === Screen.PAWLISHER && (
+            {currentScreen === Screen.PET_HEALTH && (
               <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
-                <PawlisherScreen
+                <PetHealthScreen
                   userProfile={userProfile}
-                  onUserUpdate={applyUser}
-                  onGoToAnimator={(assetId) => {
-                    setAnimatorAssetId(assetId);
-                    setAnimatorMode("simple");
-                    setCurrentScreen(Screen.ANIMATOR);
-                  }}
-                  onGoToPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
+                  onBack={() => setCurrentScreen(Screen.DASHBOARD)}
                 />
               </Suspense>
+            )}
+
+            {currentScreen === Screen.ADMIN_MARKETPLACE && (
+              userProfile.isAdmin ? (
+                <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
+                  <MarketplaceAdminScreen onClose={() => setCurrentScreen(Screen.DASHBOARD)} />
+                </Suspense>
+              ) : (
+                <HomePage
+                  userProfile={userProfile}
+                  onOpenCreate={() => setCurrentScreen(Screen.CREATE)}
+                  onOpenMarketplace={() => setCurrentScreen(Screen.MARKETPLACE)}
+                  onOpenPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
+                  onOpenFurball={() => setCurrentScreen(Screen.CREATE)}
+                  onOpenFidos={() => setCurrentScreen(Screen.PAWLISHER)}
+                />
+              )
+            )}
+
+            {currentScreen === Screen.WAGS_INBOX && (
+              <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
+                <WagsInboxScreen onGoToFidos={() => setCurrentScreen(Screen.PAWLISHER)} />
+              </Suspense>
+            )}
+
+            {/* Server-guarded too: every /api/admin/wags/* route checks isUserAdmin.
+                This client gate is cosmetic; non-admins landing here are bounced. */}
+            {currentScreen === Screen.ADMIN_WAGS && (
+              userProfile.isAdmin ? (
+                <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
+                  <WagsAdminPanel onClose={() => setCurrentScreen(Screen.DASHBOARD)} />
+                </Suspense>
+              ) : (
+                <HomePage
+                  userProfile={userProfile}
+                  onOpenCreate={() => setCurrentScreen(Screen.CREATE)}
+                  onOpenMarketplace={() => setCurrentScreen(Screen.MARKETPLACE)}
+                  onOpenPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
+                  onOpenFurball={() => setCurrentScreen(Screen.CREATE)}
+                  onOpenFidos={() => setCurrentScreen(Screen.PAWLISHER)}
+                />
+              )
             )}
 
             {currentScreen === Screen.FURBIN && (
               <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
-                <FurBinScreen userProfile={userProfile} onOpenCreditStore={() => setShowCreditStore(true)} />
+                <FurBinScreen userProfile={userProfile} creations={creations} onOpenCreditStore={() => setShowCreditStore(true)} />
               </Suspense>
             )}
 
-            {currentScreen === Screen.ANIMATOR && animatorMode === "pro" && (
-              <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
-                <AnimatorScreen
-                  initialAssetId={animatorAssetId}
-                  onClose={() => setAnimatorMode("simple")}
-                />
-              </Suspense>
-            )}
-
-            {currentScreen === Screen.ANIMATOR && animatorMode === "simple" && (
-              <AnimationStudio
-                creations={creations}
-                userProfile={userProfile as PublicUser}
-                onOpenPro={() => setAnimatorMode("pro")}
-                onOpenCreditStore={() => setShowCreditStore(true)}
-                onClose={() => setCurrentScreen(Screen.MODELS)}
+            {currentScreen === Screen.ANIMATOR && (
+              <UnderConstructionLock
+                featureName="Animation Studio"
+                featureDescription="Bring your 3D pet model to life with motion, video, and cinematic scenes — coming soon."
+                onGoToCreate={() => setCurrentScreen(Screen.CREATE)}
               />
             )}
+
 
             {/* Safety net: if somehow on SIGN_UP while authed, send to dashboard */}
             {currentScreen === Screen.SIGN_UP && (
-              <Dashboard
-                userProfile={userProfile as PublicUser}
-                albums={albums}
-                creations={creations}
-                onAddMemory={() => setCurrentScreen(userProfile.isAdmin ? Screen.EDIT_MEMORY : Screen.REQUEST_MEMORY)}
-                onCreate={() => setCurrentScreen(Screen.MODELS)}
-                onClaimDailyBonus={handleClaimDailyBonus}
-                onShareCompleted={handleShareCompleted}
-                onSelectCreation={handleSelectCreation}
-                streak={dailyStreak}
-                achievements={achievements}
-                onClaimReward={handleClaimReward}
-                onClaimDailyStreak={handleClaimDailyStreak}
-                dailyStreakClaimed={dailyStreakClaimed}
-                onSelectAlbum={(album) => {
-                  setActiveAlbum(album);
-                  setCurrentScreen(Screen.ALBUM_VIEW);
-                }}
-                onCreateAlbum={handleCreateAlbum}
-                onOpenAdminPanel={userProfile.isAdmin ? () => setShowAdminPanel(true) : undefined}
+              <HomePage
+                userProfile={userProfile}
+                onOpenCreate={() => setCurrentScreen(Screen.CREATE)}
+                onOpenMarketplace={() => setCurrentScreen(Screen.MARKETPLACE)}
+                onOpenPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
+                onOpenFurball={() => setCurrentScreen(Screen.CREATE)} /* RD-6: Furball3D gated; route to Create */
+                onOpenFidos={() => setCurrentScreen(Screen.PAWLISHER)}
               />
             )}
           </>
-        )}
+        )
+      )}
       </main>
+      </CreateFlowProvider>
 
       {isAuthed && userProfile.requiresTermsAcceptance && (
         <div className="fixed inset-0 z-[90] bg-black/70 flex items-center justify-center p-4">
@@ -813,22 +990,19 @@ export default function App() {
       )}
 
       {/* Floating Bottom Navigator (only when signed in and past onboarding) */}
-      {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN].includes(currentScreen) && (
-        <div className="fixed inset-x-0 bottom-0 z-40 grid h-20 grid-cols-5 items-stretch border-t border-outline-variant/30 bg-surface-container-lowest/95 px-1 py-2 shadow-[0_-8px_32px_0_rgba(68,42,34,0.08)] backdrop-blur-xl dark:bg-surface-dim/95 md:hidden">
+      {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN, Screen.CREATE, Screen.MARKETPLACE, Screen.WAGS_INBOX].includes(currentScreen) && (
+        <div className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 gap-1 rounded-t-2xl border-t border-outline-variant/30 bg-surface-container-lowest/90 px-1 py-2 shadow-[0_-8px_32px_0_rgba(68,42,34,0.08)] backdrop-blur-xl dark:bg-surface-dim/90 md:hidden">
           {MOBILE_NAV.map((item) => (
             <button
               key={item.id}
-              onClick={() => setCurrentScreen(item.screen)}
-              className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 transition-colors ${currentScreen === item.screen ? "bg-primary text-on-primary" : "text-on-surface-variant hover:bg-surface-variant/50"}`}
+              onClick={() => item.screen === Screen.ANIMATOR ? openAnimationStudio() : setCurrentScreen(item.screen)}
+              className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 py-2 transition-colors ${currentScreen === item.screen ? "bg-primary text-on-primary" : "text-on-surface-variant hover:bg-surface-variant/50"}`}
             >
               <span className="material-symbols-outlined shrink-0 font-sans" style={{ fontVariationSettings: currentScreen === item.screen ? "'FILL' 1" : "'FILL' 0" }}>{item.materialIcon}</span>
               <span className="w-full truncate text-center text-[9px] font-bold">{item.label}</span>
             </button>
           ))}
-          <button
-            onClick={() => setShowHelpModal(true)}
-            className="flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 text-on-surface-variant hover:bg-surface-variant/50"
-          >
+          <button onClick={() => setShowHelpModal(true)} className="flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 py-2 text-on-surface-variant hover:bg-surface-variant/50">
             <span className="material-symbols-outlined shrink-0 font-sans">help</span>
             <span className="w-full truncate text-center text-[9px] font-bold">Help</span>
           </button>
@@ -845,7 +1019,7 @@ export default function App() {
             isDarkMode={isDarkMode}
             onNavigate={setCurrentScreen}
             onOpenCreditStore={() => setShowCreditStore(true)}
-            onLaunchAR={() => setCurrentScreen(Screen.MODELS)}
+            onLaunchAR={() => setCurrentScreen(Screen.CREATE)} /* RD-6: AR entry gated; route to Create */
           />
         </Suspense>
       )}
@@ -858,7 +1032,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Credit success toast */}
+      {/* PupCoins success toast */}
       {creditSuccessMsg && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-primary text-white px-5 py-3 rounded-2xl shadow-xl text-sm font-bold animate-fade-in flex items-center gap-2">
           <Zap size={16} className="fill-white" />
@@ -894,7 +1068,7 @@ export default function App() {
             <span className="text-5xl animate-bounce mb-4 inline-block">🎉</span>
             <h3 className="text-lg font-extrabold text-primary mb-2">Order Confirmed!</h3>
             <p className="text-xs text-on-surface-variant leading-relaxed mb-4">
-              Your payment of **$12.00 USD** succeeded, and **800 credits** have been deducted.
+              Your payment of **$12.00 USD** succeeded, and **800 PupCoins** have been deducted.
               Randy is sending your custom physical pet album to print!
             </p>
             <div className="bg-surface-container rounded-xl p-3 text-[10px] text-on-surface-variant font-mono mb-6 text-left break-all">

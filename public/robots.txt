@@ -1,0 +1,16 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /animator-files/
+Disallow: /furball3d
+Disallow: /animator
+Disallow: /fidos-styles
+Disallow: /fur-bin
+Disallow: /store
+Disallow: /community
+Disallow: /profile
+Disallow: /albums
+Disallow: /request-memory
+Disallow: /sign-up
+
+Sitemap: https://pawsome3d.com/sitemap.xml

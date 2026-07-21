@@ -7,6 +7,42 @@ import * as THREE from "three";
 import { BehaviorAction } from "../types";
 import { useAvatarScene } from "./store";
 import { resolveClipName, LOOPING } from "./clipMap";
+import { uncannyPresets } from "../avatar/uncannyPresets";
+
+/**
+ * Apply a "Fix the vibe" restyle preset to the model's materials for a softer,
+ * less-uncanny look: lower shine (higher roughness), no metalness, softened
+ * normals, and brighter eyes. Materials are cloned first so shared instances
+ * from SkeletonUtils.clone aren't mutated across avatars.
+ */
+function applyPresetMaterials(root: THREE.Object3D, presetId?: string): void {
+  if (!presetId) return;
+  const preset = uncannyPresets.find((p) => p.id === presetId);
+  if (!preset) return;
+  const { roughness, metalness, normalStrength, eyeBoost } = preset.material;
+  root.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh || !mesh.material) return;
+    const wasArray = Array.isArray(mesh.material);
+    const mats = wasArray ? (mesh.material as THREE.Material[]) : [mesh.material as THREE.Material];
+    const mapped = mats.map((m) => {
+      const std = m as THREE.MeshStandardMaterial;
+      if (!(std as any).isMeshStandardMaterial) return m;
+      const c = std.clone();
+      c.roughness = roughness;
+      c.metalness = metalness;
+      if (c.normalScale) c.normalScale.set(normalStrength, normalStrength);
+      const name = (c.name || "").toLowerCase();
+      if (eyeBoost && eyeBoost !== 1 && (name.includes("eye") || name.includes("iris") || name.includes("pupil"))) {
+        c.emissive = new THREE.Color(0xffffff);
+        c.emissiveIntensity = Math.max(0, (eyeBoost - 1) * 0.4);
+      }
+      c.needsUpdate = true;
+      return c;
+    });
+    mesh.material = wasArray ? mapped : mapped[0];
+  });
+}
 
 const WALK_SPEED = 0.9; // m/s
 const RUN_SPEED = 2.2; // m/s
@@ -106,7 +142,7 @@ export function applyHumanProcedural(g: THREE.Group, action: BehaviorAction, t: 
  * `action`/`target`. Plays skeletal clips when the model has them, otherwise
  * animates procedurally. Used by both the in-app scene and the AR scene.
  */
-export default function AvatarModel({ url, avatarType = "dog" }: { url: string; avatarType?: "dog" | "human" }) {
+export default function AvatarModel({ url, avatarType = "dog", stylePreset }: { url: string; avatarType?: "dog" | "human"; stylePreset?: string }) {
   const group = useRef<THREE.Group>(null);
   const { scene, animations } = useGLTF(url);
 
@@ -168,8 +204,10 @@ export default function AvatarModel({ url, avatarType = "dog" }: { url: string; 
         m.receiveShadow = true;
       }
     });
+    // Apply the softer-look restyle preset (if any) to the model's materials.
+    applyPresetMaterials(cloned, stylePreset);
     return { model: cloned, fitScale: scale };
-  }, [scene, avatarType]);
+  }, [scene, avatarType, stylePreset]);
 
   const { actions, names } = useAnimations(animations, group);
   const action = useAvatarScene((s) => s.action);

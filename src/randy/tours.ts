@@ -68,7 +68,7 @@ export const tours: Record<TourId, Tour> = {
     title: "Use Fido's Styles",
     screen: Screen.PAWLISHER,
     steps: [
-      { target: tourTarget("pawlisher-title"), title: "Style your model", body: "Fido's Styles is where you adjust light, motion, voice, and friendly style." },
+      { target: tourTarget("pawlisher-title"), title: "Style your model", body: "Fido's Styles is where you create looks and adjust light, motion, voice, and friendly style." },
       { target: tourTarget("pawlisher-voice"), title: "Voice needs permission", body: "Before cloning a voice, confirm you own it or have permission. The app saves that consent." },
     ],
   },

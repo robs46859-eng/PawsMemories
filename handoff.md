@@ -318,29 +318,117 @@ not mark P0, P1, or P2 complete and does not authorize merge, production deploym
 rigging enablement. Remaining owner actions are review/merge of draft PR #1 and enabling
 `main` branch protection with the six CI jobs required and force-push disabled.
 
-## P0 Atomic Budget Fix Note (2026-07-14)
+## Hermes server integration note (2026-07-15)
 
-- **Applied on isolated branch:** `director/p0-atomic-budgets` adds a separate aggregate
-  daily usage table and a single MySQL transaction that locks aggregate then per-user
-  rows before reserving request count and estimated provider cost. A denied reservation
-  changes neither counter and provider calls remain blocked.
-- **Configuration:** user caps retain their existing keys. Aggregate request caps,
-  positive per-call cost reservations, and aggregate cost ceilings use separate
-  `PETSIM_<ENDPOINT>_*` variables documented in `.env.example`. Zero remains a valid hard
-  stop for request/cost caps; a zero or invalid per-call cost estimate falls back to a
-  conservative positive value so it cannot bypass the dollar ceiling.
-- **Containment:** aggregate exhaustion returns 503, user exhaustion returns 429, and
-  `PETSIM_RIG_ENABLED=false` remains the required default. Rig also has zero aggregate
-  request and cost defaults.
-- **Local verification:** TypeScript, production build, 486 unit tests, 139 dedicated AR
-  tests, 23 production paid-route contracts, 8 hostile-input tests, 5 IFC tests, dependency
-  audit, and Animator Doctor pass. IFC was run in an isolated environment containing
-  `ifcopenshell`; Animator Doctor used a temporary runtime workspace. Rhubarb remains an
-  optional degraded-mode warning.
-- **Still open:** do not mark P0 complete. A real MySQL concurrent-abuse run, approved
-  provider price estimates, actual-cost reconciliation, warning/critical alert evidence,
-  redacted staging configuration, and operator kill-switch rehearsal are still required.
-  No production deployment or rig enablement is authorized by this fix.
+- Added a disabled-by-default, authenticated Hermes producer relay under
+  `/api/hermes/translate`, `/api/hermes/knowledge`, and `/api/hermes/jobs/:id`.
+- The integration uses local UUIDs at the API boundary and keeps edge bridge job IDs
+  private in the dedicated `hermes_jobs` table. Owner-scoped lookups return the same
+  404 for missing and foreign jobs.
+- Requests and bridge responses use strict schemas. The edge client requires HTTPS in
+  production, sends the producer Bearer secret and local UUID idempotency key, forbids
+  redirects, applies a bounded timeout, and returns only sanitized failures.
+- Per-user and per-IP minute limits are stacked with the existing atomic daily usage
+  counter. Authentication and validation complete before daily usage or provider work.
+- Added deterministic production-router contracts for auth, ownership, disabled mode,
+  all minute and daily limits, provider gating, timeout/error sanitization, response
+  validation, and bridge-ID non-disclosure. The focused Hermes contract file passes
+  15/15 locally; broader repository verification follows separately.
+
+### Hermes verification note
+
+- TypeScript passes, focused Hermes contracts pass 15/15, all production-router
+  contracts pass 36/36, security tests pass 8/8, and the assembled full-server auth
+  smoke test passes 4/4.
+- The production frontend and bundled Node server both build successfully. Vite reports
+  only the repository's existing large-chunk advisory.
+- The full root unit run reports 482/483 passing. Its sole failure is the pre-existing
+  `tests/model-url-durability.test.mjs` assertion that expects the staged server code to
+  persist `riggedGlbBase64`; the already-staged avatar change intentionally removed that
+  path. Hermes does not touch that behavior, and the staged change was preserved.
+
+### Model durability guard reconciliation (2026-07-15)
+
+- The stale unit-test assertion above was corrected without restoring Phase 5 clip
+  baking. The durability guard still rejects raw provider URL persistence and any GLB
+  upload through the image uploader, and it still proves the remaining
+  `buildState.riggedGlbBase64` path uses `uploadBase64Binary(...,
+  "model/gltf-binary")`.
+- The removed assertion required a second standalone `riggedGlbBase64` upload path that
+  no longer exists after the intentional Phase 5 retirement. Requiring deleted behavior
+  made a safe removal look like a regression; no production runtime behavior was changed
+  by this test-only fix.
+- Full verification must be rerun before deployment. Keep Hermes disabled until the
+  hardened relay is live and its end-to-end smoke tests pass.
+
+## Hermes end-to-end hardening evidence (2026-07-15)
+
+This note appends the completed relay and Pixel evidence without changing the earlier
+blocker history.
+
+- The public relay at `https://hermes.pawsome3d.com` is healthy and uses separate
+  worker, Judy, and Pawsome3D credentials. Producer cross-tenant job reads return the
+  same `404` as missing jobs, and the public worker path returns `404`.
+- Pause/resume, Wi-Fi loss/recovery, and severe thermal throttling were exercised on the
+  Pixel. Work remained queued while the device was unavailable or thermally paused and
+  completed after recovery. Pixel shell battery overrides do not propagate to Android's
+  capacity API, so the battery policy remains unit-tested rather than falsely claimed as
+  hardware-validated.
+- Translation job `ccde7fd7-224f-43f2-9ae2-ec94c908c00b` was force-stopped while
+  processing. The relay retained the lease with no result, the relaunched worker resumed
+  the same job, and it completed in 9,304 ms. The production database contains one job
+  row, one create event, one claim event, one completion event, and `attempt_count=1`.
+- A normal post-restart knowledge job (`8ebec073-0fc8-494c-a1d9-24965ac3d712`)
+  completed with grounded AR citations. The earlier oversized restart failures remain
+  recorded in the worker test log; relay, Android, Paws, and Judy validation now enforce
+  matching UTF-8 input budgets of 6,000 bytes for translation and 8,000 bytes for
+  knowledge.
+- Relay verification passes 55 tests and Ruff. A post-deployment Judy smoke job
+  (`6a6cebd5-b4a8-4c6f-9dfb-a5bf63b13878`) completed successfully.
+- Paws verification now passes lint, 483/483 root tests, 36/36 production contracts,
+  8/8 security tests, and the production build. IFC passes 5/5 with the pinned
+  requirements in an isolated Python 3.12 environment; this supersedes the earlier local
+  note that referenced Python 3.11. Animator Doctor passes every required check.
+- Animator Doctor still reports an optional missing Rhubarb executable and a macOS
+  duplicate Sharp/libvips warning. Neither fails the required checks. Rhubarb affects
+  automatic phoneme-quality lip sync only; its absence degrades to the supported
+  fallback and does not block the Hermes/Paws integration.
+
+### Remaining production enablement blockers
+
+- Do not deploy the current dirty Paws working tree. It contains paused UI work mixed
+  with the Hermes integration. Build any release from an isolated, reviewed source tree
+  containing only the approved integration files.
+- Before setting `HERMES_ENABLED=true`, apply `server/migrations/009_hermes_jobs.sql`
+  to the production database and configure the Paws producer relay variables in
+  Hostinger. Then run an authenticated owner-scoped live smoke test and confirm daily
+  quota behavior.
+- The signed Android release APK installs and cold-launches, but it intentionally does
+  not inherit the debug app's encrypted bridge secret or selected model. The configured
+  debug worker remains the validated active worker; provisioning the release package is
+  a separate human-on-device production step.
+- UI changes remain paused by owner direction and are outside this deployment scope.
+
+## Signed Hermes worker scope close-out (2026-07-15)
+
+- The owner set the stopping boundary at a privately signed Android release. The signed
+  APK verifies with APK Signature Scheme v2, installed on the Pixel, and cold-launched
+  without a crash.
+- APK SHA-256:
+  `680a4a3cfd06df7f1b3168b933d4341540c6f073c36462493df9484e5231ff6a`.
+- Signer certificate SHA-256:
+  `0336899672a6d12ec41e0eb876cd9b7aa084726a5b004125893b719a12a8f91a`.
+- The complete signed-worker handoff is
+  `/Users/robert/Projects/HermesEdgeWorker/handoff.md`.
+- Paws and Judy environment provisioning, migrations, deployment, and live site smoke
+  tests are explicitly deferred. `HERMES_ENABLED` remains `false`; paused UI changes
+  remain untouched.
+- A clean future Paws integration worktree is preserved at
+  `/Users/robert/Desktop/claude7126/PawsMemories-hermes-prod`. It is uncommitted and must
+  complete its remaining build/CI/live gates before deployment.
+
+`FINAL FINISH MARKER: HERMES_EDGE_SIGNED_RELEASE_READY`
+
 ## Production Readiness Swarm Addendum (2026-07-14)
 
 - The requested release scope now includes exact 10-second prompt-to-video outputs using
@@ -361,60 +449,39 @@ rigging enablement. Remaining owner actions are review/merge of draft PR #1 and 
 - Production deployment remains on hold. `PETSIM_RIG_ENABLED=false` is mandatory, and a
   named human AR acceptance record is required before a production GO decision.
 
-## Shell and Fido's Styles Fix Note (2026-07-14)
+## Gemini-for-Hermes replacement (2026-07-20)
 
-- **Applied:** the global shell now uses shared typed navigation registries. The top
-  primary destinations are Furball3D, Pawprints, and Fido's Styles; shop and community
-  are top-right icon actions. The desktop left panel contains Home, Fur Bin, Profile,
-  Fido's Styles, and Help / Support. Fur Bin is also reachable from Pawprints.
-- **Shape protection:** the header has a fixed height, the desktop sidebar has a fixed
-  width below the header, the main viewport reserves that width, and the mobile bar uses
-  fixed columns with truncation. Focused tests lock these layout and destination
-  contracts against accidental collapse or reintroduction of removed navigation items.
-- **Viewer fix:** the solid turntable floor that could appear as a horizontal rectangle
-  through the model has been removed. The 360 viewer now uses transparent contact shadows
-  with neutral studio lighting. The Edison bulb control, bulb prop, cord prop, and its
-  persisted lighting preference have been removed from the live Fido's Styles feature.
-- **Verification:** TypeScript, seven focused shell/viewer tests, the production build,
-  and the whitespace check pass locally. Existing large-chunk build warnings remain.
-  A temporary uncommitted harness rendered the real application and repository GLB
-  fixture at 1440x900 and 390x844: both viewports had no horizontal overflow, the canvas
-  rendered, the Edison feature was absent, and no solid slab crossed the model. The
-  harness was removed after the check.
-  Superseding post-merge verification passes TypeScript, 493/493 root tests, 139/139 AR
-  tests, 23/23 production contracts, 8/8 security tests, 5/5 IFC tests in the pinned
-  Python 3.11 environment, the production build, and Animator Doctor in a clean temporary
-  runtime. Rhubarb remains an optional unavailable tier and the duplicate Sharp/libvips
-  warning remains visible; neither was hidden or treated as a completed hardening gate.
-  Desktop/mobile browser screenshots with an owned GLB are still required before the
-  Shell evidence-register row can be marked verified.
-- **Future work:** add a curated dog-and-human accessory library to Fido's Styles,
-  including clothing, toys, beds, and related ready-to-use assets. The authoritative
-  future-work requirements in `docs/PRODUCTION_READINESS_SWARM_PLAN.md` require explicit
-  open-source license/provenance records and mesh, attachment, security, performance,
-  and visual validation before any asset ships.
+**Decision:** Hermes/Gemma replaced by Gemini for all three job types. `hermes-looks-worker/` (Outlines + Gemma 4 E2B) is no longer needed and can be decommissioned. The VPS Hermes endpoint and `HERMES_EDGE_BRIDGE_URL` / `HERMES_EDGE_PRODUCER_SECRET` configuration is not required.
 
-This note does not mark the complete UI action map, shell release gate, AR hardening, or
-production deployment complete. It supplements all prior handoff entries without
-superseding their unresolved blockers.
+**What changed:**
 
-## Video Duration Scope Decision (2026-07-14)
+| File | Change |
+|---|---|
+| `server/hermes/gemini_adapter.ts` | **New.** `GeminiAdapter` interface + `GeminiHermesAdapter` class. `run(type, payload)` dispatches to `planLooks` / `translateText` / `answerKnowledge` via `generateContent`. |
+| `server/hermes/router.ts` | `HermesRouterDeps.geminiAdapter?: GeminiAdapter` added. `createHandler` uses Gemini synchronously when bridge disabled: job created (`status=submitting`), Gemini called, result stored (`status=completed`), 202 returned with `status=completed`. GET handler restructured: terminal-cache early-return now comes before the 503 guard so completed Gemini jobs are readable when `HERMES_ENABLED=false`. |
+| `server/hermes/app.ts` | Imports `GeminiHermesAdapter`, constructs it from `GEMINI_API_KEY` + `GEMINI_HERMES_MODEL` (default `gemini-2.5-flash`), passes as `geminiAdapter` dep. |
 
-- **Decision:** exact 10-second video output is deferred to a future add-on and is no
-  longer an initial production release blocker.
-- **Initial release contract:** prompt-to-video remains required, using a documented
-  provider-supported duration selected server-side. The actual duration, codec,
-  dimensions, integrity, ownership, and persistence must be validated and accurately
-  exposed to the user. The release may not claim that a shorter output is 10 seconds.
-- **Branch impact:** the unmerged `swarm/video-pipeline` prototype hardcodes exact
-  10-second normalization. Preserve its work, but do not merge it unchanged; revise the
-  contract around supported durations before opening an integration pull request.
-- **Next dependency:** close P0 staging evidence first, then private-media ownership and
-  signed delivery, followed by the supported-duration video route and provider-fake
-  contracts. Pawprints, complete UI action mapping, AR device evidence/human acceptance,
-  and staging deployment/rollback remain required after those foundations.
+**How it works at runtime:**
 
-The authoritative future add-on requirements are recorded in
-`docs/PRODUCTION_READINESS_SWARM_PLAN.md`. This scope decision removes only the exact
-10-second requirement; it does not authorize deployment or weaken ownership, cost,
-security, media-validation, AR, or human-approval gates.
+`HERMES_ENABLED=false` (unchanged). Gemini adapter is active. POST to `/api/hermes/looks` (or `translate`, `knowledge`) runs the Gemini call synchronously within the request (~1–5 s), stores the result as `completed`, returns 202 with `status: "completed"`. Frontend polling with GET `/api/hermes/jobs/:id` returns the cached result immediately (no bridge round-trip needed).
+
+`looks` result is validated against `HermesLookSpecSchema` (same as the bridge path) before storage. Gemini's `responseSchema` constrained decoding at the token level means schema mismatches are rare; the Zod gate catches any remaining edge cases.
+
+**New env var:**
+
+```
+GEMINI_HERMES_MODEL="gemini-2.5-flash"   # optional, this is the default
+```
+
+`GEMINI_API_KEY` is already set (same key as image generation). No new credentials needed.
+
+**Latency spike (July 9):** The GenerateContent latency increase (49 ms → 7–25 s) correlates with Hermes/Gemma installation. With the bridge disabled and Gemma no longer running, the quota contention source is removed. Monitor GCP after deploy to confirm recovery. If latency persists, investigate `gemini-2.0-flash-exp` usage in three places in `server.ts` (L2113, L3657, L3764) — this model is not in the current stable lineup and may be throttled.
+
+**Still pending from GEMINI_CALL_AUDIT.md:**
+
+- Fix misleading error log at `server.ts` L3762 (says `gemini-2.5-flash-image`, calls `gemini-2.0-flash-exp`)
+- Replace `gemini-2.0-flash-exp` (3 uses) with stable equivalents (`gemini-2.5-flash` for text, `gemini-3.1-flash-image` for image fallback)
+- Wire or delete dead `GEMINI_TEXT_FALLBACK_MODEL` env var
+- Add `gemini-3.1-flash-lite-image` to image chain for Fido's Styles Draft tier (MARKETPLACE_AND_STYLES_SPEC.md Phase 6)
+
+**MARKETPLACE_AND_STYLES_SPEC.md Phase 0 status:** Resolved. Phase 0 was "repoint Hermes at VPS worker" — superseded by this Gemini replacement. Blocking item "VPS Hermes endpoint + secret" is no longer required. Phase 1 (hero copy, featured models, Coming Soon removal) remains unblocked.

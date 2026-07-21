@@ -11,14 +11,14 @@ interface AnimationStudioProps {
   onOpenPro: () => void;
   onOpenCreditStore: () => void;
   onClose: () => void;
+  onCreationsChanged?: () => Promise<void> | void;
 }
 
 /**
- * Default animation creator: pick one of your generated images + a motion
- * prompt → Veo generates a short video. Simple, low-friction path. The full 3D
- * "in-scene" studio is available via "Pro / 3D Studio".
+ * Animate landing screen: pick one of your generated images + a motion prompt
+ * to make a video, or open the contained advanced 3D Animation Builder.
  */
-export default function AnimationStudio({ creations, userProfile, onOpenPro, onOpenCreditStore, onClose }: AnimationStudioProps) {
+export default function AnimationStudio({ creations, userProfile, onOpenPro, onOpenCreditStore, onClose, onCreationsChanged }: AnimationStudioProps) {
   const images = useMemo(() => creations.filter((c) => c.image_url), [creations]);
   const [selectedId, setSelectedId] = useState<number | null>(images[0]?.id ?? null);
   const [presetValue, setPresetValue] = useState<string>(DEFAULT_MOTION_PRESET.value);
@@ -47,14 +47,19 @@ export default function AnimationStudio({ creations, userProfile, onOpenPro, onO
         await new Promise((r) => setTimeout(r, 4000));
         try {
           const job = await pollJob(jobId);
-          if (job.status === "done" && job.video_url) { setResultUrl(job.video_url); setStatus("done"); return; }
+          if (job.status === "done" && job.video_url) {
+            setResultUrl(job.video_url);
+            setStatus("done");
+            await onCreationsChanged?.();
+            return;
+          }
           if (job.status === "failed") { throw new Error(job.error || "Video generation failed."); }
         } catch (pollErr: any) {
           if (pollErr?.message && /failed/i.test(pollErr.message)) throw pollErr;
           // else transient — keep polling
         }
       }
-      throw new Error("This is taking longer than expected. Check your creations shortly — it may still finish.");
+      throw new Error("This is taking longer than expected. Check your FurBin shortly — it may still finish.");
     } catch (err: any) {
       setError(err?.message || "Could not create the animation.");
       setStatus("error");
@@ -66,12 +71,12 @@ export default function AnimationStudio({ creations, userProfile, onOpenPro, onO
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-3">
           <Film size={22} className="text-primary" />
-          <h1 className="text-xl font-extrabold text-on-surface">Create an Animation</h1>
+          <h1 className="text-xl font-extrabold text-on-surface">Video Creator</h1>
         </div>
         <button onClick={onClose} className="text-on-surface-variant hover:text-primary p-2 rounded-full" aria-label="Close"><X size={20} /></button>
       </div>
       <p className="text-sm text-on-surface-variant mb-5">
-        Pick one of your images, choose how it should move, and we'll bring it to life. <strong>{cost} credits</strong> per animation.
+        Create a generated video from one image and a motion prompt. Need a full scene, cast, and timeline? Open the 3D Animation Builder below. <strong>{cost} PupCoins</strong> per video.
       </p>
 
       {/* Result */}
@@ -89,7 +94,7 @@ export default function AnimationStudio({ creations, userProfile, onOpenPro, onO
         <div className="flex flex-col items-center justify-center py-16 gap-4 text-on-surface-variant">
           <RefreshCw className="animate-spin text-primary" size={30} />
           <p className="text-sm font-medium">Animating with AI… this can take a minute or two.</p>
-          <p className="text-xs">You can leave this page — your video will appear in your creations when it's ready.</p>
+          <p className="text-xs">You can leave this page — your video will appear in your FurBin when it's ready.</p>
         </div>
       ) : (
         <>
@@ -152,12 +157,12 @@ export default function AnimationStudio({ creations, userProfile, onOpenPro, onO
             disabled={!selected}
             className="w-full py-4 rounded-full bg-primary text-on-primary font-extrabold flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-50"
           >
-            <Wand2 size={18} /> {canAfford ? `Create Animation · ${cost} cr` : `Get credits to animate (${cost} cr)`}
+            <Wand2 size={18} /> {canAfford ? `Create Animation · ${cost} PupCoins` : `Get PupCoins to animate (${cost})`}
           </button>
 
-          {/* Pro / 3D studio */}
+          {/* Advanced workspace contained under the Video Creator entry point. */}
           <button onClick={onOpenPro} className="w-full mt-3 py-2.5 rounded-full text-sm text-on-surface-variant hover:text-primary flex items-center justify-center gap-2">
-            <Wrench size={15} /> Advanced: open the 3D Studio (Pro)
+            <Wrench size={15} /> Open 3D Animation Builder
           </button>
           <p className="text-[11px] text-center text-on-surface-variant mt-1 flex items-center justify-center gap-1">
             <Sparkles size={11} /> Pose rigged models, add scenes, lights &amp; multiple pets

@@ -19,11 +19,23 @@ const ADMIN_KEY = process.env.ADMIN_KEY || process.env.ADMIN_PHONE || "";
 
 let pool: mysql.Pool | null = null;
 
+function databaseExplicitlyDisabledForTests(): boolean {
+  return process.env.NODE_ENV === "test" && process.env.DB_DISABLED === "1";
+}
+
 export function dbConfigured(): boolean {
+  if (databaseExplicitlyDisabledForTests()) return false;
   return !!(process.env.DB_HOST && process.env.DB_NAME && process.env.DB_USER);
 }
 
+export function setPool(newPool: mysql.Pool) {
+  pool = newPool;
+}
+
 export function getPool(): mysql.Pool {
+  if (databaseExplicitlyDisabledForTests()) {
+    throw new Error("Database is disabled for this test process.");
+  }
   if (!pool) {
     pool = mysql.createPool({
       host: process.env.DB_HOST || "localhost",
@@ -69,6 +81,7 @@ export interface UserRow {
   pawprint_tokens?: number;
   referral_code?: string | null;
   referred_by?: string | null;
+  free_avatar_available?: number;
 }
 
 /** Public-safe shape returned to the client. */
@@ -77,6 +90,7 @@ export interface PublicUser {
   fullName: string;
   email: string;
   credits: number;
+  freeAvatarAvailable: boolean;
   treats: number;
   city: string;
   zip?: string;
@@ -116,6 +130,7 @@ export function toPublicUser(userRow: any, currentTermsVersion?: string): Public
     birthdate: userRow.birthdate || "",
     profileComplete: !!userRow.profile_complete,
     credits: userRow.credits,
+    freeAvatarAvailable: !!userRow.free_avatar_available,
     treats: userRow.treats || 0,
     isAdmin: !!userRow.is_admin || (!!ADMIN_KEY && userRow.phone === ADMIN_KEY),
     isTester: !!userRow.is_tester,
@@ -157,6 +172,7 @@ export async function initDb(): Promise<void> {
         is_admin TINYINT(1) NOT NULL DEFAULT 0,
         daily_streak INT NOT NULL DEFAULT 0,
         last_streak_claim DATE NULL,
+        free_avatar_available TINYINT(1) NOT NULL DEFAULT 1,
         achievements_json TEXT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -185,6 +201,7 @@ export async function initDb(): Promise<void> {
       { name: "is_tester",         ddl: "ADD COLUMN is_tester TINYINT(1) NOT NULL DEFAULT 0" },
       { name: "daily_streak",      ddl: "ADD COLUMN daily_streak INT NOT NULL DEFAULT 0" },
       { name: "last_streak_claim", ddl: "ADD COLUMN last_streak_claim DATE NULL" },
+      { name: "free_avatar_available", ddl: "ADD COLUMN free_avatar_available TINYINT(1) NOT NULL DEFAULT 1" },
       { name: "achievements_json", ddl: "ADD COLUMN achievements_json TEXT NULL" },
       { name: "profile_photo_url", ddl: "ADD COLUMN profile_photo_url TEXT NULL" },
       // Phase 8 columns
@@ -283,7 +300,255 @@ export async function initDb(): Promise<void> {
         INDEX (status)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
-    
+
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS print_orders (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        user_phone VARCHAR(32) NOT NULL,
+        source_type ENUM('creation','avatar') NOT NULL,
+        source_id INT NOT NULL,
+        provider VARCHAR(32) NOT NULL DEFAULT 'slant3d',
+        provider_pack_id VARCHAR(64) NULL,
+        provider_file_id VARCHAR(128) NULL,
+        stl_url TEXT NOT NULL,
+        target_height_mm DECIMAL(8,2) NOT NULL,
+        dimensions_json JSON NULL,
+        topology_json JSON NULL,
+        checkout_url TEXT NULL,
+        idempotency_key VARCHAR(128) NULL,
+        provider_cost_cents INT NULL,
+        retail_price_cents INT NULL,
+        stripe_session_id VARCHAR(128) NULL,
+        provider_payload_json JSON NULL,
+        status VARCHAR(40) NOT NULL DEFAULT 'prepared',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX (user_phone),
+        INDEX (provider_pack_id),
+        UNIQUE KEY uniq_print_request (user_phone, idempotency_key),
+        FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    try {
+      const [printColumns] = await getPool().query(
+        `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'print_orders'`,
+      ) as any;
+      const printColumnNames = new Set(printColumns.map((row: any) => String(row.COLUMN_NAME)));
+      const printMigrations = [
+        ["idempotency_key", "ADD COLUMN idempotency_key VARCHAR(128) NULL AFTER checkout_url"],
+        ["provider_file_id", "ADD COLUMN provider_file_id VARCHAR(128) NULL AFTER provider_pack_id"],
+        ["provider_cost_cents", "ADD COLUMN provider_cost_cents INT NULL AFTER idempotency_key"],
+        ["retail_price_cents", "ADD COLUMN retail_price_cents INT NULL AFTER provider_cost_cents"],
+        ["stripe_session_id", "ADD COLUMN stripe_session_id VARCHAR(128) NULL AFTER retail_price_cents"],
+        ["provider_payload_json", "ADD COLUMN provider_payload_json JSON NULL AFTER stripe_session_id"],
+      ];
+      for (const [name, ddl] of printMigrations) {
+        if (!printColumnNames.has(name)) await getPool().query(`ALTER TABLE print_orders ${ddl}`);
+      }
+      await getPool().query(`ALTER TABLE print_orders MODIFY COLUMN provider VARCHAR(32) NOT NULL DEFAULT 'slant3d'`);
+      await getPool().query(`ALTER TABLE print_orders MODIFY COLUMN status VARCHAR(40) NOT NULL DEFAULT 'prepared'`);
+      const [printIndexes] = await getPool().query(
+        `SELECT INDEX_NAME FROM information_schema.STATISTICS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'print_orders' AND INDEX_NAME = 'uniq_print_request'`,
+      ) as any;
+      if (!printIndexes.length) {
+        await getPool().query(`ALTER TABLE print_orders ADD UNIQUE INDEX uniq_print_request (user_phone, idempotency_key)`);
+      }
+    } catch (migrationError) {
+      console.warn("⚠️ Could not migrate print_orders idempotency fields:", migrationError);
+    }
+
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS pawprint_print_orders (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        user_phone VARCHAR(32) NOT NULL,
+        creation_id INT NOT NULL,
+        provider VARCHAR(32) NOT NULL DEFAULT 'printful',
+        product_code VARCHAR(48) NOT NULL,
+        provider_order_id VARCHAR(128) NULL,
+        print_file_url TEXT NOT NULL,
+        recipient_json JSON NOT NULL,
+        quantity INT NOT NULL DEFAULT 1,
+        price_cents INT NULL,
+        provider_cost_cents INT NULL,
+        retail_price_cents INT NULL,
+        stripe_session_id VARCHAR(128) NULL,
+        checkout_url TEXT NULL,
+        provider_payload_json JSON NULL,
+        status VARCHAR(32) NOT NULL DEFAULT 'draft',
+        idempotency_key VARCHAR(128) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_pawprint_print_request (user_phone, idempotency_key),
+        INDEX (user_phone),
+        INDEX (creation_id),
+        INDEX (provider_order_id),
+        FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    try {
+      const [pawprintOrderColumns] = await getPool().query(
+        `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'pawprint_print_orders'`,
+      ) as any;
+      const names = new Set(pawprintOrderColumns.map((row: any) => String(row.COLUMN_NAME)));
+      const migrations = [
+        ["provider_cost_cents", "ADD COLUMN provider_cost_cents INT NULL AFTER price_cents"],
+        ["retail_price_cents", "ADD COLUMN retail_price_cents INT NULL AFTER provider_cost_cents"],
+        ["stripe_session_id", "ADD COLUMN stripe_session_id VARCHAR(128) NULL AFTER retail_price_cents"],
+        ["checkout_url", "ADD COLUMN checkout_url TEXT NULL AFTER stripe_session_id"],
+        ["provider_payload_json", "ADD COLUMN provider_payload_json JSON NULL AFTER checkout_url"],
+      ];
+      for (const [name, ddl] of migrations) {
+        if (!names.has(name)) await getPool().query(`ALTER TABLE pawprint_print_orders ${ddl}`);
+      }
+    } catch (migrationError) {
+      console.warn("⚠️ Could not migrate Pawprint print order payment fields:", migrationError);
+    }
+
+    // =====================================================================
+    // Marketplace (IMPLEMENTATION_SPEC.md §4.3, migration 011_marketplace.sql)
+    // =====================================================================
+
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS marketplace_listings (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        uuid CHAR(36) NOT NULL,
+        slug VARCHAR(140) NOT NULL,
+        name VARCHAR(160) NOT NULL,
+        breed VARCHAR(120) NULL,
+        category ENUM('breed','memorial','accessories','seasonal') NOT NULL,
+        description TEXT NULL,
+        tags_json JSON NULL,
+        dimensions_json JSON NULL,
+        print_notes TEXT NULL,
+        digital_price_cents INT NULL,
+        physical_enabled TINYINT(1) NOT NULL DEFAULT 0,
+        print_size_min_mm DECIMAL(8,2) NULL,
+        print_size_max_mm DECIMAL(8,2) NULL,
+        status ENUM('draft','published','archived') NOT NULL DEFAULT 'draft',
+        sort_order INT NOT NULL DEFAULT 0,
+        created_by VARCHAR(32) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_marketplace_uuid (uuid),
+        UNIQUE KEY uniq_marketplace_slug (slug),
+        INDEX idx_marketplace_status_sort (status, sort_order),
+        INDEX idx_marketplace_category (category),
+        CONSTRAINT fk_marketplace_creator FOREIGN KEY (created_by) REFERENCES users(phone) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS marketplace_assets (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        listing_id BIGINT NOT NULL,
+        asset_uuid CHAR(36) NOT NULL,
+        kind ENUM('source_glb','preview_image','stl_derivative') NOT NULL,
+        bucket ENUM('public','private') NOT NULL,
+        object_key VARCHAR(512) NOT NULL,
+        mime_type VARCHAR(120) NOT NULL,
+        size_bytes BIGINT NOT NULL,
+        sha256 CHAR(64) NOT NULL,
+        version INT NOT NULL DEFAULT 1,
+        status ENUM('active','superseded') NOT NULL DEFAULT 'active',
+        sort_order INT NOT NULL DEFAULT 0,
+        derivative_height_mm DECIMAL(8,2) NULL,
+        source_provider ENUM('original','sketchfab') NOT NULL DEFAULT 'original',
+        source_url VARCHAR(512) NULL,
+        source_author VARCHAR(190) NULL,
+        source_license VARCHAR(40) NULL,
+        attribution_text VARCHAR(500) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_marketplace_asset_uuid (asset_uuid),
+        UNIQUE KEY uniq_marketplace_object_key (object_key),
+        INDEX idx_marketplace_asset_listing (listing_id, kind, status, sort_order),
+        CONSTRAINT fk_marketplace_asset_listing FOREIGN KEY (listing_id) REFERENCES marketplace_listings(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS marketplace_digital_orders (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        user_phone VARCHAR(32) NOT NULL,
+        listing_id BIGINT NOT NULL,
+        asset_id BIGINT NOT NULL,
+        price_cents INT NOT NULL,
+        currency CHAR(3) NOT NULL DEFAULT 'usd',
+        stripe_session_id VARCHAR(128) NULL,
+        stripe_payment_intent VARCHAR(128) NULL,
+        idempotency_key VARCHAR(128) NOT NULL,
+        status VARCHAR(40) NOT NULL DEFAULT 'awaiting_payment',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_marketplace_digital_idem (user_phone, idempotency_key),
+        INDEX idx_marketplace_digital_user (user_phone),
+        INDEX idx_marketplace_digital_session (stripe_session_id),
+        CONSTRAINT fk_marketplace_digital_user FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE,
+        CONSTRAINT fk_marketplace_digital_listing FOREIGN KEY (listing_id) REFERENCES marketplace_listings(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // The UNIQUE key is what makes Stripe webhook replay safe: the handler uses
+    // INSERT ... ON DUPLICATE KEY UPDATE id = id, so a redelivered event is a
+    // no-op rather than a duplicate grant or a 500 that triggers more retries.
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS marketplace_entitlements (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        user_phone VARCHAR(32) NOT NULL,
+        listing_id BIGINT NOT NULL,
+        asset_id BIGINT NOT NULL,
+        digital_order_id BIGINT NULL,
+        granted_reason ENUM('purchase','admin_grant','refund_reversal') NOT NULL DEFAULT 'purchase',
+        revoked_at TIMESTAMP NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_marketplace_entitlement (user_phone, listing_id, asset_id),
+        INDEX idx_marketplace_entitlement_user (user_phone),
+        CONSTRAINT fk_marketplace_ent_user FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE,
+        CONSTRAINT fk_marketplace_ent_listing FOREIGN KEY (listing_id) REFERENCES marketplace_listings(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS fidos_projects (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        user_phone VARCHAR(32) NOT NULL,
+        avatar_id INT NULL,
+        name VARCHAR(160) NOT NULL,
+        prompt TEXT NULL,
+        wardrobe_json JSON NULL,
+        settings_json JSON NULL,
+        quality_tier ENUM('draft','standard','studio') NOT NULL DEFAULT 'standard',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_fidos_user (user_phone, updated_at),
+        CONSTRAINT fk_fidos_user FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // Widen print_orders.source_type so marketplace listings reuse the existing
+    // Slant 3D fulfillment path. Additive: no existing row changes meaning and
+    // every current read path filters source_type explicitly. Guarded because
+    // this runs on every boot.
+    try {
+      const [sourceTypeCol] = await getPool().query(
+        `SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'print_orders' AND COLUMN_NAME = 'source_type'`,
+      ) as any;
+      const columnType = String(sourceTypeCol?.[0]?.COLUMN_TYPE || "");
+      if (columnType && !columnType.includes("marketplace_listing")) {
+        await getPool().query(
+          `ALTER TABLE print_orders MODIFY COLUMN source_type ENUM('creation','avatar','marketplace_listing') NOT NULL`,
+        );
+        console.log("✅ Migration: print_orders.source_type now accepts 'marketplace_listing'.");
+      }
+    } catch (migrationError) {
+      console.warn("⚠️ Could not widen print_orders.source_type:", migrationError);
+    }
+
     await getPool().query(`
       CREATE TABLE IF NOT EXISTS pets (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -366,6 +631,29 @@ export async function initDb(): Promise<void> {
       );
     } catch (migErr) {
       console.warn("⚠️ Schema migration warning (model support):", migErr);
+    }
+
+    // Optional rigging on the create pipeline (redress P3/P4): rig-stage job
+    // statuses + rigged artifact/report columns on creations. Safe to re-run.
+    try {
+      const [rigCols] = await getPool().query(
+        `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'creations' AND COLUMN_NAME IN ('rigged_model_url','rig_report')`,
+        [dbName]
+      ) as any;
+      const rigColNames = (rigCols as any[]).map((c: any) => c.COLUMN_NAME);
+      if (!rigColNames.includes("rigged_model_url")) {
+        await getPool().query(`ALTER TABLE creations ADD COLUMN rigged_model_url LONGTEXT NULL AFTER model_url`);
+        console.log("✅ Migration: added creations.rigged_model_url");
+      }
+      if (!rigColNames.includes("rig_report")) {
+        await getPool().query(`ALTER TABLE creations ADD COLUMN rig_report JSON NULL AFTER rigged_model_url`);
+        console.log("✅ Migration: added creations.rig_report");
+      }
+      await getPool().query(
+        `ALTER TABLE generation_jobs MODIFY COLUMN status ENUM('queued','running','rigging','validating','done','done_static_fallback','failed') NOT NULL DEFAULT 'queued'`
+      );
+    } catch (migErr) {
+      console.warn("⚠️ Schema migration warning (optional rigging):", migErr);
     }
 
     const requiredAvatarColumns: { name: string; ddl: string }[] = [
@@ -621,6 +909,18 @@ export async function initDb(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
+    // Per-user wardrobe choices. Geometry remains an immutable catalog derivative;
+    // this table stores only stable item IDs selected by the user.
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS wardrobe_selections (
+        user_phone VARCHAR(32) NOT NULL,
+        item_id    VARCHAR(64) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_phone, item_id),
+        INDEX (user_phone)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
     // Migration check for creations table
     const [creationsCols] = await getPool().query(
       `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'creations'`,
@@ -789,6 +1089,98 @@ export async function initDb(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
+    // Create pipeline state for guided 3D model generation (Phase 2).
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS create_pipeline_sessions (
+        id VARCHAR(64) PRIMARY KEY,
+        user_phone VARCHAR(32) NOT NULL,
+        species VARCHAR(32) NOT NULL,
+        breed VARCHAR(120) NULL,
+        pet_name VARCHAR(120) NULL,
+        intent VARCHAR(120) NULL,
+        style VARCHAR(32) NULL,
+        input_photo_url TEXT NULL,
+        candidate_image_url TEXT NULL,
+        customization_state JSON NULL,
+        validation_state JSON NULL,
+        status ENUM('draft', 'reference_ready', 'approved', 'customizing', 'validation_failed', 'print_ready', 'building', 'complete', 'failed') NOT NULL DEFAULT 'draft',
+        idempotency_key VARCHAR(120) NULL,
+        build_job_id INT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX (user_phone),
+        INDEX (status),
+        FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // Migration: Add build_starting and recovery_required to status enum idempotently
+    try {
+      const [colRows]: any = await getPool().query(
+        "SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_NAME = 'create_pipeline_sessions' AND COLUMN_NAME = 'status' AND TABLE_SCHEMA = DATABASE()"
+      );
+      if (colRows && colRows.length > 0) {
+        const colType = colRows[0].COLUMN_TYPE; // e.g. enum('draft','reference_ready',...)
+        if (colType.startsWith('enum')) {
+          // Extract existing values
+          const match = colType.match(/enum\((.*)\)/);
+          if (match && match[1]) {
+            const existingVals = match[1].split(',').map((s: string) => s.replace(/'/g, ''));
+            const toAdd = ['build_starting', 'recovery_required'];
+            let needsMigration = false;
+            for (const v of toAdd) {
+              if (!existingVals.includes(v)) {
+                existingVals.push(v);
+                needsMigration = true;
+              }
+            }
+            if (needsMigration) {
+              const newEnumStr = existingVals.map((v: string) => `'${v}'`).join(',');
+              await getPool().query(`ALTER TABLE create_pipeline_sessions MODIFY COLUMN status ENUM(${newEnumStr}) NOT NULL DEFAULT 'draft'`);
+              console.log("✅ Migrated create_pipeline_sessions.status enum to include new states.");
+            }
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn("⚠️ Could not migrate create_pipeline_sessions.status:", e?.message || e);
+    }
+
+    // Earlier Phase 2 builds mistakenly created validation_state as
+    // VARCHAR(32), truncating the validation JSON and causing every approval
+    // to fail as "missing, invalid, or stale". Preserve valid documents,
+    // discard only already-truncated values, then enforce a JSON column.
+    try {
+      const [validationCols]: any = await getPool().query(
+        "SELECT DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_NAME = 'create_pipeline_sessions' AND COLUMN_NAME = 'validation_state' AND TABLE_SCHEMA = DATABASE()"
+      );
+      if (validationCols?.[0]?.DATA_TYPE !== 'json') {
+        await getPool().query(
+          "UPDATE create_pipeline_sessions SET validation_state = NULL WHERE validation_state IS NOT NULL AND JSON_VALID(validation_state) = 0"
+        );
+        await getPool().query(
+          "ALTER TABLE create_pipeline_sessions MODIFY COLUMN validation_state JSON NULL"
+        );
+        console.log("✅ Migrated create_pipeline_sessions.validation_state to JSON.");
+      }
+    } catch (e: any) {
+      console.warn("⚠️ Could not migrate create_pipeline_sessions.validation_state:", e?.message || e);
+    }
+
+    // Migration: Add provider_handle column idempotently
+    try {
+      await getPool().query("ALTER TABLE create_pipeline_sessions ADD COLUMN provider_handle VARCHAR(255) NULL");
+      // Add index for recovery lookup
+      await getPool().query("ALTER TABLE create_pipeline_sessions ADD INDEX idx_provider_handle (provider_handle)");
+      console.log("✅ Added provider_handle to create_pipeline_sessions.");
+    } catch (e: any) {
+      if (e?.code === 'ER_DUP_FIELDNAME') {
+        // already exists, fine
+      } else {
+        console.warn("⚠️ Could not add provider_handle column:", e?.message || e);
+      }
+    }
+
     // Email hygiene (guarded — must never abort init): normalize to lower-case,
     // then best-effort enforce uniqueness. The UNIQUE index only applies once any
     // legacy duplicate-email rows have been removed; until then it is skipped.
@@ -845,6 +1237,227 @@ export async function initDb(): Promise<void> {
     } catch (seedErr) {
       console.warn("⚠️ Admin seed skipped:", seedErr);
     }
+    // ── Fido's Styles: per-user, per-avatar project settings (Phase 6) ─────────
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS fidos_projects (
+        id            BIGINT AUTO_INCREMENT PRIMARY KEY,
+        user_phone    VARCHAR(32) NOT NULL,
+        avatar_id     INT NOT NULL,
+        settings_json JSON NOT NULL DEFAULT (JSON_OBJECT()),
+        created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_user_avatar (user_phone, avatar_id),
+        INDEX (user_phone),
+        FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // ── Wardrobe Wags: subscription, box, and item tables (Wags W1) ──────────
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS wardrobe_wags_subscriptions (
+        id                      BIGINT AUTO_INCREMENT PRIMARY KEY,
+        user_phone              VARCHAR(32) NOT NULL,
+        pet_id                  INT NOT NULL,
+        species                 ENUM('dog','cat') NOT NULL,
+        tier                    ENUM('basic','plus') NOT NULL DEFAULT 'basic',
+        billing_period          ENUM('monthly','annual') NOT NULL DEFAULT 'monthly',
+        stripe_subscription_id  VARCHAR(128) NOT NULL,
+        stripe_customer_id      VARCHAR(128) NOT NULL,
+        status                  ENUM('active','paused','cancelled') NOT NULL DEFAULT 'active',
+        current_period_start    DATE NOT NULL,
+        current_period_end      DATE NOT NULL,
+        annual_bonus_delivered_year INT NULL,
+        cancel_at_period_end    TINYINT(1) NOT NULL DEFAULT 0,
+        cancelled_at            TIMESTAMP NULL,
+        created_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_stripe_sub (stripe_subscription_id),
+        INDEX (user_phone),
+        INDEX (pet_id),
+        FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS wardrobe_wags_boxes (
+        id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+        subscription_id BIGINT NOT NULL,
+        user_phone      VARCHAR(32) NOT NULL,
+        box_month       CHAR(7) NOT NULL,
+        status          ENUM(
+          'pending_review','approved','rejected','delivered',
+          'delivered_flagged','reviewed_ok','reviewed_issue'
+        ) NOT NULL DEFAULT 'pending_review',
+        plan_json       JSON NULL,
+        admin_notes     TEXT NULL,
+        reviewed_by     VARCHAR(32) NULL,
+        reviewed_at     TIMESTAMP NULL,
+        delivered_at    TIMESTAMP NULL,
+        created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_sub_month (subscription_id, box_month),
+        INDEX (user_phone),
+        INDEX (status),
+        FOREIGN KEY (subscription_id) REFERENCES wardrobe_wags_subscriptions(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS wardrobe_wags_box_items (
+        id                    BIGINT AUTO_INCREMENT PRIMARY KEY,
+        box_id                BIGINT NOT NULL,
+        slot                  ENUM(
+          'accessory','seasonal','minimodel','pawprint',
+          'accessory_2','accessory_3',
+          'sticker_1','sticker_2','sticker_3','sticker_4','sticker_5',
+          'credit_pack','video_gen','restyle',
+          'calendar'
+        ) NOT NULL,
+        listing_id            BIGINT NULL,
+        asset_id              BIGINT NULL,
+        entitlement_type      VARCHAR(60) NULL,
+        credit_amount         INT NULL,
+        personalization_note  VARCHAR(200) NULL,
+        swapped_by_admin      TINYINT(1) NOT NULL DEFAULT 0,
+        created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX (box_id),
+        FOREIGN KEY (box_id) REFERENCES wardrobe_wags_boxes(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // W3 delivery columns. Guarded because these tables may already exist from
+    // the W1/W2 boot before delivery shipped.
+    try {
+      const [itemCols] = await getPool().query(
+        `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wardrobe_wags_box_items'`,
+      ) as any;
+      const itemNames = new Set(itemCols.map((row: any) => String(row.COLUMN_NAME)));
+      const itemMigrations: Array<[string, string]> = [
+        // Materialized plan copy: the inbox renders from box_items alone, so a
+        // later re-plan can never silently rewrite what a user already received.
+        ["title", "ADD COLUMN title VARCHAR(160) NULL AFTER entitlement_type"],
+        ["description", "ADD COLUMN description VARCHAR(600) NULL AFTER title"],
+        // Which renderable wardrobe item this slot unlocked (WAGS_EXCLUSIVE ids).
+        ["wardrobe_item_id", "ADD COLUMN wardrobe_item_id VARCHAR(64) NULL AFTER listing_id"],
+      ];
+      for (const [name, ddl] of itemMigrations) {
+        if (!itemNames.has(name)) await getPool().query(`ALTER TABLE wardrobe_wags_box_items ${ddl}`);
+      }
+      const [boxCols] = await getPool().query(
+        `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wardrobe_wags_boxes'`,
+      ) as any;
+      const boxNames = new Set(boxCols.map((row: any) => String(row.COLUMN_NAME)));
+      if (!boxNames.has("opened_at")) {
+        // Unboxing is a once-per-box reveal; opened_at records it server-side so
+        // the animation cannot replay on every visit.
+        await getPool().query(`ALTER TABLE wardrobe_wags_boxes ADD COLUMN opened_at TIMESTAMP NULL AFTER delivered_at`);
+      }
+    } catch (migrationError) {
+      console.warn("⚠️ Could not migrate Wags delivery columns:", migrationError);
+    }
+
+    // UV8 texture re-bake jobs (migration 012_texture_jobs.sql).
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS texture_jobs (
+        id CHAR(36) NOT NULL PRIMARY KEY,
+        user_phone VARCHAR(32) NOT NULL,
+        avatar_id INT NOT NULL,
+        job_type ENUM('rebake','stylize') NOT NULL DEFAULT 'rebake',
+        status ENUM('queued','processing','rendering_views','stylizing','baking','completed','failed') NOT NULL DEFAULT 'queued',
+        source_model_url TEXT NOT NULL,
+        result_model_url TEXT NULL,
+        stats_json JSON NULL,
+        error VARCHAR(400) NULL,
+        idempotency_key VARCHAR(128) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_texture_idem (user_phone, idempotency_key),
+        INDEX idx_texture_user (user_phone, created_at),
+        INDEX idx_texture_avatar (avatar_id),
+        CONSTRAINT fk_texture_user FOREIGN KEY (user_phone) REFERENCES users(phone) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // Migrate texture_jobs for UV6/UV7 stylization
+    try {
+      const [tjCols] = await getPool().query(
+        `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'texture_jobs'`
+      ) as any;
+      const tjNames = new Set(tjCols.map((row: any) => String(row.COLUMN_NAME)));
+
+      if (!tjNames.has("prompt")) {
+        // Enlarge ENUM types safely
+        await getPool().query(`ALTER TABLE texture_jobs MODIFY COLUMN job_type ENUM('rebake','stylize') NOT NULL DEFAULT 'rebake'`);
+        await getPool().query(`ALTER TABLE texture_jobs MODIFY COLUMN status ENUM('queued','processing','rendering_views','stylizing','baking','completed','failed') NOT NULL DEFAULT 'queued'`);
+        // Add new columns
+        await getPool().query(`ALTER TABLE texture_jobs ADD COLUMN prompt VARCHAR(1000) NULL AFTER job_type`);
+        await getPool().query(`ALTER TABLE texture_jobs ADD COLUMN tier ENUM('draft','standard','studio') NULL AFTER prompt`);
+        await getPool().query(`ALTER TABLE texture_jobs ADD COLUMN identity_strength ENUM('high','medium','stylized') NULL AFTER tier`);
+      }
+    } catch (err) {
+      console.warn("⚠️ Could not migrate texture_jobs stylization columns:", err);
+    }
+
+    // -----------------------------------------------------------------------
+    // Pet Health — H1: persistent health profile per avatar
+    // -----------------------------------------------------------------------
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS pet_health_profiles (
+        id                    BIGINT AUTO_INCREMENT PRIMARY KEY,
+        avatar_id             INT NOT NULL,
+        user_phone            VARCHAR(32) NOT NULL,
+        birthday              DATE NULL,
+        weight_kg             DECIMAL(5,2) NULL,
+        weight_unit           ENUM('kg','lb') NOT NULL DEFAULT 'lb',
+        target_weight_kg      DECIMAL(5,2) NULL,
+        body_condition_score  TINYINT NULL COMMENT '1-9 BCS (5=ideal)',
+        sterilized            TINYINT(1) NOT NULL DEFAULT 0,
+        microchip_id          VARCHAR(60) NULL,
+        vet_name              VARCHAR(120) NULL,
+        vet_phone             VARCHAR(30) NULL,
+        vet_email             VARCHAR(120) NULL,
+        next_vet_visit        DATE NULL,
+        next_vaccine_due      DATE NULL,
+        insurance_provider    VARCHAR(120) NULL,
+        notes                 TEXT NULL,
+        created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_health_avatar (avatar_id),
+        INDEX idx_health_phone (user_phone),
+        FOREIGN KEY (avatar_id) REFERENCES avatars(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Static health profile, one per avatar';
+    `);
+
+    // H1: time-series health log entries (weight, vet, meds, symptoms)
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS pet_health_logs (
+        id                    BIGINT AUTO_INCREMENT PRIMARY KEY,
+        avatar_id             INT NOT NULL,
+        user_phone            VARCHAR(32) NOT NULL,
+        log_type              ENUM(
+          'weight','body_condition','vet_visit','vaccine',
+          'medication','symptom','note','dental','grooming'
+        ) NOT NULL,
+        logged_at             DATE NOT NULL,
+        weight_kg             DECIMAL(5,2) NULL,
+        body_condition_score  TINYINT NULL,
+        value_numeric         DECIMAL(8,2) NULL,
+        value_text            VARCHAR(400) NULL,
+        notes                 TEXT NULL,
+        created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_health_log_avatar (avatar_id, logged_at DESC),
+        INDEX idx_health_log_phone  (user_phone, logged_at DESC),
+        FOREIGN KEY (avatar_id) REFERENCES avatars(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Time-series health events';
+    `);
+
+    console.log("✅ pet_health_profiles and pet_health_logs tables ready.");
+    console.log("✅ fidos_projects and wardrobe_wags tables ready.");
+
   } catch (err) {
     console.error("Failed to initialize database:", err);
   }
@@ -876,8 +1489,8 @@ export class EmailTakenError extends Error {
 /**
  * Create a fresh (profile-incomplete) account gated by email + password.
  * A synthetic internal key is generated for the users.phone column so the
- * existing foreign-key relationships keep working. The 50 free credits are NOT
- * granted here — they are granted when the user completes their profile.
+ * existing foreign-key relationships keep working. New users receive a
+ * one-time free-avatar entitlement, not wallet credits.
  */
 export async function createUserByEmail(email: string, passwordHash: string, acceptedTermsVersion: string): Promise<UserRow> {
   // Guard against a race / duplicate before insert.
@@ -888,8 +1501,8 @@ export async function createUserByEmail(email: string, passwordHash: string, acc
   try {
     await getPool().query(
       `INSERT INTO users
-         (phone, email, password_hash, credits, treats, profile_complete, accepted_terms_version, accepted_terms_at)
-       VALUES (?, ?, ?, 0, 0, 0, ?, NOW())`,
+         (phone, email, password_hash, credits, treats, profile_complete, free_avatar_available, accepted_terms_version, accepted_terms_at)
+       VALUES (?, ?, ?, 0, 0, 0, 1, ?, NOW())`,
       [userKey, email, passwordHash, acceptedTermsVersion]
     );
   } catch (err: any) {
@@ -918,7 +1531,8 @@ export async function acceptTermsVersion(phone: string, termsVersion: string): P
 /**
  * Save the required profile details and mark the profile complete.
  * Email + password were already set at sign-up, so they are not touched here.
- * Grants the 50 free credits only the first time the profile is completed.
+ * Completes the profile without granting wallet credits. The free-avatar
+ * entitlement is consumed later by the avatar generation route.
  */
 export async function completeUserProfile(
   phone: string,
@@ -931,7 +1545,6 @@ export async function completeUserProfile(
        SET full_name = ?,
            birthdate = ?,
            city = ?,
-           credits = CASE WHEN profile_complete = 0 THEN credits + 50 ELSE credits END,
            profile_complete = 1
      WHERE phone = ?`,
     [fullName, birthdate, city, phone]
@@ -945,6 +1558,23 @@ export async function completeUserProfile(
 export async function getCreditBalance(phone: string): Promise<number> {
   const user = await findUserByPhone(phone);
   return user ? user.credits : 0;
+}
+
+export async function claimFreeAvatar(phone: string): Promise<boolean> {
+  const [result] = await getPool().query(
+    `UPDATE users SET free_avatar_available = 0
+      WHERE phone = ? AND profile_complete = 1 AND free_avatar_available = 1`,
+    [phone]
+  ) as any;
+  return result.affectedRows === 1;
+}
+
+export async function releaseFreeAvatar(phone: string): Promise<void> {
+  await getPool().query(
+    `UPDATE users SET free_avatar_available = 1
+      WHERE phone = ? AND free_avatar_available = 0`,
+    [phone]
+  );
 }
 
 /**
@@ -1311,13 +1941,49 @@ export interface JobRow {
   updated_at: string;
 }
 
+export type JobKind = 'still' | 'video' | 'model';
+
+export const JOB_KINDS: readonly JobKind[] = ['still', 'video', 'model'] as const;
+
+/**
+ * Guard the generation_jobs.kind enum in application code.
+ *
+ * The production database runs with sql_mode =
+ * "IGNORE_SPACE,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION" — note the absence
+ * of STRICT_TRANS_TABLES. MariaDB in non-strict mode does not reject an invalid
+ * ENUM value; it silently coerces it to the empty string and returns success.
+ * Rows 21-23 in generation_jobs carry kind='' for exactly this reason.
+ *
+ * That makes the column's type declaration decorative: the only place an
+ * invalid kind can actually be caught is here, before the INSERT. Callers that
+ * pass `jobData: any` (commitPipelineSessionBuild, recoverPipelineSession) have
+ * no compile-time protection, so this runtime check is the only backstop.
+ */
+export function isJobKind(kind: unknown): kind is JobKind {
+  return typeof kind === 'string' && JOB_KINDS.includes(kind as JobKind);
+}
+
+export function jobKindError(kind: unknown): string {
+  return (
+    `Invalid generation_jobs.kind: ${JSON.stringify(kind)}. ` +
+    `Expected one of ${JOB_KINDS.join(', ')}. Refusing the insert — the database ` +
+    `runs non-strict and would silently store '' instead of rejecting this.`
+  );
+}
+
+/** Throwing form, for callers that return a bare value and have no error channel. */
+export function assertJobKind(kind: unknown): asserts kind is JobKind {
+  if (!isJobKind(kind)) throw new Error(jobKindError(kind));
+}
+
 export async function createJob(data: {
   user_phone: string;
   creation_id?: number | null;
-  kind: 'still' | 'video' | 'model';
+  kind: JobKind;
   credits_reserved: number;
   operation_name?: string | null;
 }): Promise<number> {
+  assertJobKind(data.kind);
   const [result] = await getPool().query(
     `INSERT INTO generation_jobs (user_phone, creation_id, kind, credits_reserved, operation_name, status)
      VALUES (?, ?, ?, ?, ?, 'queued')`,
@@ -1328,7 +1994,7 @@ export async function createJob(data: {
 
 export async function updateJobStatus(
   jobId: number,
-  status: 'queued' | 'running' | 'done' | 'failed',
+  status: 'queued' | 'running' | 'rigging' | 'validating' | 'done' | 'done_static_fallback' | 'failed',
   error?: string | null,
   operationName?: string | null
 ): Promise<boolean> {
@@ -1386,6 +2052,35 @@ export async function setCreationModelUrl(creationId: number, phone: string, mod
     [modelUrl, creationId, phone]
   ) as any;
   return result.affectedRows === 1;
+}
+
+/** P3 optional rigging: persist the rigged GLB + validation report alongside the static model. */
+export async function setCreationRiggedModel(
+  creationId: number,
+  phone: string,
+  riggedModelUrl: string,
+  rigReport: unknown
+): Promise<boolean> {
+  const [result] = await getPool().query(
+    `UPDATE creations SET rigged_model_url = ?, rig_report = ? WHERE id = ? AND user_phone = ?`,
+    [riggedModelUrl, JSON.stringify(rigReport ?? null), creationId, phone]
+  ) as any;
+  return result.affectedRows === 1;
+}
+
+/** P3 optional rigging: find the create-pipeline session that owns a build job. */
+export async function getPipelineSessionByBuildJobId(jobId: number): Promise<CreatePipelineSession | null> {
+  const [rows] = await getPool().query(
+    `SELECT * FROM create_pipeline_sessions WHERE build_job_id = ? LIMIT 1`,
+    [jobId]
+  ) as any;
+  if (!rows || rows.length === 0) return null;
+  const row = rows[0];
+  let customization_state = null;
+  try {
+    if (row.customization_state) customization_state = JSON.parse(row.customization_state);
+  } catch (e) {}
+  return { ...row, customization_state };
 }
 
 export async function getDailyVideoCount(phone: string): Promise<number> {
@@ -1953,32 +2648,41 @@ export async function claimDailyStreak(phone: string): Promise<{success: boolean
   if (!user) return { success: false };
 
   const today = new Date().toISOString().split('T')[0];
-  if (user.last_streak_claim && user.last_streak_claim.startsWith(today)) {
+  // mysql2 may return DATE columns as strings or Date objects depending on
+  // connection configuration. Normalize before comparing calendar dates.
+  const rawClaimedDate: unknown = user.last_streak_claim;
+  const claimedDate = rawClaimedDate instanceof Date
+    ? rawClaimedDate.toISOString().split('T')[0]
+    : rawClaimedDate ? String(rawClaimedDate).slice(0, 10) : null;
+  if (claimedDate === today) {
     return { success: false }; // Already claimed today
   }
 
   // Determine if it's contiguous (yesterday)
   let newStreak = 1;
-  if (user.last_streak_claim) {
+  if (claimedDate) {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const yesterdayStr = yesterday.toISOString().split('T')[0];
-    if (user.last_streak_claim.startsWith(yesterdayStr)) {
+    if (claimedDate === yesterdayStr) {
       newStreak = (user.daily_streak || 0) + 1;
     }
   }
 
-  // Reward: 5 credits and 1 treat
+  // Reward: 5 PupCoins and 1 treat. Every third consecutive day adds a
+  // small 15-PupCoin bundle so the incentive is meaningful but bounded.
+  const streakBundle = newStreak > 0 && newStreak % 3 === 0 ? 15 : 0;
+  const reward = 5 + streakBundle;
   await getPool().query(
     `UPDATE users 
      SET daily_streak = ?,
          last_streak_claim = ?,
-         credits = credits + 5,
+         credits = credits + ?,
          treats = treats + 1
      WHERE phone = ?`,
-    [newStreak, today, phone]
+    [newStreak, today, reward, phone]
   );
-  await recordCreditTxn(phone, 5, "daily_bonus");
+  await recordCreditTxn(phone, reward, streakBundle ? "daily_bonus_streak_bundle" : "daily_bonus");
   return { success: true };
 }
 
@@ -2520,7 +3224,7 @@ export async function purchaseColdStorage(phone: string, requestId: string): Pro
   }
   const ok = await deductCredits(phone, COLD_GB_COST_CR, `storage_purchase:${requestId}`);
   if (!ok) {
-    return { success: false, error: `Insufficient credits. You need ${COLD_GB_COST_CR} credits for 1 GB of cold storage.` };
+    return { success: false, error: `Insufficient PupCoins. You need ${COLD_GB_COST_CR} PupCoins for 1 GB of cold storage.` };
   }
   await getPool().query(
     `INSERT INTO user_storage (user_phone, cold_gb_purchased) VALUES (?, 1)
@@ -2594,20 +3298,8 @@ export async function updateUserProfile(phone: string, fields: {
   await getPool().query(`UPDATE users SET ${parts.join(", ")} WHERE phone = ?`, values);
 }
 
-/** Check if profile completion conditions are met and grant the 100-cr bonus. */
+/** Legacy compatibility hook. Signup/profile completion never grants wallet value. */
 export async function checkAndGrantProfileBonus(phone: string): Promise<{ granted: boolean }> {
-  const [rows] = await getPool().query(
-    `SELECT profile_bonus_granted, email_verified, phone_verified, zip FROM users WHERE phone = ?`,
-    [phone]
-  ) as any;
-  const row = rows?.[0];
-  if (!row) return { granted: false };
-  if (row.profile_bonus_granted) return { granted: false };
-  if (row.zip && row.email_verified && row.phone_verified) {
-    await addCredits(phone, 100, "profile_complete_bonus");
-    await getPool().query(`UPDATE users SET profile_bonus_granted = 1 WHERE phone = ?`, [phone]);
-    return { granted: true };
-  }
   return { granted: false };
 }
 
@@ -2675,6 +3367,9 @@ export interface PawprintTemplate {
   sampleCopy: string[];
   fieldSchema: { key: string; type: "text" | "image" | "name" | "message"; label: string; maxLength?: number }[];
   imagePromptTemplate: string;
+  sourceUrl?: string;
+  sourceLicense?: "CC0-1.0";
+  sourceName?: string;
 }
 
 const PAWPRINT_CATEGORIES = [
@@ -2682,7 +3377,7 @@ const PAWPRINT_CATEGORIES = [
   "environment", "postcard_travel", "get_well", "miss_you", "pet_business",
 ];
 
-const PAWPRINT_TEMPLATES: PawprintTemplate[] = [
+const CURATED_PAWPRINT_TEMPLATES: PawprintTemplate[] = [
   { category: "grieving_loss", layoutId: "portrait_card", name: "Portrait Card", tone: "gentle", sampleCopy: ["Forever in our hearts.", "Until we meet again at the Rainbow Bridge."], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }, { key: "petName", type: "name", label: "Pet Name" }], imagePromptTemplate: "A soft watercolor-style memorial portrait of a pet, gentle warm lighting" },
   { category: "grieving_loss", layoutId: "landscape_postcard", name: "Landscape Postcard", tone: "gentle", sampleCopy: ["You left pawprints on our hearts.", "Run free, sweet friend."], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }, { key: "message", type: "message", label: "Your Message", maxLength: 200 }], imagePromptTemplate: "A peaceful meadow scene with a rainbow, soft golden hour" },
   { category: "grieving_loss", layoutId: "photo_top", name: "Photo Top", tone: "warm", sampleCopy: ["Remembering the good times.", "A life well loved."], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }, { key: "petName", type: "name", label: "Pet Name" }], imagePromptTemplate: "A warm-toned photo frame with a sleeping pet, surrounded by soft flowers" },
@@ -2703,6 +3398,53 @@ const PAWPRINT_TEMPLATES: PawprintTemplate[] = [
   { category: "miss_you", layoutId: "portrait_card", name: "Portrait Card", tone: "nostalgic", sampleCopy: ["Missing you from my paws to my heart.", "Wish you were here!"], fieldSchema: [{ key: "petPhoto", type: "image", label: "Pet Photo" }, { key: "message", type: "message", label: "Your Message", maxLength: 200 }], imagePromptTemplate: "A nostalgic sunset with a silhouette of a pet looking into the distance" },
   { category: "pet_business", layoutId: "portrait_card", name: "Portrait Card", tone: "professional", sampleCopy: ["Trust us with your fur babies!", "Pawsitively the best care in town."], fieldSchema: [{ key: "petPhoto", type: "image", label: "Business Logo" }, { key: "message", type: "message", label: "Business Message", maxLength: 300 }], imagePromptTemplate: "Professional pet business branding, clean modern aesthetic" },
   { category: "pet_business", layoutId: "landscape_postcard", name: "Landscape Postcard", tone: "friendly", sampleCopy: ["Your pet's home away from home.", "Pet-sitting with love."], fieldSchema: [{ key: "petPhoto", type: "image", label: "Business Photo" }, { key: "message", type: "message", label: "Offer Details", maxLength: 300 }], imagePromptTemplate: "A welcoming pet care facility with happy animals" },
+];
+
+const CC0_CARD_SOURCE = {
+  sourceUrl: "https://www.svgrepo.com/svg/23989/greeting-card",
+  sourceLicense: "CC0-1.0" as const,
+  sourceName: "SVG Repo CC0 Greeting Card",
+};
+
+const CATEGORY_COPY: Record<string, { tone: string; subject: string; samples: [string, string] }> = {
+  grieving_loss: { tone: "gentle", subject: "a peaceful pet memorial with soft botanicals and a subtle pawprint", samples: ["Always loved, never forgotten.", "Your pawprints remain with us."] },
+  new_puppy: { tone: "playful", subject: "a cheerful new-puppy announcement with toys and confetti", samples: ["Our family just grew by four paws!", "Welcome home, little friend!"] },
+  veterinarian: { tone: "grateful", subject: "a warm veterinary thank-you design with a heart-shaped stethoscope", samples: ["Thank you for caring with kindness.", "Our whole pack appreciates you!"] },
+  holiday_birthday: { tone: "festive", subject: "a pet celebration card with balloons, bunting, and seasonal accents", samples: ["Time to celebrate with extra treats!", "Have a pawsitively wonderful day!"] },
+  environment: { tone: "hopeful", subject: "an eco-conscious pet card with leaves, clean water, and a green landscape", samples: ["Small paws can make a greener world.", "Love pets. Protect their planet."] },
+  postcard_travel: { tone: "adventurous", subject: "a vintage travel postcard with room for a pet portrait and destination title", samples: ["Adventure looks better with muddy paws.", "Greetings from our latest walk!"] },
+  get_well: { tone: "caring", subject: "a comforting get-well card with blankets, flowers, and gentle daylight", samples: ["Sending soft cuddles and healing wishes.", "Rest, recover, and feel better soon."] },
+  miss_you: { tone: "nostalgic", subject: "a warm miss-you card with a sunset, envelope, and subtle pawprints", samples: ["Every room misses your happy paws.", "Counting the naps until you are home."] },
+  pet_business: { tone: "professional", subject: "a clean pet-business promotion with modern shapes and a photo area", samples: ["Trusted care for every tail and whisker.", "Friendly service for your best friend."] },
+};
+
+const STANDARD_LAYOUTS = [
+  { id: "portrait_card", name: "Portrait Card", prompt: "vertical portrait layout" },
+  { id: "landscape_postcard", name: "Landscape Postcard", prompt: "wide postcard layout" },
+  { id: "photo_top", name: "Photo Top", prompt: "large photo area above a message panel" },
+  { id: "framed_quote", name: "Framed Quote", prompt: "decorative framed quotation layout" },
+] as const;
+
+const generatedTemplates: PawprintTemplate[] = PAWPRINT_CATEGORIES.flatMap((category) => {
+  const copy = CATEGORY_COPY[category];
+  return STANDARD_LAYOUTS.map((layout) => ({
+    category,
+    layoutId: layout.id,
+    name: layout.name,
+    tone: copy.tone,
+    sampleCopy: [...copy.samples],
+    fieldSchema: layout.id === "framed_quote"
+      ? [{ key: "petName", type: "name" as const, label: "Pet Name" }, { key: "message", type: "message" as const, label: "Your Message", maxLength: 260 }]
+      : [{ key: "petPhoto", type: "image" as const, label: "Pet Photo" }, { key: "petName", type: "name" as const, label: "Pet Name" }, { key: "message", type: "message" as const, label: "Your Message", maxLength: 220 }],
+    imagePromptTemplate: `${copy.subject}, ${layout.prompt}, original editable stationery composition`,
+    ...CC0_CARD_SOURCE,
+  }));
+});
+
+const curatedKeys = new Set(CURATED_PAWPRINT_TEMPLATES.map((template) => `${template.category}:${template.layoutId}`));
+const PAWPRINT_TEMPLATES: PawprintTemplate[] = [
+  ...CURATED_PAWPRINT_TEMPLATES.map((template) => ({ ...CC0_CARD_SOURCE, ...template })),
+  ...generatedTemplates.filter((template) => !curatedKeys.has(`${template.category}:${template.layoutId}`)),
 ];
 
 export function getPawprintCategories(): string[] { return PAWPRINT_CATEGORIES; }
@@ -2916,4 +3658,367 @@ export async function listBimBuilds(userPhone: string, limit = 50): Promise<Arra
     elementCount: row.element_count || 0, sizeBytes: Number(row.size_bytes) || 0,
     createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Create Pipeline Sessions (Phase 2)
+// ---------------------------------------------------------------------------
+
+export type PipelineStatus = 'draft' | 'reference_ready' | 'approved' | 'customizing' | 'validation_failed' | 'print_ready' | 'build_starting' | 'building' | 'recovery_required' | 'complete' | 'failed';
+
+export interface CreatePipelineSession {
+  id: string;
+  user_phone: string;
+  species: string;
+  breed: string | null;
+  pet_name: string | null;
+  intent: string | null;
+  style: string | null;
+  input_photo_url: string | null;
+  candidate_image_url: string | null;
+  customization_state: any | null;
+  validation_state: string | null;
+  status: PipelineStatus;
+  idempotency_key: string | null;
+  build_job_id: number | null;
+  provider_handle?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export async function upsertCreatePipelineSession(session: CreatePipelineSession): Promise<void> {
+  await getPool().query(
+    `INSERT INTO create_pipeline_sessions (
+       id, user_phone, species, breed, pet_name, intent, style, input_photo_url, candidate_image_url, 
+       customization_state, validation_state, status, idempotency_key, build_job_id, provider_handle
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE 
+       species = VALUES(species),
+       breed = VALUES(breed),
+       pet_name = VALUES(pet_name),
+       intent = VALUES(intent),
+       style = VALUES(style),
+       input_photo_url = VALUES(input_photo_url),
+       candidate_image_url = VALUES(candidate_image_url),
+       customization_state = VALUES(customization_state),
+       validation_state = VALUES(validation_state),
+       status = VALUES(status),
+       idempotency_key = VALUES(idempotency_key),
+       build_job_id = VALUES(build_job_id),
+       provider_handle = VALUES(provider_handle)`,
+    [
+      session.id, session.user_phone, session.species, session.breed, session.pet_name, session.intent, session.style,
+      session.input_photo_url, session.candidate_image_url, 
+      session.customization_state ? JSON.stringify(session.customization_state) : null,
+      session.validation_state, session.status, session.idempotency_key, session.build_job_id, session.provider_handle || null
+    ]
+  );
+}
+
+export async function getCreatePipelineSession(id: string, userPhone: string): Promise<CreatePipelineSession | null> {
+  const [rows] = await getPool().query(
+    "SELECT * FROM create_pipeline_sessions WHERE id = ? AND user_phone = ?",
+    [id, userPhone]
+  ) as any;
+  if (!rows || rows.length === 0) return null;
+  const row = rows[0];
+  let customization_state = null;
+  try {
+    if (row.customization_state) customization_state = JSON.parse(row.customization_state);
+  } catch (e) {}
+  return {
+    ...row,
+    customization_state
+  };
+}
+
+export async function updateCreatePipelineStatus(id: string, userPhone: string, status: PipelineStatus, buildJobId?: number): Promise<void> {
+  if (buildJobId !== undefined) {
+    await getPool().query(
+      "UPDATE create_pipeline_sessions SET status = ?, build_job_id = ? WHERE id = ? AND user_phone = ?",
+      [status, buildJobId, id, userPhone]
+    );
+  } else {
+    await getPool().query(
+      "UPDATE create_pipeline_sessions SET status = ? WHERE id = ? AND user_phone = ?",
+      [status, id, userPhone]
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline Transactions (Phase 2)
+// ---------------------------------------------------------------------------
+
+export async function reservePipelineSessionForBuild(sessionId: string, userPhone: string, idempotencyKey: string, modelCost: number): Promise<{ success: boolean; error?: string; alreadyReservedOrBuilding?: boolean; sessionRow?: CreatePipelineSession }> {
+  const connection = await getPool().getConnection();
+  try {
+    await connection.query('START TRANSACTION');
+
+    // 1. Lock the session row
+    const [rows] = await connection.query(
+      "SELECT * FROM create_pipeline_sessions WHERE id = ? AND user_phone = ? FOR UPDATE",
+      [sessionId, userPhone]
+    ) as any;
+
+    if (!rows || rows.length === 0) {
+      await connection.query('ROLLBACK');
+      return { success: false, error: "Session not found." };
+    }
+
+    const session = rows[0];
+
+    // If it's already past reference_ready...
+    if (session.status !== 'reference_ready') {
+      if (session.idempotency_key === idempotencyKey) {
+        // Safe retry of an already successfully reserved/built session
+        await connection.query('ROLLBACK');
+        return { success: true, alreadyReservedOrBuilding: true, sessionRow: session };
+      }
+      await connection.query('ROLLBACK');
+      return { success: false, error: "Session is in an invalid state for approval, or a conflicting approval is already processing." };
+    }
+
+    // 2. Lock the user row and deduct PupCoins
+    const [userRows] = await connection.query("SELECT * FROM users WHERE phone = ? FOR UPDATE", [userPhone]) as any;
+    if (!userRows || userRows.length === 0) {
+      await connection.query('ROLLBACK');
+      return { success: false, error: "User not found." };
+    }
+    const user = userRows[0];
+    
+    // Admins don't need credits, but normal users do.
+    const isAdmin = user.is_admin === 1;
+    if (!isAdmin && user.credits < modelCost) {
+      await connection.query('ROLLBACK');
+      return { success: false, error: "Insufficient PupCoins." };
+    }
+
+    if (!isAdmin) {
+      await connection.query("UPDATE users SET credits = credits - ? WHERE phone = ?", [modelCost, userPhone]);
+    }
+
+    // 3. Update status to 'build_starting' and set idempotency key
+    await connection.query(
+      "UPDATE create_pipeline_sessions SET status = 'build_starting', idempotency_key = ? WHERE id = ?",
+      [idempotencyKey, sessionId]
+    );
+
+    await connection.query('COMMIT');
+    return { success: true, sessionRow: session };
+  } catch (err: any) {
+    await connection.query('ROLLBACK');
+    return { success: false, error: err.message };
+  } finally {
+    connection.release();
+  }
+}
+
+export async function commitPipelineSessionBuild(sessionId: string, userPhone: string, jobData: { kind: JobKind; credits_reserved: number; operation_name?: string | null }, creationData: any): Promise<{ success: boolean; error?: string }> {
+  // This path INSERTs into generation_jobs directly rather than via createJob(),
+  // so it needs its own guard — see assertJobKind for why the DB won't do it.
+  //
+  // Reported through the {success,error} return rather than thrown: this
+  // function's contract is that callers branch on `success`, and the route
+  // handler relies on that to release the session reservation. Throwing here
+  // would skip that cleanup and strand the session in 'build_starting'.
+  if (!isJobKind(jobData?.kind)) {
+    return { success: false, error: jobKindError(jobData?.kind) };
+  }
+  const connection = await getPool().getConnection();
+  try {
+    await connection.query('START TRANSACTION');
+
+    // 1. Lock the session row to ensure it's still 'build_starting'
+    const [rows] = await connection.query(
+      "SELECT * FROM create_pipeline_sessions WHERE id = ? AND user_phone = ? FOR UPDATE",
+      [sessionId, userPhone]
+    ) as any;
+
+    if (!rows || rows.length === 0) {
+      throw new Error("Session not found.");
+    }
+    const session = rows[0];
+    
+    if (session.status !== 'build_starting') {
+      throw new Error("Session is not in build_starting state.");
+    }
+
+    // 2. Insert into creations (FurBin)
+    const [creationRes] = await connection.query(
+      `INSERT INTO creations (user_phone, media_type, style, backdrop_kind, preset_name, image_url, model_url, pet_name, pet_breed)
+       VALUES (?, 'model', ?, 'preset', 'Studio', ?, NULL, ?, ?)`,
+      [userPhone, creationData.style || 'Realistic', creationData.image_url, creationData.pet_name, creationData.pet_breed]
+    ) as any;
+    const creationId = creationRes.insertId;
+
+    // 3. Insert into generation_jobs
+    const [jobRes] = await connection.query(
+      `INSERT INTO generation_jobs (user_phone, creation_id, kind, credits_reserved, operation_name, status)
+       VALUES (?, ?, ?, ?, ?, 'queued')`,
+      [userPhone, creationId, jobData.kind, jobData.credits_reserved, jobData.operation_name || null]
+    ) as any;
+    const jobId = jobRes.insertId;
+
+    // 4. Update session status to building
+    await connection.query(
+      "UPDATE create_pipeline_sessions SET status = 'building', build_job_id = ? WHERE id = ?",
+      [jobId, sessionId]
+    );
+
+    await connection.query('COMMIT');
+    return { success: true };
+  } catch (err: any) {
+    await connection.query('ROLLBACK');
+    return { success: false, error: err.message };
+  } finally {
+    connection.release();
+  }
+}
+
+export async function getPipelineSessionByProviderHandle(providerHandle: string): Promise<CreatePipelineSession | null> {
+  const [rows] = await getPool().query(
+    "SELECT * FROM create_pipeline_sessions WHERE provider_handle = ?",
+    [providerHandle]
+  ) as any;
+  return rows[0] || null;
+}
+
+export async function recoverPipelineSession(sessionId: string, userPhone: string, jobData: { kind: JobKind; credits_reserved: number; operation_name?: string | null }, creationData: any): Promise<{ success: boolean; error?: string; alreadyRecovered?: boolean }> {
+  if (!isJobKind(jobData?.kind)) {
+    return { success: false, error: jobKindError(jobData?.kind) };
+  }
+  const connection = await getPool().getConnection();
+  try {
+    await connection.query('START TRANSACTION');
+
+    const [rows] = await connection.query(
+      "SELECT * FROM create_pipeline_sessions WHERE id = ? AND user_phone = ? FOR UPDATE",
+      [sessionId, userPhone]
+    ) as any;
+
+    if (!rows || rows.length === 0) {
+      throw new Error("Session not found.");
+    }
+    const session = rows[0];
+    
+    // Allow either build_starting or recovery_required
+    if (session.status !== 'recovery_required' && session.status !== 'build_starting') {
+      // If it's already in building or beyond, it's technically already recovered
+      if (session.status === 'building' || session.status === 'complete' || session.status === 'failed') {
+        await connection.query('ROLLBACK');
+        return { success: true, alreadyRecovered: true };
+      }
+      throw new Error("Session is not in a recoverable state.");
+    }
+
+    // Database-level idempotency guard: guarantee only one creation/job is made
+    // Check if we already created a job for this provider_handle
+    if (session.provider_handle) {
+      const [existingJobs] = await connection.query(
+        `SELECT id FROM generation_jobs WHERE operation_name = ? FOR UPDATE`,
+        [session.provider_handle]
+      ) as any;
+      if (existingJobs && existingJobs.length > 0) {
+        // We already created a job/creation for this provider_handle
+        // Ensure session status matches
+        await connection.query(
+          "UPDATE create_pipeline_sessions SET status = 'building', build_job_id = ? WHERE id = ?",
+          [existingJobs[0].id, sessionId]
+        );
+        await connection.query('COMMIT');
+        return { success: true, alreadyRecovered: true };
+      }
+    }
+
+    // Idempotency check: see if a creation already exists for this session's external job
+    // Actually, we can check generation_jobs by operation_name, or just avoid duplicates
+    // based on session.build_job_id if it got partially set, but if recovery_required is set,
+    // the previous transaction rolled back, so it shouldn't exist.
+    // We will ensure only 1 creation is made by doing the same insertions.
+    
+    const [creationRes] = await connection.query(
+      `INSERT INTO creations (user_phone, media_type, style, backdrop_kind, preset_name, image_url, model_url, pet_name, pet_breed)
+       VALUES (?, 'model', ?, 'preset', 'Studio', ?, NULL, ?, ?)`,
+      [userPhone, creationData.style || 'Realistic', creationData.image_url, creationData.pet_name, creationData.pet_breed]
+    ) as any;
+    const creationId = creationRes.insertId;
+
+    const [jobRes] = await connection.query(
+      `INSERT INTO generation_jobs (user_phone, creation_id, kind, credits_reserved, operation_name, status)
+       VALUES (?, ?, ?, ?, ?, 'queued')`,
+      [userPhone, creationId, jobData.kind, jobData.credits_reserved, session.provider_handle || jobData.operation_name || null]
+    ) as any;
+    const jobId = jobRes.insertId;
+
+    await connection.query(
+      "UPDATE create_pipeline_sessions SET status = 'building', build_job_id = ? WHERE id = ?",
+      [jobId, sessionId]
+    );
+
+    await connection.query('COMMIT');
+    return { success: true };
+  } catch (err: any) {
+    await connection.query('ROLLBACK');
+    return { success: false, error: err.message };
+  } finally {
+    connection.release();
+  }
+}
+
+
+export async function markPipelineSessionRecoveryRequired(sessionId: string, userPhone: string, providerHandle: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    await getPool().query(
+      "UPDATE create_pipeline_sessions SET status = 'recovery_required', provider_handle = ? WHERE id = ? AND user_phone = ?",
+      [providerHandle, sessionId, userPhone]
+    );
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+export async function releasePipelineSessionReservation(sessionId: string, userPhone: string, modelCost: number): Promise<{ success: boolean; error?: string }> {
+  const connection = await getPool().getConnection();
+  try {
+    await connection.query('START TRANSACTION');
+
+    const [rows] = await connection.query(
+      "SELECT * FROM create_pipeline_sessions WHERE id = ? AND user_phone = ? FOR UPDATE",
+      [sessionId, userPhone]
+    ) as any;
+
+    if (!rows || rows.length === 0) {
+      throw new Error("Session not found.");
+    }
+    const session = rows[0];
+    
+    if (session.status !== 'build_starting') {
+      throw new Error("Session is not in build_starting state.");
+    }
+
+    // Refund PupCoins
+    const [userRows] = await connection.query("SELECT * FROM users WHERE phone = ? FOR UPDATE", [userPhone]) as any;
+    if (userRows && userRows.length > 0) {
+      const user = userRows[0];
+      if (user.is_admin === 0) {
+        await connection.query("UPDATE users SET credits = credits + ? WHERE phone = ?", [modelCost, userPhone]);
+      }
+    }
+
+    // Revert status to reference_ready
+    await connection.query(
+      "UPDATE create_pipeline_sessions SET status = 'reference_ready', idempotency_key = NULL WHERE id = ?",
+      [sessionId]
+    );
+
+    await connection.query('COMMIT');
+    return { success: true };
+  } catch (err: any) {
+    await connection.query('ROLLBACK');
+    return { success: false, error: err.message };
+  } finally {
+    connection.release();
+  }
 }

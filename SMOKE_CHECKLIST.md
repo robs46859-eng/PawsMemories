@@ -56,6 +56,17 @@ Run these in-app while logged in on **pawsome3d.com**. Each item lists the steps
 - [ ] Model card: press-and-hold **😛 → 🐶** (4s) triggers lighter styling.
 - [ ] Makeup/face-mask presets visibly soften an avatar in-viewer (uncanny reducer).
 
+## 11. Redress + optional rigging (ADR-001 / PAWSOME3D_REDRESS_PLAN §5)
+- [ ] Sidebar has NO "Animate" entry; Store "Go to Avatars" and AR launch land on **Create**, never a lock screen.
+- [ ] Store price list shows the BIM rows as "Moved to fsai.pro" (no credits shown).
+- [ ] Create → Personalize: "Rig this model for animation" (+35) checkbox; "Include facial rig" (+20) is disabled until rigging is checked; total updates live (45 → 80 → 100).
+- [ ] Checkout shows the same total; approve deducts it; insufficient-credits message reflects the rigged total.
+- [ ] Rigged order: job status walks queued → generating → **rigging → validating** → done; library entry gains the rigged model (`rigged_model_url` set, rig_report populated).
+- [ ] Force a rig failure (or use a broken fixture): status ends **done_static_fallback**, static model still present, and EXACTLY the add-on PupCoins (35 or 55) are refunded — never the base 45.
+- [ ] Facial rig purchased → exported GLB contains `viseme_A..viseme_X` shape keys; NOT purchased → no viseme keys on create-flow models.
+- [ ] Print a RIGGED model end-to-end (Slant3D quote): STL derives cleanly (armature stripped by `prepare_print_stl`), quote + Stripe checkout work.
+- [ ] Worker `/physics-validate` responds (via `/api/health` worker check or direct with secret): report includes `gravity_ms2: 9.8` and the named checks (neck_weight_isolation, hinge_axes, twist_volume, foot_contact...).
+
 ---
 
 ### If anything DB-backed fails, first check the two tables exist (phpMyAdmin → your DB):

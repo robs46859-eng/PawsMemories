@@ -15,7 +15,7 @@
  */
 
 import { z } from "zod";
-import { CLASS_DEFINITIONS, type SubjectClass } from "../avatarPrompts";
+import { CLASS_DEFINITIONS, type ExtendedSubjectClass } from "../avatarPrompts";
 import { extractJson, type GenerateFn } from "./petClassify";
 
 /** Clamp any number into [0,1]; coerce strings; default 0 on garbage. */
@@ -27,7 +27,7 @@ const bool = z.coerce.boolean();
 
 export const TriageSchema = z.object({
   // ── Detection ───────────────────────────────────────────────────────────
-  subjectClass: z.enum(["human", "dog", "object"]),
+  subjectClass: z.enum(["dog", "cat", "bird", "rabbit", "horse", "reptile", "small_animal", "other", "human", "object"]),
   classConfidence: unit,
   reason: z.string().default(""),
   // Sub-classification for objects: what KIND of object is this? Lets the build
@@ -76,18 +76,25 @@ export const TriageSchema = z.object({
 
 export type TriageResult = z.infer<typeof TriageSchema>;
 
-const CLASS_LABEL: Record<SubjectClass, string> = {
+const CLASS_LABEL: Record<string, string> = {
   human: "person",
-  dog: "animal",
   object: "static object",
+  dog: "dog",
+  cat: "cat",
+  bird: "bird",
+  rabbit: "rabbit",
+  horse: "horse",
+  reptile: "reptile",
+  small_animal: "small animal",
+  other: "animal",
 };
 
-export function classLabel(c: SubjectClass): string {
+export function classLabel(c: ExtendedSubjectClass): string {
   return CLASS_LABEL[c] || String(c);
 }
 
 /** System prompt: embeds the shared rubric so detection is consistent everywhere. */
-export function buildTriagePrompt(userType: SubjectClass): string {
+export function buildTriagePrompt(userType: ExtendedSubjectClass): string {
   return (
     `You are a strict quality-control and classification gate for a 3D model generator. ` +
     `Analyze the single image and return STRICT JSON only (no prose, no markdown fences).\n\n` +
@@ -198,7 +205,7 @@ export interface TriageInput {
   imageBase64: string;
   mimeType?: string;
   /** What the user selected in the UI; used to detect a mismatch. */
-  userType: SubjectClass;
+  userType: ExtendedSubjectClass;
 }
 
 /**
@@ -223,6 +230,6 @@ export async function triageReferenceImage(
 }
 
 /** True if the detected class differs from what the user picked, with confidence. */
-export function isClassMismatch(t: TriageResult, userType: SubjectClass, minConfidence = 0.8): boolean {
+export function isClassMismatch(t: TriageResult, userType: ExtendedSubjectClass, minConfidence = 0.8): boolean {
   return t.subjectClass !== userType && t.classConfidence >= minConfidence;
 }

@@ -148,7 +148,7 @@ test("isClassMismatch only fires above the confidence floor", () => {
 });
 
 test("classLabel maps classes to human-readable words", () => {
-  assert.equal(classLabel("dog"), "animal");
+  assert.equal(classLabel("dog"), "dog");
   assert.equal(classLabel("human"), "person");
   assert.equal(classLabel("object"), "static object");
 });

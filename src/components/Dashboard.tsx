@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Plus, Sparkles, Activity, Heart, ArrowRight } from "lucide-react";
+import React from "react";
+import { Sparkles, ArrowRight } from "lucide-react";
 import { Album, Creation, UserProfile } from "../types";
 import { Achievement } from "./AchievementsPanel";
 
@@ -20,10 +20,15 @@ interface DashboardProps {
   onSelectAlbum: (album: Album) => void;
   onCreateAlbum: (name: string) => Promise<void>;
   onOpenAdminPanel?: () => void;
+  /** Navigate to the Furball3D avatar builder. */
+  onOpenFurball?: () => void;
+  /** Navigate to Pawprints. */
+  onOpenPawprints?: () => void;
+  /** Navigate to Fido's Styles. */
+  onOpenFidos?: () => void;
 }
 
-export default function Dashboard({ userProfile, streak, dailyStreakClaimed, onClaimDailyStreak, onCreate }: DashboardProps) {
-  const [isHoveringAR, setIsHoveringAR] = useState(false);
+export default function Dashboard({ userProfile, streak, dailyStreakClaimed, onClaimDailyStreak, onCreate, onOpenFurball, onOpenPawprints, onOpenFidos }: DashboardProps) {
   const petName = userProfile.fullName.split(" ")[0] + "'s Pet"; // Defaulting to something nice
 
   return (
@@ -51,69 +56,22 @@ export default function Dashboard({ userProfile, streak, dailyStreakClaimed, onC
         </button>
       </div>
 
-      {/* Center: Floating Active Avatar */}
+      {/* Home destinations: wide, low-opacity glass tiles keep the page quiet while
+          using the same product artwork as the global shell. */}
       <div className="flex-1 w-full flex flex-col items-center justify-center relative z-10 my-8">
-        {/* Soft glowing aura */}
-        <div className="absolute w-[210px] h-[210px] bg-primary/20 rounded-full blur-[70px] animate-pulse"></div>
-
-        {/* Create Button — solid/opaque, navigates to the avatar builder */}
-        <button
-          data-tour="dashboard-create"
-          onClick={onCreate}
-          onMouseEnter={() => setIsHoveringAR(true)}
-          onMouseLeave={() => setIsHoveringAR(false)}
-          className="mt-6 group relative flex items-center gap-2.5 bg-primary text-on-primary px-6 py-3 rounded-2xl shadow-xl shadow-primary/30 focus:outline-none focus:ring-4 focus:ring-primary/40 transition-transform hover:scale-105 active:scale-95 cursor-pointer"
-        >
-          <span className={`w-8 h-8 rounded-full bg-on-primary/20 flex items-center justify-center transition-transform duration-300 ${isHoveringAR ? 'scale-110' : ''}`}>
-            <Plus size={18} strokeWidth={3} />
-          </span>
-          <span className="font-extrabold text-base tracking-wide">Create</span>
-        </button>
-      </div>
-
-      {/* Bottom: Bento Stats & Tips */}
-      <div className="w-full max-w-5xl grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 z-10">
-        
-        {/* Happiness Card */}
-        <div className="glass-card p-5 rounded-3xl flex items-center justify-between border-t border-white/20">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <Heart size={16} className="text-secondary" fill="currentColor" />
-              <span className="text-xs font-extrabold uppercase tracking-widest opacity-70">Happiness</span>
-            </div>
-            <h3 className="font-headline-lg text-2xl font-bold">98%</h3>
-          </div>
-          <div className="w-14 h-14 rounded-full border-4 border-secondary/20 border-t-secondary border-r-secondary flex items-center justify-center rotate-45 shadow-inner">
-            <div className="w-10 h-10 bg-surface rounded-full flex items-center justify-center -rotate-45 font-bold text-secondary text-sm">:)</div>
-          </div>
+        <div className="absolute h-64 w-64 rounded-full bg-primary/20 blur-[90px]" />
+        <div className="relative grid w-full max-w-5xl grid-cols-1 gap-4 md:grid-cols-2">
+          {[
+            { label: "Furball3D", title: "Build a 3D model", detail: "Turn a photo or prompt into a model.", image: "/brand/furball3d.jpg", action: () => (onOpenFurball ? onOpenFurball() : onCreate()), tour: "dashboard-create" },
+            { label: "Fido's Styles", title: "Create the look", detail: "Build wardrobe looks and style variations.", image: "/brand/fidostyles.jpg", action: () => onOpenFidos?.() },
+            { label: "Pawprints", title: "Make a keepsake", detail: "Add photos and words for any occasion.", image: "/brand/pawprints.png", action: () => onOpenPawprints?.() },
+          ].map((item) => (
+            <button key={item.label} data-tour={item.tour} type="button" onClick={item.action} className="glass-tile group flex min-h-36 items-center gap-5 rounded-[1.75rem] p-5 text-left md:min-h-44 md:p-6">
+              <img src={item.image} alt="" className="h-24 w-24 shrink-0 rounded-2xl object-cover shadow-md ring-1 ring-white/50 md:h-28 md:w-28" />
+              <span className="min-w-0"><span className="text-[10px] font-black uppercase tracking-[.18em] text-primary">{item.label}</span><strong className="mt-1 block text-2xl font-black tracking-tight text-on-surface">{item.title}</strong><span className="mt-2 block max-w-xs text-sm leading-5 text-on-surface-variant">{item.detail}</span><span className="mt-3 inline-flex items-center gap-2 text-xs font-black text-primary">Open <ArrowRight size={14} className="transition group-hover:translate-x-1" /></span></span>
+            </button>
+          ))}
         </div>
-
-        {/* Activity Card */}
-        <div className="glass-card p-5 rounded-3xl flex items-center justify-between border-t border-white/20">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <Activity size={16} className="text-primary" />
-              <span className="text-xs font-extrabold uppercase tracking-widest opacity-70">Daily Steps</span>
-            </div>
-            <h3 className="font-headline-lg text-2xl font-bold">4,280</h3>
-          </div>
-          <div className="w-14 h-14 bg-primary-container rounded-2xl flex items-center justify-center text-primary-fixed font-bold shadow-inner">
-             <span className="material-symbols-outlined">pets</span>
-          </div>
-        </div>
-
-        {/* Tip Card */}
-        <div className="glass-card p-5 rounded-3xl bg-gradient-to-br from-primary/10 to-transparent flex flex-col justify-center relative overflow-hidden group cursor-pointer border-t border-white/20">
-          <div className="absolute -right-4 -top-4 opacity-10 group-hover:opacity-20 transition-opacity">
-            <Sparkles size={80} />
-          </div>
-          <span className="text-xs font-extrabold uppercase tracking-widest text-primary mb-1">Pro Tip</span>
-          <p className="font-medium text-sm text-on-surface-variant line-clamp-2">Capture {petName} in the backyard during golden hour for stunning lighting effects.</p>
-          <div className="mt-2 flex items-center gap-1 text-primary text-xs font-bold group-hover:underline">
-            Read more <ArrowRight size={12} />
-          </div>
-        </div>
-
       </div>
       
     </div>

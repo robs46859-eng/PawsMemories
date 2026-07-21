@@ -4,7 +4,7 @@
   "label": "Golden Sunrise",
   "backdrop": {
     "kind": "hdri",
-    "url": "/animator-files/environments/spruit_sunrise.jpg"
+    "url": "/animator/environments/spruit_sunrise.webp"
   },
   "allowedWeather": [
     "clear",

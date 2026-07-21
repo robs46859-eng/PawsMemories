@@ -8,16 +8,30 @@ import { PublicUser, Creation, Album, LocationParams, Avatar, PhotoRequest, Requ
 const TOKEN_KEY = "paws_auth_token";
 
 export function getToken(): string | null {
-  if (typeof localStorage === "undefined") return null;
-  return localStorage.getItem(TOKEN_KEY);
+  if (typeof localStorage === "undefined" || typeof localStorage.getItem !== "function") return null;
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
 }
 
 export function setToken(token: string): void {
-  localStorage.setItem(TOKEN_KEY, token);
+  if (typeof localStorage === "undefined" || typeof localStorage.setItem !== "function") return;
+  try {
+    localStorage.setItem(TOKEN_KEY, token);
+  } catch {
+    // Storage can be denied in private or embedded browser contexts.
+  }
 }
 
 export function clearToken(): void {
-  localStorage.removeItem(TOKEN_KEY);
+  if (typeof localStorage === "undefined" || typeof localStorage.removeItem !== "function") return;
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // Treat an inaccessible token store as already cleared.
+  }
 }
 
 export function isAuthenticated(): boolean {
@@ -347,6 +361,133 @@ export async function fetchCreations(): Promise<Creation[]> {
   }
 }
 
+export interface ModelLibraryItem {
+  id: number;
+  source_type: "creation" | "avatar" | "marketplace_listing";
+  listing_uuid?: string;
+  name: string | null;
+  breed: string | null;
+  image_url: string | null;
+  model_url: string | null;
+  rigged_model_url: string | null;
+  status: string;
+  created_at: string;
+}
+
+export async function fetchModelLibrary(): Promise<ModelLibraryItem[]> {
+  const res = await authedFetch("/api/models/library");
+  if (!res.ok) throw new Error(await parseError(res, "Failed to load your models."));
+  return (await res.json()).models || [];
+}
+
+export interface FulfillmentReadiness {
+  modelPrinting: { provider: "slant3d"; available: boolean };
+  pawprintPrinting: { provider: "printful"; available: boolean; productCount: number };
+}
+
+export async function fetchFulfillmentReadiness(): Promise<FulfillmentReadiness> {
+  const res = await fetch("/api/fulfillment/readiness");
+  if (!res.ok) throw new Error("Could not check print availability.");
+  return await res.json();
+}
+
+export async function createSlant3dCheckout(input: {
+  sourceType: "creation" | "avatar";
+  sourceId: number;
+  targetHeightMm: number;
+  recipient: {
+    name: string;
+    email: string;
+    line1: string;
+    line2?: string;
+    city: string;
+    state: string;
+    zip: string;
+    country: string;
+  };
+}): Promise<{ checkoutUrl: string; stlUrl: string; dimensionsMm: { x: number; y: number; z: number } }> {
+  const res = await authedFetch("/api/print/slant3d/checkout", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(await parseError(res, "Could not prepare this model for printing."));
+  return await res.json();
+}
+
+export async function createMarketplacePrintCheckout(input: {
+  listingUuid: string;
+  targetHeightMm: number;
+  recipient: {
+    name: string;
+    email: string;
+    line1: string;
+    line2?: string;
+    city: string;
+    state: string;
+    zip: string;
+    country: string;
+  };
+}): Promise<{ checkoutUrl: string; stlUrl: string; dimensionsMm: { x: number; y: number; z: number } }> {
+  const res = await authedFetch(`/api/marketplace/listings/${input.listingUuid}/print/checkout`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(await parseError(res, "Could not prepare this listing for printing."));
+  return await res.json();
+}
+
+export interface ModelPrintOrder {
+  id: number;
+  source_type: "creation" | "avatar" | "marketplace_listing";
+  source_id: number;
+  provider: "slant3d";
+  provider_pack_id: string;
+  target_height_mm: number;
+  checkout_url: string | null;
+  retail_price_cents: number | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  tracking: ShipmentTracking[];
+}
+
+export interface ShipmentTracking {
+  carrier: string | null;
+  service: string | null;
+  trackingNumber: string | null;
+  trackingUrl: string | null;
+  shippedAt: string | null;
+}
+
+export async function fetchModelPrintOrders(): Promise<ModelPrintOrder[]> {
+  const res = await authedFetch("/api/print/orders");
+  if (!res.ok) throw new Error(await parseError(res, "Could not load print orders."));
+  return (await res.json()).orders || [];
+}
+
+export interface PawprintPrintOrder {
+  id: number;
+  creation_id: number;
+  product_code: string;
+  provider_order_id: string;
+  print_file_url: string;
+  quantity: number;
+  retail_price_cents: number | null;
+  checkout_url: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  tracking: ShipmentTracking[];
+}
+
+export async function fetchPawprintPrintOrders(): Promise<PawprintPrintOrder[]> {
+  const res = await authedFetch("/api/pawprints/print-orders");
+  if (!res.ok) throw new Error(await parseError(res, "Could not load Pawprint print orders."));
+  return (await res.json()).orders || [];
+}
+
 export async function fetchAlbums(): Promise<Album[]> {
   try {
     const res = await authedFetch("/api/albums");
@@ -443,7 +584,7 @@ export async function fetchAvatars(): Promise<Avatar[]> {
  * (pet standing on all 4 legs, facing forward, slight panting expression),
  * then generates the 3D model from that image. Returns immediately; generation is async.
  */
-export async function generate3DAvatar(options: any): Promise<{ avatarId: number; status: string; referenceImageUrl?: string; usedReferenceImage?: boolean; avatarType?: 'dog' | 'human' | 'object'; notice?: string }> {
+export async function generate3DAvatar(options: any): Promise<{ avatarId: number; status: string; referenceImageUrl?: string; usedReferenceImage?: boolean; avatarType?: 'dog' | 'human' | 'object'; notice?: string; chargedCredits?: number }> {
   const res = await authedFetch("/api/avatars", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -466,9 +607,11 @@ export async function pollAvatarStatus(avatarId: number): Promise<{
 }
 
 /** Retry a failed avatar generation. Resets status and re-triggers the 3D pipeline. */
-export async function retryAvatarGeneration(avatarId: number): Promise<{ success: boolean; status: string; chargedCredits?: number; user?: PublicUser }> {
+export async function retryAvatarGeneration(avatarId: number, stylePreset?: string): Promise<{ success: boolean; status: string; chargedCredits?: number; user?: PublicUser }> {
   const res = await authedFetch(`/api/avatars/${avatarId}/retry`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(stylePreset ? { stylePreset } : {}),
   });
   if (!res.ok) throw new Error(await parseError(res, "Failed to retry avatar generation."));
   return await res.json();
@@ -824,4 +967,109 @@ export async function purchaseStorageGb(requestId: string): Promise<{ success: b
   } catch {
     return { success: false, error: "Network error" };
   }
+}
+
+// --- Public Marketplace & Entitlements --------------------------------------
+
+export async function fetchMarketplaceListings(params: Record<string, string | number> = {}): Promise<any> {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v != null && v !== "") qs.set(k, String(v));
+  }
+  const url = `/api/marketplace/listings${qs.toString() ? '?' + qs.toString() : ''}`;
+  const res = await fetch(url); // Unauthed
+  if (!res.ok) throw new Error(await parseError(res, "Could not load marketplace listings."));
+  return await res.json();
+}
+
+export async function checkoutDigitalListing(uuid: string, idempotencyKey: string): Promise<{ checkoutUrl: string }> {
+  const res = await authedFetch(`/api/marketplace/listings/${uuid}/checkout`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Idempotency-Key": idempotencyKey,
+    }
+  });
+  if (!res.ok) await throwApiError(res, "Checkout failed.");
+  return await res.json();
+}
+
+export async function fetchDigitalOrderStatus(orderId: string): Promise<{ status: string }> {
+  const res = await authedFetch(`/api/marketplace/orders/${orderId}`);
+  if (!res.ok) throw new Error(await parseError(res, "Could not get order status."));
+  return await res.json();
+}
+
+export async function fetchUserEntitlements(): Promise<any[]> {
+  const res = await authedFetch("/api/marketplace/entitlements");
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.entitlements || [];
+}
+
+export async function downloadDigitalListing(uuid: string): Promise<{ url: string }> {
+  const res = await authedFetch(`/api/marketplace/listings/${uuid}/download`);
+  if (!res.ok) await throwApiError(res, "Download failed.");
+  return await res.json();
+}
+
+// --- Texturizer API (Phase UV6) -----------------------------------------------
+
+export interface TextureJobStatus {
+  jobId: string;
+  avatarId?: number;
+  status: "queued" | "processing" | "rendering_views" | "stylizing" | "baking" | "completed" | "failed";
+  resultUrl?: string;
+  stats?: Record<string, any>;
+  error?: string;
+  idempotent?: boolean;
+}
+
+export async function createTextureJob(
+  idempotencyKey: string,
+  payload: {
+    avatar_id: number;
+    prompt: string;
+    tier: "draft" | "standard" | "studio";
+    identity_strength: "high" | "medium" | "stylized";
+  }
+): Promise<{ jobId: string; status: string; cost: number }> {
+  const res = await authedFetch("/api/texture/jobs", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Idempotency-Key": idempotencyKey,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to create texture job (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function rebakeTextureJob(
+  idempotencyKey: string,
+  payload: { avatar_id: number; texture_size?: number }
+): Promise<{ jobId: string; status: string; idempotent?: boolean; resultUrl?: string }> {
+  const res = await authedFetch("/api/texture/rebake", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Idempotency-Key": idempotencyKey,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to start rebake (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function getTextureJob(jobId: string): Promise<TextureJobStatus> {
+  const res = await authedFetch(`/api/texture/jobs/${jobId}`);
+  if (!res.ok) throw new Error("Failed to fetch texture job");
+  return res.json();
 }
