@@ -55,7 +55,17 @@ export default function CreateReferenceScreen({ onNavigate }: CreateReferenceScr
   };
 
   useEffect(() => {
-    if (!state.candidateImageUrl && !isGenerating && !error && state.inputPhotoUrl) {
+    // Trigger auto-generation on mount for BOTH input modes:
+    //   image mode — only when a photo was actually uploaded (inputPhotoUrl truthy)
+    //   text mode  — only when the user typed a description (textPrompt non-empty)
+    // Previously only checked inputPhotoUrl, so text-mode users always saw a blank
+    // screen because the condition was never satisfied, and generateCandidate() was
+    // never called.
+    const hasInput =
+      state.inputMode === "text"
+        ? !!(state.textPrompt || "").trim()
+        : !!state.inputPhotoUrl;
+    if (!state.candidateImageUrl && !isGenerating && !error && hasInput) {
       generateCandidate();
     }
   }, []);
