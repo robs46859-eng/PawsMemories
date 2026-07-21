@@ -61,7 +61,12 @@ export const SERVICE_PRICES: readonly ServicePrice[] = [
   { label: "Static 3D Object", credits: CREDIT_PRICES.STATIC_3D_PHOTO, detail: "Photo to GLB" },
   { label: "Rigged 3D Avatar", credits: CREDIT_PRICES.RIGGED_3D_AVATAR },
   { label: "Rigging Add-on", credits: CREDIT_PRICES.RIG_ADDON, detail: "Create flow: animation-ready skeleton + quality gates" },
-  { label: "Facial Rig Add-on", credits: CREDIT_PRICES.FACIAL_RIG_ADDON, detail: "Viseme blendshapes for lip-sync (requires Rigging Add-on)" },
+  // "Early access" is load-bearing copy, not marketing. The facial pass can only
+  // canonicalize viseme morphs the model provider returned; it never fabricates
+  // mouth shapes. When no morphs come back the model falls back to jaw-only
+  // motion and this add-on is still charged with no refund — so every surface
+  // that shows the price must also show the caveat.
+  { label: "Facial Rig Add-on", credits: CREDIT_PRICES.FACIAL_RIG_ADDON, detail: "Early access — viseme blendshapes for lip-sync when the model supports them; not guaranteed, no refund (requires Rigging Add-on)" },
   // RD-2: BIM has moved to fsai.pro (dedicated BIM/IFC platform). Prices are
   // retired from the Pawsome3D store; the backend endpoints remain until FSAI is live.
   { label: "Scaled Building Shell", credits: null, detail: "Moved to fsai.pro", comingSoon: true },

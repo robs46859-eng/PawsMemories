@@ -83,7 +83,7 @@ import { getPipelineSessionByBuildJobId, setCreationRiggedModel } from "./db";
 import { preflightBimModel, type BimModel } from "./src/bim/model";
 import { buildAndVerifyShell } from "./server/bim/shell";
 import { WARDROBE_CATALOG, WARDROBE_ITEM_IDS } from "./src/wardrobe/catalog";
-import { buildReferencePrompt, turnaroundViewsForType, paletteLockClause, extractPaletteInstruction, buildTextPrompt, geometryToTripo, type TextPromptFields, type ExtendedSubjectClass, getSubjectClassForSpecies } from "./avatarPrompts";
+import { buildReferencePrompt, turnaroundViewsForType, paletteLockClause, extractPaletteInstruction, buildTextPrompt, geometryToTripo, type TextPromptFields, type ExtendedSubjectClass, getSubjectClassForSpecies, getBuildProfileForSpecies } from "./avatarPrompts";
 import { confirmPrintfulOrderIfDraft, createPrintfulOrder, getPrintfulOrder, verifyPrintfulConfiguration } from "./server/printful";
 import { publicPawprintPrintProducts, requirePawprintPrintProduct } from "./server/pawprintProducts";
 import { buildFulfillmentReadiness } from "./server/fulfillmentReadiness";
@@ -141,16 +141,46 @@ async function runCreatePipelineRigStage(job: { id: number; user_phone: string; 
 
     const glbBase64 = await fetchUrlAsBase64(glbUrl);
     const referenceBase64 = session?.candidate_image_url ? await fetchUrlAsBase64(session.candidate_image_url).catch(() => null) : null;
+    // Derive anatomy from the shared species→profile mapper rather than a
+    // hardcoded `species === "human"` test.
+    //
+    // The old check made every non-human a quadruped, including `other` — which
+    // is what the create flow writes for anything that isn't dog or cat. A human
+    // was therefore described to the pipeline as a four-legged animal with a tail.
+    //
+    // WHAT THIS DOES AND DOESN'T FIX. This path rigs via runBuildPipeline (the
+    // LLM Blender agent), NOT via Tripo animate_rig + /bake-lod. So petAnalysis
+    // here does not select a skeleton or a bonemap — bonemap.human.json is only
+    // read by /bake-lod, which this path never calls, and Tripo's "humanoid" rig
+    // spec is chosen in startRig(), a different code path. bodyType reaches
+    // exactly two places: the plan prompt in agent/graph/nodes/reason.ts, and the
+    // `profile` field of physics_validate, which echoes it without branching.
+    //
+    // Correcting it therefore fixes the only anatomy signal this pipeline has,
+    // which is necessary but not sufficient — telling the planner "biped, 2 legs,
+    // no tail" instead of "quadruped, 4 legs, tail" is strictly better, but the
+    // resulting rig still has to pass the same generic weight/symmetry gates.
+    // Deterministic human rigging lives on the Tripo+bonemap path; routing the
+    // create flow to it for bipeds is the real fix and is not done here.
+    //
+    // getBuildProfileForSpecies already handles human, winged, reptile and
+    // small_animal; routing through it means birds stop being described as dogs too.
     const species = String(session?.species || "dog");
-    const isBiped = species === "human";
+    const buildProfile = getBuildProfileForSpecies(species as ExtendedSubjectClass);
+    const isBiped = buildProfile === "human";
+    const isWinged = buildProfile === "winged";
     const petAnalysis: PetAnalysis = {
       species,
       breed: session?.breed || "Mixed",
-      bodyType: isBiped ? "biped" : "quadruped",
+      // A bird is neither a biped nor a quadruped — it stands on two legs and
+      // has wings where forelimbs would be. Describing it as a four-legged
+      // animal was the same class of error as calling a person one.
+      bodyType: isBiped ? "biped" : isWinged ? "winged" : "quadruped",
       estimatedPose: "standing",
-      legCount: isBiped ? 2 : 4,
-      hasTail: !isBiped,
-      hasWings: false,
+      legCount: isBiped || isWinged ? 2 : 4,
+      // Humans have no tail; a bird's tail is feathers, not a tail rig chain.
+      hasTail: !isBiped && !isWinged,
+      hasWings: isWinged,
       bodyProportions: { headSize: "medium", legLength: "medium", bodyLength: "medium", neckLength: "medium" },
       coatColors: ["#C0A080"],
       coatPattern: "solid",
@@ -195,8 +225,33 @@ async function runCreatePipelineRigStage(job: { id: number; user_phone: string; 
     if (riggedGlbBase64 && job.creation_id) {
       const riggedUrl = await uploadBase64Binary(riggedGlbBase64, "model/gltf-binary");
       await setCreationRiggedModel(job.creation_id, job.user_phone, riggedUrl, report);
-      await updateJobStatus(job.id, "done");
-      await sendSms(job.user_phone, `🐾 Paws & Memories: Your rigged 3D model is ready! View it at ${process.env.APP_URL || "your app"}.`);
+
+      // A body rig can pass its quality gates while the facial pass finds no
+      // usable viseme targets — facialVisemes.ts reports available:false rather
+      // than fabricating mouth shapes. The user paid for the add-on and is not
+      // refunded (product decision), so the outcome has to be stated plainly
+      // instead of being reported as an unqualified success. The pre-purchase
+      // warning in CreateCustomizeScreen is the other half of this contract.
+      const facialRequested = !!rigging.facial;
+      const facialReport = (report as any)?.facial ?? (report as any)?.visemes ?? null;
+      const facialLanded = facialRequested
+        ? Boolean(facialReport?.available ?? facialReport?.shapes?.length)
+        : null;
+
+      if (facialRequested && facialLanded === false) {
+        await updateJobStatus(
+          job.id,
+          "done",
+          "Body rig applied. Facial rig unavailable — this model returned no usable mouth shapes, so lip-sync falls back to jaw movement.",
+        );
+        await sendSms(
+          job.user_phone,
+          `🐾 Paws & Memories: Your rigged 3D model is ready. Heads up — facial rigging couldn't be applied to this model (it animates with jaw movement instead). View it at ${process.env.APP_URL || "your app"}.`,
+        );
+      } else {
+        await updateJobStatus(job.id, "done");
+        await sendSms(job.user_phone, `🐾 Paws & Memories: Your rigged 3D model is ready! View it at ${process.env.APP_URL || "your app"}.`);
+      }
     } else {
       // Static fallback: model already delivered; refund only the add-on.
       const addon = riggingAddonCost(rigging);
@@ -6027,6 +6082,16 @@ async function startServer() {
     try {
       const { sessionId, species, breed, petName, intent, style, inputPhotoUrl } = req.body;
       const userPhone = req.user!.phone;
+
+      // Text-to-model. generatePetReferenceImage has always accepted a free-text
+      // `extra` describing the subject, and the original create dialog used it;
+      // the newer create flow simply stopped sending one, which stranded a
+      // working paid path. Bounded to 500 chars to match the client field.
+      const referenceMode: "image" | "text" = req.body.inputMode === "text" ? "text" : "image";
+      const textPrompt = String(req.body.textPrompt || "").trim().slice(0, 500);
+      if (referenceMode === "text" && !textPrompt) {
+        return res.status(400).json({ success: false, error: "A description is required to generate from text." });
+      }
       
       let id = sessionId;
       if (!id) {
@@ -6043,21 +6108,34 @@ async function startServer() {
 
       // We need to generate a candidate image. Re-using generatePetReferenceImage
       // (This will act as the "real" image generator for Phase 2).
-      const photos = inputPhotoUrl ? [inputPhotoUrl] : [];
-      const hasFace = !!inputPhotoUrl; // Simple heuristic for now
-      
       let candidateUrl = null;
       try {
-        candidateUrl = await generatePetReferenceImage(
-          photos,
-          intent || null,
-          species as ExtendedSubjectClass,
-          hasFace,
-          "",
-          {},
-          style || "Realistic",
-          breed || null
-        );
+        if (referenceMode === "text") {
+          // Text mode needs a different generator, not the same one with an
+          // empty photo array. generatePetReferenceImage bails at its first
+          // guard when there are no image parts:
+          //     if (imageParts.length === 0) return null;   (server.ts ~3618)
+          // so passing [] would fail 100% of the time regardless of how good
+          // the description is. This mirrors /api/text-to-reference, which is
+          // the already-working text→image path.
+          const fields: TextPromptFields = { subject: textPrompt, style: style || "Realistic" };
+          candidateUrl = await generateImageWithFallback(
+            [{ text: buildTextPrompt(fields) }],
+            "create-pipeline-text-reference",
+          );
+        } else {
+          const photos = inputPhotoUrl ? [inputPhotoUrl] : [];
+          candidateUrl = await generatePetReferenceImage(
+            photos,
+            intent || null,
+            species as ExtendedSubjectClass,
+            !!inputPhotoUrl,
+            "",
+            {},
+            style || "Realistic",
+            breed || null
+          );
+        }
       } catch (genErr) {
         console.error("Reference generation error:", genErr);
         return res.status(500).json({ success: false, error: "Failed to generate candidate image. No PupCoins were deducted." });
