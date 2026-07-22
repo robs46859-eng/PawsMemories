@@ -2,14 +2,15 @@
 
 Set these in the Hostinger **Node.js app → Environment variables** panel (not in a committed `.env` — `.env` is gitignored and not in the deploy zip). Full annotated reference: `.env.example`.
 
-Runtime: select **Node.js 24 LTS**. The repository pins `24.18.0` in
-`.nvmrc` and rejects Node 25 so native dependencies are installed for the same
-runtime used to start the application. Use `npm install`, `npm run build`, and
-`npm start` after changing the runtime; do not reuse `node_modules` from another
+Runtime: select **Node.js 24 LTS**. Build the deployment archive locally with the
+repository-pinned `24.18.0` in `.nvmrc`; never run the source build on the
+current Hostinger Node 24.6 minor. The verified pre-built archive retains the
+locked runtime dependencies and a no-op host build. Move Hostinger to Node 24.15+
+as soon as that minor is offered, and never reuse `node_modules` from another
 Node major version.
 
 **Two timing rules:**
-- `VITE_*` vars are **baked into the frontend at `npm run build`** — they must exist *before* the build runs, not just at server start.
+- `VITE_*` vars are **baked into the frontend by the local release build** — they must exist in the local release environment before `scripts/build-deploy-zip.sh` runs. Adding them only in Hostinger does not change the pre-built frontend.
 - Everything else is read at **server start** (`npm start`). Changing one requires a restart.
 
 ---
@@ -86,8 +87,9 @@ Node major version.
 
 ## 4. PHASE 2-9 DARK-LAUNCH VALUES FOR THIS DEPLOYMENT
 
-Set these exact values in Hostinger before building the frontend. They preserve
-the current production behavior while the new code is deployed for staged review.
+Set the server flags to these exact values in Hostinger. Set the `VITE_*` flags
+to these values in the local release environment before creating the archive.
+Together they preserve current production behavior during staged review.
 
 | Var | Value now | When it may change |
 |---|---|---|
@@ -134,10 +136,10 @@ Render worker variables are configured in Render, not Hostinger:
 ---
 
 ## Pre-deploy checklist
-1. Set all **Section 1** vars in the Hostinger panel (and confirm `VITE_GOOGLE_MAPS_API_KEY_BROWSER` is present **before** the build step).
+1. Set all non-`VITE_*` **Section 1** vars in Hostinger. Confirm `VITE_GOOGLE_MAPS_API_KEY_BROWSER` and every dark-launch `VITE_*` flag are present with the intended values in the local release environment before creating the archive.
 2. Confirm `WORKER_SHARED_SECRET` is byte-identical on Hostinger and the Render worker.
 3. Point the Stripe webhook at `https://pawsome3d.com/api/stripe-webhook` (events: `checkout.session.completed`, `checkout.session.async_payment_succeeded`) and paste its `whsec_…` into `STRIPE_WEBHOOK_SECRET`.
-4. Build + start: `npm install && npm run build && npm start`. Watch the boot log for `[environments] Loaded N preset(s)` and no DB/storage errors.
+4. Create the verified archive locally with `scripts/build-deploy-zip.sh`. Hostinger then runs `npm install && npm run build && npm start`; its staged build is intentionally a no-op. Watch the boot log for `[environments] Loaded N preset(s)` and no DB/storage errors.
 5. Smoke test: sign in, generate one image (Gemini), one 3D model (Tripo), open the studio (environments list), and do one $ purchase (Stripe webhook confirms).
 
 ---

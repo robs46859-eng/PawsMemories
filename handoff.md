@@ -15,6 +15,8 @@ This section supersedes the older Phase 4/5 foundation status below. Historical 
 ### Release Position
 
 - Keep `MODEL_BUILD_V3_ENABLED`, `RIG_PIPELINE_V4_ENABLED`, `FUR_BIN_V5_ENABLED`, `VITE_FUR_BIN_V5_ENABLED`, `STATIONERY_V2_ENABLED`, `WAGS_V2_ENABLED`, `BIM_V2_ENABLED`, and `VITE_BIM_V2_ENABLED` set to `false` for the baseline deployment.
+- Hostinger currently reports Node 24.6, below the repository's Node 24.15 build floor. `scripts/build-deploy-zip.sh` therefore builds locally under Node 24.18 and packages verified `dist/`, the locked runtime dependencies, and a root launcher with a no-op host build. Do not deploy a source archive; update the Hostinger runtime when Node 24.15+ is offered.
+- `VITE_*` values are fixed during the local archive build. Hostinger environment changes alone cannot alter those browser flags or the browser Maps key in this release shape.
 - Local automated gates can approve packaging, but cannot replace Render Blender/IfcOpenShell fixtures, B2 signed-storage checks, Stripe/provider sandboxes, slicer review, responsive browser review, or the user's final visual approval.
 - Do not claim Phase 6, Phase 8, or durable Phase 9 production completion until their explicit blockers above are closed.
 
