@@ -17,7 +17,7 @@ const model = {
   name: "Measured shed", siteName: "Site", buildingName: "Shed",
   levels: [{ id: "level-0", name: "Ground", elevation: 0 }],
   elements: [
-    { id: "floor", type: "slab", name: "Floor", levelId: "level-0", position: [0, 0, 0], width: 4, depth: 3, height: 0.15, properties: { Provenance: "measured" } },
+    { id: "floor", type: "slab", name: "Floor", levelId: "level-0", position: [0, 0, 0], width: 4, depth: 3, height: 0.15, properties: { Provenance: "measured", EvidenceRef: "measurement:width" } },
     { id: "volume", type: "space", name: "Room", levelId: "level-0", position: [0, 0, 0], width: 4, depth: 3, height: 2.5, properties: { Provenance: "inferred" } },
   ],
 };

@@ -169,6 +169,21 @@ export interface RigJobPublic {
     deformationPass: boolean;
   } | null;
   accessories: AccessoryFitPublic[];
+  outputArtifact: {
+    assetUuid: string;
+    versionNumber: number;
+    sha256: string;
+    sizeBytes: number;
+    signedUrl?: string;
+  } | null;
+  fusedPrintArtifact: {
+    assetUuid: string;
+    versionNumber: number;
+    sha256: string;
+    sizeBytes: number;
+    printReady: true;
+    signedUrl?: string;
+  } | null;
   /** Hash of the measured validation manifest required for explicit acceptance. */
   manifestHash: string | null;
   failureCode: string | null;

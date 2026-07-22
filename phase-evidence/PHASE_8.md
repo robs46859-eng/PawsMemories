@@ -1,7 +1,7 @@
 # Phase 8 Evidence: Randy Product Assistant
 
 Status: Security and grounding code complete; production 3D asset acceptance pending
-Branch: `codex/phases-8-9`
+Branch: `fix/text-mode-reference-screen`
 Release commit: TBD
 Feature flag: none for the existing chat; every action is a low-risk proposal requiring a user click
 
@@ -20,9 +20,9 @@ Feature flag: none for the existing chat; every action is a low-risk proposal re
 | Gate | Result |
 |---|---|
 | TypeScript | PASS |
-| Focused Randy tests | 7/7 PASS |
-| Post-rebase full Node suite under Node 24.18 | 889 pass / 892 total / 3 opt-in skips / 0 failures |
-| Production build and manifest | PASS, 55 release files |
+| Focused Randy tests | 14/14 PASS |
+| Full Node suite under Node 24.18 | 1,031 pass / 1,034 total / 3 opt-in skips / 0 failures |
+| Production build and manifest | PASS, 59 release files |
 | Animator subsystem doctor | PASS; optional Rhubarb warning only |
 
 ## Remaining Exit Work

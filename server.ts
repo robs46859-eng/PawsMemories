@@ -21,6 +21,8 @@ import { assetsRouter } from "./server/assets/routes";
 import { referenceSessionsRouter } from "./server/reference-sessions/routes";
 import { modelBuildsRouter, modelBuildService } from "./server/model-builds/routes";
 import { createRigPipelineRouter } from "./server/rig-pipeline/routes";
+import { RigPipelineService } from "./server/rig-pipeline/service";
+import { isRigPipelineV4Enabled } from "./server/rig-pipeline/featureFlag";
 import { createFurBinRouter } from "./server/fur-bin/routes";
 import { isModelBuildV3Enabled } from "./server/model-builds/featureFlag";
 import { requireCanonicalAssetsEnabled } from "./server/assets/featureFlag";
@@ -108,6 +110,12 @@ import { RANDY_REGISTRY_VERSION } from "./server/randy/registry";
 import { parseRandyModelResponse, RandyChatRequestSchema } from "./server/randy/security";
 import { extractShipmentTracking } from "./server/fulfillmentTracking";
 import { draftSlantOrder, getSlantOrder, slant3dConfigured, submitSlantOrderIfDraft, uploadSlantFileFromUrl, verifySlant3dConfiguration } from "./server/slant3d";
+import { isStationeryV2Enabled } from "./server/stationery-v2/featureFlag";
+import { createStationeryV2Production } from "./server/stationery-v2/production";
+import { createStationeryV2Router } from "./server/stationery-v2/routes";
+import { isWagsV2Enabled } from "./server/wags-v2/featureFlag";
+import { createWagsV2Production } from "./server/wags-v2/production";
+import { createWagsV2Router } from "./server/wags-v2/routes";
 import { triageReferenceImage, triagePasses, correctiveFromTriage, friendlyQualifyError, isClassMismatch, classLabel, type TriageResult } from "./server/imageTriage";
 import { objectBuildProfile, humanRigHints } from "./server/subjectProfiles";
 
@@ -570,6 +578,25 @@ async function startServer() {
     }
   };
 
+  // Raw-body authenticated v2 webhooks must be mounted before the global JSON
+  // parser. Production factories are constructed only when their dark-launch
+  // flags are explicitly enabled, so missing rollout secrets cannot break the
+  // legacy application.
+  if (isWagsV2Enabled()) {
+    const wagsV2 = createWagsV2Production();
+    app.use("/api/wags-v2", createWagsV2Router({
+      service: wagsV2.service,
+      resolveOwnerUuid: wagsV2.resolveOwnerUuid,
+    }));
+  }
+  if (isStationeryV2Enabled()) {
+    const stationeryV2 = createStationeryV2Production();
+    app.use("/api/stationery-v2", createStationeryV2Router(
+      stationeryV2.service,
+      stationeryV2.routerDependencies,
+    ));
+  }
+
   // Stripe Webhook Route (must be registered BEFORE global express.json body parser)
   app.post("/api/stripe-webhook", express.raw({ type: "application/json" }), async (req, res) => {
     const sig = req.headers["stripe-signature"];
@@ -885,6 +912,11 @@ async function startServer() {
   if (isModelBuildV3Enabled()) {
     void modelBuildService.recoverStaleBuilds().catch((error) => {
       console.error("[model-build recovery] Startup recovery failed:", error.message);
+    });
+  }
+  if (isRigPipelineV4Enabled()) {
+    void new RigPipelineService(getPool).recoverStaleRigJobs().catch((error) => {
+      console.error("[rig-pipeline recovery] Startup recovery failed:", error.message);
     });
   }
 

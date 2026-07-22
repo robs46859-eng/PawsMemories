@@ -48,7 +48,7 @@ test("Phase 5 Adversarial Test Suite", async (t) => {
       );
 
       const [aRes] = await conn.query(
-        "INSERT INTO assets (asset_uuid, owner_id, asset_type, visibility, status) VALUES (UUID(), ?, 'model_glb', 'published', 'active')",
+        "INSERT INTO assets (asset_uuid, owner_id, asset_type, visibility, status) VALUES (UUID(), ?, 'model_glb', 'private', 'active')",
         [ownerPhone],
       );
 
@@ -58,8 +58,30 @@ test("Phase 5 Adversarial Test Suite", async (t) => {
         [aRes.insertId, commercialEligible ? 1 : 0],
       );
 
+      const [publicAssetResult] = await conn.query(
+        "INSERT INTO assets (asset_uuid, owner_id, asset_type, visibility, status) VALUES (UUID(), ?, 'model_glb', 'published', 'active')",
+        [ownerPhone],
+      );
+      const [publicVersionResult] = await conn.query(
+        `INSERT INTO asset_versions (asset_id, version_number, sha256, mime_type, size_bytes, bucket, object_key, commercial_use_eligible)
+         VALUES (?, 1, REPEAT('d', 64), 'model/gltf-binary', 2048, 'private', 'model_adv_public.glb', ?)`,
+        [publicAssetResult.insertId, commercialEligible ? 1 : 0],
+      );
+      await conn.query("UPDATE assets SET current_version_id = ? WHERE id = ?", [publicVersionResult.insertId, publicAssetResult.insertId]);
+      await conn.query(
+        "INSERT INTO asset_relations (parent_version_id, child_version_id, relation_type) VALUES (?, ?, 'derivative')",
+        [vRes.insertId, publicVersionResult.insertId],
+      );
+
       const [assetRows] = await conn.query("SELECT asset_uuid FROM assets WHERE id = ?", [aRes.insertId]);
-      return { assetId: aRes.insertId, assetUuid: assetRows[0].asset_uuid, versionId: vRes.insertId, ownerPhone };
+      const [publicRows] = await conn.query("SELECT asset_uuid FROM assets WHERE id = ?", [publicAssetResult.insertId]);
+      return {
+        assetId: aRes.insertId,
+        assetUuid: assetRows[0].asset_uuid,
+        publicDerivativeUuid: publicRows[0].asset_uuid,
+        versionId: vRes.insertId,
+        ownerPhone,
+      };
     } finally {
       conn.release();
     }
@@ -105,6 +127,8 @@ test("Phase 5 Adversarial Test Suite", async (t) => {
       async () => {
         await service.publishShowcase(ownerPhone, {
           itemUuid: item.itemUuid,
+          publicDerivativeUuid: setup.publicDerivativeUuid,
+          publicDerivativeVersionNumber: 1,
           title: "Commercial Attempt",
           rightsDeclaration: "all_rights_reserved",
           commercialEligible: true,
@@ -127,6 +151,8 @@ test("Phase 5 Adversarial Test Suite", async (t) => {
 
     const showcase = await service.publishShowcase(ownerPhone, {
       itemUuid: item.itemUuid,
+      publicDerivativeUuid: setup.publicDerivativeUuid,
+      publicDerivativeVersionNumber: 1,
       title: "Mod Showcase",
       rightsDeclaration: "cc0",
     });

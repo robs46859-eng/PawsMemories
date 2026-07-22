@@ -9,6 +9,7 @@ import { RigPipelineService, RigPipelineError } from "./service";
 import {
   StartRigJobRequestSchema,
   AcceptRigJobRequestSchema,
+  RetryRigJobRequestSchema,
   RegisterAccessoryRequestSchema,
 } from "./schemas";
 import { insertAccessoryCatalog, findAccessoriesByOwner } from "./repository";
@@ -73,6 +74,18 @@ export function createRigPipelineRouter(getPool: () => mysql.Pool): Router {
         manifestHash: body.manifestHash,
       });
       res.json(accepted);
+    } catch (err: any) {
+      handleError(res, err);
+    }
+  });
+
+  router.post("/jobs/:uuid/retry", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const body = RetryRigJobRequestSchema.parse(req.body);
+      res.status(202).json(await service.retryRigJob((req as any).ownerId, req.params.uuid, {
+        idempotencyKey: body.idempotencyKey,
+        accessoryUuids: body.accessoryIds,
+      }));
     } catch (err: any) {
       handleError(res, err);
     }
@@ -158,6 +171,8 @@ function handleError(res: Response, err: any): void {
       VALIDATION_FAILED: 422,
       PROFILE_MISMATCH: 422,
       INVALID_ASSET: 422,
+      MAX_ATTEMPTS: 409,
+      IDEMPOTENCY_CONFLICT: 409,
     };
     res.status(statusMap[err.code] || 400).json({ error: err.message, code: err.code });
     return;

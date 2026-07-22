@@ -12,7 +12,7 @@ const MYSQL_CONFIG = {
 };
 const TEST_DB = "paws_phase45_migration_test_db";
 
-test("Phase 4 Migrations 23 and 24 MySQL Integration", async (t) => {
+test("Phase 4-9 managed migrations through durable BIM migration 29", async (t) => {
   let pool;
   try {
     const admin = await mysql.createConnection(MYSQL_CONFIG);
@@ -32,13 +32,13 @@ test("Phase 4 Migrations 23 and 24 MySQL Integration", async (t) => {
     await admin.end();
   });
 
-  await t.test("should execute all managed migrations 16..24 cleanly", async () => {
+  await t.test("should execute all managed migrations through 29 cleanly", async () => {
     const result = await runMigrations(pool);
     assert.ok(result.durationMs >= 0);
 
     const [rows] = await pool.query("SELECT MAX(version) as max_v FROM schema_migrations");
     assert.equal(rows[0].max_v, CURRENT_SCHEMA_VERSION);
-    assert.equal(CURRENT_SCHEMA_VERSION, 24);
+    assert.equal(CURRENT_SCHEMA_VERSION, 29);
   });
 
   await t.test("should verify Phase 4 and 5 tables exist in schema", async () => {
@@ -51,12 +51,41 @@ test("Phase 4 Migrations 23 and 24 MySQL Integration", async (t) => {
       "accessory_catalog",
       "accessory_fits",
       "rig_acceptances",
+      "rig_worker_attempts",
+      "rig_attempt_artifacts",
+      "rig_worker_events",
       "fur_bin_items",
       "fur_bin_collections",
       "fur_bin_collection_items",
       "fur_bin_tags",
       "showcase_records",
       "moderation_history",
+      "fur_bin_version_events",
+      "fur_bin_badge_evidence",
+      "showcase_publication_events",
+      "stationery_payment_evidence",
+      "stationery_template_versions",
+      "stationery_render_jobs",
+      "stationery_render_outbox",
+      "stationery_print_manifests",
+      "stationery_fulfillment_orders",
+      "stationery_provider_event_claims",
+      "stationery_provider_events",
+      "stationery_reconciliation_runs",
+      "wags_pack_versions_v2",
+      "wags_subscriptions_v2",
+      "wags_payment_coverage_v2",
+      "wags_deliveries_v2",
+      "wags_grants_v2",
+      "wags_lifecycle_events_v2",
+      "wags_incentive_policies_v2",
+      "bim_build_jobs_v2",
+      "bim_build_attempts_v2",
+      "bim_verification_reports_v2",
+      "bim_build_artifacts_v2",
+      "bim_build_acceptances_v2",
+      "bim_credit_events_v2",
+      "bim_worker_events_v2",
     ];
 
     for (const table of tables) {

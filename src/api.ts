@@ -1364,6 +1364,13 @@ export interface RigJobResponse {
     deformationPass: boolean;
   } | null;
   accessories: Array<Record<string, unknown>>;
+  outputArtifact: {
+    assetUuid: string;
+    versionNumber: number;
+    sha256: string;
+    sizeBytes: number;
+    signedUrl?: string;
+  } | null;
   manifestHash: string | null;
   failureCode: string | null;
   createdAt: string;
@@ -1407,6 +1414,23 @@ export async function acceptRigJob(jobUuid: string, manifestHash: string): Promi
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || `Failed to accept rig job (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function retryRigJob(
+  jobUuid: string,
+  idempotencyKey: string,
+  accessoryIds: string[] = [],
+): Promise<RigJobResponse> {
+  const res = await authedFetch(`/api/rig-pipeline/jobs/${jobUuid}/retry`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ idempotencyKey, accessoryIds }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to retry rig job (${res.status})`);
   }
   return res.json();
 }

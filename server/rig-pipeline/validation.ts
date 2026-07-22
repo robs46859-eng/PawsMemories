@@ -42,7 +42,7 @@ export function classifyModel(
     confidence = 0.99;
   } else if (["human", "biped", "person", "character"].includes(subject) || (boundingVolume.y > boundingVolume.x * 1.3 && boundingVolume.y > boundingVolume.z * 1.3)) {
     classification = "biped";
-    profileId = "biped.human.canonical";
+    profileId = "biped.standard";
     confidence = 0.95;
   } else if (["dog", "cat", "horse", "quadruped", "animal"].includes(subject) || isHorizontalBody) {
     classification = "quadruped";

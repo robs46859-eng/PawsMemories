@@ -100,7 +100,7 @@ export async function updateRigJobState(
   conn: mysql.PoolConnection,
   jobId: number,
   newState: RigJobState,
-  extra?: { currentAttemptId?: number; failureCode?: string; acceptedArtifactId?: number },
+  extra?: { currentAttemptId?: number; failureCode?: string | null; acceptedArtifactId?: number | null },
 ): Promise<void> {
   const sets: string[] = ["state = ?"];
   const vals: any[] = [newState];
@@ -163,6 +163,124 @@ export async function claimRigLease(
     [leaseOwner, leaseExpiry, attemptId],
   );
   return res.affectedRows > 0;
+}
+
+export async function releaseRigLease(
+  conn: mysql.PoolConnection,
+  attemptId: number,
+  leaseOwner: string,
+): Promise<void> {
+  await conn.query(
+    "UPDATE rig_attempts SET worker_lease_owner = NULL, worker_lease_expiry = NULL WHERE id = ? AND worker_lease_owner = ?",
+    [attemptId, leaseOwner],
+  );
+}
+
+export async function renewRigLease(
+  pool: mysql.Pool | mysql.PoolConnection,
+  attemptId: number,
+  leaseOwner: string,
+  leaseExpiry: Date,
+): Promise<boolean> {
+  const [result]: any = await pool.query(
+    "UPDATE rig_attempts SET worker_lease_expiry = ? WHERE id = ? AND worker_lease_owner = ?",
+    [leaseExpiry, attemptId, leaseOwner],
+  );
+  return Number(result.affectedRows) === 1;
+}
+
+// ── Durable Worker Boundary ─────────────────────────────────────────────────
+
+export async function insertRigWorkerAttempt(
+  conn: mysql.PoolConnection,
+  data: {
+    rigAttemptId: number;
+    attemptUuid: string;
+    contractVersion: number;
+    profileId: string;
+    sourceSha256: string;
+    requestHash: string;
+    requestJson: Record<string, unknown>;
+  },
+): Promise<number> {
+  const [result]: any = await conn.query(
+    `INSERT INTO rig_worker_attempts
+      (rig_attempt_id, attempt_uuid, contract_version, profile_id, source_sha256, request_hash, request_json, state)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'created')`,
+    [data.rigAttemptId, data.attemptUuid, data.contractVersion, data.profileId, data.sourceSha256, data.requestHash, JSON.stringify(data.requestJson)],
+  );
+  return Number(result.insertId);
+}
+
+export async function findRigWorkerAttemptByRigAttemptId(
+  pool: mysql.Pool | mysql.PoolConnection,
+  rigAttemptId: number,
+): Promise<any | null> {
+  const [rows]: any = await pool.query("SELECT * FROM rig_worker_attempts WHERE rig_attempt_id = ?", [rigAttemptId]);
+  return rows[0] || null;
+}
+
+export async function updateRigWorkerAttempt(
+  conn: mysql.PoolConnection,
+  rigAttemptId: number,
+  state: "created" | "submitted" | "processing" | "received" | "persisted" | "failed",
+  extra: { responseHash?: string; providerTaskId?: string; warnings?: string[] } = {},
+): Promise<void> {
+  const sets = ["state = ?"];
+  const values: unknown[] = [state];
+  if (extra.responseHash !== undefined) { sets.push("response_hash = ?"); values.push(extra.responseHash); }
+  if (extra.providerTaskId !== undefined) { sets.push("provider_task_id = ?"); values.push(extra.providerTaskId); }
+  if (extra.warnings !== undefined) { sets.push("warnings_json = ?"); values.push(JSON.stringify(extra.warnings)); }
+  values.push(rigAttemptId);
+  await conn.query(`UPDATE rig_worker_attempts SET ${sets.join(", ")} WHERE rig_attempt_id = ?`, values);
+}
+
+export async function insertRigWorkerEvent(
+  conn: mysql.PoolConnection,
+  data: { eventUuid: string; rigAttemptId: number; eventType: string; payloadHash: string },
+): Promise<boolean> {
+  const [result]: any = await conn.query(
+    `INSERT IGNORE INTO rig_worker_events (event_uuid, rig_attempt_id, event_type, payload_hash)
+     VALUES (?, ?, ?, ?)`,
+    [data.eventUuid, data.rigAttemptId, data.eventType, data.payloadHash],
+  );
+  return Number(result.affectedRows) === 1;
+}
+
+export async function insertRigAttemptArtifact(
+  conn: mysql.PoolConnection,
+  data: {
+    rigAttemptId: number;
+    artifactKey: string;
+    role: "rigged_glb" | "validation_manifest" | "facial_render_front" | "facial_render_three_quarter" | "accessory_glb" | "fused_print_glb";
+    assetId: number;
+    assetVersionId: number;
+    computedHash: string;
+    sizeBytes: number;
+    mimeType: string;
+    evidence?: Record<string, unknown> | null;
+  },
+): Promise<number> {
+  const [result]: any = await conn.query(
+    `INSERT INTO rig_attempt_artifacts
+      (rig_attempt_id, artifact_key, role, asset_id, asset_version_id, computed_hash, size_bytes, mime_type, evidence_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [data.rigAttemptId, data.artifactKey, data.role, data.assetId, data.assetVersionId,
+      data.computedHash, data.sizeBytes, data.mimeType, data.evidence ? JSON.stringify(data.evidence) : null],
+  );
+  return Number(result.insertId);
+}
+
+export async function findRigAttemptArtifact(
+  pool: mysql.Pool | mysql.PoolConnection,
+  rigAttemptId: number,
+  artifactKey: string,
+): Promise<any | null> {
+  const [rows]: any = await pool.query(
+    "SELECT * FROM rig_attempt_artifacts WHERE rig_attempt_id = ? AND artifact_key = ?",
+    [rigAttemptId, artifactKey],
+  );
+  return rows[0] || null;
 }
 
 // ── Validation Manifests ────────────────────────────────────────────────────

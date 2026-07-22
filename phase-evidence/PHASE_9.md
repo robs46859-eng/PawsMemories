@@ -1,43 +1,34 @@
 # Phase 9 Evidence: Calibrated Shell and IFC BIM
 
-Status: Calibration/verification foundation complete; durable release integration and external acceptance pending
-Branch: `codex/phases-8-9`
-Release commit: TBD
-Feature flags: `BIM_V2_ENABLED=false` (server authority), `VITE_BIM_V2_ENABLED=false` (client presentation)
-Worker: Render, IfcOpenShell 0.8.5, NumPy 2.2.1
+Status: Durable server code complete; production/UI integration blocked
+Branch: `fix/text-mode-reference-screen`
+Release commit: recorded by the generated `release-manifest.json`
+Feature flags: `BIM_V2_ENABLED=false`, `VITE_BIM_V2_ENABLED=false`
+Worker: Render with IfcOpenShell 0.8.5 and NumPy 2.2.1
+Migration: 29
 
 ## Implemented Contract
 
-- Text proposals require a bounded description and trusted measurement. Image proposals require at least two real decoded JPEG/PNG/WebP views; each claimed observed view must have bytes, while synthesized views are tracked only as hypotheses.
-- Gemini receives a high-authority anti-injection instruction. Its output must pass strict Zod, BIM relationship validation, and calibrated dimensional verification before appearing as an editable proposal.
-- A generated proposal never authorizes a paid build. The user reviews it and runs an independent pre-build server gate; the server repeats that gate immediately before charging.
-- Shell costs 60 credits and is labeled a scaled visual GLB without BIM semantics. IFC costs 300 credits and is labeled semantic IFC4 only after its stronger gate passes.
-- Before and after reports contain deterministic hashes, trusted dimensions, per-axis tolerances, visible/inferred/unknown facts, and explicit limitations.
-- IFC post-build checks schema reopen, unit scale, finite placements, element and unique-GlobalId counts, storeys, property sets, spatial hierarchy, void/fill relationships, semantic GLB conversion, and optional CRS-label preservation.
-- A CRS label does not claim surveyed easting, northing, elevation, rotation, engineering adequacy, or code compliance.
-- Refund responses no longer claim success if the automatic credit return fails; they expose a pending disposition.
+- Calibrated text/multi-image proposals separate observed views from synthesized hypotheses and require trusted measurements, user-reviewed assumptions, and strict model relationships.
+- Deterministic pre-build and post-build reports bind model, calibration, report, and output hashes. Shell is a lower-cost visual claim; IFC is at least four times the Shell price and must earn semantic evidence.
+- Durable jobs/attempts provide owner-scoped idempotency, bounded retry, cancellation, explicit acceptance, leases, canonical private artifact registration, compensation cleanup, and truthful credit debit/refund/reconciliation.
+- The authenticated HTTPS IFC worker validates bounded IFC/GLB/JSON output, IFC signature/reopen evidence, units, finite placements, hierarchy, unique GlobalIds, property sets, openings/fills, semantic sidecar, and conversion report.
 
 ## Automated Evidence
 
 | Gate | Result |
 |---|---|
+| Focused Randy/BIM tests | 60/60 PASS (46 BIM, 14 Randy) |
+| Migration 29 MySQL integration | PASS |
 | TypeScript | PASS |
-| New Phase 9 tests | 14/14 PASS |
-| Focused AI/BIM plus existing BIM/pricing regressions | 105/105 PASS |
-| Python syntax compilation | PASS |
-| Post-rebase full Node suite under Node 24.18 | 889 pass / 892 total / 3 opt-in skips / 0 failures |
-| Production build and manifest | PASS, 55 release files |
-| Animator subsystem doctor | PASS; optional Rhubarb warning only |
+| Full Node suite under Node 24.18 | 1,031 pass / 0 fail / 3 optional skips |
+| Production build | PASS; 59 release files |
 
 ## Remaining Exit Work
 
-- Replace legacy public BIM artifact URLs with private object keys and owner-scoped short-lived signed downloads.
-- Move paid BIM builds onto a durable idempotent job, credit-event, retry, and refund-reconciliation ledger. The current synchronous legacy route is not a Phase 9 production billing contract.
-- Run the six Python worker tests in the pinned Render environment. Local Python 3.14.6 does not have IfcOpenShell.
-- Run one real Gemini text fixture and one multi-image calibrated building fixture with human review of inferred elements.
-- Download and independently inspect one shell GLB and one IFC4/semantic GLB pair.
-- Exercise successful and failed/refund flows with test credits and durable storage.
-- Complete light/dark browser tests at 320, 360, 390, and 430px plus desktop.
-- Build the deployment archive only after integration with the active Phase 4-5 lane and final release commit.
+- Persist and resolve the exact server-approved accepted model snapshot for durable work; the production service must not trust a caller-reconstructed model.
+- Add a real authenticated Shell worker. Current durable Shell processing fails closed rather than fabricating GLB output.
+- Switch `BimModelBuilder` from the legacy synchronous build route to durable enqueue/status/accept/download flow.
+- Run credentialed Gemini fixtures, Render rotated/unit/two-room IFC fixtures, private downloads, debit/refund failures, and the full light/dark mobile browser matrix.
 
-Decision: The calibration/verification patch can be integrated default-off. Phase 9 is not code-complete or approved for production enablement until private storage and durable billing integration close.
+Decision: merge/deploy default-off; do not mount or enable the durable BIM production path until accepted-model and Shell-worker blockers close.

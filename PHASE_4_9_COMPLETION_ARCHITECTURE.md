@@ -1,6 +1,6 @@
 # Pawsome3D Phase 4-9 Completion Architecture
 
-**Status:** Controlling implementation specification  
+**Status:** Controlling implementation and release-gate specification
 **Date:** 2026-07-22  
 **Baseline:** `9a7c692` on `fix/text-mode-reference-screen`  
 **Supersedes:** Agent completion claims for Phases 4-9; existing evidence remains historical  
@@ -8,7 +8,9 @@
 
 ## 1. Executive Decision
 
-Phase 4 does not currently create a body or facial rig. Its API and persistence foundation intentionally ends with `RIG_WORKER_NOT_INTEGRATED` because the earlier implementation fabricated bones, morph targets, deformation results, and accessory clearances. The next release must replace that terminal failure with an authenticated, measured Blender-worker contract. It must not restore synthetic success data.
+Phase 4 now has an authenticated Blender worker for body rigging, semantic facial authoring, measured deformation, and optional fused-print derivatives. The implementation rejects unsupported or unmeasured results instead of restoring the earlier fabricated success data. It remains dark-launched until the representative Render fixture corpus and human animation/print review pass.
+
+Phases 5-9 now have default-off domain code through schema 29. Local code completion is not production approval: provider sandboxes, accepted assets, live storage/worker evidence, responsive browser review, and the human release gate listed below remain mandatory.
 
 The completed product flow is:
 
@@ -211,7 +213,7 @@ Exit requires real text and multi-image fixtures, shell and IFC downloads, Rende
 
 ## 10. Database and Migration Allocation
 
-Current schema version is 24. New migrations are forward-only:
+Current schema version is 29. Migrations are forward-only:
 
 | Version | Owner | Purpose |
 |---|---|---|
@@ -290,13 +292,14 @@ For each integration checkpoint:
 
 ## 16. Immediate Critical Path
 
-1. Parse-fix and authenticate the existing Blender worker before adding a new rig route.
-2. Add the Phase 4 strict worker protocol and deterministic facial/rig validator.
-3. Add migration 25 and durable API worker/result/storage orchestration.
-4. Pass local fixtures, then run the same fixture in the Render worker.
-5. Integrate Fur Bin UI against measured Phase 4 results.
-6. Integrate Phase 6-9 domains in migration order, preserving default-off gates.
-7. Run adversarial review and the universal release gate.
+1. Keep all Phase 2-9 rollout flags false for the baseline deployment.
+2. Run the body/facial/accessory fixture corpus against the deployed Render worker and inspect animation and fused-print output.
+3. Run the Fur Bin private/public storage and responsive browser matrix.
+4. Supply and approve Stationery shipping/provider adapters and provider sandbox evidence before enabling Phase 6.
+5. Run Wags Stripe sandbox replay, cancellation, payment-recovery, and entitlement audits before enabling Phase 7.
+6. Approve a canonical Randy GLB/LOD and accessible fallback before declaring Phase 8 complete.
+7. Connect the durable BIM API to an authoritative accepted-model snapshot and a real Shell worker; then run the Render IFC and browser acceptance matrices.
+8. Enable one flag at a time only after the corresponding human approval is recorded.
 
 ## Footnotes: Problematic Coding to Watch
 

@@ -13,6 +13,8 @@ import {
   PublishShowcaseRequestSchema,
   ModerationDecisionRequestSchema,
   RollbackVersionRequestSchema,
+  ShowcaseBrowseRequestSchema,
+  OwnerShowcaseListRequestSchema,
 } from "./schemas";
 
 export function createFurBinRouter(
@@ -30,6 +32,42 @@ export function createFurBinRouter(
       next();
     } catch (err: any) {
       res.status(503).json({ error: err.message || "Fur Bin showcase disabled", code: "FEATURE_DISABLED" });
+    }
+  });
+
+  // Static showcase routes must precede /showcase/:uuid.
+  router.get("/showcase/browse", async (req: Request, res: Response) => {
+    try {
+      const query = ShowcaseBrowseRequestSchema.parse({
+        query: singleQueryValue(req.query.query),
+        tag: singleQueryValue(req.query.tag),
+        category: singleQueryValue(req.query.category),
+        page: req.query.page ? Number(singleQueryValue(req.query.page)) : 1,
+        limit: req.query.limit ? Number(singleQueryValue(req.query.limit)) : 20,
+      });
+      res.json(await service.browsePublicShowcases(query));
+    } catch (err: any) {
+      handleError(res, err);
+    }
+  });
+
+  router.get("/showcase/owner", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const query = OwnerShowcaseListRequestSchema.parse({
+        page: req.query.page ? Number(singleQueryValue(req.query.page)) : 1,
+        limit: req.query.limit ? Number(singleQueryValue(req.query.limit)) : 20,
+      });
+      res.json(await service.listOwnerShowcases(ownerId(req), query));
+    } catch (err: any) {
+      handleError(res, err);
+    }
+  });
+
+  router.get("/showcase/owner/:uuid", requireAuth, async (req: Request, res: Response) => {
+    try {
+      res.json(await service.getShowcaseForOwner(ownerId(req), req.params.uuid));
+    } catch (err: any) {
+      handleError(res, err);
     }
   });
 
@@ -55,9 +93,9 @@ export function createFurBinRouter(
   router.get("/items", requireAuth, async (req: Request, res: Response) => {
     try {
       const query = SearchFurBinRequestSchema.parse({
-        query: req.query.query,
-        tag: req.query.tag,
-        collectionUuid: req.query.collectionUuid,
+        query: singleQueryValue(req.query.query),
+        tag: singleQueryValue(req.query.tag),
+        collectionUuid: singleQueryValue(req.query.collectionUuid),
         hasRig: req.query.hasRig === "true" ? true : req.query.hasRig === "false" ? false : undefined,
         hasFacial: req.query.hasFacial === "true" ? true : req.query.hasFacial === "false" ? false : undefined,
         hasAnimations: req.query.hasAnimations === "true" ? true : req.query.hasAnimations === "false" ? false : undefined,
@@ -86,8 +124,16 @@ export function createFurBinRouter(
   router.post("/items/:uuid/rollback", requireAuth, async (req: Request, res: Response) => {
     try {
       const body = RollbackVersionRequestSchema.parse(req.body);
-      const updated = await service.rollbackVersion(ownerId(req), req.params.uuid, body.targetVersionId);
+      const updated = await service.rollbackVersion(ownerId(req), req.params.uuid, body.versionNumber);
       res.json(updated);
+    } catch (err: any) {
+      handleError(res, err);
+    }
+  });
+
+  router.post("/items/:uuid/archive", requireAuth, async (req: Request, res: Response) => {
+    try {
+      res.json(await service.archiveItem(ownerId(req), req.params.uuid));
     } catch (err: any) {
       handleError(res, err);
     }
@@ -142,6 +188,14 @@ export function createFurBinRouter(
     }
   });
 
+  router.get("/collections", requireAuth, async (req: Request, res: Response) => {
+    try {
+      res.json(await service.listCollections(ownerId(req)));
+    } catch (err: any) {
+      handleError(res, err);
+    }
+  });
+
   router.post("/collections/:uuid/items", requireAuth, async (req: Request, res: Response) => {
     try {
       const body = AddCollectionItemRequestSchema.parse(req.body);
@@ -164,6 +218,7 @@ function handleError(res: Response, err: any): void {
       INVALID_VERSION: 400,
       INVALID_ASSET: 422,
       PRIVATE_ASSET: 422,
+      INVALID_LINEAGE: 422,
       INVALID_STATE: 409,
       ADMIN_REQUIRED: 403,
     };
@@ -176,4 +231,8 @@ function handleError(res: Response, err: any): void {
   }
   console.error("[fur-bin] Router error:", err);
   res.status(500).json({ error: "Internal server error", code: "INTERNAL_ERROR" });
+}
+
+function singleQueryValue(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
 }

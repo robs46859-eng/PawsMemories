@@ -1,6 +1,6 @@
 # Pawsome3D — Architecture, Build & Deployment Reference
 
-*Last updated: 2026-07-21*
+*Last updated: 2026-07-22*
 
 ---
 
@@ -199,6 +199,13 @@ Set in Hostinger → Websites → pawsome3d.com → Deployments → Settings →
 | `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_PHONE_NUMBER` | SMS notifications |
 | `BLENDER_WORKER_URL` | `https://pawsmemories.onrender.com/render` |
 | `WORKER_SHARED_SECRET` | Auth header for blender-worker |
+| `MODEL_BUILD_V3_ENABLED` / `RIG_PIPELINE_V4_ENABLED` | Keep `false` for the baseline release |
+| `FUR_BIN_V5_ENABLED` / `VITE_FUR_BIN_V5_ENABLED` | Keep `false`; Vite value must exist before build |
+| `STATIONERY_V2_ENABLED` | Keep `false` until shipping/provider gates pass |
+| `WAGS_V2_ENABLED` | Keep `false` until Stripe sandbox and UI gates pass |
+| `WAGS_STRIPE_WEBHOOK_SECRET` | Separate Wags v2 endpoint secret; do not reuse the legacy webhook secret |
+| `BIM_V2_ENABLED` / `VITE_BIM_V2_ENABLED` | Keep `false` until durable BIM integration and acceptance pass |
+| `BIM_WORKER_TIMEOUT_MS` | `180000` unless a measured Render run requires adjustment |
 | `HEYGEN_API_KEY` / `HEYGEN_DEFAULT_VOICE_ID` | HeyGen talking avatar video |
 | `ELEVENLABS_API_KEY` / `ELEVENLABS_MODEL_ID` / `ELEVENLABS_DEFAULT_VOICE_ID` | Animator voice preview |
 | `RHUBARB_BIN` | Optional path to Rhubarb Linux binary |

@@ -23,7 +23,7 @@ test("Phase 4 Validation Logic Suite", async (t) => {
       subjectClass: "human",
     });
     assert.equal(biped.classification, "biped");
-    assert.equal(biped.selectedProfileId, "biped.human.canonical");
+    assert.equal(biped.selectedProfileId, "biped.standard");
 
     const staticObj = classifyModel({
       triangleCount: 10000,

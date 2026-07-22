@@ -23,9 +23,13 @@ test("Phase 4-5 release contracts", async (t) => {
     assert.match(sql, /FOREIGN KEY \(model_build_job_id\) REFERENCES model_build_jobs\(id\)/);
   });
 
-  await t.test("rig processing fails closed instead of fabricating measured evidence", () => {
+  await t.test("rig processing crosses an authenticated, measured worker boundary", () => {
     const source = read("server/rig-pipeline/service.ts");
-    assert.match(source, /RIG_WORKER_NOT_INTEGRATED/);
+    const worker = read("server/rig-pipeline/worker.ts");
+    assert.match(source, /this\.worker\.process\(request\)/);
+    assert.match(source, /verifyWorkerOutput\(request, result\)/);
+    assert.match(worker, /x-worker-secret/);
+    assert.match(worker, /RigWorkerResultSchema\.parse/);
     assert.doesNotMatch(source, /boneCount:\s*32/);
     assert.doesNotMatch(source, /\["viseme_a",\s*"viseme_b"/);
 

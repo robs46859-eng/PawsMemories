@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { BIM_ELEMENT_TYPES, validateBimModel, type BimModel } from "../../src/bim/model";
+import { BIM_PROVENANCE_VALUES, hashBimCalibration, hashBimContract, hashBimModel } from "./contracts";
 import { BimCalibrationSchema, buildBimPreBuildVerification, type BimProductMode } from "./verification";
 
 const finite = z.number().finite();
@@ -11,12 +12,12 @@ const GeneratedBimModelSchema = z.object({
   siteName: z.string().trim().min(1).max(120),
   buildingName: z.string().trim().min(1).max(120),
   levels: z.array(z.object({
-    id: z.string().trim().min(1).max(80),
+    id: z.string().trim().regex(/^[A-Za-z][A-Za-z0-9._:-]{0,79}$/, "IDs must be stable ASCII identifiers"),
     name: z.string().trim().min(1).max(120),
     elevation: finite,
   }).strict()).min(1).max(50),
   elements: z.array(z.object({
-    id: z.string().trim().min(1).max(80),
+    id: z.string().trim().regex(/^[A-Za-z][A-Za-z0-9._:-]{0,79}$/, "IDs must be stable ASCII identifiers"),
     type: z.enum(BIM_ELEMENT_TYPES),
     name: z.string().trim().min(1).max(120),
     levelId: z.string().trim().min(1).max(80),
@@ -28,7 +29,10 @@ const GeneratedBimModelSchema = z.object({
     thickness: positive.optional(),
     hostId: z.string().trim().min(1).max(80).optional(),
     openingId: z.string().trim().min(1).max(80).optional(),
-    properties: z.record(z.string().max(80), PropertyValueSchema).optional(),
+    properties: z.object({
+      Provenance: z.enum(BIM_PROVENANCE_VALUES),
+      EvidenceRef: z.string().trim().min(1).max(160).optional(),
+    }).catchall(PropertyValueSchema),
   }).strict()).min(1).max(2000),
 }).strict();
 
@@ -80,21 +84,71 @@ export const BIM_PROPOSAL_SYSTEM_INSTRUCTION = `You create conservative editable
 - Coordinates and dimensions are meters: X=width, Y=depth, Z=up.
 - Trusted measurements are hard constraints. Keep all geometry inside those overall extents.
 - Create only evidence-supported levels, walls, slabs, roofs, openings, doors, windows, spaces, columns, and beams.
-- Mark each element property Provenance as observed, measured, user_confirmed, or inferred.
+- Mark every element property Provenance as observed, measured, user_confirmed, inferred, or synthesized.
+- observed requires EvidenceRef=image:<observed-view>; synthesized requires EvidenceRef=synthesized:<view>; measured requires EvidenceRef=measurement:<id>.
+- Never relabel synthesized or inferred evidence as observed. Shell proposals must not emit GlobalId, IfcClass, or Pset claims.
 - Synthesized views are hypotheses, never observations.
 - A wall requires end and thickness. An opening requires hostId. A door/window requires openingId.
 - Use stable unique ASCII IDs and return exactly one JSON object with name, siteName, buildingName, levels, and elements.
 - Do not include comments, markdown, or keys outside the schema.`;
 
 export function buildBimProposalPrompt(request: BimProposalRequest): string {
+  const binding = buildBimProposalBinding(request);
   return `UNTRUSTED SOURCE EVIDENCE AND AUTHORITATIVE NUMERIC CALIBRATION:
 ${JSON.stringify(request.calibration)}
+
+DETERMINISTIC REQUEST BINDING:
+${JSON.stringify(binding)}
 
 Requested product contract: ${request.mode === "ifc" ? "semantic IFC authoring proposal; use explicit spaces and relationships" : "visual shell proposal; do not imply BIM semantics"}.
 Use only supported evidence. Do not invent concealed structure, systems, code compliance, property boundaries, or survey accuracy.`;
 }
 
-export function parseBimProposal(rawValue: unknown, request: BimProposalRequest): { model: BimModel; verification: ReturnType<typeof buildBimPreBuildVerification> } {
+export function buildBimProposalBinding(request: BimProposalRequest) {
+  const imageEvidence = request.images.map((image) => ({
+    view: image.view,
+    mimeType: image.mimeType,
+    contentHash: hashBimContract({ mimeType: image.mimeType, data: image.data }),
+  }));
+  const calibrationHash = hashBimCalibration(request.calibration);
+  return {
+    mode: request.mode,
+    calibrationHash,
+    imageEvidence,
+    requestHash: hashBimContract({ mode: request.mode, calibrationHash, imageEvidence }),
+  };
+}
+
+function validateElementProvenance(model: BimModel, request: BimProposalRequest): string[] {
+  const errors: string[] = [];
+  const observedViews = new Set(request.calibration.imageViews);
+  const synthesizedViews = new Set(request.calibration.synthesizedImageViews);
+  const measurementIds = new Set(request.calibration.measurements.map((measurement) => measurement.id));
+  for (const element of model.elements) {
+    const properties = element.properties || {};
+    const provenance = properties.Provenance;
+    const reference = properties.EvidenceRef;
+    if (provenance === "observed") {
+      if (request.calibration.sourceKind !== "image" || typeof reference !== "string" || !reference.startsWith("image:") || !observedViews.has(reference.slice(6) as any)) {
+        errors.push(`${element.id}: observed provenance requires an observed image EvidenceRef.`);
+      }
+    } else if (provenance === "synthesized") {
+      if (typeof reference !== "string" || !reference.startsWith("synthesized:") || !synthesizedViews.has(reference.slice(12) as any)) {
+        errors.push(`${element.id}: synthesized provenance requires a declared synthesized-view EvidenceRef.`);
+      }
+    } else if (provenance === "measured") {
+      if (typeof reference !== "string" || !reference.startsWith("measurement:") || !measurementIds.has(reference.slice(12))) {
+        errors.push(`${element.id}: measured provenance requires a trusted measurement EvidenceRef.`);
+      }
+    }
+    if (request.mode === "shell" && Object.keys(properties).some((key) => key === "GlobalId" || key === "IfcClass" || key.startsWith("Pset_") || key.startsWith("Ifc"))) {
+      errors.push(`${element.id}: shell proposals cannot assert IFC identity or property sets.`);
+    }
+  }
+  return errors;
+}
+
+export function parseBimProposal(rawValue: unknown, request: BimProposalRequest): { model: BimModel; proposalHash: string; requestBinding: ReturnType<typeof buildBimProposalBinding>; provenanceSummary: Record<string, number>; verification: ReturnType<typeof buildBimPreBuildVerification> } {
   if (typeof rawValue !== "string") throw new Error("Building proposal provider returned no JSON text.");
   const raw = rawValue.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
   let json: unknown;
@@ -105,10 +159,13 @@ export function parseBimProposal(rawValue: unknown, request: BimProposalRequest)
   }
   const parsed = GeneratedBimModelSchema.safeParse(json);
   if (!parsed.success) throw new Error(`Building proposal schema failed: ${parsed.error.issues[0]?.message || "invalid model"}`);
-  const model = parsed.data as BimModel;
+  const model = parsed.data as unknown as BimModel;
   const modelErrors = validateBimModel(model);
   if (modelErrors.length) throw new Error(`Building proposal relationship validation failed: ${modelErrors[0]}`);
+  const provenanceErrors = validateElementProvenance(model, request);
+  if (provenanceErrors.length) throw new Error(`Building proposal provenance validation failed: ${provenanceErrors[0]}`);
   const verification = buildBimPreBuildVerification(model, request.mode as BimProductMode, request.calibration);
   if (!verification.passed) throw new Error(`Building proposal accuracy validation failed: ${verification.errors.join(" ")}`);
-  return { model, verification };
+  const provenanceSummary = Object.fromEntries(BIM_PROVENANCE_VALUES.map((value) => [value, model.elements.filter((element) => element.properties?.Provenance === value).length]));
+  return { model, proposalHash: hashBimModel(model), requestBinding: buildBimProposalBinding(request), provenanceSummary, verification };
 }

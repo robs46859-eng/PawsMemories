@@ -20,5 +20,9 @@ services:
     envVars:
       - key: WORKER_SHARED_SECRET
         sync: false           # set in dashboard; MUST match Hostinger app env
+      - key: RIG_PIPELINE_SOURCE_HOSTS
+        sync: false           # comma-separated exact hosts used by signed source URLs
+      - key: IFC_MAX_CONCURRENT
+        value: "1"
       - key: PORT
         value: "10000"

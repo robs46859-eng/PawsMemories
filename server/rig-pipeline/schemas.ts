@@ -6,7 +6,7 @@ export const ClassifyModelRequestSchema = z.object({
   modelBuildJobUuid: z.string().uuid(),
   overrideClassification: z.enum(["biped", "quadruped", "unsupported"]).optional(),
   overrideReason: z.string().max(500).optional(),
-});
+}).strict();
 
 export type ClassifyModelRequest = z.infer<typeof ClassifyModelRequestSchema>;
 
@@ -17,14 +17,21 @@ export const StartRigJobRequestSchema = z.object({
   profileId: z.string().optional(),
   requestFacial: z.boolean().default(true),
   accessoryIds: z.array(z.string().uuid()).max(10).default([]),
-});
+}).strict();
 
 export type StartRigJobRequest = z.infer<typeof StartRigJobRequestSchema>;
 
 // ── Accept Rig Job Request ──────────────────────────────────────────────────
 export const AcceptRigJobRequestSchema = z.object({
   manifestHash: z.string().length(64),
-});
+}).strict();
+
+export const RetryRigJobRequestSchema = z.object({
+  idempotencyKey: z.string().min(8).max(128),
+  accessoryIds: z.array(z.string().uuid()).max(10).default([]),
+}).strict();
+
+export type RetryRigJobRequest = z.infer<typeof RetryRigJobRequestSchema>;
 
 export type AcceptRigJobRequest = z.infer<typeof AcceptRigJobRequestSchema>;
 
@@ -46,7 +53,7 @@ export const RegisterAccessoryRequestSchema = z.object({
   license: z.string().max(500).default("proprietary"),
   commercialUseEligible: z.boolean().default(false),
   exportPolicy: z.enum(["allowed", "preview_only", "derivative_only"]).default("allowed"),
-});
+}).strict();
 
 export type RegisterAccessoryRequest = z.infer<typeof RegisterAccessoryRequestSchema>;
 

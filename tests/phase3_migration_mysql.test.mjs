@@ -48,11 +48,11 @@ describe("Phase 3 Migration 22 MySQL Integration", () => {
     await adminConn.end();
   });
 
-  it("should execute all managed migrations 16..22 cleanly on a fresh database", async () => {
+  it("should execute all managed migrations while preserving Phase 3 tables", async () => {
     const result = await runMigrations(pool);
-    // On a fresh database without 'users' table, managed migrations 16..24 are applied
-    assert.equal(result.applied, 9);
-    assert.equal(CURRENT_SCHEMA_VERSION, 24);
+    // On a fresh database without 'users' table, every managed migration is applied.
+    assert.equal(result.applied, CURRENT_SCHEMA_VERSION - 15);
+    assert.equal(CURRENT_SCHEMA_VERSION, 29);
 
     const [rows] = await pool.query(
       `SELECT TABLE_NAME FROM information_schema.TABLES

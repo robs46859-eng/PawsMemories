@@ -2,6 +2,35 @@
 
 export type ItemStatus = "active" | "archived" | "deleted";
 export type ModerationState = "pending" | "approved" | "rejected" | "suspended";
+export type VerificationState = "verified" | "not_verified" | "failed";
+
+export interface MeasuredBadgePublic {
+  id: "rig" | "facial" | "animation";
+  label: string;
+  state: VerificationState;
+  evidenceLabel: string;
+  manifestHash?: string;
+  validatorVersion?: string;
+  ruleIds: string[];
+}
+
+export interface FurBinVersionPublic {
+  versionNumber: number;
+  createdAt: string;
+  sizeBytes: number;
+  mimeType: string;
+  isCurrent: boolean;
+  validationLabel?: string;
+}
+
+export interface FurBinDerivativePublic {
+  derivativeUuid: string;
+  versionNumber: number;
+  label: string;
+  scope: "private" | "public";
+  purpose: "preview" | "showcase" | "print" | "animation" | "other";
+  validationLabel?: string;
+}
 
 export interface FurBinItemRecord {
   id: number;
@@ -86,6 +115,11 @@ export interface FurBinItemPublic {
   derivativeCount: number;
   storageBytes: number;
   status: ItemStatus;
+  badges: MeasuredBadgePublic[];
+  currentVersionNumber?: number;
+  versions: FurBinVersionPublic[];
+  derivatives: FurBinDerivativePublic[];
+  showcase?: ShowcaseRecordPublic;
   signedViewUrl?: string; // Short-lived signed URL for model view
   coverUrl?: string;
   createdAt: string;

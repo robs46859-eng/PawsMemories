@@ -1,3 +1,23 @@
+## Phase 4-9 Integration Handoff - 2026-07-22
+
+This section supersedes the older Phase 4/5 foundation status below. Historical sections remain for audit context.
+
+### Integrated Code
+
+- Managed schema is now version 29. Migration 27 matches the concrete Stationery repository tables; migration 28 contains Wags entitlement/payment/grant ledgers; migration 29 contains durable BIM jobs, attempts, reports, private artifact references, acceptance, and credit events.
+- Phase 4 uses an authenticated, hash-bound Blender worker. Body rigging, semantic facial targets (A-H/X, jaw, bilateral blink), measured deformation/locality/reopen checks, accessory fitting, and a separate fused watertight print derivative are implemented. Canonical storage and lineage remain private and version-bound.
+- Phase 5 has owner-scoped V5 API/UI, measured badges, immutable version/publication events, rollback/archive, moderation, and a separate public derivative boundary.
+- Phase 6 has strict versioned template/render/print contracts, durable outbox and provider-event reconciliation, HMAC-authenticated render/provider callbacks, paid-payment lookup, and owner/hash-bound private file delivery. Physical provider submission remains fail-closed because the v2 contract does not yet carry an approved shipping snapshot.
+- Phase 7 has mounted default-off Wags v2 routes, a separate raw Stripe webhook, production Stripe adapters, versioned plans/packs, payment coverage, exactly-once period/bonus delivery, substitution, and reconciliation.
+- Phase 8 grounding, stale-registry detection, prompt-injection defense, scoped citations, and explicit action proposals are implemented. The production Randy GLB/LOD and accessible fallback are not accepted.
+- Phase 9 has strict durable service/repository/production adapters for authenticated IFC generation, canonical private outputs, semantic validation, and idempotent debit/refund reconciliation. The current UI still uses the legacy synchronous build route; an authoritative accepted-model resolver and real Shell worker remain required before mounting the durable production route.
+
+### Release Position
+
+- Keep `MODEL_BUILD_V3_ENABLED`, `RIG_PIPELINE_V4_ENABLED`, `FUR_BIN_V5_ENABLED`, `VITE_FUR_BIN_V5_ENABLED`, `STATIONERY_V2_ENABLED`, `WAGS_V2_ENABLED`, `BIM_V2_ENABLED`, and `VITE_BIM_V2_ENABLED` set to `false` for the baseline deployment.
+- Local automated gates can approve packaging, but cannot replace Render Blender/IfcOpenShell fixtures, B2 signed-storage checks, Stripe/provider sandboxes, slicer review, responsive browser review, or the user's final visual approval.
+- Do not claim Phase 6, Phase 8, or durable Phase 9 production completion until their explicit blockers above are closed.
+
 ## Lead Review - Phase 4 and Phase 5 Foundation - 2026-07-22
 
 Phases 4 and 5 are **not signed off**. The agent produced useful schema, service, and UI scaffolds, but the first review found fabricated rig/facial success data, placeholder asset IDs and acceptance hashes, unauthenticated administrator decisions, incompatible canonical key types, and integration tests whose SQL did not match schema 22. Those fail-open paths were removed before integration.

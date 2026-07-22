@@ -5,6 +5,8 @@ import StorageMeter from "./StorageMeter";
 import PetModelViewer from "./PetModelViewer";
 import { createSlant3dCheckout, createMarketplacePrintCheckout, fetchFulfillmentReadiness, fetchModelLibrary, fetchModelPrintOrders, fetchPawprintPrintOrders, listVoiceCloneAssets, fetchUserEntitlements, fetchDigitalOrderStatus, downloadDigitalListing, type ModelLibraryItem, type ModelPrintOrder, type PawprintPrintOrder } from "../api";
 
+const FurBinV5Experience = React.lazy(() => import("./fur-bin-v5"));
+
 interface FurBinScreenProps {
   userProfile: UserProfile;
   creations: Creation[];
@@ -25,7 +27,15 @@ function outputUrl(creation: Creation) {
   return creation.video_url || creation.model_url || creation.image_url || "";
 }
 
-export default function FurBinScreen({ creations, userProfile, onOpenCreditStore }: FurBinScreenProps) {
+export default function FurBinScreen(props: FurBinScreenProps) {
+  if (import.meta.env.VITE_FUR_BIN_V5_ENABLED === "true") {
+    return <React.Suspense fallback={<div className="flex min-h-[50vh] items-center justify-center text-on-surface-variant"><Loader2 className="animate-spin" aria-label="Loading Fur Bin" /></div>}><FurBinV5Experience /></React.Suspense>;
+  }
+
+  return <LegacyFurBinScreen {...props} />;
+}
+
+function LegacyFurBinScreen({ creations, userProfile, onOpenCreditStore }: FurBinScreenProps) {
   const [voiceAssets, setVoiceAssets] = useState<VoiceCloneAsset[]>([]);
   const [filter, setFilter] = useState<BinFilter>("all");
   const [models, setModels] = useState<ModelLibraryItem[]>([]);

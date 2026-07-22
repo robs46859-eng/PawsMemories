@@ -48,7 +48,7 @@ test("Phase 5 FurBinService Integration Test Suite", async (t) => {
       );
 
       const [aRes] = await conn.query(
-        "INSERT INTO assets (asset_uuid, owner_id, asset_type, visibility, status) VALUES (UUID(), ?, 'model_glb', 'published', 'active')",
+        "INSERT INTO assets (asset_uuid, owner_id, asset_type, visibility, status) VALUES (UUID(), ?, 'model_glb', 'private', 'active')",
         [ownerPhone],
       );
 
@@ -66,8 +66,31 @@ test("Phase 5 FurBinService Integration Test Suite", async (t) => {
 
       await conn.query("UPDATE assets SET current_version_id = ? WHERE id = ?", [vRes2.insertId, aRes.insertId]);
 
+      const [publicAssetResult] = await conn.query(
+        "INSERT INTO assets (asset_uuid, owner_id, asset_type, visibility, status) VALUES (UUID(), ?, 'model_glb', 'published', 'active')",
+        [ownerPhone],
+      );
+      const [publicVersionResult] = await conn.query(
+        `INSERT INTO asset_versions (asset_id, version_number, sha256, mime_type, size_bytes, bucket, object_key, commercial_use_eligible)
+         VALUES (?, 1, REPEAT('d', 64), 'model/gltf-binary', 4096, 'private', 'model_public.glb', 1)`,
+        [publicAssetResult.insertId],
+      );
+      await conn.query("UPDATE assets SET current_version_id = ? WHERE id = ?", [publicVersionResult.insertId, publicAssetResult.insertId]);
+      await conn.query(
+        "INSERT INTO asset_relations (parent_version_id, child_version_id, relation_type) VALUES (?, ?, 'derivative')",
+        [vRes2.insertId, publicVersionResult.insertId],
+      );
+
       const [assetRows] = await conn.query("SELECT asset_uuid FROM assets WHERE id = ?", [aRes.insertId]);
-      return { assetId: aRes.insertId, assetUuid: assetRows[0].asset_uuid, v1Id: vRes1.insertId, v2Id: vRes2.insertId, ownerPhone };
+      const [publicRows] = await conn.query("SELECT asset_uuid FROM assets WHERE id = ?", [publicAssetResult.insertId]);
+      return {
+        assetId: aRes.insertId,
+        assetUuid: assetRows[0].asset_uuid,
+        publicDerivativeUuid: publicRows[0].asset_uuid,
+        v1Id: vRes1.insertId,
+        v2Id: vRes2.insertId,
+        ownerPhone,
+      };
     } finally {
       conn.release();
     }
@@ -98,12 +121,14 @@ test("Phase 5 FurBinService Integration Test Suite", async (t) => {
     assert.equal(searchRes.items[0].itemUuid, registered.itemUuid);
 
     // 3. Rollback Version Pointer
-    const rolledBack = await service.rollbackVersion(ownerPhone, registered.itemUuid, setup.v1Id);
+    const rolledBack = await service.rollbackVersion(ownerPhone, registered.itemUuid, 1);
     assert.equal(rolledBack.itemUuid, registered.itemUuid);
 
     // 4. Publish Showcase Record
     const showcase = await service.publishShowcase(ownerPhone, {
       itemUuid: registered.itemUuid,
+      publicDerivativeUuid: setup.publicDerivativeUuid,
+      publicDerivativeVersionNumber: 1,
       title: "Showcase Golden Retriever",
       description: "Public showcase model",
       tags: ["dog", "showcase"],

@@ -84,6 +84,55 @@ Node major version.
 
 ---
 
+## 4. PHASE 2-9 DARK-LAUNCH VALUES FOR THIS DEPLOYMENT
+
+Set these exact values in Hostinger before building the frontend. They preserve
+the current production behavior while the new code is deployed for staged review.
+
+| Var | Value now | When it may change |
+|---|---|---|
+| `MULTIVIEW_APPROVAL_ENABLED` | `false` | After live Gemini/private-storage and browser approval |
+| `VITE_MULTIVIEW_APPROVAL_ENABLED` | `false` | Same; must be set before build |
+| `MODEL_BUILD_V3_ENABLED` | `false` | After credentialed Tripo/private-storage/Blender acceptance |
+| `RIG_PIPELINE_V4_ENABLED` | `false` | After Render body/facial/accessory fixtures and human review |
+| `FUR_BIN_V5_ENABLED` | `false` | After B2 privacy/publication and browser gates |
+| `VITE_FUR_BIN_V5_ENABLED` | `false` | Same; must be set before build |
+| `STATIONERY_V2_ENABLED` | `false` | After shipping contract, render worker, provider sandbox, and sample approval |
+| `WAGS_V2_ENABLED` | `false` | After Wags UI and Stripe sandbox lifecycle audit |
+| `BIM_V2_ENABLED` | `false` | After accepted-model resolver, Shell worker, and Render IFC acceptance |
+| `VITE_BIM_V2_ENABLED` | `false` | Same; must be set before build |
+
+Known values that remain active:
+
+| Var | Value |
+|---|---|
+| `APP_URL` | `https://pawsome3d.com` |
+| `BLENDER_WORKER_URL` | `https://pawsmemories.onrender.com/render` |
+| `DB_HOST` | `127.0.0.1` |
+| `DB_PORT` | `3306` |
+| `NODE_ENV` | `production` |
+| `MEDIA_PRIVATE_BUCKET_NAME` | `pawsmemories-private` |
+| `MEDIA_SIGNED_URL_TTL_SECONDS` | `900` |
+| `BIM_WORKER_TIMEOUT_MS` | `180000` |
+
+Do not invent or reuse secrets. Leave these unset while their feature is off:
+`WAGS_STRIPE_WEBHOOK_SECRET`, `STATIONERY_RENDER_WORKER_URL`,
+`STATIONERY_RENDER_WORKER_SECRET`, `PRINTFUL_WEBHOOK_SECRET`, and
+`SLANT3D_WEBHOOK_SECRET`. When Wags is approved, create a separate Stripe endpoint
+at `https://pawsome3d.com/api/wags-v2/stripe/webhooks`; its `whsec_...` value is
+not the legacy `STRIPE_WEBHOOK_SECRET`.
+
+Render worker variables are configured in Render, not Hostinger:
+
+| Var | Value / rule |
+|---|---|
+| `WORKER_SHARED_SECRET` | Same secret as Hostinger |
+| `RIG_PIPELINE_SOURCE_HOSTS` | Comma-separated exact hostname(s) from generated private signed source URLs; no scheme or wildcard |
+| `IFC_MAX_CONCURRENT` | `1` |
+| `PORT` | `10000` |
+
+---
+
 ## Pre-deploy checklist
 1. Set all **Section 1** vars in the Hostinger panel (and confirm `VITE_GOOGLE_MAPS_API_KEY_BROWSER` is present **before** the build step).
 2. Confirm `WORKER_SHARED_SECRET` is byte-identical on Hostinger and the Render worker.

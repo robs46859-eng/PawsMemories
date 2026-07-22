@@ -71,7 +71,9 @@ test("pre-build rejects authored dimensions that contradict trusted scale", () =
 test("shell post-build verifies trusted dimensions without semantic claims", () => {
   const pre = buildBimPreBuildVerification(model, "shell", calibration);
   const post = buildBimPostBuildVerification("shell", pre, {
-    format: "glb-shell", bounds: { min: [0, 0, 0], max: [10, 8, 3] },
+    format: "glb-shell", bounds: { min: [0, 0, 0], max: [10, 8, 3] }, axisConvention: "z-up-model",
+    geometryValid: true, outputSha256: "a".repeat(64), preBuildReportHash: pre.reportHash,
+    modelHash: pre.modelHash, calibrationHash: pre.calibrationHash,
   });
   assert.equal(post.passed, true);
   assert.equal(post.semanticsVerified, false);
@@ -81,7 +83,9 @@ test("shell post-build verifies trusted dimensions without semantic claims", () 
 test("post-build rejects output dimensions outside tolerance", () => {
   const pre = buildBimPreBuildVerification(model, "shell", calibration);
   const post = buildBimPostBuildVerification("shell", pre, {
-    format: "glb-shell", bounds: { min: [0, 0, 0], max: [8, 8, 3] },
+    format: "glb-shell", bounds: { min: [0, 0, 0], max: [8, 8, 3] }, axisConvention: "z-up-model",
+    geometryValid: true, outputSha256: "a".repeat(64), preBuildReportHash: pre.reportHash,
+    modelHash: pre.modelHash, calibrationHash: pre.calibrationHash,
   });
   assert.equal(post.passed, false);
   assert.ok(post.errors.some((item) => item.includes("outside tolerance")));
@@ -89,11 +93,21 @@ test("post-build rejects output dimensions outside tolerance", () => {
 
 test("IFC post-build requires schema, units, GlobalIds, relationships, placements, and round-trip", () => {
   const pre = buildBimPreBuildVerification(model, "ifc", calibration);
+  const classes = { "wall-1": "IfcWall", "slab-1": "IfcSlab", "space-1": "IfcSpace", "space-2": "IfcSpace" };
+  const semanticElements = pre.expectedSemanticElements.map((item, index) => ({
+    sourceElementId: item.sourceElementId,
+    globalId: String(index + 1).padStart(22, "0"),
+    ifcClass: classes[item.sourceElementId],
+    hasPropertySet: true,
+    placementMatrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+  }));
   const passing = buildBimPostBuildVerification("ifc", pre, {
-    format: "ifc4-bim", bounds: { min: [0, 0, 0], max: [10, 8, 3] }, schema: "IFC4",
+    format: "ifc4-bim", bounds: { min: [0, 0, 0], max: [10, 8, 3] }, axisConvention: "z-up-model", schema: "IFC4",
+    outputSha256: "b".repeat(64), preBuildReportHash: pre.reportHash, modelHash: pre.modelHash, calibrationHash: pre.calibrationHash,
     sourceUnit: "m", metersPerUnit: 1, elementCount: 4, globalIdCount: 4,
     uniqueGlobalIdCount: 4, relationshipCount: 4, voidRelationshipCount: 0, fillingRelationshipCount: 0,
     propertySetElementCount: 4, storeyCount: 1, placementsFinite: true, roundTripPassed: true, proxyCount: 0,
+    semanticElements, spatialElementIds: model.elements.map((item) => item.id), openingRelationships: [], fillingRelationships: [],
   });
   assert.equal(passing.passed, true);
   assert.equal(passing.semanticsVerified, true);
@@ -110,7 +124,8 @@ test("IFC post-build requires schema, units, GlobalIds, relationships, placement
 
 test("report hashes change when evidence changes", () => {
   const pre = buildBimPreBuildVerification(model, "shell", calibration);
-  const a = buildBimPostBuildVerification("shell", pre, { format: "glb-shell", bounds: { min: [0, 0, 0], max: [10, 8, 3] } });
-  const b = buildBimPostBuildVerification("shell", pre, { format: "glb-shell", bounds: { min: [0, 0, 0], max: [10.1, 8, 3] } });
+  const evidence = { format: "glb-shell", axisConvention: "z-up-model", geometryValid: true, outputSha256: "c".repeat(64), preBuildReportHash: pre.reportHash, modelHash: pre.modelHash, calibrationHash: pre.calibrationHash };
+  const a = buildBimPostBuildVerification("shell", pre, { ...evidence, bounds: { min: [0, 0, 0], max: [10, 8, 3] } });
+  const b = buildBimPostBuildVerification("shell", pre, { ...evidence, bounds: { min: [0, 0, 0], max: [10.1, 8, 3] } });
   assert.notEqual(a.reportHash, b.reportHash);
 });

@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type mysql from "mysql2/promise";
 
-export const CURRENT_SCHEMA_VERSION = 24;
+export const CURRENT_SCHEMA_VERSION = 29;
 
 export interface Migration {
   version: number;
@@ -739,6 +739,741 @@ export const MIGRATIONS: Migration[] = [
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (showcase_id) REFERENCES showcase_records(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    ],
+  },
+  {
+    version: 25,
+    name: "rig_worker_artifact_integrity",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS rig_worker_attempts (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        rig_attempt_id BIGINT NOT NULL,
+        attempt_uuid CHAR(36) NOT NULL,
+        contract_version SMALLINT UNSIGNED NOT NULL,
+        profile_id VARCHAR(120) NOT NULL,
+        source_sha256 CHAR(64) NOT NULL,
+        request_hash CHAR(64) NOT NULL,
+        request_json JSON NOT NULL,
+        response_hash CHAR(64) NULL,
+        provider_task_id VARCHAR(255) NULL,
+        state ENUM('created','submitted','processing','received','persisted','failed') NOT NULL DEFAULT 'created',
+        warnings_json JSON NOT NULL DEFAULT (JSON_ARRAY()),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_rig_worker_attempt (rig_attempt_id),
+        UNIQUE KEY uniq_rig_worker_attempt_uuid (attempt_uuid),
+        UNIQUE KEY uniq_rig_worker_request_hash (request_hash),
+        FOREIGN KEY (rig_attempt_id) REFERENCES rig_attempts(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS rig_attempt_artifacts (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        rig_attempt_id BIGINT NOT NULL,
+        artifact_key VARCHAR(120) NOT NULL,
+        role ENUM('rigged_glb','validation_manifest','facial_render_front','facial_render_three_quarter','accessory_glb','fused_print_glb') NOT NULL,
+        asset_id BIGINT NOT NULL,
+        asset_version_id BIGINT NOT NULL,
+        computed_hash CHAR(64) NOT NULL,
+        size_bytes BIGINT UNSIGNED NOT NULL,
+        mime_type VARCHAR(120) NOT NULL,
+        evidence_json JSON NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_rig_attempt_artifact_key (rig_attempt_id, artifact_key),
+        INDEX idx_rig_artifact_asset_version (asset_id, asset_version_id),
+        FOREIGN KEY (rig_attempt_id) REFERENCES rig_attempts(id) ON DELETE RESTRICT,
+        FOREIGN KEY (asset_id, asset_version_id) REFERENCES asset_versions(asset_id, id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS rig_worker_events (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        event_uuid CHAR(36) NOT NULL,
+        rig_attempt_id BIGINT NOT NULL,
+        event_type VARCHAR(80) NOT NULL,
+        payload_hash CHAR(64) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_rig_worker_event_uuid (event_uuid),
+        UNIQUE KEY uniq_rig_worker_event_payload (rig_attempt_id, event_type, payload_hash),
+        FOREIGN KEY (rig_attempt_id) REFERENCES rig_attempts(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    ],
+  },
+  {
+    version: 26,
+    name: "fur_bin_version_evidence",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS fur_bin_version_events (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        event_uuid CHAR(36) NOT NULL,
+        item_id BIGINT NOT NULL,
+        actor_id VARCHAR(190) NOT NULL,
+        event_type ENUM('registered','current_changed','rollback','archived','restored') NOT NULL,
+        from_version_id BIGINT NULL,
+        to_version_id BIGINT NULL,
+        evidence_hash CHAR(64) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_furbin_version_event_uuid (event_uuid),
+        INDEX idx_furbin_version_event_item (item_id, created_at),
+        FOREIGN KEY (item_id) REFERENCES fur_bin_items(id) ON DELETE RESTRICT,
+        FOREIGN KEY (from_version_id) REFERENCES asset_versions(id) ON DELETE RESTRICT,
+        FOREIGN KEY (to_version_id) REFERENCES asset_versions(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS fur_bin_badge_evidence (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        item_id BIGINT NOT NULL,
+        asset_id BIGINT NOT NULL,
+        asset_version_id BIGINT NOT NULL,
+        badge_type ENUM('rigged','facial','animated','scaled','print_ready') NOT NULL,
+        rule_id VARCHAR(128) NOT NULL,
+        pass BOOLEAN NOT NULL,
+        manifest_hash CHAR(64) NOT NULL,
+        evidence_asset_version_id BIGINT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_furbin_badge_rule (item_id, asset_version_id, badge_type, rule_id),
+        INDEX idx_furbin_badge_version (asset_id, asset_version_id),
+        FOREIGN KEY (item_id) REFERENCES fur_bin_items(id) ON DELETE RESTRICT,
+        FOREIGN KEY (asset_id, asset_version_id) REFERENCES asset_versions(asset_id, id) ON DELETE RESTRICT,
+        FOREIGN KEY (evidence_asset_version_id) REFERENCES asset_versions(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS showcase_publication_events (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        event_uuid CHAR(36) NOT NULL,
+        showcase_id BIGINT NOT NULL,
+        event_type ENUM('submitted','published','unpublished','rejected','suspended') NOT NULL,
+        public_version_id BIGINT NOT NULL,
+        actor_id VARCHAR(190) NOT NULL,
+        evidence_hash CHAR(64) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_showcase_publication_event (event_uuid),
+        INDEX idx_showcase_publication_history (showcase_id, created_at),
+        FOREIGN KEY (showcase_id) REFERENCES showcase_records(id) ON DELETE RESTRICT,
+        FOREIGN KEY (public_version_id) REFERENCES asset_versions(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    ],
+  },
+  {
+    version: 27,
+    name: "stationery_fulfillment_v2",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS stationery_payment_evidence (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        payment_uuid CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+        owner_id VARCHAR(190) NOT NULL,
+        state ENUM('pending','paid','failed','refunded') NOT NULL,
+        amount_minor BIGINT UNSIGNED NOT NULL,
+        currency CHAR(3) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+        provider VARCHAR(32) NOT NULL,
+        provider_payment_ref VARCHAR(255) NOT NULL,
+        confirmed_at DATETIME(3) NULL,
+        evidence_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+        created_at DATETIME(3) NOT NULL,
+        updated_at DATETIME(3) NOT NULL,
+        UNIQUE KEY uniq_stationery_payment_uuid (payment_uuid),
+        UNIQUE KEY uniq_stationery_provider_payment (provider, provider_payment_ref),
+        INDEX idx_stationery_payment_owner (owner_id, state)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS stationery_template_versions (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        template_uuid CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+        version_number INT UNSIGNED NOT NULL,
+        spec_json JSON NOT NULL,
+        spec_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+        status ENUM('active','retired') NOT NULL DEFAULT 'active',
+        created_at DATETIME(3) NOT NULL,
+        UNIQUE KEY uniq_stationery_template_version (template_uuid, version_number),
+        INDEX idx_stationery_template_catalog (status, created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS stationery_render_jobs (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        job_uuid CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+        owner_id VARCHAR(190) NOT NULL,
+        template_version_id BIGINT NOT NULL,
+        preset_id VARCHAR(64) NOT NULL,
+        client_idempotency_key VARCHAR(190) NOT NULL,
+        request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+        request_json JSON NOT NULL,
+        validation_report_json JSON NOT NULL,
+        state ENUM('queued','dispatch_failed','rendering','ready','failed') NOT NULL DEFAULT 'queued',
+        render_manifest_json JSON NULL,
+        render_manifest_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+        output_asset_uuid CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL,
+        output_version_number INT UNSIGNED NULL,
+        output_asset_id BIGINT NULL,
+        output_asset_version_id BIGINT NULL,
+        failure_code VARCHAR(120) NULL,
+        created_at DATETIME(3) NOT NULL,
+        updated_at DATETIME(3) NOT NULL,
+        UNIQUE KEY uniq_stationery_render_uuid (job_uuid),
+        UNIQUE KEY uniq_stationery_render_idempotency (owner_id, client_idempotency_key),
+        INDEX idx_stationery_render_owner (owner_id, created_at),
+        INDEX idx_stationery_render_state (state, updated_at),
+        FOREIGN KEY (template_version_id) REFERENCES stationery_template_versions(id) ON DELETE RESTRICT,
+        FOREIGN KEY (output_asset_id) REFERENCES assets(id) ON DELETE RESTRICT,
+        FOREIGN KEY (output_asset_id, output_asset_version_id) REFERENCES asset_versions(asset_id, id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS stationery_render_outbox (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        render_job_id BIGINT NOT NULL,
+        dispatch_key CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+        payload_json JSON NOT NULL,
+        state ENUM('pending','dispatched','failed') NOT NULL DEFAULT 'pending',
+        attempt_count INT UNSIGNED NOT NULL DEFAULT 0,
+        available_at DATETIME(3) NOT NULL,
+        created_at DATETIME(3) NOT NULL,
+        updated_at DATETIME(3) NOT NULL,
+        UNIQUE KEY uniq_stationery_outbox_job (render_job_id),
+        UNIQUE KEY uniq_stationery_outbox_dispatch (dispatch_key),
+        INDEX idx_stationery_outbox_ready (state, available_at),
+        FOREIGN KEY (render_job_id) REFERENCES stationery_render_jobs(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS stationery_print_manifests (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        local_order_uuid CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+        owner_id VARCHAR(190) NOT NULL,
+        render_job_id BIGINT NOT NULL,
+        client_idempotency_key VARCHAR(190) NOT NULL,
+        request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+        manifest_json JSON NOT NULL,
+        manifest_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+        payment_evidence_json JSON NOT NULL,
+        created_at DATETIME(3) NOT NULL,
+        UNIQUE KEY uniq_stationery_print_order (local_order_uuid),
+        UNIQUE KEY uniq_stationery_print_idempotency (owner_id, client_idempotency_key),
+        UNIQUE KEY uniq_stationery_print_manifest_hash (manifest_hash),
+        INDEX idx_stationery_print_owner (owner_id, created_at),
+        FOREIGN KEY (render_job_id) REFERENCES stationery_render_jobs(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS stationery_fulfillment_orders (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        local_order_uuid CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+        print_manifest_id BIGINT NOT NULL,
+        provider ENUM('printful','slant3d') NOT NULL,
+        provider_idempotency_key VARCHAR(190) NOT NULL,
+        payment_state ENUM('unpaid','paid','refunded') NOT NULL DEFAULT 'unpaid',
+        state VARCHAR(40) NOT NULL,
+        provider_order_id VARCHAR(200) NULL,
+        applied_event_ids_json JSON NOT NULL,
+        state_changed_at DATETIME(3) NOT NULL,
+        updated_at DATETIME(3) NOT NULL,
+        UNIQUE KEY uniq_stationery_order_uuid (local_order_uuid),
+        UNIQUE KEY uniq_stationery_provider_key (provider, provider_idempotency_key),
+        INDEX idx_stationery_order_state (state, updated_at),
+        INDEX idx_stationery_provider_order (provider, provider_order_id),
+        FOREIGN KEY (local_order_uuid) REFERENCES stationery_print_manifests(local_order_uuid) ON DELETE RESTRICT,
+        FOREIGN KEY (print_manifest_id) REFERENCES stationery_print_manifests(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS stationery_provider_event_claims (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        provider ENUM('printful','slant3d') NOT NULL,
+        provider_event_id VARCHAR(200) NOT NULL,
+        local_order_uuid CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+        claimed_at DATETIME(3) NOT NULL,
+        UNIQUE KEY uniq_stationery_event_claim (provider, provider_event_id),
+        UNIQUE KEY uniq_stationery_event_claim_order (provider, provider_event_id, local_order_uuid),
+        INDEX idx_stationery_event_claim_time (claimed_at),
+        FOREIGN KEY (local_order_uuid) REFERENCES stationery_fulfillment_orders(local_order_uuid) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS stationery_provider_events (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        provider ENUM('printful','slant3d') NOT NULL,
+        provider_event_id VARCHAR(200) NOT NULL,
+        local_order_uuid CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+        event_json JSON NOT NULL,
+        disposition VARCHAR(40) NOT NULL,
+        reason VARCHAR(300) NOT NULL,
+        occurred_at DATETIME(3) NOT NULL,
+        recorded_at DATETIME(3) NOT NULL,
+        UNIQUE KEY uniq_stationery_provider_event (provider, provider_event_id),
+        INDEX idx_stationery_event_order (local_order_uuid, recorded_at),
+        FOREIGN KEY (local_order_uuid) REFERENCES stationery_fulfillment_orders(local_order_uuid) ON DELETE RESTRICT,
+        FOREIGN KEY (provider, provider_event_id, local_order_uuid) REFERENCES stationery_provider_event_claims(provider, provider_event_id, local_order_uuid) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS stationery_reconciliation_runs (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        reconciliation_uuid CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+        local_order_uuid CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+        requested_by_owner_id VARCHAR(190) NOT NULL,
+        reason VARCHAR(300) NOT NULL,
+        observation_json JSON NULL,
+        decision_json JSON NOT NULL,
+        created_at DATETIME(3) NOT NULL,
+        UNIQUE KEY uniq_stationery_reconciliation (reconciliation_uuid),
+        INDEX idx_stationery_reconciliation_order (local_order_uuid, created_at),
+        FOREIGN KEY (local_order_uuid) REFERENCES stationery_fulfillment_orders(local_order_uuid) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    ],
+  },
+  {
+    version: 28,
+    name: "wags_entitlements_v2",
+    statements: [
+      // Keep the existing wallet ledger authoritative. Fresh managed-migration
+      // databases may not have run legacy boot DDL yet, while deployed databases
+      // already have this table without an idempotency column.
+      `CREATE TABLE IF NOT EXISTS credit_transactions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_phone VARCHAR(32) NOT NULL,
+        delta INT NOT NULL,
+        reason VARCHAR(80) NOT NULL,
+        balance_after INT NOT NULL,
+        idempotency_key VARCHAR(190) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_credit_transaction_user (user_phone),
+        INDEX idx_credit_transaction_created (created_at),
+        UNIQUE KEY uniq_credit_transaction_user_identity (id, user_phone),
+        UNIQUE KEY uniq_credit_transaction_idempotency (idempotency_key)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `SELECT COUNT(*) INTO @credit_col_exists FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'credit_transactions' AND COLUMN_NAME = 'idempotency_key'`,
+      `SET @stmt = IF(@credit_col_exists = 0, 'ALTER TABLE credit_transactions ADD COLUMN idempotency_key VARCHAR(190) NULL', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+      `SELECT COUNT(*) INTO @credit_idx_exists FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'credit_transactions' AND INDEX_NAME = 'uniq_credit_transaction_idempotency'`,
+      `SET @stmt = IF(@credit_idx_exists = 0, 'ALTER TABLE credit_transactions ADD UNIQUE KEY uniq_credit_transaction_idempotency (idempotency_key)', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+      `SELECT COUNT(*) INTO @credit_identity_idx_exists FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'credit_transactions' AND INDEX_NAME = 'uniq_credit_transaction_user_identity'`,
+      `SET @stmt = IF(@credit_identity_idx_exists = 0, 'ALTER TABLE credit_transactions ADD UNIQUE KEY uniq_credit_transaction_user_identity (id, user_phone)', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+
+      `CREATE TABLE IF NOT EXISTS wags_owner_identities_v2 (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        owner_uuid CHAR(36) NOT NULL,
+        auth_subject VARCHAR(32) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_wags_owner_uuid (owner_uuid),
+        UNIQUE KEY uniq_wags_owner_auth_subject (auth_subject),
+        UNIQUE KEY uniq_wags_owner_identity_subject (id, auth_subject)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS wags_plan_versions_v2 (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        plan_uuid CHAR(36) NOT NULL,
+        version_number INT UNSIGNED NOT NULL,
+        tier ENUM('basic','plus') NOT NULL,
+        cadence ENUM('monthly','annual_prepaid') NOT NULL,
+        provider ENUM('stripe') NOT NULL DEFAULT 'stripe',
+        provider_price_ref VARCHAR(255) NOT NULL,
+        plan_hash CHAR(64) NOT NULL,
+        plan_json JSON NOT NULL,
+        active BOOLEAN NOT NULL DEFAULT FALSE,
+        published_at DATETIME(3) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_wags_plan_version (plan_uuid, version_number),
+        UNIQUE KEY uniq_wags_plan_hash (plan_hash),
+        UNIQUE KEY uniq_wags_provider_price (provider, provider_price_ref),
+        UNIQUE KEY uniq_wags_plan_cadence (id, cadence),
+        INDEX idx_wags_plan_catalog (active, tier, cadence, published_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS wags_pack_versions_v2 (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        pack_uuid CHAR(36) NOT NULL,
+        version_number INT UNSIGNED NOT NULL,
+        release_period CHAR(7) NOT NULL,
+        title VARCHAR(160) NOT NULL,
+        tier ENUM('basic','plus') NOT NULL,
+        pack_hash CHAR(64) NOT NULL,
+        pack_json JSON NOT NULL,
+        published_at DATETIME(3) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_wags_pack_version (pack_uuid, version_number),
+        UNIQUE KEY uniq_wags_pack_hash (pack_hash),
+        UNIQUE KEY uniq_wags_pack_hash_identity (id, pack_hash),
+        INDEX idx_wags_pack_catalog (release_period, tier, published_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS wags_subscriptions_v2 (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        subscription_uuid CHAR(36) NOT NULL,
+        owner_identity_id BIGINT NOT NULL,
+        plan_version_id BIGINT NOT NULL,
+        cadence ENUM('monthly','annual_prepaid') NOT NULL,
+        status ENUM('checkout_pending','active','past_due','cancel_at_period_end','canceled','expired') NOT NULL,
+        provider ENUM('stripe') NOT NULL DEFAULT 'stripe',
+        provider_subscription_ref VARCHAR(255) NULL,
+        service_starts_at DATETIME(3) NOT NULL,
+        service_ends_at DATETIME(3) NOT NULL,
+        cancel_effective_at DATETIME(3) NULL,
+        last_lifecycle_event_at DATETIME(3) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_wags_subscription_uuid (subscription_uuid),
+        UNIQUE KEY uniq_wags_provider_subscription (provider, provider_subscription_ref),
+        UNIQUE KEY uniq_wags_subscription_owner_identity (id, owner_identity_id),
+        INDEX idx_wags_subscription_owner (owner_identity_id, status),
+        INDEX idx_wags_subscription_plan (plan_version_id, status),
+        CONSTRAINT chk_wags_subscription_interval CHECK (service_starts_at < service_ends_at),
+        FOREIGN KEY (owner_identity_id) REFERENCES wags_owner_identities_v2(id) ON DELETE RESTRICT,
+        FOREIGN KEY (plan_version_id, cadence) REFERENCES wags_plan_versions_v2(id, cadence) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS wags_lifecycle_events_v2 (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        subscription_id BIGINT NOT NULL,
+        provider ENUM('stripe') NOT NULL DEFAULT 'stripe',
+        source ENUM('webhook','reconciliation') NOT NULL,
+        provider_event_id VARCHAR(200) NOT NULL,
+        event_type VARCHAR(80) NOT NULL,
+        payload_hash CHAR(64) NOT NULL,
+        event_json JSON NOT NULL,
+        state ENUM('received','processed','failed') NOT NULL DEFAULT 'received',
+        disposition ENUM('applied','ignored_out_of_order','ignored_terminal') NULL,
+        failure_code VARCHAR(80) NULL,
+        occurred_at DATETIME(3) NOT NULL,
+        received_at DATETIME(3) NOT NULL,
+        processed_at DATETIME(3) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_wags_provider_event (provider, provider_event_id),
+        UNIQUE KEY uniq_wags_lifecycle_subscription_identity (subscription_id, id),
+        INDEX idx_wags_lifecycle_subscription (subscription_id, occurred_at),
+        INDEX idx_wags_lifecycle_processing (state, received_at),
+        FOREIGN KEY (subscription_id) REFERENCES wags_subscriptions_v2(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS wags_payment_coverage_v2 (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        payment_uuid CHAR(36) NOT NULL,
+        subscription_id BIGINT NOT NULL,
+        lifecycle_event_id BIGINT NOT NULL,
+        provider_payment_ref VARCHAR(255) NULL,
+        status ENUM('pending','paid','failed','refunded') NOT NULL,
+        covers_from DATETIME(3) NOT NULL,
+        covers_until DATETIME(3) NOT NULL,
+        amount_minor BIGINT UNSIGNED NULL,
+        currency CHAR(3) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_wags_payment_uuid (payment_uuid),
+        UNIQUE KEY uniq_wags_payment_event (lifecycle_event_id),
+        UNIQUE KEY uniq_wags_provider_payment (provider_payment_ref),
+        UNIQUE KEY uniq_wags_payment_subscription_identity (subscription_id, id),
+        INDEX idx_wags_payment_coverage (subscription_id, covers_from, covers_until),
+        CONSTRAINT chk_wags_payment_interval CHECK (covers_from < covers_until),
+        FOREIGN KEY (subscription_id) REFERENCES wags_subscriptions_v2(id) ON DELETE RESTRICT,
+        FOREIGN KEY (subscription_id, lifecycle_event_id) REFERENCES wags_lifecycle_events_v2(subscription_id, id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS wags_entitlement_periods_v2 (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        period_uuid CHAR(36) NOT NULL,
+        subscription_id BIGINT NOT NULL,
+        period_key CHAR(7) NOT NULL,
+        starts_at DATETIME(3) NOT NULL,
+        ends_at DATETIME(3) NOT NULL,
+        payment_coverage_id BIGINT NULL,
+        state ENUM('pending_payment','paid','held','delivering','delivered','skipped') NOT NULL DEFAULT 'pending_payment',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_wags_period_uuid (period_uuid),
+        UNIQUE KEY uniq_wags_subscription_period (subscription_id, period_key),
+        UNIQUE KEY uniq_wags_period_delivery_identity (subscription_id, id, period_key),
+        INDEX idx_wags_period_state (state, starts_at),
+        CONSTRAINT chk_wags_period_interval CHECK (starts_at < ends_at),
+        FOREIGN KEY (subscription_id) REFERENCES wags_subscriptions_v2(id) ON DELETE RESTRICT,
+        FOREIGN KEY (subscription_id, payment_coverage_id) REFERENCES wags_payment_coverage_v2(subscription_id, id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS wags_incentive_policies_v2 (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        policy_uuid CHAR(36) NOT NULL,
+        version_number INT UNSIGNED NOT NULL,
+        incentive_sku VARCHAR(80) NOT NULL,
+        policy_json JSON NOT NULL,
+        policy_hash CHAR(64) NOT NULL,
+        active_from DATETIME(3) NOT NULL,
+        active_until DATETIME(3) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_wags_incentive_policy (policy_uuid, version_number),
+        UNIQUE KEY uniq_wags_incentive_policy_hash (policy_hash),
+        INDEX idx_wags_incentive_active (active_from, active_until),
+        CONSTRAINT chk_wags_incentive_interval CHECK (active_until IS NULL OR active_from < active_until)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS wags_deliveries_v2 (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        delivery_identity VARCHAR(96) NOT NULL,
+        subscription_id BIGINT NOT NULL,
+        owner_identity_id BIGINT NOT NULL,
+        period_key CHAR(7) NULL,
+        entitlement_period_id BIGINT NULL,
+        pack_version_id BIGINT NULL,
+        pack_hash CHAR(64) NULL,
+        policy_version_id BIGINT NULL,
+        term_starts_at DATETIME(3) NULL,
+        term_ends_at DATETIME(3) NULL,
+        delivery_kind ENUM('monthly_pack','annual_incentive') NOT NULL DEFAULT 'monthly_pack',
+        state ENUM('planned','granting','complete','reconciliation_required') NOT NULL DEFAULT 'planned',
+        expected_grant_count SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+        completed_at DATETIME(3) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_wags_delivery_identity (delivery_identity),
+        UNIQUE KEY uniq_wags_delivery_owner_identity (id, owner_identity_id),
+        UNIQUE KEY uniq_wags_period_pack (subscription_id, entitlement_period_id, pack_version_id, delivery_kind),
+        UNIQUE KEY uniq_wags_annual_incentive (subscription_id, policy_version_id, term_starts_at, term_ends_at, delivery_kind),
+        INDEX idx_wags_delivery_state (state, created_at),
+        CONSTRAINT chk_wags_delivery_shape CHECK (
+          (delivery_kind = 'monthly_pack' AND period_key IS NOT NULL AND entitlement_period_id IS NOT NULL AND pack_version_id IS NOT NULL AND pack_hash IS NOT NULL AND policy_version_id IS NULL AND term_starts_at IS NULL AND term_ends_at IS NULL)
+          OR
+          (delivery_kind = 'annual_incentive' AND period_key IS NULL AND entitlement_period_id IS NULL AND pack_version_id IS NULL AND pack_hash IS NULL AND policy_version_id IS NOT NULL AND term_starts_at IS NOT NULL AND term_ends_at IS NOT NULL AND term_starts_at < term_ends_at)
+        ),
+        FOREIGN KEY (subscription_id, owner_identity_id) REFERENCES wags_subscriptions_v2(id, owner_identity_id) ON DELETE RESTRICT,
+        FOREIGN KEY (subscription_id, entitlement_period_id, period_key) REFERENCES wags_entitlement_periods_v2(subscription_id, id, period_key) ON DELETE RESTRICT,
+        FOREIGN KEY (pack_version_id, pack_hash) REFERENCES wags_pack_versions_v2(id, pack_hash) ON DELETE RESTRICT,
+        FOREIGN KEY (policy_version_id) REFERENCES wags_incentive_policies_v2(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS wags_grants_v2 (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        grant_identity VARCHAR(96) NOT NULL,
+        delivery_id BIGINT NOT NULL,
+        owner_identity_id BIGINT NOT NULL,
+        owner_auth_subject VARCHAR(32) NOT NULL,
+        slot_key VARCHAR(64) NOT NULL,
+        disposition ENUM('primary','substitution','owned_fallback','replay') NOT NULL,
+        deliverable_kind ENUM('asset','credits','benefit') NOT NULL,
+        deliverable_json JSON NOT NULL,
+        deliverable_hash CHAR(64) NOT NULL,
+        asset_id BIGINT NULL,
+        asset_version_id BIGINT NULL,
+        credit_amount INT UNSIGNED NULL,
+        credit_ledger_key VARCHAR(190) NULL,
+        credit_transaction_id INT NULL,
+        benefit_sku VARCHAR(80) NULL,
+        benefit_quantity INT UNSIGNED NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_wags_grant_identity (grant_identity),
+        UNIQUE KEY uniq_wags_delivery_slot (delivery_id, slot_key),
+        UNIQUE KEY uniq_wags_credit_ledger_key (credit_ledger_key),
+        UNIQUE KEY uniq_wags_credit_transaction (credit_transaction_id),
+        INDEX idx_wags_grant_owner_asset (owner_identity_id, asset_id),
+        CONSTRAINT chk_wags_grant_shape CHECK (
+          (deliverable_kind = 'asset' AND asset_id IS NOT NULL AND asset_version_id IS NOT NULL AND credit_amount IS NULL AND credit_ledger_key IS NULL AND credit_transaction_id IS NULL AND benefit_sku IS NULL AND benefit_quantity IS NULL)
+          OR
+          (deliverable_kind = 'credits' AND asset_id IS NULL AND asset_version_id IS NULL AND credit_amount > 0 AND credit_ledger_key IS NOT NULL AND credit_transaction_id IS NOT NULL AND benefit_sku IS NULL AND benefit_quantity IS NULL)
+          OR
+          (deliverable_kind = 'benefit' AND asset_id IS NULL AND asset_version_id IS NULL AND credit_amount IS NULL AND credit_ledger_key IS NULL AND credit_transaction_id IS NULL AND benefit_sku IS NOT NULL AND benefit_quantity > 0)
+        ),
+        FOREIGN KEY (delivery_id, owner_identity_id) REFERENCES wags_deliveries_v2(id, owner_identity_id) ON DELETE RESTRICT,
+        FOREIGN KEY (owner_identity_id, owner_auth_subject) REFERENCES wags_owner_identities_v2(id, auth_subject) ON DELETE RESTRICT,
+        FOREIGN KEY (asset_id, asset_version_id) REFERENCES asset_versions(asset_id, id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS wags_checkout_sessions_v2 (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        checkout_uuid CHAR(36) NOT NULL,
+        owner_identity_id BIGINT NOT NULL,
+        plan_version_id BIGINT NOT NULL,
+        idempotency_key VARCHAR(160) NOT NULL,
+        request_hash CHAR(64) NOT NULL,
+        request_json JSON NOT NULL,
+        state ENUM('reserved','complete','failed') NOT NULL DEFAULT 'reserved',
+        provider ENUM('stripe') NOT NULL DEFAULT 'stripe',
+        provider_session_ref VARCHAR(255) NULL,
+        checkout_url VARCHAR(2048) NULL,
+        expires_at DATETIME(3) NULL,
+        failure_code VARCHAR(80) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_wags_checkout_uuid (checkout_uuid),
+        UNIQUE KEY uniq_wags_checkout_owner_idempotency (owner_identity_id, idempotency_key),
+        UNIQUE KEY uniq_wags_checkout_provider_session (provider, provider_session_ref),
+        INDEX idx_wags_checkout_state (state, created_at),
+        CONSTRAINT chk_wags_checkout_complete CHECK (state <> 'complete' OR (provider_session_ref IS NOT NULL AND checkout_url IS NOT NULL AND expires_at IS NOT NULL)),
+        FOREIGN KEY (owner_identity_id) REFERENCES wags_owner_identities_v2(id) ON DELETE RESTRICT,
+        FOREIGN KEY (plan_version_id) REFERENCES wags_plan_versions_v2(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS wags_reconciliation_runs_v2 (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        run_uuid CHAR(36) NOT NULL,
+        subscription_id BIGINT NOT NULL,
+        reason ENUM('manual','scheduled','missing_webhook') NOT NULL,
+        state ENUM('requested','fetching','applied','no_change','failed') NOT NULL DEFAULT 'requested',
+        provider_event_id VARCHAR(200) NULL,
+        lifecycle_event_id BIGINT NULL,
+        snapshot_hash CHAR(64) NULL,
+        snapshot_json JSON NULL,
+        failure_code VARCHAR(80) NULL,
+        started_at DATETIME(3) NOT NULL,
+        completed_at DATETIME(3) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_wags_reconciliation_uuid (run_uuid),
+        INDEX idx_wags_reconciliation_subscription (subscription_id, created_at),
+        INDEX idx_wags_reconciliation_state (state, started_at),
+        FOREIGN KEY (subscription_id) REFERENCES wags_subscriptions_v2(id) ON DELETE RESTRICT,
+        FOREIGN KEY (subscription_id, lifecycle_event_id) REFERENCES wags_lifecycle_events_v2(subscription_id, id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      // The deployed users table uses VARCHAR(32). Some legacy test/backup
+      // schemas used wider keys, so add this FK only when the referenced type is compatible.
+      `SELECT COUNT(*) INTO @users_fk_compatible FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'phone' AND DATA_TYPE = 'varchar' AND CHARACTER_MAXIMUM_LENGTH = 32`,
+      `SELECT COUNT(*) INTO @owner_fk_exists FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wags_owner_identities_v2' AND CONSTRAINT_NAME = 'fk_wags_owner_user'`,
+      `SET @stmt = IF(@users_fk_compatible > 0 AND @owner_fk_exists = 0, 'ALTER TABLE wags_owner_identities_v2 ADD CONSTRAINT fk_wags_owner_user FOREIGN KEY (auth_subject) REFERENCES users(phone) ON DELETE RESTRICT', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+
+      `SELECT COUNT(*) INTO @grant_credit_fk_exists FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wags_grants_v2' AND CONSTRAINT_NAME = 'fk_wags_grant_credit_transaction'`,
+      `SELECT COUNT(*) INTO @grant_credit_fk_compatible
+         FROM information_schema.COLUMNS child_id
+         JOIN information_schema.COLUMNS parent_id
+           ON parent_id.TABLE_SCHEMA = child_id.TABLE_SCHEMA
+          AND parent_id.TABLE_NAME = 'credit_transactions' AND parent_id.COLUMN_NAME = 'id'
+         JOIN information_schema.COLUMNS child_owner
+           ON child_owner.TABLE_SCHEMA = child_id.TABLE_SCHEMA
+          AND child_owner.TABLE_NAME = 'wags_grants_v2' AND child_owner.COLUMN_NAME = 'owner_auth_subject'
+         JOIN information_schema.COLUMNS parent_owner
+           ON parent_owner.TABLE_SCHEMA = child_id.TABLE_SCHEMA
+          AND parent_owner.TABLE_NAME = 'credit_transactions' AND parent_owner.COLUMN_NAME = 'user_phone'
+        WHERE child_id.TABLE_SCHEMA = DATABASE()
+          AND child_id.TABLE_NAME = 'wags_grants_v2' AND child_id.COLUMN_NAME = 'credit_transaction_id'
+          AND child_id.COLUMN_TYPE = parent_id.COLUMN_TYPE
+          AND child_owner.COLUMN_TYPE = parent_owner.COLUMN_TYPE
+          AND child_owner.CHARACTER_SET_NAME = parent_owner.CHARACTER_SET_NAME
+          AND child_owner.COLLATION_NAME = parent_owner.COLLATION_NAME`,
+      `SET @stmt = IF(@grant_credit_fk_compatible > 0 AND @grant_credit_fk_exists = 0, 'ALTER TABLE wags_grants_v2 ADD CONSTRAINT fk_wags_grant_credit_transaction FOREIGN KEY (credit_transaction_id, owner_auth_subject) REFERENCES credit_transactions(id, user_phone) ON DELETE RESTRICT', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+    ],
+  },
+  {
+    version: 29,
+    name: "durable_bim_builds_v2",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS bim_build_jobs_v2 (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        job_uuid CHAR(36) NOT NULL,
+        owner_id VARCHAR(190) NOT NULL,
+        mode ENUM('shell','ifc') NOT NULL,
+        state ENUM('queued','claimed','processing','validating','ready','accepted','failed_retryable','failed_terminal','cancelled') NOT NULL DEFAULT 'queued',
+        idempotency_key VARCHAR(200) NOT NULL,
+        model_hash CHAR(64) NOT NULL,
+        calibration_hash CHAR(64) NOT NULL,
+        proposal_hash CHAR(64) NOT NULL,
+        accepted_proposal_hash CHAR(64) NOT NULL,
+        prebuild_report_hash CHAR(64) NOT NULL,
+        quoted_credits INT UNSIGNED NOT NULL,
+        current_attempt_id BIGINT NULL,
+        retry_count TINYINT UNSIGNED NOT NULL DEFAULT 0,
+        failure_code VARCHAR(80) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_bim_v2_job_uuid (job_uuid),
+        UNIQUE KEY uniq_bim_v2_idempotency (owner_id, idempotency_key),
+        UNIQUE KEY uniq_bim_v2_job_current_attempt (id, current_attempt_id),
+        INDEX idx_bim_v2_owner_state (owner_id, state)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS bim_build_attempts_v2 (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        attempt_uuid CHAR(36) NOT NULL,
+        job_id BIGINT NOT NULL,
+        attempt_number TINYINT UNSIGNED NOT NULL,
+        state ENUM('queued','claimed','processing','validating','ready','failed_retryable','failed_terminal','cancelled') NOT NULL DEFAULT 'queued',
+        command_json JSON NOT NULL,
+        command_hash CHAR(64) NOT NULL,
+        provider_task_id VARCHAR(255) NULL,
+        worker_lease_owner VARCHAR(120) NULL,
+        worker_lease_expiry TIMESTAMP NULL,
+        failure_code VARCHAR(80) NULL,
+        failure_detail TEXT NULL,
+        started_at TIMESTAMP NULL,
+        completed_at TIMESTAMP NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_bim_v2_attempt_uuid (attempt_uuid),
+        UNIQUE KEY uniq_bim_v2_attempt_number (job_id, attempt_number),
+        UNIQUE KEY uniq_bim_v2_attempt_identity (job_id, id),
+        INDEX idx_bim_v2_attempt_lease (state, worker_lease_expiry),
+        FOREIGN KEY (job_id) REFERENCES bim_build_jobs_v2(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS bim_verification_reports_v2 (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        attempt_id BIGINT NOT NULL,
+        stage ENUM('prebuild','postbuild') NOT NULL,
+        mode ENUM('shell','ifc') NOT NULL,
+        report_hash CHAR(64) NOT NULL,
+        model_hash CHAR(64) NOT NULL,
+        calibration_hash CHAR(64) NOT NULL,
+        overall_pass BOOLEAN NOT NULL,
+        report_json JSON NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_bim_v2_report_stage (attempt_id, stage),
+        UNIQUE KEY uniq_bim_v2_report_hash (report_hash),
+        FOREIGN KEY (attempt_id) REFERENCES bim_build_attempts_v2(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS bim_build_artifacts_v2 (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        attempt_id BIGINT NOT NULL,
+        role ENUM('shell_glb','ifc','semantic_glb','semantic_sidecar','validation_report') NOT NULL,
+        asset_id BIGINT NOT NULL,
+        asset_version_id BIGINT NOT NULL,
+        sha256 CHAR(64) NOT NULL,
+        size_bytes BIGINT UNSIGNED NOT NULL,
+        mime_type VARCHAR(120) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_bim_v2_artifact_role (attempt_id, role),
+        FOREIGN KEY (attempt_id) REFERENCES bim_build_attempts_v2(id) ON DELETE RESTRICT,
+        FOREIGN KEY (asset_id, asset_version_id) REFERENCES asset_versions(asset_id, id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS bim_build_acceptances_v2 (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        job_id BIGINT NOT NULL,
+        attempt_id BIGINT NOT NULL,
+        postbuild_report_id BIGINT NOT NULL,
+        accepted_by_user VARCHAR(190) NOT NULL,
+        output_manifest_hash CHAR(64) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_bim_v2_acceptance_job (job_id),
+        FOREIGN KEY (job_id) REFERENCES bim_build_jobs_v2(id) ON DELETE RESTRICT,
+        FOREIGN KEY (attempt_id) REFERENCES bim_build_attempts_v2(id) ON DELETE RESTRICT,
+        FOREIGN KEY (postbuild_report_id) REFERENCES bim_verification_reports_v2(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS bim_credit_events_v2 (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        event_uuid CHAR(36) NOT NULL,
+        job_id BIGINT NOT NULL,
+        attempt_id BIGINT NULL,
+        owner_id VARCHAR(190) NOT NULL,
+        event_type ENUM('quote','debit','refund','reconciliation') NOT NULL,
+        amount_credits INT NOT NULL,
+        idempotency_key VARCHAR(200) NOT NULL,
+        state ENUM('pending','committed','failed','unknown') NOT NULL,
+        evidence_hash CHAR(64) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_bim_v2_credit_event_uuid (event_uuid),
+        UNIQUE KEY uniq_bim_v2_credit_idempotency (idempotency_key),
+        INDEX idx_bim_v2_credit_job (job_id, event_type, state),
+        FOREIGN KEY (job_id) REFERENCES bim_build_jobs_v2(id) ON DELETE RESTRICT,
+        FOREIGN KEY (attempt_id) REFERENCES bim_build_attempts_v2(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS bim_worker_events_v2 (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        event_uuid CHAR(36) NOT NULL,
+        attempt_id BIGINT NOT NULL,
+        event_type VARCHAR(80) NOT NULL,
+        payload_hash CHAR(64) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_bim_v2_worker_event_uuid (event_uuid),
+        UNIQUE KEY uniq_bim_v2_worker_event_payload (attempt_id, event_type, payload_hash),
+        FOREIGN KEY (attempt_id) REFERENCES bim_build_attempts_v2(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `SELECT COUNT(*) INTO @fk_exists FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'bim_build_jobs_v2' AND CONSTRAINT_NAME = 'fk_bim_v2_current_attempt'`,
+      `SET @stmt = IF(@fk_exists = 0, 'ALTER TABLE bim_build_jobs_v2 ADD CONSTRAINT fk_bim_v2_current_attempt FOREIGN KEY (id, current_attempt_id) REFERENCES bim_build_attempts_v2(job_id, id) ON DELETE RESTRICT', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
     ],
   },
 ];
