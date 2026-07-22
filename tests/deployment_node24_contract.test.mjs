@@ -22,6 +22,16 @@ test("Hostinger archive uses the verified local build instead of rebuilding on t
   assert.doesNotMatch(deployScript, /git archive HEAD/);
 });
 
+test("Hostinger starts listening before database initialization", () => {
+  const listenIndex = serverSource.indexOf("const httpServer = app.listen(");
+  const initDbIndex = serverSource.indexOf("await initDb();");
+
+  assert.notEqual(listenIndex, -1, "server listener is missing");
+  assert.notEqual(initDbIndex, -1, "database initialization is missing");
+  assert.ok(listenIndex < initDbIndex, "Passenger requires listen() before database migrations");
+  assert.match(serverSource, /httpServer\.close\(\(\) => resolve\(\)\)/);
+});
+
 test("brand logo and product deep links remain part of the application shell", () => {
   assert.match(appSource, /\/brand\/pawsome-logo\.png/);
   for (const path of ["/home", "/furball3d", "/animator", "/pawprints", "/fidos-styles"]) {
