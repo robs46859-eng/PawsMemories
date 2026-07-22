@@ -71,3 +71,17 @@ test("loadPackagedProvenance reads built manifest fallback safely", () => {
     assert.deepEqual(provenance, { commit: COMMIT, branch: "release/v1" });
   });
 });
+
+test("generateManifest records the pull-request branch in detached CI checkouts", () => {
+  withReleaseDirectory((directory) => {
+    const manifest = generateManifest({
+      APP_COMMIT_SHA: COMMIT,
+      GITHUB_HEAD_REF: "release/ci-detached",
+      GITHUB_REF_NAME: "10/merge",
+      APP_BUILD_TIME: "2026-07-22T12:00:00.000Z",
+      RELEASE_DIRTY: "false",
+    }, directory);
+
+    assert.equal(manifest.branch, "release/ci-detached");
+  });
+});

@@ -45,7 +45,8 @@ export function generateManifest(env = process.env, targetDir = rootDir) {
 
   const packaged = loadPackagedProvenance();
   const commit = env.APP_COMMIT_SHA || env.SOURCE_COMMIT || getGitInfo("git rev-parse HEAD", packaged.commit || "unknown");
-  const branch = env.APP_BRANCH || getGitInfo("git branch --show-current", packaged.branch || "unknown");
+  const branch = env.APP_BRANCH || env.GITHUB_HEAD_REF || env.GITHUB_REF_NAME ||
+    getGitInfo("git branch --show-current", packaged.branch || "unknown");
   const builtAt = env.APP_BUILD_TIME || new Date().toISOString();
   const dirty = env.RELEASE_DIRTY === "true"
     ? true
