@@ -2,12 +2,13 @@
 
 Updated: 2026-07-22  
 Controlling design: `PAWSOME3D_PLATFORM_ARCHITECTURE_SPEC.md`
+Execution scaffold: `BUILD_EXECUTION_SCAFFOLD.md`
 
 This tracker records evidence, not agent claims. A phase is complete only after its exit criteria pass on the intended release commit and extracted deployment archive.
 
 | Phase | Status | Current evidence | Remaining exit work |
 |---|---|---|---|
-| 0. Database and release stability | In progress | TypeScript clean; 742 tests: 741 pass, 1 skip; production build passes; DB pool lifecycle, readiness, shutdown, Stripe customer migration, marketplace SQL, STL persistence cleanup, upload limit, and destructive utility guard implemented locally | Legacy DB migration test; migration ledger; archive SHA manifest; deploy smoke; IFC tests require the pinned worker Python environment |
+| 0. Database and release stability | Complete | Node 24.18/npm 11.16; TypeScript clean; 767 tests: 766 pass, 1 unrelated opt-in Hostinger skip; 8/8 Phase 0 live MySQL tests; fail-closed build; exact-commit complete-file archive verifier | Release evidence: `phase-evidence/PHASE_0.md`; IFC remains pinned to the Render worker environment |
 | 1. Asset registry | Not started | Existing storage and marketplace asset tables available for migration | Canonical assets/versions/relations, registration, accounting, reconciliation |
 | 2. Multiview approval | Not started | Legacy dog turnaround and Tripo multiview code exist | Integrate active Create flow, high-resolution contract, immutable approval and optional retry |
 | 3. Durable 3D build and verification | Not started | Tripo, Blender and partial validators exist | Durable attempts, authoritative post-mesh reports, correction/acceptance loop |
@@ -41,10 +42,10 @@ Mobile acceptance must treat the design documents' 16px margin as the minimum **
 - [x] Guard and scope `clear-db.ts`.
 - [x] Add and run representative legacy-schema migration test against live MySQL 8.4 (`tests/migrations_mysql_integration.test.mjs`, `tests/stl_concurrency_real.test.mjs`).
 - [x] Introduce `schema_migrations` ledger, transition baseline (v001..015), v16 Stripe customer column, and v17 STL derivative active-only generated column unique constraint (`server/migrations/runner.ts`).
-- [x] Add build/archive commit manifest, exact path secret exclusion, fail-closed build chain, and extracted-archive verifier gate (`scripts/generate-manifest.mjs`, `scripts/build-deploy-zip.sh`, `tests/release_manifest.test.mjs`, `tests/archive_verifier.test.mjs`).
-- [x] Run full TypeScript, JavaScript tests, and production build locally (763 total tests: 762 pass, 1 skip; tsc clean under Node 24.18.0; Vite+esbuild build pass).
+- [x] Add complete-file build/archive manifest, environment-file exclusion, fail-closed build chain, and shared extracted-archive verifier gate (`scripts/release-manifest-lib.mjs`, `scripts/generate-manifest.mjs`, `scripts/build-deploy-zip.sh`).
+- [x] Run full TypeScript, JavaScript tests, and production build locally (767 total tests: 766 pass, 1 unrelated Hostinger opt-in skip; 8/8 Phase 0 MySQL tests; tsc and Vite+esbuild pass under Node 24.18.0).
 - [x] Document IFC worker status (pinned environment `ifcopenshell==0.8.5` in Render container; local Python 3.14 lacks package).
-- [x] Verify deployment packaging script smoke checks on extracted archive (`pawsome3d-deploy.zip` verification gate pass).
+- [x] Verify complete extracted archive file-set equality, SHA-256 checksums, commit, branch, schema version, engine, and clean/dirty state (`scripts/verify-release-directory.mjs`).
 
 ## Required Evidence Per Update
 

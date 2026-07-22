@@ -1,47 +1,33 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import mysql from "mysql2/promise";
-import { runMigrations } from "../server/migrations/runner.ts";
+import { persistStlDerivativeOrResolveWinner } from "../server/marketplaceStl.ts";
 
-const mysqlHost = process.env.MYSQL_TEST_HOST || "127.0.0.1";
+const enabled = process.env.MYSQL_TEST_ENABLED === "1";
+const mysqlHost = process.env.MYSQL_TEST_HOST;
 const mysqlPort = Number(process.env.MYSQL_TEST_PORT || 3306);
-const mysqlUser = process.env.MYSQL_TEST_USER || "root";
+const mysqlUser = process.env.MYSQL_TEST_USER;
 const mysqlPassword = process.env.MYSQL_TEST_PASSWORD || "";
 
-test("Production STL Derivative Concurrency with ER_DUP_ENTRY & Storage Cleanup", async (t) => {
-  let conn;
-  try {
-    conn = await mysql.createConnection({
-      host: mysqlHost,
-      port: mysqlPort,
-      user: mysqlUser,
-      password: mysqlPassword,
-      connectTimeout: 2000,
-    });
-    await conn.ping();
-    await conn.end();
-  } catch {
-    t.skip("Local test MySQL instance not running on 127.0.0.1:3306. Provision MySQL to run real concurrency tests.");
-    return;
-  }
+test("production STL persistence resolves a real MySQL race", { skip: !enabled }, async (t) => {
+  assert.ok(mysqlHost && ["127.0.0.1", "localhost", "::1"].includes(mysqlHost), "MYSQL_TEST_HOST must be local");
+  assert.ok(mysqlUser, "MYSQL_TEST_USER is required");
 
   const testDbName = `paws_test_stl_conc_${Date.now()}`;
-  const adminConn = await mysql.createConnection({ host: mysqlHost, port: mysqlPort, user: mysqlUser, password: mysqlPassword });
-  await adminConn.query(`CREATE DATABASE IF NOT EXISTS \`${testDbName}\``);
+  const adminConfig = { host: mysqlHost, port: mysqlPort, user: mysqlUser, password: mysqlPassword };
+  const adminConn = await mysql.createConnection(adminConfig);
+  await adminConn.query(`CREATE DATABASE \`${testDbName}\``);
   await adminConn.end();
 
-  const pool = mysql.createPool({ host: mysqlHost, port: mysqlPort, user: mysqlUser, password: mysqlPassword, database: testDbName, connectionLimit: 5 });
-
+  const pool = mysql.createPool({ ...adminConfig, database: testDbName, connectionLimit: 5 });
   t.after(async () => {
     await pool.end();
-    const cleanupConn = await mysql.createConnection({ host: mysqlHost, port: mysqlPort, user: mysqlUser, password: mysqlPassword });
+    const cleanupConn = await mysql.createConnection(adminConfig);
     await cleanupConn.query(`DROP DATABASE IF EXISTS \`${testDbName}\``);
     await cleanupConn.end();
   });
 
-  // Setup marketplace_assets table schema
-  const dbConn = await pool.getConnection();
-  await dbConn.query(`
+  await pool.query(`
     CREATE TABLE marketplace_assets (
       id BIGINT AUTO_INCREMENT PRIMARY KEY,
       listing_id BIGINT NOT NULL,
@@ -56,59 +42,38 @@ test("Production STL Derivative Concurrency with ER_DUP_ENTRY & Storage Cleanup"
       status ENUM('active','superseded') NOT NULL DEFAULT 'active',
       sort_order INT NOT NULL DEFAULT 0,
       derivative_height_mm DECIMAL(8,2) NULL,
-      generated_active_height DECIMAL(8,2) GENERATED ALWAYS AS (CASE WHEN kind='stl_derivative' AND status='active' THEN ROUND(derivative_height_mm, 2) ELSE NULL END) STORED,
+      generated_active_height DECIMAL(8,2) GENERATED ALWAYS AS
+        (CASE WHEN kind='stl_derivative' AND status='active' THEN ROUND(derivative_height_mm, 2) ELSE NULL END) STORED,
+      UNIQUE KEY uniq_marketplace_asset_uuid (asset_uuid),
+      UNIQUE KEY uniq_marketplace_object_key (object_key),
       UNIQUE KEY uniq_stl_active_derivative (listing_id, generated_active_height)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
-  dbConn.release();
 
-  await t.test("Losing concurrent request cleans up storage and resolves winning active derivative", async () => {
-    let deletedKey = "";
-    const mockDeletePrivateObject = async (key) => {
-      deletedKey = key;
-    };
+  const deleted = [];
+  const persist = (assetUuid, objectKey, targetHeightMm) =>
+    persistStlDerivativeOrResolveWinner({
+      db: pool,
+      deleteObject: async (key) => deleted.push(key),
+      listingId: 55,
+      assetUuid,
+      stored: { objectKey, sizeBytes: 2000, sha256: assetUuid.padEnd(64, "0").slice(0, 64) },
+      targetHeightMm,
+    });
 
-    const listingId = 55;
-    const targetMm = 75.00;
+  const results = await Promise.all([
+    persist("00000000-0000-0000-0000-000000000001", "marketplace/listing/a.stl", 75.004),
+    persist("00000000-0000-0000-0000-000000000002", "marketplace/listing/b.stl", 75.001),
+  ]);
 
-    // Simulate Winner Request A inserting winning row
-    await pool.query(
-      `INSERT INTO marketplace_assets
-         (listing_id, asset_uuid, kind, bucket, object_key, mime_type, size_bytes, sha256, derivative_height_mm, status)
-       VALUES (?, 'uuid-winner', 'stl_derivative', 'private', 'private/winning-key.stl', 'model/stl', 2000, 'sha-win', ?, 'active')`,
-      [listingId, targetMm],
-    );
+  assert.equal(results.filter((result) => result.wonRace).length, 1);
+  assert.equal(results.filter((result) => !result.wonRace).length, 1);
+  assert.equal(results[0].objectKey, results[1].objectKey);
+  assert.equal(deleted.length, 1);
 
-    // Simulate Loser Request B attempting insertion of losing key
-    const losingKey = "private/losing-key.stl";
-    let resolvedKey = "";
-
-    try {
-      await pool.query(
-        `INSERT INTO marketplace_assets
-           (listing_id, asset_uuid, kind, bucket, object_key, mime_type, size_bytes, sha256, derivative_height_mm, status)
-         VALUES (?, 'uuid-loser', 'stl_derivative', 'private', ?, 'model/stl', 2000, 'sha-lose', ?, 'active')`,
-        [listingId, losingKey, targetMm],
-      );
-    } catch (persistError) {
-      await mockDeletePrivateObject(losingKey);
-
-      const isDuplicate = persistError?.code === "ER_DUP_ENTRY" || persistError?.errno === 1062;
-      assert.equal(isDuplicate, true, "Must detect exact ER_DUP_ENTRY (errno 1062)");
-
-      if (isDuplicate) {
-        const [winningRows] = await pool.query(
-          `SELECT object_key, size_bytes FROM marketplace_assets WHERE listing_id = ? AND kind = 'stl_derivative' AND status = 'active' AND ROUND(derivative_height_mm, 2) = ROUND(?, 2) LIMIT 1`,
-          [listingId, targetMm],
-        );
-
-        if (winningRows && winningRows[0]) {
-          resolvedKey = String(winningRows[0].object_key);
-        }
-      }
-    }
-
-    assert.equal(deletedKey, losingKey, "Losing request must delete its newly uploaded private object");
-    assert.equal(resolvedKey, "private/winning-key.stl", "Losing request must resolve winning active derivative object key");
-  });
+  const [rows] = await pool.query(
+    "SELECT object_key, derivative_height_mm FROM marketplace_assets WHERE listing_id = 55 AND status = 'active'",
+  );
+  assert.equal(rows.length, 1);
+  assert.equal(Number(rows[0].derivative_height_mm), 75);
 });

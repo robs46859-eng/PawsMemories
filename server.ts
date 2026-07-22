@@ -43,6 +43,8 @@ import {
 } from "./server/marketplacePublic";
 import { ListingQuerySchema } from "./server/marketplaceSchemas";
 import { CURRENT_SCHEMA_VERSION } from "./server/migrations/runner";
+import { normalizeDerivativeHeightMm, persistStlDerivativeOrResolveWinner } from "./server/marketplaceStl";
+import { loadReleaseManifest } from "./server/releaseManifest";
 import {
   CreateListingSchema,
   UpdateListingSchema,
@@ -364,17 +366,9 @@ async function startServer() {
       path.join(baseDir, "..", "release-manifest.json"),
       path.join(baseDir, "dist", "release-manifest.json"),
     ];
-    for (const candidate of candidatePaths) {
-      if (fs.existsSync(candidate)) {
-        const raw = fs.readFileSync(candidate, "utf8");
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === "object" && typeof parsed.commit === "string") {
-          manifestData = parsed;
-          break;
-        }
-      }
-    }
+    manifestData = loadReleaseManifest(candidatePaths, { production: process.env.NODE_ENV === "production" });
   } catch (manifestErr) {
+    if (process.env.NODE_ENV === "production") throw manifestErr;
     console.warn("⚠️ Could not load release manifest provenance:", manifestErr);
   }
 
@@ -5755,7 +5749,7 @@ async function startServer() {
       const listing = lRows?.[0];
       if (!listing) return res.status(404).json({ success: false, error: "Listing not found or not published." });
       
-      const targetMm = input.targetHeightMm;
+      const targetMm = normalizeDerivativeHeightMm(input.targetHeightMm);
       const minMm = listing.print_size_min_mm ? Number(listing.print_size_min_mm) : 25;
       const maxMm = listing.print_size_max_mm ? Number(listing.print_size_max_mm) : 300;
       if (targetMm < minMm || targetMm > maxMm) {
@@ -5822,49 +5816,15 @@ async function startServer() {
         stlObjectKey = mintObjectKey(listingUuid, "model/stl");
         const storedStl = await putPrivateObject(stlObjectKey, stlBuffer, "model/stl");
 
-        try {
-          await getPool().query(
-            `INSERT INTO marketplace_assets
-               (listing_id, asset_uuid, kind, bucket, object_key, mime_type, size_bytes,
-                sha256, sort_order, derivative_height_mm, status)
-             VALUES (?, ?, 'stl_derivative', 'private', ?, 'model/stl', ?, ?, ?, ?, 'active')`,
-            [
-              listing.id,
-              randomUUID(),
-              storedStl.objectKey,
-              storedStl.sizeBytes,
-              storedStl.sha256,
-              Math.round(targetMm),
-              targetMm,
-            ],
-          );
-        } catch (persistError: any) {
-          await deletePrivateObject(storedStl.objectKey).catch((cleanupError) => {
-            console.error("Marketplace STL asset persistence and cleanup failed", {
-              objectKey: storedStl.objectKey,
-              listingId: listing.id,
-              cleanupError,
-            });
-          });
-
-          const isDuplicate =
-            persistError?.code === "ER_DUP_ENTRY" ||
-            /duplicate/i.test(persistError?.message || "");
-
-          if (isDuplicate) {
-            const [winningRows] = (await getPool().query(
-              `SELECT object_key, size_bytes FROM marketplace_assets WHERE listing_id = ? AND kind = 'stl_derivative' AND status = 'active' AND derivative_height_mm = ? LIMIT 1`,
-              [listing.id, targetMm],
-            )) as any;
-            if (winningRows?.[0]) {
-              stlObjectKey = String(winningRows[0].object_key);
-            } else {
-              throw persistError;
-            }
-          } else {
-            throw persistError;
-          }
-        }
+        const persisted = await persistStlDerivativeOrResolveWinner({
+          db: getPool(),
+          deleteObject: deletePrivateObject,
+          listingId: listing.id,
+          assetUuid: randomUUID(),
+          stored: storedStl,
+          targetHeightMm: targetMm,
+        });
+        stlObjectKey = persisted.objectKey;
         
         const signedStl = await getPrivateSignedUrl(stlObjectKey);
         stlUrl = signedStl.url;

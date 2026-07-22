@@ -3,34 +3,15 @@ import test from "node:test";
 import mysql from "mysql2/promise";
 import { runMigrations } from "../server/migrations/runner.ts";
 
-const mysqlHost = process.env.MYSQL_TEST_HOST || "127.0.0.1";
+const enabled = process.env.MYSQL_TEST_ENABLED === "1";
+const mysqlHost = process.env.MYSQL_TEST_HOST;
 const mysqlPort = Number(process.env.MYSQL_TEST_PORT || 3306);
-const mysqlUser = process.env.MYSQL_TEST_USER || "root";
+const mysqlUser = process.env.MYSQL_TEST_USER;
 const mysqlPassword = process.env.MYSQL_TEST_PASSWORD || "";
 
-export async function isMysqlServerReachable() {
-  try {
-    const conn = await mysql.createConnection({
-      host: mysqlHost,
-      port: mysqlPort,
-      user: mysqlUser,
-      password: mysqlPassword,
-      connectTimeout: 2000,
-    });
-    await conn.ping();
-    await conn.end();
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-test("Real MySQL Integration Suite", async (t) => {
-  const reachable = await isMysqlServerReachable();
-  if (!reachable) {
-    t.skip("Local test MySQL instance not running on 127.0.0.1:3306. Provision MySQL to run integration tests.");
-    return;
-  }
+test("Real MySQL Integration Suite", { skip: !enabled }, async (t) => {
+  assert.ok(mysqlHost && ["127.0.0.1", "localhost", "::1"].includes(mysqlHost), "MYSQL_TEST_HOST must be local");
+  assert.ok(mysqlUser, "MYSQL_TEST_USER is required");
 
   const testDbName = `paws_test_integration_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
 
@@ -178,18 +159,66 @@ test("Real MySQL Integration Suite", async (t) => {
     }
   });
 
-  await t.test("4. Concurrent migration runners respect advisory GET_LOCK", async () => {
+  await t.test("4. Concurrent migration runners apply a fresh migration exactly once", async () => {
     const pool = getTestPool();
     try {
-      const [res1, res2] = await Promise.all([runMigrations(pool), runMigrations(pool)]);
-      assert.equal(res1.applied, 0);
-      assert.equal(res2.applied, 0);
+      const concurrentMigration = [{
+        version: 998,
+        name: "concurrent_exactly_once_probe",
+        statements: ["CREATE TABLE IF NOT EXISTS concurrent_exactly_once_probe (id INT PRIMARY KEY)"],
+      }];
+      const [res1, res2] = await Promise.all([
+        runMigrations(pool, concurrentMigration),
+        runMigrations(pool, concurrentMigration),
+      ]);
+      assert.equal(res1.applied + res2.applied, 1);
+      const [rows] = await pool.query("SELECT COUNT(*) AS c FROM schema_migrations WHERE version = 998");
+      assert.equal(Number(rows[0].c), 1);
     } finally {
       await pool.end();
     }
   });
 
-  await t.test("5. Failed migration is not recorded as successful", async () => {
+  await t.test("5. DDL success followed by ledger failure recovers on rerun", async () => {
+    const pool = getTestPool();
+    try {
+      await pool.query(`
+        CREATE TRIGGER fail_recovery_ledger
+        BEFORE INSERT ON schema_migrations
+        FOR EACH ROW
+        BEGIN
+          IF NEW.version = 997 THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'intentional ledger failure';
+          END IF;
+        END
+      `);
+      const recoverableMigration = [{
+        version: 997,
+        name: "ddl_ledger_recovery_probe",
+        statements: ["CREATE TABLE IF NOT EXISTS ddl_ledger_recovery_probe (id INT PRIMARY KEY)"],
+      }];
+
+      await assert.rejects(runMigrations(pool, recoverableMigration), /intentional ledger failure/);
+      const [tableRows] = await pool.query(
+        "SELECT COUNT(*) AS c FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'ddl_ledger_recovery_probe'",
+        [testDbName],
+      );
+      assert.equal(Number(tableRows[0].c), 1, "DDL must have committed before the ledger failure");
+      const [failedLedgerRows] = await pool.query("SELECT * FROM schema_migrations WHERE version = 997");
+      assert.equal(failedLedgerRows.length, 0);
+
+      await pool.query("DROP TRIGGER fail_recovery_ledger");
+      const recovered = await runMigrations(pool, recoverableMigration);
+      assert.equal(recovered.applied, 1);
+      const [recoveredRows] = await pool.query("SELECT * FROM schema_migrations WHERE version = 997");
+      assert.equal(recoveredRows.length, 1);
+    } finally {
+      await pool.query("DROP TRIGGER IF EXISTS fail_recovery_ledger").catch(() => {});
+      await pool.end();
+    }
+  });
+
+  await t.test("6. Failed SQL is not recorded as successful", async () => {
     const pool = getTestPool();
     try {
       const failingMigrations = [

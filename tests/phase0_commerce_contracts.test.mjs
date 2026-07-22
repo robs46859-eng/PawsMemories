@@ -8,6 +8,7 @@ const read = (relativePath) => readFileSync(path.join(repoRoot, relativePath), "
 
 const marketplacePublic = read("server/marketplacePublic.ts");
 const server = read("server.ts");
+const marketplaceStl = read("server/marketplaceStl.ts");
 
 function functionBody(source, startMarker, endMarker) {
   const start = source.indexOf(startMarker);
@@ -41,15 +42,6 @@ test("marketplace STL cache uses the dedicated derivative height column", () => 
 });
 
 test("marketplace STL persistence satisfies the marketplace_assets schema", () => {
-  const checkout = functionBody(
-    server,
-    'app.post("/api/marketplace/listings/:uuid/print/checkout"',
-    "// 4. Draft Slant 3D order",
-  );
-  const insertStart = checkout.indexOf("INSERT INTO marketplace_assets");
-  assert.notEqual(insertStart, -1, "marketplace STL asset insert is missing");
-  const insert = checkout.slice(insertStart, insertStart + 1_100);
-
   for (const requiredColumn of [
     "listing_id",
     "asset_uuid",
@@ -61,23 +53,18 @@ test("marketplace STL persistence satisfies the marketplace_assets schema", () =
     "sha256",
     "derivative_height_mm",
   ]) {
-    assert.match(insert, new RegExp(`\\b${requiredColumn}\\b`), `missing ${requiredColumn}`);
+    assert.match(marketplaceStl, new RegExp(`\\b${requiredColumn}\\b`), `missing ${requiredColumn}`);
   }
-  assert.match(insert, /randomUUID\(\)/);
-  assert.match(insert, /storedStl\.sha256/);
-  assert.match(insert, /storedStl\.sizeBytes/);
-  assert.doesNotMatch(insert, /created_by_phone/);
+  assert.match(server, /assetUuid: randomUUID\(\)/);
+  assert.match(marketplaceStl, /input\.stored\.sha256/);
+  assert.match(marketplaceStl, /input\.stored\.sizeBytes/);
+  assert.doesNotMatch(marketplaceStl, /created_by_phone/);
 });
 
 test("failed STL metadata persistence removes the orphaned private object", () => {
-  const checkout = functionBody(
-    server,
-    'app.post("/api/marketplace/listings/:uuid/print/checkout"',
-    "// 4. Draft Slant 3D order",
-  );
-
-  assert.match(checkout, /catch \(persistError/);
-  assert.match(checkout, /deletePrivateObject\(storedStl\.objectKey\)/);
-  assert.match(checkout, /persistence and cleanup failed/);
-  assert.match(checkout, /throw persistError/);
+  assert.match(server, /persistStlDerivativeOrResolveWinner/);
+  assert.match(server, /deleteObject: deletePrivateObject/);
+  assert.match(marketplaceStl, /await input\.deleteObject\(input\.stored\.objectKey\)/);
+  assert.match(marketplaceStl, /if \(!isActiveStlDerivativeConflict\(error\)\)/);
+  assert.doesNotMatch(marketplaceStl, /\/duplicate\/i/);
 });

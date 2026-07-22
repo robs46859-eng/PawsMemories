@@ -6,8 +6,7 @@ export const CURRENT_SCHEMA_VERSION = 17;
 export interface Migration {
   version: number;
   name: string;
-  statements?: string[];
-  execute?: (conn: mysql.PoolConnection) => Promise<void>;
+  statements: string[];
 }
 
 export interface AppliedMigration {
@@ -125,8 +124,8 @@ export async function runMigrations(
     if (namesSeen.has(mig.name)) {
       throw new Error(`Duplicate migration name detected: ${mig.name}`);
     }
-    if (!mig.statements && !mig.execute) {
-      throw new Error(`Migration v${mig.version} (${mig.name}) must define explicit statements or an execute function.`);
+    if (!Array.isArray(mig.statements) || mig.statements.length === 0) {
+      throw new Error(`Migration v${mig.version} (${mig.name}) must define explicit statements.`);
     }
     versionsSeen.add(mig.version);
     namesSeen.add(mig.name);
@@ -169,7 +168,7 @@ export async function runMigrations(
     const sorted = [...migrations].sort((a, b) => a.version - b.version);
 
     for (const mig of sorted) {
-      const rawSql = mig.statements ? mig.statements.map((s) => s.trim()).join(";\n") : "";
+      const rawSql = mig.statements.map((s) => s.trim()).join(";\n");
       const checksum = sha256(rawSql);
       const existing = appliedMap.get(mig.version);
 
@@ -189,12 +188,8 @@ export async function runMigrations(
 
       const migStart = Date.now();
 
-      if (mig.execute) {
-        await mig.execute(connection);
-      } else if (mig.statements) {
-        for (const statement of mig.statements) {
-          await connection.query(statement);
-        }
+      for (const statement of mig.statements) {
+        await connection.query(statement);
       }
 
       const durationMs = Date.now() - migStart;
