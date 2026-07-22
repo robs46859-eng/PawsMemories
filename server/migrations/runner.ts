@@ -7,6 +7,7 @@ export interface Migration {
   version: number;
   name: string;
   statements: string[];
+  skipWhenTableMissing?: string;
 }
 
 export interface AppliedMigration {
@@ -30,10 +31,10 @@ export const MIGRATIONS: Migration[] = [
   {
     version: 16,
     name: "wags_stripe_customer_id",
+    skipWhenTableMissing: "users",
     statements: [
-      `SELECT COUNT(*) INTO @tbl_exists FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'`,
       `SELECT COUNT(*) INTO @col_exists FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'stripe_customer_id'`,
-      `SET @stmt = IF(@tbl_exists > 0 AND @col_exists = 0, 'ALTER TABLE users ADD COLUMN stripe_customer_id VARCHAR(128) NULL', 'SELECT 1')`,
+      `SET @stmt = IF(@col_exists = 0, 'ALTER TABLE users ADD COLUMN stripe_customer_id VARCHAR(128) NULL', 'SELECT 1')`,
       `PREPARE stmt FROM @stmt`,
       `EXECUTE stmt`,
       `DEALLOCATE PREPARE stmt`,
@@ -42,26 +43,32 @@ export const MIGRATIONS: Migration[] = [
   {
     version: 17,
     name: "stl_derivatives_unique_constraint",
+    skipWhenTableMissing: "marketplace_assets",
     statements: [
-      // 1. Reconcile existing duplicate active STL derivatives to 'superseded' (if table exists)
-      `SELECT COUNT(*) INTO @ma_exists FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'marketplace_assets'`,
-      `SET @stmt = IF(@ma_exists > 0, 'UPDATE marketplace_assets ma JOIN (SELECT listing_id, ROUND(derivative_height_mm, 2) as norm_height, MAX(id) as max_id FROM marketplace_assets WHERE kind = \\'stl_derivative\\' AND status = \\'active\\' AND derivative_height_mm IS NOT NULL GROUP BY listing_id, ROUND(derivative_height_mm, 2) HAVING COUNT(*) > 1) dupes ON ma.listing_id = dupes.listing_id AND ROUND(ma.derivative_height_mm, 2) = dupes.norm_height AND ma.id < dupes.max_id SET ma.status = \\'superseded\\' WHERE ma.kind = \\'stl_derivative\\' AND ma.status = \\'active\\'', 'SELECT 1')`,
-      `PREPARE stmt FROM @stmt`,
-      `EXECUTE stmt`,
-      `DEALLOCATE PREPARE stmt`,
+      // 1. Reconcile existing duplicate active STL derivatives to 'superseded'
+      `UPDATE marketplace_assets ma
+       JOIN (
+         SELECT listing_id, ROUND(derivative_height_mm, 2) as norm_height, MAX(id) as max_id
+         FROM marketplace_assets
+         WHERE kind = 'stl_derivative' AND status = 'active' AND derivative_height_mm IS NOT NULL
+         GROUP BY listing_id, ROUND(derivative_height_mm, 2)
+         HAVING COUNT(*) > 1
+       ) dupes ON ma.listing_id = dupes.listing_id${" "}
+              AND ROUND(ma.derivative_height_mm, 2) = dupes.norm_height${" "}
+              AND ma.id < dupes.max_id
+       SET ma.status = 'superseded'
+       WHERE ma.kind = 'stl_derivative' AND ma.status = 'active'`,
 
       // 2. Add generated active height stored column (evaluates to height if active, NULL otherwise)
-      `SELECT COUNT(*) INTO @tbl_exists FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'marketplace_assets'`,
       `SELECT COUNT(*) INTO @col_exists FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'marketplace_assets' AND COLUMN_NAME = 'generated_active_height'`,
-      `SET @stmt = IF(@tbl_exists > 0 AND @col_exists = 0, 'ALTER TABLE marketplace_assets ADD COLUMN generated_active_height DECIMAL(8,2) GENERATED ALWAYS AS (CASE WHEN kind=\\'stl_derivative\\' AND status=\\'active\\' THEN ROUND(derivative_height_mm, 2) ELSE NULL END) STORED', 'SELECT 1')`,
+      `SET @stmt = IF(@col_exists = 0, 'ALTER TABLE marketplace_assets ADD COLUMN generated_active_height DECIMAL(8,2) GENERATED ALWAYS AS (CASE WHEN kind=\\'stl_derivative\\' AND status=\\'active\\' THEN ROUND(derivative_height_mm, 2) ELSE NULL END) STORED', 'SELECT 1')`,
       `PREPARE stmt FROM @stmt`,
       `EXECUTE stmt`,
       `DEALLOCATE PREPARE stmt`,
 
       // 3. Add active-only unique index on (listing_id, generated_active_height)
-      `SELECT COUNT(*) INTO @tbl_exists FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'marketplace_assets'`,
       `SELECT COUNT(*) INTO @idx_exists FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'marketplace_assets' AND INDEX_NAME = 'uniq_stl_active_derivative'`,
-      `SET @stmt = IF(@tbl_exists > 0 AND @idx_exists = 0, 'ALTER TABLE marketplace_assets ADD UNIQUE INDEX uniq_stl_active_derivative (listing_id, generated_active_height)', 'SELECT 1')`,
+      `SET @stmt = IF(@idx_exists = 0, 'ALTER TABLE marketplace_assets ADD UNIQUE INDEX uniq_stl_active_derivative (listing_id, generated_active_height)', 'SELECT 1')`,
       `PREPARE stmt FROM @stmt`,
       `EXECUTE stmt`,
       `DEALLOCATE PREPARE stmt`,
@@ -1592,9 +1599,20 @@ export async function runMigrations(
       }
 
       const migStart = Date.now();
+      let skippedMissingTable = false;
 
-      for (const statement of mig.statements) {
-        await connection.query(statement);
+      if (mig.skipWhenTableMissing) {
+        const [tableRows]: any = await connection.query(
+          "SELECT COUNT(*) AS c FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?",
+          [mig.skipWhenTableMissing],
+        );
+        skippedMissingTable = Number(tableRows?.[0]?.c || 0) === 0;
+      }
+
+      if (!skippedMissingTable) {
+        for (const statement of mig.statements) {
+          await connection.query(statement);
+        }
       }
 
       const durationMs = Date.now() - migStart;
@@ -1605,7 +1623,10 @@ export async function runMigrations(
       );
 
       appliedCount++;
-      console.log(`✅ Applied migration v${mig.version} (${mig.name}) in ${durationMs}ms`);
+      const outcome = skippedMissingTable
+        ? `recorded; optional table ${mig.skipWhenTableMissing} is absent`
+        : "applied";
+      console.log(`✅ Migration v${mig.version} (${mig.name}) ${outcome} in ${durationMs}ms`);
     }
 
     return { applied: appliedCount, durationMs: Date.now() - startAll };

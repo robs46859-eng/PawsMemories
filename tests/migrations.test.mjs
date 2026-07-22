@@ -1,12 +1,42 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { runMigrations, sha256 } from "../server/migrations/runner.ts";
+import { MIGRATIONS, runMigrations, sha256 } from "../server/migrations/runner.ts";
+
+const PUBLISHED_MIGRATION_CHECKSUMS = {
+  16: "b90e1f3aaf0895654bb0622c718d15924f316481b655a6b38225b8baac0f7455",
+  17: "79e4bf9eab7c028c26e099d4429473c89ae1d9536732e4d3f7275cbd5b4bd238",
+  18: "e3a47f905cb6ce4a40345d8bc77c77467ca7f686996eaa3dd46106b9769c65f3",
+  19: "052c07e3b78cf66d106bc9a6d741c991544b3d0c6720b930c4f477085c1cee7a",
+  20: "de4d79fa5b2699c4d7745d72a3cf1e84ec709331ce3ca05168a616e04d90bf17",
+  21: "22de0bd6f9cdfc23acbae245d0c1b8ce512687213b6faae3ecb67d71fbc2b9d1",
+  22: "0b05fb4707dd28420d1a96f4211e9368673fd7c2a7b119914a43db0484b7983a",
+  23: "f7215a74e6f4a07ade76564e207a9bddd84558428923b70a11b7f8e451b15bf9",
+  24: "e5495d63563fe312bd7eb4b3e9c5a3e32d9937f6a9a1e0746ae9e8bc2b1ad5a5",
+  25: "7bf1492cccacca9a3ff9054a6e91f3e4717d7f9789dfe7639355b6e27a95fdef",
+  26: "5ff0f7c8b7814026aa0e59988cee1262e37edc67582e1fb9b25046d2f7442372",
+  27: "e13d3c905453dac44c71309253294ea49b238541b33bcd56f356f4b3cc345a80",
+  28: "6f904adcb0adc55ba55992b002ad3fd220c2a58783764ab09118efbabee12f8d",
+  29: "101a432bb6bf477503ab1da9dc71c848361baeea0f3786191dfe2be353577168",
+};
 
 test("sha256 produces deterministic checksums", () => {
   const hash1 = sha256("SELECT 1;");
   const hash2 = sha256("  SELECT 1;  ");
   assert.equal(hash1, hash2);
   assert.equal(hash1.length, 64);
+});
+
+test("published migrations remain immutable", () => {
+  assert.equal(MIGRATIONS.length, Object.keys(PUBLISHED_MIGRATION_CHECKSUMS).length);
+
+  for (const migration of MIGRATIONS) {
+    const rawSql = migration.statements.map((statement) => statement.trim()).join(";\n");
+    assert.equal(
+      sha256(rawSql),
+      PUBLISHED_MIGRATION_CHECKSUMS[migration.version],
+      `migration ${migration.version} was edited; add a new migration instead`,
+    );
+  }
 });
 
 test("runMigrations acquires dedicated connection, performs migration, and releases lock & connection in finally", async () => {
