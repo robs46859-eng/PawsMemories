@@ -1,4 +1,5 @@
 import express from "express";
+import type { IncomingMessage, Server as HttpServer, ServerResponse } from "node:http";
 import { z } from "zod";
 import compression from "compression";
 import path from "path";
@@ -374,12 +375,28 @@ async function startServer() {
     process.exit(1);
   }
 
-  // Hostinger's Passenger wrapper requires listen() within three seconds. Open
-  // the socket before database migrations, but do not register application
-  // routes until initialization succeeds.
-  const httpServer = app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on port ${PORT}`);
-  });
+  // The Hostinger launcher opens the socket before this large bundle loads, then
+  // hands it to Express. Other environments continue to listen normally.
+  type HostingerBootstrap = {
+    server: HttpServer;
+    handler: (req: IncomingMessage, res: ServerResponse) => void;
+  };
+  const bootstrapGlobal = globalThis as typeof globalThis & {
+    __PAWSOME_HOSTINGER_BOOTSTRAP__?: HostingerBootstrap;
+  };
+  const bootstrap = bootstrapGlobal.__PAWSOME_HOSTINGER_BOOTSTRAP__;
+  let httpServer: HttpServer;
+  if (bootstrap) {
+    httpServer = bootstrap.server;
+    httpServer.removeListener("request", bootstrap.handler);
+    httpServer.on("request", app);
+    delete bootstrapGlobal.__PAWSOME_HOSTINGER_BOOTSTRAP__;
+    console.log(`Server adopted Hostinger bootstrap listener on port ${PORT}`);
+  } else {
+    httpServer = app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  }
 
   try {
     // Initialize the user database (creates the users table if needed).
