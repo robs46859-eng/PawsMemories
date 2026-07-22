@@ -39,6 +39,7 @@ function resolveScreen(screen?: string): Screen | null {
     PAWLISHER: Screen.PAWLISHER,
     FURBIN: Screen.FURBIN,
     REQUEST_MEMORY: Screen.REQUEST_MEMORY,
+    WAGS_INBOX: Screen.WAGS_INBOX,
   };
   return map[screen] ?? null;
 }
@@ -346,6 +347,7 @@ export default function RandyChat({
           COMMUNITY: "Go to Community",
           PROFILE: "Go to Profile",
           ALBUMS: "Go to Albums",
+          WAGS_INBOX: "Open Wags",
         };
         return labels[action.screen || ""] || "Take me there";
       }

@@ -54,18 +54,39 @@ export async function importIfc(ifcBase64: string): Promise<any> {
   return res.json();
 }
 
-export async function preflightBim(model: Record<string, unknown>, mode: "shell" | "ifc"): Promise<any> {
+export type BimSourceKind = "text" | "image";
+export type BimImageView = "front" | "rear" | "left" | "right" | "interior" | "plan" | "detail";
+export interface BimCalibrationInput {
+  sourceKind: BimSourceKind;
+  sourceDescription: string;
+  imageViews: BimImageView[];
+  synthesizedImageViews: BimImageView[];
+  measurements: Array<{ id: string; axis: "width" | "depth" | "height"; value: number; unit: "m" | "cm" | "mm" | "ft" | "in"; source: "user_measurement" | "drawing" | "survey" | "known_object" }>;
+  coordinateReference?: string;
+  userConfirmedAssumptions: string[];
+}
+export interface BimProposalImage { view: BimImageView; mimeType: "image/jpeg" | "image/png" | "image/webp"; data: string }
+
+export async function proposeBim(calibration: BimCalibrationInput, mode: "shell" | "ifc", images: BimProposalImage[]): Promise<any> {
+  const res = await authedFetch("/api/bim/propose", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ calibration, mode, images }),
+  });
+  if (!res.ok) throw new Error(await parseError(res, "Building proposal failed."));
+  return res.json();
+}
+
+export async function preflightBim(model: Record<string, unknown>, mode: "shell" | "ifc", calibration?: BimCalibrationInput): Promise<any> {
   const res = await authedFetch("/api/bim/preflight", {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model, mode }),
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model, mode, calibration }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok && !data.verification) throw new Error(data.error || "Pre-build verification failed.");
   return data;
 }
 
-export async function buildBim(model: Record<string, unknown>, mode: "shell" | "ifc"): Promise<any> {
+export async function buildBim(model: Record<string, unknown>, mode: "shell" | "ifc", calibration?: BimCalibrationInput): Promise<any> {
   const res = await authedFetch("/api/bim/build", {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model, mode }),
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model, mode, calibration }),
   });
   if (!res.ok) throw new Error(await parseError(res, "Verified model build failed."));
   return res.json();

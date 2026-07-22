@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -19,6 +20,9 @@ class IfcWorkerTests(unittest.TestCase):
         self.assertEqual(report["sourceUnit"], "mm")
         self.assertGreaterEqual(report["elementCount"], 15)
         self.assertTrue(all(item["globalId"] for item in report["elements"]))
+        self.assertEqual(report["uniqueGlobalIdCount"], report["elementCount"])
+        self.assertFalse(report["roundTripPassed"])
+        self.assertEqual(report["storeyCount"], len(report["storeys"]))
         self.assertIn("IfcWall", report["entitiesByClass"])
 
     def test_malformed_and_unsupported_fail_closed(self):
@@ -40,6 +44,11 @@ class IfcWorkerTests(unittest.TestCase):
             output = Path(temp) / "roundtrip.ifc"
             report = export_bim(str(FIXTURES / "two-room-building.json"), str(output))
             self.assertEqual(report["exportedElementCount"], 15)
+            self.assertTrue(report["roundTripPassed"])
+            self.assertEqual(report["uniqueGlobalIdCount"], report["elementCount"])
+            self.assertEqual(report["voidRelationshipCount"], 2)
+            self.assertEqual(report["fillingRelationshipCount"], 2)
+            self.assertEqual(report["propertySetElementCount"], report["elementCount"])
             _, inspected = inspect_ifc(str(output))
             self.assertEqual(inspected["schema"], "IFC4")
             self.assertEqual(inspected["entitiesByClass"]["IfcSpace"], 2)
@@ -55,6 +64,16 @@ class IfcWorkerTests(unittest.TestCase):
             self.assertAlmostEqual(extents[0], 3.4, delta=0.05)
             self.assertAlmostEqual(extents[1], 5.2, delta=0.05)
             self.assertAlmostEqual(extents[2], 8.2, delta=0.05)
+
+    def test_export_preserves_coordinate_reference_label(self):
+        with tempfile.TemporaryDirectory() as temp:
+            payload = json.loads((FIXTURES / "two-room-building.json").read_text(encoding="utf-8"))
+            payload["coordinateReference"] = "EPSG:26913"
+            source = Path(temp) / "georeferenced.json"
+            output = Path(temp) / "georeferenced.ifc"
+            source.write_text(json.dumps(payload), encoding="utf-8")
+            report = export_bim(str(source), str(output))
+            self.assertEqual(report["coordinateReference"], "EPSG:26913")
 
 if __name__ == "__main__":
     unittest.main()

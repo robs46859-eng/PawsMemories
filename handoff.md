@@ -26,6 +26,28 @@ Phases 4 and 5 are **not signed off**. The agent produced useful schema, service
 - Replace the legacy Fur Bin UI with the V5 API, add public showcase/mobile/accessibility behavior, and bind marketplace purchases to immutable deliverable versions.
 - Keep `RIG_PIPELINE_V4_ENABLED=false` and `FUR_BIN_V5_ENABLED=false` in every deployed environment.
 
+## Parallel Phase 8-9 AI/BIM Lane - 2026-07-22
+
+Branch/worktree: `codex/phases-8-9` at `/Users/robert/Desktop/claude7126/PawsMemories-ai-bim`, rebased onto the reviewed Phase 4-5 foundation commit `e39b676`. Do not copy its build output or `node_modules` symlink.
+
+### Implemented
+
+- Randy now uses a versioned server registry and live account context instead of the removed hardcoded feature-map prompt. Requests, model output, screens, tours, selectors, and actions are strict and bounded. Malformed output loses all action capability. Actions remain proposals shown behind the existing user-click button; no financial or mutation action is permitted. Calls are rate-limited and action proposals are logged with a one-way actor hash.
+- BIM v2 is server-authoritative and default off (`BIM_V2_ENABLED=false`, `VITE_BIM_V2_ENABLED=false`). It accepts calibrated text evidence or at least two decoded observed images, produces a strict editable Gemini proposal, then requires a separate pre-build review and server verification before charging.
+- Both shell and IFC lanes compare trusted dimensions before and after construction. Shell output claims only scaled visual GLB. IFC requires IFC4 reopen, units, finite placements, unique GlobalIds, storey hierarchy, property sets, opening/host and door/window filling relationships, semantic GLB conversion, and optional CRS-label preservation. CRS labels never imply surveyed map-conversion coordinates.
+- Hostinger/.env references include the two dark-launch flags and optional `BIM_PROPOSAL_MODEL` override. Mobile BIM sidebars use 20-24px gutters below desktop.
+
+### Evidence and blockers
+
+- Node 24.18: `npm run lint` passes; 105 focused AI/BIM plus existing BIM/pricing tests pass; full suite is 861 pass / 864 total / 3 opt-in skips / 0 failures; production build and 55-file release-manifest generation pass.
+- Local Python 3.14.6 cannot import IfcOpenShell. `ifc_worker.py` and its tests pass Python syntax compilation, but the updated six-test IfcOpenShell suite must run in the pinned Render worker (`ifcopenshell==0.8.5`, NumPy 2.2.1).
+- Phase 8 is not complete until the other lane supplies a production Randy GLB/LOD with measured rig, facial, mobile, and accessibility evidence.
+- Phase 9 is not production-approved until BIM artifacts move from the legacy public media URL columns to private object keys/signed delivery and billing uses a durable idempotent job/credit/refund ledger. That cross-cutting schema work must be integrated after the active Phase 4-5 canonical-asset lane. A real Gemini text/image fixture, the Render IFC suite, shell/IFC downloads, refund behavior, and the 320/360/390/430px light/dark browser matrix also remain. Keep both BIM v2 flags false.
+
+Detailed evidence: `phase-evidence/PHASE_8.md`, `phase-evidence/PHASE_9.md`, and `phase-evidence/PHASE_8_9_CHECKLIST.html`.
+
+## Lead Architecture Update - Phase 3 Correction Pass - 2026-07-22
+
 Phase 3 Durable 3D Build and Verification lead-correction pass is **COMPLETED (Correction verification pending external sandbox credentials)**.
 
 ### Verified Deliverables & Corrections

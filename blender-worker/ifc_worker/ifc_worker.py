@@ -225,6 +225,16 @@ def inspect_ifc(path: str) -> tuple[Any, dict[str, Any]]:
         "elementCount": len(elements),
         "entitiesByClass": by_class,
         "proxyCount": len(model.by_type("IfcBuildingElementProxy")),
+        "globalIdCount": sum(1 for item in sidecar_elements if item["globalId"]),
+        "uniqueGlobalIdCount": len({item["globalId"] for item in sidecar_elements if item["globalId"]}),
+        "relationshipCount": sum(1 for item in sidecar_elements if item["parentGlobalId"]),
+        "voidRelationshipCount": len(model.by_type("IfcRelVoidsElement")),
+        "fillingRelationshipCount": len(model.by_type("IfcRelFillsElement")),
+        "propertySetElementCount": sum(1 for item in sidecar_elements if item["properties"]),
+        "storeyCount": len(storeys),
+        "coordinateReference": str(getattr(((model.by_type("IfcProjectedCRS") if schema != "IFC2X3" else []) or [None])[0], "Name", "") or ""),
+        "placementsFinite": all(all(math.isfinite(value) for value in item["placement"]) for item in sidecar_elements),
+        "roundTripPassed": False,
         "sourceHash": compute_source_hash(str(source)),
         "fileSizeBytes": source.stat().st_size,
         "converterVersion": "1.0.0",
@@ -321,6 +331,7 @@ def export_bim(json_path: str, output_path: str) -> dict[str, Any]:
     import ifcopenshell.api.aggregate
     import ifcopenshell.api.context
     import ifcopenshell.api.feature
+    import ifcopenshell.api.georeference
     import ifcopenshell.api.geometry
     import ifcopenshell.api.project
     import ifcopenshell.api.pset
@@ -341,6 +352,9 @@ def export_bim(json_path: str, output_path: str) -> dict[str, Any]:
     ifcopenshell.api.unit.assign_unit(model)
     model_context = ifcopenshell.api.context.add_context(model, context_type="Model")
     body = ifcopenshell.api.context.add_context(model, context_type="Model", context_identifier="Body", target_view="MODEL_VIEW", parent=model_context)
+    coordinate_reference = str(payload.get("coordinateReference") or "").strip()
+    if coordinate_reference:
+        ifcopenshell.api.georeference.add_georeferencing(model, name=coordinate_reference)
     site = ifcopenshell.api.root.create_entity(model, ifc_class="IfcSite", name=str(payload.get("siteName") or "Site"))
     building = ifcopenshell.api.root.create_entity(model, ifc_class="IfcBuilding", name=str(payload.get("buildingName") or "Building"))
     ifcopenshell.api.aggregate.assign_object(model, products=[site], relating_object=project)
@@ -405,6 +419,7 @@ def export_bim(json_path: str, output_path: str) -> dict[str, Any]:
     model.write(str(output))
     reopened, report = inspect_ifc(str(output))
     del reopened
+    report["roundTripPassed"] = True
     report["outputPath"] = str(output)
     report["exportedElementCount"] = len(elements)
     return report

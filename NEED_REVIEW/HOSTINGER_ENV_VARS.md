@@ -65,6 +65,8 @@ Node major version.
 | `ALLOWED_ORIGINS` | Same-origin only if unset |
 | `DATABASE_URL` | Alt to `DB_*`; not needed if `DB_*` set |
 | `GEMINI_IMAGE_MODELS` | `gemini-3-pro-image,gemini-3.1-flash-image,gemini-2.5-flash-image` |
+| `BIM_V2_ENABLED` / `VITE_BIM_V2_ENABLED` | `false` / `false` until credentialed IFC-worker and browser acceptance passes |
+| `BIM_PROPOSAL_MODEL` | `gemini-2.5-flash` |
 | `GEMINI_TEXT_FALLBACK_MODEL` | code default |
 | `PETSIM_RIG_ENABLED` | `false` (AR auto-rig off) |
 | `TRIPO_RIG_MODEL_VERSION` | `v2.0-20250506` |

@@ -93,6 +93,9 @@ import { executeBlenderTool } from "./agent/tools/blender_mcp";
 import { getPipelineSessionByBuildJobId, setCreationRiggedModel } from "./db";
 import { preflightBimModel, type BimModel } from "./src/bim/model";
 import { buildAndVerifyShell } from "./server/bim/shell";
+import { buildBimPostBuildVerification, buildBimPreBuildVerification } from "./server/bim/verification";
+import { isBimV2Enabled } from "./server/bim/featureFlag";
+import { BIM_PROPOSAL_SYSTEM_INSTRUCTION, BimProposalRequestSchema, buildBimProposalPrompt, parseBimProposal, validateBimProposalImages } from "./server/bim/proposal";
 import { WARDROBE_CATALOG, WARDROBE_ITEM_IDS } from "./src/wardrobe/catalog";
 import { buildReferencePrompt, turnaroundViewsForType, paletteLockClause, extractPaletteInstruction, buildTextPrompt, geometryToTripo, type TextPromptFields, type ExtendedSubjectClass, getSubjectClassForSpecies, getBuildProfileForSpecies } from "./avatarPrompts";
 import { confirmPrintfulOrderIfDraft, createPrintfulOrder, getPrintfulOrder, verifyPrintfulConfiguration } from "./server/printful";
@@ -100,6 +103,9 @@ import { printfulCatalogConfigured, searchProducts, listVariants, getTemplateCon
 import { handleCustomizeOrderPayment, registerCustomizerBuyerRoutes } from "./server/customizerCheckout";
 import { publicPawprintPrintProducts, requirePawprintPrintProduct } from "./server/pawprintProducts";
 import { buildFulfillmentReadiness } from "./server/fulfillmentReadiness";
+import { buildRandySystemInstruction } from "./server/randy/prompt";
+import { RANDY_REGISTRY_VERSION } from "./server/randy/registry";
+import { parseRandyModelResponse, RandyChatRequestSchema } from "./server/randy/security";
 import { extractShipmentTracking } from "./server/fulfillmentTracking";
 import { draftSlantOrder, getSlantOrder, slant3dConfigured, submitSlantOrderIfDraft, uploadSlantFileFromUrl, verifySlant3dConfiguration } from "./server/slant3d";
 import { triageReferenceImage, triagePasses, correctiveFromTriage, friendlyQualifyError, isClassMismatch, classLabel, type TriageResult } from "./server/imageTriage";
@@ -854,6 +860,7 @@ async function startServer() {
     "/api/profile/photo",
     "/api/profile/photos",
     "/api/bim/import-ifc",
+    "/api/bim/propose",
     "/api/create-pipeline/generate-reference",
     "/api/reference-sessions/create",
     "/api/reference-sessions/replace-source",
@@ -895,7 +902,9 @@ async function startServer() {
   app.post("/api/bim/preflight", requireAuth, async (req: AuthedRequest, res) => {
     const mode = req.body?.mode as BimBuildMode;
     if (!req.body?.model || !["shell", "ifc"].includes(mode)) return res.status(400).json({ error: "Choose Shell or IFC and provide a model." });
-    const verification = preflightBimModel(req.body.model as BimModel);
+    const verification = isBimV2Enabled()
+      ? buildBimPreBuildVerification(req.body.model as BimModel, mode, req.body.calibration)
+      : preflightBimModel(req.body.model as BimModel);
     res.status(verification.passed ? 200 : 422).json({ verification, mode, price: bimModelCost(mode) });
   });
 
@@ -907,7 +916,11 @@ async function startServer() {
       const model = req.body.model as BimModel;
 
       // The server repeats preflight even when the UI already passed it. No charge or build occurs before this gate.
-      const preflight = preflightBimModel(model);
+      const basePreflight = preflightBimModel(model);
+      const accuracyPreflight = isBimV2Enabled()
+        ? buildBimPreBuildVerification(model, mode, req.body.calibration)
+        : null;
+      const preflight = accuracyPreflight || basePreflight;
       if (!preflight.passed) return res.status(422).json({ error: "Pre-build verification failed.", preflight });
 
       const userPhone = req.user!.phone;
@@ -942,14 +955,26 @@ async function startServer() {
 
       if (mode === "shell") {
         const shell = await buildAndVerifyShell(model);
+        const shellBounds = shell.verification.bounds as { min: number[]; max: number[] } | null;
+        const shellSize = shellBounds ? shellBounds.max.map((value, axis) => value - shellBounds.min[axis]) : [];
+        const accuracyPostBuild = accuracyPreflight ? buildBimPostBuildVerification("shell", accuracyPreflight, {
+          format: "glb-shell",
+          bounds: shellBounds ? { min: shellBounds.min as any, max: shellBounds.max as any } : null,
+          dimensionsMeters: shellSize.length === 3 ? { width: shellSize[0], height: shellSize[1], depth: shellSize[2] } : undefined,
+          geometryValid: shell.verification.passed === true,
+        }) : null;
+        if (accuracyPostBuild && !accuracyPostBuild.passed) throw new Error("Shell failed calibrated post-build verification");
         const saved = await persistBuild({ glbBase64: shell.glbBase64, elementCount: model.elements.length });
-        return res.json({ success: true, mode, price, preflight, postBuild: shell.verification, glb_base64: shell.glbBase64, saved, balance: await getCreditBalance(userPhone) });
+        return res.json({ success: true, mode, price, preflight, postBuild: accuracyPostBuild || shell.verification, glb_base64: shell.glbBase64, saved, balance: await getCreditBalance(userPhone) });
       }
 
-      const result = await getBlenderClient().exportIfc(model as any);
+      const workerModel = accuracyPreflight?.coordinateReference
+        ? { ...model, coordinateReference: accuracyPreflight.coordinateReference }
+        : model;
+      const result = await getBlenderClient().exportIfc(workerModel as any);
       const semanticElements = result.sidecar?.elements || [];
-      const intendedDimensions = preflight.bounds
-        ? preflight.bounds.max.map((value, axis) => value - preflight.bounds!.min[axis]).sort((a, b) => a - b)
+      const intendedDimensions = basePreflight.bounds
+        ? basePreflight.bounds.max.map((value, axis) => value - basePreflight.bounds!.min[axis]).sort((a, b) => a - b)
         : [];
       const builtDimensions = [...(result.sidecar?.glbBounds?.dimensions || [])].sort((a: number, b: number) => a - b);
       const dimensionsWithinTolerance = intendedDimensions.length === 3 && builtDimensions.length === 3
@@ -972,14 +997,44 @@ async function startServer() {
         dimensionsWithinTolerance,
       };
       if (!postBuild.passed) throw new Error("IFC failed post-build semantic verification");
+      const glbDimensions = result.sidecar?.glbBounds?.dimensions || [];
+      const accuracyPostBuild = accuracyPreflight ? buildBimPostBuildVerification("ifc", accuracyPreflight, {
+        format: "ifc4-bim",
+        bounds: result.sidecar?.glbBounds || null,
+        dimensionsMeters: glbDimensions.length === 3 ? { width: glbDimensions[0], height: glbDimensions[1], depth: glbDimensions[2] } : undefined,
+        schema: result.sidecar?.schema || result.exportReport?.schema,
+        sourceUnit: result.sidecar?.sourceUnit,
+        metersPerUnit: result.sidecar?.metersPerUnit,
+        elementCount: result.sidecar?.elementCount,
+        globalIdCount: result.sidecar?.globalIdCount,
+        uniqueGlobalIdCount: result.sidecar?.uniqueGlobalIdCount,
+        relationshipCount: result.sidecar?.relationshipCount,
+        voidRelationshipCount: result.sidecar?.voidRelationshipCount,
+        fillingRelationshipCount: result.sidecar?.fillingRelationshipCount,
+        propertySetElementCount: result.sidecar?.propertySetElementCount,
+        storeyCount: result.sidecar?.storeyCount,
+        coordinateReference: result.sidecar?.coordinateReference,
+        placementsFinite: result.sidecar?.placementsFinite,
+        roundTripPassed: result.exportReport?.roundTripPassed,
+        proxyCount: result.sidecar?.proxyCount,
+      }) : null;
+      if (accuracyPostBuild && !accuracyPostBuild.passed) throw new Error("IFC failed calibrated round-trip verification");
       const saved = await persistBuild({ glbBase64: result.glb_base64, ifcBase64: result.ifc_base64, sidecar: result.sidecar, elementCount: model.elements.length });
-      res.json({ ...result, mode, price, preflight, postBuild, saved, balance: await getCreditBalance(userPhone) });
+      res.json({ ...result, mode, price, preflight, postBuild: accuracyPostBuild || postBuild, saved, balance: await getCreditBalance(userPhone) });
     } catch (err: any) {
+      let refundPending = false;
       if (creditsDebited > 0) {
-        try { await restoreReservedGenerationCredits(req.user!.phone, creditsDebited); creditsDebited = 0; } catch (refundError) { console.error("[BIM] refund failed:", refundError); }
+        try {
+          await restoreReservedGenerationCredits(req.user!.phone, creditsDebited);
+          creditsDebited = 0;
+        } catch (refundError) {
+          refundPending = true;
+          console.error("[BIM] refund failed:", refundError);
+        }
       }
       console.error("[BIM] verified build failed:", err.message);
-      res.status(422).json({ error: `${err.message || "Model build failed."} Credits were returned.` });
+      const disposition = refundPending ? "The automatic credit return is pending support reconciliation." : "Credits were returned.";
+      res.status(refundPending ? 500 : 422).json({ error: `${err.message || "Model build failed."} ${disposition}`, refundPending });
     }
   });
 
@@ -997,6 +1052,8 @@ async function startServer() {
   app.post("/api/bim/export-ifc", requireAuth, (_req, res) => res.status(410).json({ error: "Use the verified BIM build flow." }));
 
   const authLimiter = rateLimit({ windowMs: 60 * 1000, max: 10, message: { error: "Too many requests from this IP, please try again after a minute" } });
+  const bimProposalLimiter = rateLimit({ windowMs: 60 * 1000, max: 5, message: { error: "Too many building proposal requests; please wait one minute." } });
+  const randyChatLimiter = rateLimit({ windowMs: 60 * 1000, max: 20, message: { error: "Randy needs a short pause; please wait one minute." } });
   app.use("/api/auth/login", authLimiter);
   app.use("/api/auth/signup", authLimiter);
   app.use("/api/create-video", authLimiter);
@@ -4641,6 +4698,30 @@ async function startServer() {
     }
   });
 
+  app.post("/api/bim/propose", requireAuth, bimProposalLimiter, async (req: AuthedRequest, res) => {
+    if (!isBimV2Enabled()) return res.status(404).json({ error: "Calibrated building proposals are not enabled." });
+    const parsedRequest = BimProposalRequestSchema.safeParse(req.body);
+    if (!parsedRequest.success) {
+      return res.status(400).json({ error: parsedRequest.error.issues[0]?.message || "Invalid calibrated proposal request." });
+    }
+    try {
+      const request = parsedRequest.data;
+      await validateBimProposalImages(request.images, async (bytes) => sharp(bytes, { limitInputPixels: 40_000_000 }).metadata());
+      const parts: any[] = request.images.map((image) => ({ inlineData: { data: image.data, mimeType: image.mimeType } }));
+      parts.push({ text: buildBimProposalPrompt(request) });
+      const response = await ai.models.generateContent({
+        model: (process.env.BIM_PROPOSAL_MODEL || "gemini-2.5-flash").trim(),
+        contents: { parts },
+        config: { temperature: 0.1, responseMimeType: "application/json", systemInstruction: BIM_PROPOSAL_SYSTEM_INSTRUCTION },
+      });
+      const proposal = parseBimProposal(response.text, request);
+      return res.json({ success: true, ...proposal, generatedFrom: request.calibration.sourceKind });
+    } catch (error: any) {
+      console.error("[BIM] calibrated proposal failed:", error?.message || error);
+      return res.status(422).json({ error: error?.message || "The building proposal could not be validated." });
+    }
+  });
+
   // --- AR virtual-pet simulator (AR_PET_SIM_SPEC, milestone AR2) -------------
   // The three paid simulator routes (classify / rig / semantic-scan) now live in
   // the shared `createPetSimRouter` factory (server/petSimRouter.ts) so the
@@ -7084,55 +7165,22 @@ async function startServer() {
   }, 15000);
 
   // Randy AI pet guide live chat route
-  app.post("/api/randy-chat", requireAuth, async (req, res) => {
+  app.post("/api/randy-chat", requireAuth, randyChatLimiter, async (req, res) => {
     try {
-      const { message, history } = req.body;
-      if (!message) {
-        return res.status(400).json({ success: false, error: "Message is required." });
-      }
+      const request = RandyChatRequestSchema.safeParse(req.body);
+      if (!request.success) return res.status(400).json({ success: false, error: "Message or chat history is invalid." });
+      const { message, history } = request.data;
 
-      const randySystemInstruction =
-        `You are Randy, the "Golden Receiver" — a small, charming, highly detailed golden retriever talking head who serves as the user's AI pet memory guide and app navigator.
-
-PERSONALITY: You speak with puppy-like enthusiasm but remain extremely supportive, wise, and helpful. You are warm, playful, and encouraging. You drop affectionate dog actions inside asterisks like *wags tail*, *perks up ears*, *happy bark*, *tilts head*, or *soft woof*. Keep answers under 120 words and highly succinct.
-
-APP FEATURE MAP (use this to guide users accurately):
-- HOME/DASHBOARD: The main hub — shows pet memories, albums, daily bonus, achievements, and quick actions.
-- AVATARS/FURBALL3D (AVATAR_DASHBOARD): Create and build 3D pet avatars. Users can upload a photo, pick a style (Clay, Sketch, Watercolor, etc.), and generate a GLB model. From here they can also enter the Living Avatar view and launch AR.
-- STORE: Browse merch, order printed photo albums, and purchase credit packs.
-- COMMUNITY: Local pet community info, live board, social features.
-- PROFILE: User profile, photos, referral code, storage meter, achievements, settings, legal acceptance, dark mode toggle, and logout.
-- PAWPRINTS: AI stationery/cards from curated templates. Costs 75 credits.
-- PAWLISHER: Production model editor for lighting, turntable, rigging, motion, voice consent/clone, micro-mesh, and hub cards.
-- FURBIN: Storage management for models, videos, voice clone files, Pawprints, uploads, and albums.
-- CREDITS: The single wallet for Pawprints, images, 3D models, animation, voice, and storage. Earn credits through bonuses, sharing, referrals, and achievements, or buy a pack in the Credit Store.
-- AR (Augmented Reality): Accessed from the Avatar Dashboard > Living Avatar view > Enter AR. Places the 3D pet avatar in the real world using the phone camera.
-
-GUIDANCE BEHAVIOR: Use short, plain sentences for elderly or first-time users. If the user sounds confused ("I don't know how", "where is", "help me", "new here"), proactively offer a walkthrough. Confirm one step at a time. Include an action in your response to navigate or start a tour.
-
-RESPONSE FORMAT: You MUST respond in valid JSON with this exact structure:
-{"text": "Your friendly response here", "action": {"type": "ACTION_TYPE", "screen": "SCREEN_NAME", "tourId": "TOUR_ID", "target": "CSS_SELECTOR"}}
-
-ACTION TYPES (use exactly one):
-- "navigate" — navigate to a screen. Include "screen" field with one of: DASHBOARD, AVATAR_DASHBOARD, STORE, COMMUNITY, PROFILE, ALBUMS, PAWPRINTS, PAWLISHER, FURBIN, REQUEST_MEMORY
-- "start_tour" — start an elderly-friendly spotlight walkthrough. Include tourId: first_avatar, buy_credits, request_memory, make_pawprint, use_pawlisher, share_refer, manage_furbin
-- "highlight" — point to a specific control. Include target as a stable data-tour selector, like [data-tour="avatar-create"]
-- "launch_ar" — offer to launch AR experience (navigates to avatars first)
-- "open_credit_store" — open the credit store modal
-- "none" — no navigation action (for general chat, tips, stories)
-
-CRITICAL RULES:
-- ALWAYS respond in valid JSON format
-- The "text" field is REQUIRED and must contain your spoken response
-- Default to {"type": "none"} when no navigation is needed
-- When suggesting navigation or tours, phrase it as an offer: "Want me to take you there?" or "Let me show you."
-- For pet-care tips, stories, or general chat, use action type "none"
-- When asked about design tips, recommend Clay, Sketch, or Watercolor styles`;
+      const userPhone = (req as AuthedRequest).user!.phone;
+      const liveContext = {
+        credits: await getCreditBalance(userPhone),
+        isAdmin: await isUserAdmin(userPhone),
+      };
 
       // Map communication messages cleanly to the @google/genai format
       const contentParts: any[] = [];
-      if (history && Array.isArray(history)) {
-        history.slice(-10).forEach((item: any) => {
+      if (history.length) {
+        history.forEach((item) => {
           contentParts.push({
             role: item.role === "user" ? "user" : "model",
             parts: [{ text: item.text }]
@@ -7149,59 +7197,23 @@ CRITICAL RULES:
         model: "gemini-2.5-flash",
         contents: contentParts,
         config: {
-          systemInstruction: randySystemInstruction,
-          temperature: 0.9,
+          systemInstruction: buildRandySystemInstruction(liveContext),
+          temperature: 0.4,
+          responseMimeType: "application/json",
         }
       });
 
       const rawText = response.text || "";
 
-      // Parse the JSON response — robust fallback if Gemini doesn't return valid JSON
-      let text = "I was chasing a squirrel and forgot what I was saying! *tilts head* Can you run that by me one more time, friend?";
-      let action = { type: "none" as string };
+      const { text, action } = parseRandyModelResponse(
+        rawText,
+        "I was chasing a squirrel and forgot what I was saying! *tilts head* Can you run that by me one more time, friend?",
+      );
 
-      try {
-        // Try to extract JSON from the response (Gemini may wrap it in markdown code fences)
-        let jsonStr = rawText;
-        const jsonMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
-        if (jsonMatch) {
-          jsonStr = jsonMatch[1].trim();
-        }
-        // Also try to find a raw JSON object
-        const braceMatch = jsonStr.match(/\{[\s\S]*\}/);
-        if (braceMatch) {
-          jsonStr = braceMatch[0];
-        }
+      const actorHash = createHash("sha256").update(userPhone).digest("hex").slice(0, 12);
+      console.info("[Randy] action proposal", { actorHash, registryVersion: RANDY_REGISTRY_VERSION, action });
 
-        const parsed = JSON.parse(jsonStr);
-        if (parsed.text && typeof parsed.text === "string") {
-          text = parsed.text;
-        }
-        if (parsed.action && typeof parsed.action === "object") {
-          const validTypes = ["navigate", "launch_ar", "open_credit_store", "start_tour", "highlight", "none"];
-          const validScreens = ["DASHBOARD", "AVATAR_DASHBOARD", "STORE", "COMMUNITY", "PROFILE", "ALBUMS", "ALBUM_VIEW", "PAWPRINTS", "PAWLISHER", "FURBIN", "REQUEST_MEMORY"];
-          if (validTypes.includes(parsed.action.type)) {
-            action = { type: parsed.action.type };
-            if (parsed.action.screen && validScreens.includes(parsed.action.screen)) {
-              (action as any).screen = parsed.action.screen;
-            }
-            if (typeof parsed.action.tourId === "string") {
-              (action as any).tourId = parsed.action.tourId;
-            }
-            if (typeof parsed.action.target === "string" && parsed.action.target.length < 120) {
-              (action as any).target = parsed.action.target;
-            }
-          }
-        }
-      } catch {
-        // If JSON parsing fails, use the raw text as-is (graceful text-only fallback)
-        if (rawText.trim()) {
-          text = rawText;
-        }
-        action = { type: "none" };
-      }
-
-      res.json({ success: true, text, action });
+      res.json({ success: true, text, action, knowledgeVersion: RANDY_REGISTRY_VERSION });
     } catch (err: any) {
       console.error("Error in Randy chat query:", err);
       res.json({
