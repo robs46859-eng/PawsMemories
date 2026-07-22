@@ -5,6 +5,8 @@ import StorageMeter from "./StorageMeter";
 import PetModelViewer from "./PetModelViewer";
 import { createSlant3dCheckout, createMarketplacePrintCheckout, fetchFulfillmentReadiness, fetchModelLibrary, fetchModelPrintOrders, fetchPawprintPrintOrders, listVoiceCloneAssets, fetchUserEntitlements, fetchDigitalOrderStatus, downloadDigitalListing, type ModelLibraryItem, type ModelPrintOrder, type PawprintPrintOrder } from "../api";
 
+const FurBinV5Experience = React.lazy(() => import("./fur-bin-v5"));
+
 interface FurBinScreenProps {
   userProfile: UserProfile;
   creations: Creation[];
@@ -25,7 +27,15 @@ function outputUrl(creation: Creation) {
   return creation.video_url || creation.model_url || creation.image_url || "";
 }
 
-export default function FurBinScreen({ creations, userProfile, onOpenCreditStore }: FurBinScreenProps) {
+export default function FurBinScreen(props: FurBinScreenProps) {
+  if (import.meta.env.VITE_FUR_BIN_V5_ENABLED === "true") {
+    return <React.Suspense fallback={<div className="flex min-h-[50vh] items-center justify-center text-on-surface-variant"><Loader2 className="animate-spin" aria-label="Loading Fur Bin" /></div>}><FurBinV5Experience /></React.Suspense>;
+  }
+
+  return <LegacyFurBinScreen {...props} />;
+}
+
+function LegacyFurBinScreen({ creations, userProfile, onOpenCreditStore }: FurBinScreenProps) {
   const [voiceAssets, setVoiceAssets] = useState<VoiceCloneAsset[]>([]);
   const [filter, setFilter] = useState<BinFilter>("all");
   const [models, setModels] = useState<ModelLibraryItem[]>([]);
@@ -180,25 +190,16 @@ export default function FurBinScreen({ creations, userProfile, onOpenCreditStore
     <main className="mx-auto w-full max-w-7xl px-4 pb-28 pt-7 sm:px-6">
       <div className="flex flex-col gap-4 rounded-[2rem] border border-outline-variant/35 bg-surface/90 p-5 shadow-xl backdrop-blur-xl sm:flex-row sm:items-end sm:justify-between sm:p-7">
         <div><div className="flex items-center gap-2 text-primary"><HardDrive size={18} /><span className="text-xs font-black uppercase tracking-[.18em]">Your library</span></div><h1 data-tour="furbin-title" className="mt-2 text-3xl font-black tracking-tight text-on-surface sm:text-4xl">Fur Bin</h1><p className="mt-2 max-w-xl text-sm text-on-surface-variant">Your FurBin keeps every image, video, model, Pawprint, and voice file in one place.</p></div>
-        <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("randy:start-tour", { detail: { tourId: "manage_furbin" } }))} className="min-h-11 rounded-full border border-primary/30 px-4 text-sm font-black text-primary">Show me how</button>
+        {/* Storage moved into the header as a compact health widget. It was a
+            full-width panel between the title and the content, which on a phone
+            pushed the actual library — the reason anyone opens this page —
+            below the fold. The "Show me how" tour button lived here too and is
+            gone; Randy still offers the tour from the chat widget. */}
+        <StorageMeter variant="health" />
       </div>
 
-      <div className="mt-6"><StorageMeter /></div>
-
-      <div className="mt-6 flex flex-wrap gap-2" role="tablist" aria-label="FurBin output type">
-        {(["all", "images", "videos", "models", "pawprints"] as BinFilter[]).map((item) => <button key={item} type="button" role="tab" aria-selected={filter === item} onClick={() => setFilter(item)} className={`min-h-10 rounded-full px-4 text-xs font-black capitalize transition ${filter === item ? "bg-primary text-on-primary" : "border border-outline-variant/45 bg-surface/80 text-on-surface-variant hover:text-primary"}`}>{item === "all" ? "All outputs" : item}</button>)}
-      </div>
-      
-      {pollingOrder && pollingOrder.status === 'processing' && (
-        <div className="mt-6 flex items-center justify-center gap-3 rounded-[2rem] border border-primary/30 bg-primary/10 p-6 text-primary">
-          <Loader2 className="animate-spin" size={24} />
-          <div>
-            <p className="text-sm font-black">Processing your purchase...</p>
-            <p className="text-xs opacity-80">This usually takes a few seconds.</p>
-          </div>
-        </div>
-      )}
-
+      {/* Models first: they are the highest-value artefacts in the bin, so they
+          lead rather than sitting under the filter chips. */}
       {(filter === "all" || filter === "models") && marketplaceModels.length > 0 && <section className="mt-7">
         <div className="mb-3 flex items-center gap-2"><h2 className="text-sm font-black uppercase tracking-[.16em] text-on-surface">Marketplace models</h2><span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-black text-primary">{marketplaceModels.length}</span></div>
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
@@ -210,18 +211,18 @@ export default function FurBinScreen({ creations, userProfile, onOpenCreditStore
                 <div className="p-4">
                   <h3 className="truncate text-sm font-black text-on-surface">{m.name}</h3>
                   <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button 
-                      type="button" 
-                      onClick={() => handleDownloadMarketplaceModel(m.listing_uuid)} 
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadMarketplaceModel(m.listing_uuid)}
                       disabled={downloadingListing === m.listing_uuid}
                       className="inline-flex min-h-10 w-full items-center justify-center gap-1 rounded-xl bg-primary px-2 text-xs font-black text-on-primary disabled:opacity-50"
                     >
                       {downloadingListing === m.listing_uuid ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
                       {downloadingListing === m.listing_uuid ? "Getting..." : "GLB"}
                     </button>
-                    <button 
-                      type="button" 
-                      onClick={() => handlePrintMarketplaceModel(m)} 
+                    <button
+                      type="button"
+                      onClick={() => handlePrintMarketplaceModel(m)}
                       disabled={preparingViewerForListing === m.listing_uuid}
                       className="inline-flex min-h-10 w-full items-center justify-center gap-1 rounded-xl border border-primary/30 px-2 text-xs font-black text-primary disabled:opacity-50"
                     >
@@ -241,6 +242,20 @@ export default function FurBinScreen({ creations, userProfile, onOpenCreditStore
           {models.map((model) => { const modelUrl = model.rigged_model_url || model.model_url || ""; return <article key={`${model.source_type}-${model.id}`} className="overflow-hidden rounded-[1.6rem] border border-white/30 bg-surface/75 shadow-xl backdrop-blur-2xl"><div className="h-64 bg-gradient-to-br from-primary/10 via-surface to-secondary/10"><PetModelViewer src={modelUrl} poster={model.image_url || undefined} alt={model.name || "Your 3D model"} className="h-full w-full" /></div><div className="p-4"><h3 className="truncate text-sm font-black text-on-surface">{model.name || "3D model"}</h3><p className="mt-1 text-xs text-on-surface-variant">{model.breed || "Custom model"} · {new Date(model.created_at).toLocaleDateString()}</p><div className="mt-4 grid grid-cols-3 gap-2"><button type="button" onClick={() => setSelectedModel(model)} className="inline-flex min-h-10 items-center justify-center gap-1 rounded-xl bg-primary text-xs font-black text-on-primary"><Eye size={14} /> Open</button><a href={modelUrl} download className="inline-flex min-h-10 items-center justify-center gap-1 rounded-xl border border-primary/30 text-xs font-black text-primary"><Download size={14} /> GLB</a><button type="button" onClick={() => setSelectedModel(model)} className="inline-flex min-h-10 items-center justify-center gap-1 rounded-xl border border-primary/30 text-xs font-black text-primary"><Printer size={14} /> Print</button></div></div></article>; })}
         </div>}
       </section>}
+
+      <div className="mt-7 flex flex-wrap gap-2" role="tablist" aria-label="FurBin output type">
+        {(["all", "images", "videos", "models", "pawprints"] as BinFilter[]).map((item) => <button key={item} type="button" role="tab" aria-selected={filter === item} onClick={() => setFilter(item)} className={`min-h-10 rounded-full px-4 text-xs font-black capitalize transition ${filter === item ? "bg-primary text-on-primary" : "border border-outline-variant/45 bg-surface/80 text-on-surface-variant hover:text-primary"}`}>{item === "all" ? "All outputs" : item}</button>)}
+      </div>
+      
+      {pollingOrder && pollingOrder.status === 'processing' && (
+        <div className="mt-6 flex items-center justify-center gap-3 rounded-[2rem] border border-primary/30 bg-primary/10 p-6 text-primary">
+          <Loader2 className="animate-spin" size={24} />
+          <div>
+            <p className="text-sm font-black">Processing your purchase...</p>
+            <p className="text-xs opacity-80">This usually takes a few seconds.</p>
+          </div>
+        </div>
+      )}
 
       {(filter === "all" || filter === "models") && printOrders.length > 0 && <section className="mt-7">
         <div className="mb-3 flex items-center gap-2"><h2 className="text-sm font-black uppercase tracking-[.16em] text-on-surface">3D print orders</h2><span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-black text-primary">{printOrders.length}</span></div>
@@ -263,7 +278,9 @@ export default function FurBinScreen({ creations, userProfile, onOpenCreditStore
       <section className="mt-9 rounded-[2rem] border border-outline-variant/35 bg-surface/75 p-5 shadow-xl backdrop-blur-xl"><div className="mb-4 flex items-center gap-2"><Volume2 size={17} className="text-primary" /><h2 className="text-sm font-black uppercase tracking-[.16em] text-on-surface">Voice files</h2></div>{voiceAssets.length === 0 ? <p className="text-sm text-on-surface-variant">No voice files saved.</p> : <div className="space-y-2">{voiceAssets.map((asset) => <div key={asset.id} className="flex items-center justify-between gap-3 rounded-xl bg-surface-container p-3"><div className="min-w-0"><div className="truncate text-sm font-bold text-on-surface">{asset.name}</div><div className="text-[11px] text-on-surface-variant">{Math.max(1, Math.round(asset.bytes / 1024))} KB · {asset.mime_type}</div></div><span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[10px] font-black ${asset.voice_consent ? "bg-emerald-600/15 text-emerald-700" : "bg-error/10 text-error"}`}>{asset.voice_consent ? <ShieldCheck size={12} /> : <ShieldAlert size={12} />}{asset.voice_consent ? "Consent saved" : "Missing consent"}</span></div>)}</div>}</section>
       <p className="mt-5 text-center text-xs text-on-surface-variant">Storage stays bounded by your current FurBin allowance. Add paid storage only when you need more space.</p>
 
-      {selectedModel && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="3D model viewer"><div className="max-h-[92vh] w-full max-w-4xl overflow-auto rounded-[2rem] border border-white/30 bg-surface/95 p-5 shadow-2xl backdrop-blur-2xl"><div className="flex items-center justify-between gap-3"><div><h2 className="text-xl font-black text-on-surface">{selectedModel.name || "3D model"}</h2><p className="text-xs text-on-surface-variant">Backblaze model · interactive viewer</p></div><button type="button" onClick={() => { setSelectedModel(null); setPrintError(""); }} className="grid h-10 w-10 place-items-center rounded-full border border-outline-variant/40"><X size={18} /></button></div><div className="mt-4 h-[52vh] min-h-[360px] overflow-hidden rounded-2xl bg-surface-container-highest"><PetModelViewer src={selectedModel.rigged_model_url || selectedModel.model_url || ""} poster={selectedModel.image_url || undefined} className="h-full w-full" /></div><div className="mt-5 grid gap-4 rounded-2xl border border-outline-variant/35 bg-surface-container p-4 md:grid-cols-[1fr_auto]"><div><label className="text-xs font-black uppercase tracking-wide text-on-surface">Printed height</label><div className="mt-2 flex items-center gap-3"><input type="range" min="25" max="300" step="5" value={targetHeightMm} onChange={(event) => setTargetHeightMm(Number(event.target.value))} className="w-full" disabled={!modelPrintingAvailable} /><span className="w-20 text-right text-sm font-black text-primary">{targetHeightMm} mm</span></div><p className="mt-2 text-xs text-on-surface-variant">Your source GLB remains unchanged. Pawsome3D creates a separate, uniformly scaled STL, validates the mesh, obtains Slant 3D production and delivery costs, then opens a secure Stripe checkout.</p>{!modelPrintingAvailable && <p className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs font-bold text-amber-700">Physical model printing is being configured. Your model remains available to view and download.</p>}<div className="mt-4 grid grid-cols-2 gap-2"><input aria-label="Shipping name" placeholder="Full name" value={printRecipient.name} onChange={(event) => setPrintRecipient((current) => ({ ...current, name: event.target.value }))} className="col-span-2 min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" disabled={!modelPrintingAvailable} /><input aria-label="Shipping email" type="email" placeholder="Email" value={printRecipient.email} onChange={(event) => setPrintRecipient((current) => ({ ...current, email: event.target.value }))} className="col-span-2 min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" disabled={!modelPrintingAvailable} /><input aria-label="Shipping street address" placeholder="Street address" value={printRecipient.line1} onChange={(event) => setPrintRecipient((current) => ({ ...current, line1: event.target.value }))} className="col-span-2 min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" disabled={!modelPrintingAvailable} /><input aria-label="Shipping city" placeholder="City" value={printRecipient.city} onChange={(event) => setPrintRecipient((current) => ({ ...current, city: event.target.value }))} className="min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" disabled={!modelPrintingAvailable} /><input aria-label="Shipping state" placeholder="State" value={printRecipient.state} onChange={(event) => setPrintRecipient((current) => ({ ...current, state: event.target.value }))} className="min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" disabled={!modelPrintingAvailable} /><input aria-label="Shipping postal code" placeholder="Postal code" value={printRecipient.zip} onChange={(event) => setPrintRecipient((current) => ({ ...current, zip: event.target.value }))} className="min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" disabled={!modelPrintingAvailable} /><input aria-label="Shipping country" placeholder="Country" maxLength={2} value={printRecipient.country} onChange={(event) => setPrintRecipient((current) => ({ ...current, country: event.target.value.toUpperCase() }))} className="min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" disabled={!modelPrintingAvailable} /></div>{printError && <p className="mt-2 text-sm font-bold text-error">{printError}</p>}</div><div className="flex flex-col gap-2"><a href={selectedModel.rigged_model_url || selectedModel.model_url || ""} download className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-primary/30 px-4 text-sm font-black text-primary"><Download size={16} /> Download GLB</a><button type="button" onClick={beginPrint} disabled={printBusy || !modelPrintingAvailable} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-black text-on-primary disabled:cursor-not-allowed disabled:opacity-50"><Printer size={16} /> {printBusy ? "Preparing & quoting…" : modelPrintingAvailable ? "Price & checkout" : "Printing unavailable"}</button></div></div></div></div>}
+      {selectedModel && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="3D model viewer"><div className="max-h-[92vh] w-full max-w-4xl overflow-auto rounded-[2rem] border border-white/30 bg-surface/95 p-5 shadow-2xl backdrop-blur-2xl"><div className="flex items-center justify-between gap-3"><div><h2 className="text-xl font-black text-on-surface">{selectedModel.name || "3D model"}</h2><p className="text-xs text-on-surface-variant">Backblaze model · interactive viewer</p></div><button type="button" onClick={() => { setSelectedModel(null); setPrintError(""); }} className="grid h-10 w-10 place-items-center rounded-full border border-outline-variant/40"><X size={18} /></button></div><div className="mt-4 h-[52vh] min-h-[360px] overflow-hidden rounded-2xl bg-surface-container-highest">{/* thumbnail={false}: the detail modal is the one place a live viewer is
+    safe on mobile, because exactly one WebGL context exists at a time. */}
+<PetModelViewer src={selectedModel.rigged_model_url || selectedModel.model_url || ""} poster={selectedModel.image_url || undefined} thumbnail={false} className="h-full w-full" /></div><div className="mt-5 grid gap-4 rounded-2xl border border-outline-variant/35 bg-surface-container p-4 md:grid-cols-[1fr_auto]"><div><label className="text-xs font-black uppercase tracking-wide text-on-surface">Printed height</label><div className="mt-2 flex items-center gap-3"><input type="range" min="25" max="300" step="5" value={targetHeightMm} onChange={(event) => setTargetHeightMm(Number(event.target.value))} className="w-full" disabled={!modelPrintingAvailable} /><span className="w-20 text-right text-sm font-black text-primary">{targetHeightMm} mm</span></div><p className="mt-2 text-xs text-on-surface-variant">Your source GLB remains unchanged. Pawsome3D creates a separate, uniformly scaled STL, validates the mesh, obtains Slant 3D production and delivery costs, then opens a secure Stripe checkout.</p>{!modelPrintingAvailable && <p className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs font-bold text-amber-700">Physical model printing is being configured. Your model remains available to view and download.</p>}<div className="mt-4 grid grid-cols-2 gap-2"><input aria-label="Shipping name" placeholder="Full name" value={printRecipient.name} onChange={(event) => setPrintRecipient((current) => ({ ...current, name: event.target.value }))} className="col-span-2 min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" disabled={!modelPrintingAvailable} /><input aria-label="Shipping email" type="email" placeholder="Email" value={printRecipient.email} onChange={(event) => setPrintRecipient((current) => ({ ...current, email: event.target.value }))} className="col-span-2 min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" disabled={!modelPrintingAvailable} /><input aria-label="Shipping street address" placeholder="Street address" value={printRecipient.line1} onChange={(event) => setPrintRecipient((current) => ({ ...current, line1: event.target.value }))} className="col-span-2 min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" disabled={!modelPrintingAvailable} /><input aria-label="Shipping city" placeholder="City" value={printRecipient.city} onChange={(event) => setPrintRecipient((current) => ({ ...current, city: event.target.value }))} className="min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" disabled={!modelPrintingAvailable} /><input aria-label="Shipping state" placeholder="State" value={printRecipient.state} onChange={(event) => setPrintRecipient((current) => ({ ...current, state: event.target.value }))} className="min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" disabled={!modelPrintingAvailable} /><input aria-label="Shipping postal code" placeholder="Postal code" value={printRecipient.zip} onChange={(event) => setPrintRecipient((current) => ({ ...current, zip: event.target.value }))} className="min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" disabled={!modelPrintingAvailable} /><input aria-label="Shipping country" placeholder="Country" maxLength={2} value={printRecipient.country} onChange={(event) => setPrintRecipient((current) => ({ ...current, country: event.target.value.toUpperCase() }))} className="min-h-11 rounded-xl border border-outline-variant bg-surface px-3 text-sm" disabled={!modelPrintingAvailable} /></div>{printError && <p className="mt-2 text-sm font-bold text-error">{printError}</p>}</div><div className="flex flex-col gap-2"><a href={selectedModel.rigged_model_url || selectedModel.model_url || ""} download className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-primary/30 px-4 text-sm font-black text-primary"><Download size={16} /> Download GLB</a><button type="button" onClick={beginPrint} disabled={printBusy || !modelPrintingAvailable} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-black text-on-primary disabled:cursor-not-allowed disabled:opacity-50"><Printer size={16} /> {printBusy ? "Preparing & quoting…" : modelPrintingAvailable ? "Price & checkout" : "Printing unavailable"}</button></div></div></div></div>}
     </main>
   );
 }

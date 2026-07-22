@@ -1,9 +1,9 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Screen, UserProfile } from "../../types";
 import { useCreateFlow } from "./CreateFlowContext";
-import { ChevronLeft, Check, RefreshCw, AlertTriangle } from "lucide-react";
+import { ChevronLeft, Check, RefreshCw, AlertTriangle, ShieldCheck } from "lucide-react";
 import { CREDIT_PRICES, createModelCost } from "../../pricing";
-import { authedFetch } from "../../api";
+import { authedFetch, getModelBuildQuote, startModelBuild } from "../../api";
 
 interface CreateCheckoutScreenProps {
   onNavigate: (screen: Screen) => void;
@@ -11,32 +11,49 @@ interface CreateCheckoutScreenProps {
 }
 
 export default function CreateCheckoutScreen({ onNavigate, userProfile }: CreateCheckoutScreenProps) {
-  const { state, resetState } = useCreateFlow();
+  const { state, setState, resetState } = useCreateFlow();
   const [isApproving, setIsApproving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
-  // P3/P4: authoritative price includes the optional rigging selections made
-  // on the customize screen. Server recomputes the same total on approve.
-  const MODEL_COST = createModelCost(state.customizationState?.rigging);
+  const [p3Quote, setP3Quote] = useState<any>(null);
 
+  const isP3Enabled = import.meta.env.VITE_MODEL_BUILD_V3_ENABLED === "true";
+
+  useEffect(() => {
+    if (isP3Enabled && state.sessionId) {
+      getModelBuildQuote(state.sessionId)
+        .then((res) => {
+          const q = res.data;
+          setP3Quote(q);
+          setState((s) => ({ ...s, buildQuote: q }));
+        })
+        .catch(() => { /* non-fatal preflight fallback */ });
+    }
+  }, [state.sessionId, isP3Enabled]);
+
+  // P3/P4: authoritative price includes optional rigging selections made
+  // on the customize screen or returned by Phase 3 quote.
+  const MODEL_COST = p3Quote?.quotedCredits ?? createModelCost(state.customizationState?.rigging);
   const hasEnoughCredits = userProfile.isAdmin || userProfile.credits >= MODEL_COST;
 
   const handleApproveAndBuild = async () => {
     setIsApproving(true);
     setError(null);
     try {
-      // Idempotency key - a simple random string for this attempt
-      const idempotencyKey = crypto.randomUUID();
+      const idempotencyKey = `build_${crypto.randomUUID()}`;
 
+      if (isP3Enabled && state.sessionId) {
+        const res = await startModelBuild(state.sessionId, idempotencyKey);
+        const job = res.data;
+        setState((s) => ({ ...s, activeJobUuid: job.jobUuid }));
+        onNavigate(Screen.CREATE_BUILD_PROGRESS);
+        return;
+      }
+
+      // Legacy fallback
       const res = await authedFetch("/api/create-pipeline/approve", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          sessionId: state.sessionId,
-          idempotencyKey
-        })
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: state.sessionId, idempotencyKey }),
       });
 
       const data = await res.json();
@@ -44,15 +61,13 @@ export default function CreateCheckoutScreen({ onNavigate, userProfile }: Create
         throw new Error(data.error || "Failed to start build.");
       }
 
-      // Success! Clear state and go to FurBin
       resetState();
-      // Wait a moment for UI transition
       setTimeout(() => {
         onNavigate(Screen.FURBIN);
       }, 500);
 
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || "Failed to start build.");
       setIsApproving(false);
     }
   };

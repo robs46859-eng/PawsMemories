@@ -54,18 +54,39 @@ export async function importIfc(ifcBase64: string): Promise<any> {
   return res.json();
 }
 
-export async function preflightBim(model: Record<string, unknown>, mode: "shell" | "ifc"): Promise<any> {
+export type BimSourceKind = "text" | "image";
+export type BimImageView = "front" | "rear" | "left" | "right" | "interior" | "plan" | "detail";
+export interface BimCalibrationInput {
+  sourceKind: BimSourceKind;
+  sourceDescription: string;
+  imageViews: BimImageView[];
+  synthesizedImageViews: BimImageView[];
+  measurements: Array<{ id: string; axis: "width" | "depth" | "height"; value: number; unit: "m" | "cm" | "mm" | "ft" | "in"; source: "user_measurement" | "drawing" | "survey" | "known_object" }>;
+  coordinateReference?: string;
+  userConfirmedAssumptions: string[];
+}
+export interface BimProposalImage { view: BimImageView; mimeType: "image/jpeg" | "image/png" | "image/webp"; data: string }
+
+export async function proposeBim(calibration: BimCalibrationInput, mode: "shell" | "ifc", images: BimProposalImage[]): Promise<any> {
+  const res = await authedFetch("/api/bim/propose", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ calibration, mode, images }),
+  });
+  if (!res.ok) throw new Error(await parseError(res, "Building proposal failed."));
+  return res.json();
+}
+
+export async function preflightBim(model: Record<string, unknown>, mode: "shell" | "ifc", calibration?: BimCalibrationInput): Promise<any> {
   const res = await authedFetch("/api/bim/preflight", {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model, mode }),
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model, mode, calibration }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok && !data.verification) throw new Error(data.error || "Pre-build verification failed.");
   return data;
 }
 
-export async function buildBim(model: Record<string, unknown>, mode: "shell" | "ifc"): Promise<any> {
+export async function buildBim(model: Record<string, unknown>, mode: "shell" | "ifc", calibration?: BimCalibrationInput): Promise<any> {
   const res = await authedFetch("/api/bim/build", {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model, mode }),
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model, mode, calibration }),
   });
   if (!res.ok) throw new Error(await parseError(res, "Verified model build failed."));
   return res.json();
@@ -911,9 +932,27 @@ export async function generateTextReference(
 }
 
 /** Delete an avatar/model from the user's roster (removes the DB row). */
+/**
+ * Remove a model from the roster. Server-side this is a soft hide — the row and
+ * the GLB survive and the removal can be undone with restoreAvatar().
+ */
 export async function deleteAvatar(id: number): Promise<void> {
   const res = await authedFetch(`/api/avatars/${id}`, { method: "DELETE" });
-  if (!res.ok) await throwApiError(res, "Failed to delete model.");
+  if (!res.ok) await throwApiError(res, "Failed to remove model.");
+}
+
+/** Models the user removed from their roster; still restorable. */
+export async function fetchHiddenAvatars(): Promise<any[]> {
+  const res = await authedFetch("/api/avatars/hidden");
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.avatars || [];
+}
+
+/** Undo a removal. */
+export async function restoreAvatar(id: number): Promise<void> {
+  const res = await authedFetch(`/api/avatars/${id}/restore`, { method: "POST" });
+  if (!res.ok) await throwApiError(res, "Failed to restore model.");
 }
 
 /** Public per-site config (deployTarget + printEmail). No auth required. */
@@ -1071,5 +1110,327 @@ export async function rebakeTextureJob(
 export async function getTextureJob(jobId: string): Promise<TextureJobStatus> {
   const res = await authedFetch(`/api/texture/jobs/${jobId}`);
   if (!res.ok) throw new Error("Failed to fetch texture job");
+  return res.json();
+}
+
+export async function createReferenceSession(
+  inputMode: "text" | "photo",
+  prompt?: string,
+  subjectClass: string = "pet",
+  sourceImageDataUrl?: string,
+): Promise<{ success: boolean; sessionUuid: string; state: string }> {
+  const sourceMatch = sourceImageDataUrl?.match(/^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/i);
+  if (inputMode === "photo" && !sourceMatch) {
+    throw new Error("The source photo must be an embedded PNG, JPEG, or WebP image.");
+  }
+  const res = await authedFetch("/api/reference-sessions/create", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      inputMode,
+      prompt,
+      subjectClass,
+      sourceImageBase64: sourceMatch?.[2],
+      sourceMimeType: sourceMatch?.[1]?.toLowerCase(),
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to create reference session (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function startReferenceAttempt(
+  sessionUuid: string,
+  idempotencyKey: string,
+): Promise<{ success: boolean; session: any }> {
+  const res = await authedFetch("/api/reference-sessions/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionUuid, idempotencyKey }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to start reference attempt (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function replaceReferenceSource(
+  sessionUuid: string,
+  sourceImageDataUrl: string,
+): Promise<{ success: boolean; session: any }> {
+  const match = sourceImageDataUrl.match(/^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/i);
+  if (!match) throw new Error("The replacement must be a PNG, JPEG, or WebP image.");
+  const res = await authedFetch("/api/reference-sessions/replace-source", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionUuid, mimeType: match[1].toLowerCase(), imageBufferBase64: match[2] }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to replace reference source (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function retryReferenceAttempt(
+  sessionUuid: string,
+  idempotencyKey: string,
+  retryNotes?: string,
+): Promise<{ success: boolean; session: any }> {
+  const res = await authedFetch("/api/reference-sessions/retry", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionUuid, idempotencyKey, retryNotes }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to retry reference attempt (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function cancelReferenceSession(
+  sessionUuid: string,
+): Promise<{ success: boolean; state: string }> {
+  const res = await authedFetch("/api/reference-sessions/cancel", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionUuid }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to cancel reference session (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function approveReferenceManifest(
+  sessionUuid: string,
+  manifestHash: string,
+): Promise<{ success: boolean; session: any }> {
+  const res = await authedFetch("/api/reference-sessions/approve", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionUuid, manifestHash }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to approve reference manifest (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function getReferenceSessionDetail(
+  sessionUuid: string,
+): Promise<{ success: boolean; session: any }> {
+  const res = await authedFetch(`/api/reference-sessions/detail/${sessionUuid}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to fetch reference session detail (${res.status})`);
+  }
+  return res.json();
+}
+
+// ─── Phase 3 Model Build API ────────────────────────────────────────────────
+
+export async function getModelBuildQuote(
+  referenceSessionUuid: string,
+): Promise<{ success: boolean; data: any }> {
+  const res = await authedFetch("/api/model-builds/quote", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ referenceSessionUuid }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to get model build quote (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function startModelBuild(
+  referenceSessionUuid: string,
+  idempotencyKey: string,
+  requestedOutput: string = "glb",
+): Promise<{ success: boolean; data: any }> {
+  const res = await authedFetch("/api/model-builds/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ referenceSessionUuid, idempotencyKey, requestedOutput }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to start model build (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function getModelBuildDetail(
+  jobUuid: string,
+): Promise<{ success: boolean; data: any }> {
+  const res = await authedFetch(`/api/model-builds/${jobUuid}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to fetch model build detail (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function listModelBuilds(): Promise<{ success: boolean; data: any[] }> {
+  const res = await authedFetch("/api/model-builds");
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to list model builds (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function retryModelBuild(
+  jobUuid: string,
+  idempotencyKey: string,
+  correctionNotes?: string,
+): Promise<{ success: boolean; data: any }> {
+  const res = await authedFetch(`/api/model-builds/${jobUuid}/retry`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ idempotencyKey, correctionNotes }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to retry model build (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function cancelModelBuild(
+  jobUuid: string,
+  reason?: string,
+): Promise<{ success: boolean; data: any }> {
+  const res = await authedFetch(`/api/model-builds/${jobUuid}/cancel`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to cancel model build (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function acceptModelBuild(
+  jobUuid: string,
+  artifactHash: string,
+  reportHash: string,
+): Promise<{ success: boolean; data: any }> {
+  const res = await authedFetch(`/api/model-builds/${jobUuid}/accept`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ artifactHash, reportHash }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to accept model build (${res.status})`);
+  }
+  return res.json();
+}
+
+// ── Phase 4 Rig Pipeline API ────────────────────────────────────────────────
+
+export interface RigJobResponse {
+  jobUuid: string;
+  state: string;
+  classification: "biped" | "quadruped" | "unsupported" | null;
+  selectedProfile: string | null;
+  facialCapability: "full" | "partial" | "body_only" | "unsupported" | null;
+  rigValidation: {
+    boneCount: number;
+    maxInfluences: number;
+    mobileBudgetPass: boolean;
+    animationSweepPass: boolean;
+    overallPass: boolean;
+    rules: Array<{ rule: string; pass: boolean; detail: string; measured?: number | string }>;
+  } | null;
+  facialInventory: {
+    capability: "full" | "partial" | "body_only" | "unsupported";
+    morphCount: number;
+    visemeCoverage: number;
+    hasBlink: boolean;
+    hasJaw: boolean;
+    hasEyeControls: boolean;
+    deformationPass: boolean;
+  } | null;
+  accessories: Array<Record<string, unknown>>;
+  outputArtifact: {
+    assetUuid: string;
+    versionNumber: number;
+    sha256: string;
+    sizeBytes: number;
+    signedUrl?: string;
+  } | null;
+  manifestHash: string | null;
+  failureCode: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function startRigJob(params: {
+  modelBuildJobUuid: string;
+  idempotencyKey: string;
+  profileId?: string;
+  requestFacial?: boolean;
+  accessoryIds?: string[];
+}): Promise<RigJobResponse> {
+  const res = await authedFetch("/api/rig-pipeline/jobs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to start rig job (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function getRigJob(jobUuid: string): Promise<RigJobResponse> {
+  const res = await authedFetch(`/api/rig-pipeline/jobs/${jobUuid}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to fetch rig job (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function acceptRigJob(jobUuid: string, manifestHash: string): Promise<RigJobResponse> {
+  const res = await authedFetch(`/api/rig-pipeline/jobs/${jobUuid}/accept`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ manifestHash }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to accept rig job (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function retryRigJob(
+  jobUuid: string,
+  idempotencyKey: string,
+  accessoryIds: string[] = [],
+): Promise<RigJobResponse> {
+  const res = await authedFetch(`/api/rig-pipeline/jobs/${jobUuid}/retry`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ idempotencyKey, accessoryIds }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to retry rig job (${res.status})`);
+  }
   return res.json();
 }

@@ -11,11 +11,21 @@ import sharp from "sharp";
 import { sendSms } from "./server/sms";
 import { sendMail } from "./server/mail";
 import rateLimit from "express-rate-limit";
-import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, restoreReservedGenerationCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimFreeAvatar, releaseFreeAvatar, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor, getStorageUsage, recordStorageAddHot, recordStorageRemoveHot, purchaseColdStorage, updateUserProfile, checkAndGrantProfileBonus, verifyUserPhone, verifyUserEmail, generateReferralCode, recordReferral, creditReferralIfComplete, getPawprintCategories, getPawprintTemplatesSync, acceptTermsVersion, createVoiceCloneAsset, listVoiceCloneAssets, createPasswordReset, consumePasswordReset, setUserPassword, insertBimBuild, listBimBuilds } from "./db";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, restoreReservedGenerationCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, hideAvatar, unhideAvatar, getHiddenAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimFreeAvatar, releaseFreeAvatar, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor, getStorageUsage, recordStorageAddHot, recordStorageRemoveHot, purchaseColdStorage, updateUserProfile, checkAndGrantProfileBonus, verifyUserPhone, verifyUserEmail, generateReferralCode, recordReferral, creditReferralIfComplete, getPawprintCategories, getPawprintTemplatesSync, acceptTermsVersion, createVoiceCloneAsset, listVoiceCloneAssets, createPasswordReset, consumePasswordReset, setUserPassword, insertBimBuild, listBimBuilds, checkDatabaseHealth, closePool } from "./db";
 import { isEndpointEnabled, dailyCapFor, withinDailyCap, type PaidEndpoint } from "./server/paidApiGuards";
 import { classifyPetImage, type GenerateFn } from "./server/petClassify";
+import { injectMeta } from "./server/seoMeta";
 import { semanticScan as runSemanticScan } from "./server/semanticScan";
 import { animatorRouter } from "./server/animator/routes.ts";
+import { assetsRouter } from "./server/assets/routes";
+import { referenceSessionsRouter } from "./server/reference-sessions/routes";
+import { modelBuildsRouter, modelBuildService } from "./server/model-builds/routes";
+import { createRigPipelineRouter } from "./server/rig-pipeline/routes";
+import { RigPipelineService } from "./server/rig-pipeline/service";
+import { isRigPipelineV4Enabled } from "./server/rig-pipeline/featureFlag";
+import { createFurBinRouter } from "./server/fur-bin/routes";
+import { isModelBuildV3Enabled } from "./server/model-builds/featureFlag";
+import { requireCanonicalAssetsEnabled } from "./server/assets/featureFlag";
 import { planWagsBox, getPriorBoxHistory } from "./server/wags/planner";
 import { deliverBox, getOwnedWardrobeItems } from "./server/wags/delivery";
 import { RebakeRequestSchema, StylizeRequestSchema, viewsFromAvatarRow } from "./server/textureSchemas";
@@ -41,6 +51,9 @@ import {
   digitalDownload
 } from "./server/marketplacePublic";
 import { ListingQuerySchema } from "./server/marketplaceSchemas";
+import { CURRENT_SCHEMA_VERSION } from "./server/migrations/runner";
+import { normalizeDerivativeHeightMm, persistStlDerivativeOrResolveWinner } from "./server/marketplaceStl";
+import { loadReleaseManifest } from "./server/releaseManifest";
 import {
   CreateListingSchema,
   UpdateListingSchema,
@@ -66,7 +79,7 @@ import { createHash, randomUUID } from "crypto";
 import { resolveBreedProfile } from "./server/breedProfiles";
 import { decayDrives, DEFAULT_DRIVES, DEFAULT_HORMONES, weightsFromTemperament } from "./src/brain";
 import { uploadBase64Image, uploadBinaryFromUrl, fetchUrlAsBase64, uploadBase64Binary } from "./storage";
-import { getPrivateSignedUrl, putPrivateObject, mintObjectKey } from "./storage.private";
+import { deletePrivateObject, getPrivateSignedUrl, putPrivateObject, mintObjectKey } from "./storage.private";
 import { runBuildPipeline } from "./agent/graph/orchestrator";
 import { analyzePetImage, type PetAnalysis } from "./ollama-agent";
 import { getBlenderClient } from "./agent/tools/blender_client";
@@ -82,13 +95,27 @@ import { executeBlenderTool } from "./agent/tools/blender_mcp";
 import { getPipelineSessionByBuildJobId, setCreationRiggedModel } from "./db";
 import { preflightBimModel, type BimModel } from "./src/bim/model";
 import { buildAndVerifyShell } from "./server/bim/shell";
+import { buildBimPostBuildVerification, buildBimPreBuildVerification } from "./server/bim/verification";
+import { isBimV2Enabled } from "./server/bim/featureFlag";
+import { BIM_PROPOSAL_SYSTEM_INSTRUCTION, BimProposalRequestSchema, buildBimProposalPrompt, parseBimProposal, validateBimProposalImages } from "./server/bim/proposal";
 import { WARDROBE_CATALOG, WARDROBE_ITEM_IDS } from "./src/wardrobe/catalog";
 import { buildReferencePrompt, turnaroundViewsForType, paletteLockClause, extractPaletteInstruction, buildTextPrompt, geometryToTripo, type TextPromptFields, type ExtendedSubjectClass, getSubjectClassForSpecies, getBuildProfileForSpecies } from "./avatarPrompts";
 import { confirmPrintfulOrderIfDraft, createPrintfulOrder, getPrintfulOrder, verifyPrintfulConfiguration } from "./server/printful";
+import { printfulCatalogConfigured, searchProducts, listVariants, getTemplateContext, clearCatalogueCache } from "./server/printfulCatalog";
+import { handleCustomizeOrderPayment, registerCustomizerBuyerRoutes } from "./server/customizerCheckout";
 import { publicPawprintPrintProducts, requirePawprintPrintProduct } from "./server/pawprintProducts";
 import { buildFulfillmentReadiness } from "./server/fulfillmentReadiness";
+import { buildRandySystemInstruction } from "./server/randy/prompt";
+import { RANDY_REGISTRY_VERSION } from "./server/randy/registry";
+import { parseRandyModelResponse, RandyChatRequestSchema } from "./server/randy/security";
 import { extractShipmentTracking } from "./server/fulfillmentTracking";
 import { draftSlantOrder, getSlantOrder, slant3dConfigured, submitSlantOrderIfDraft, uploadSlantFileFromUrl, verifySlant3dConfiguration } from "./server/slant3d";
+import { isStationeryV2Enabled } from "./server/stationery-v2/featureFlag";
+import { createStationeryV2Production } from "./server/stationery-v2/production";
+import { createStationeryV2Router } from "./server/stationery-v2/routes";
+import { isWagsV2Enabled } from "./server/wags-v2/featureFlag";
+import { createWagsV2Production } from "./server/wags-v2/production";
+import { createWagsV2Router } from "./server/wags-v2/routes";
 import { triageReferenceImage, triagePasses, correctiveFromTriage, friendlyQualifyError, isClassMismatch, classLabel, type TriageResult } from "./server/imageTriage";
 import { objectBuildProfile, humanRigHints } from "./server/subjectProfiles";
 
@@ -293,6 +320,38 @@ function splitDataUrl(s: string): { data: string; mimeType: string } {
   return { mimeType: "image/jpeg", data: s };
 }
 
+export function formatReadinessResponse(database: { configured: boolean; healthy: boolean; latencyMs: number; error?: string }, buildInfo: any) {
+  if (!database.healthy) {
+    if (database.error) {
+      console.error("❌ Database readiness check failed:", database.error);
+    }
+    return {
+      statusCode: 503,
+      body: {
+        status: "not_ready",
+        database: {
+          configured: database.configured,
+          healthy: false,
+          latencyMs: database.latencyMs,
+          reason: "database_unavailable",
+        },
+      },
+    };
+  }
+  return {
+    statusCode: 200,
+    body: {
+      status: "ready",
+      database: {
+        configured: true,
+        healthy: true,
+        latencyMs: database.latencyMs,
+      },
+      build: buildInfo,
+    },
+  };
+}
+
 async function startServer() {
   const app = express();
   // API responses are application data, never search-result pages.
@@ -309,13 +368,6 @@ async function startServer() {
   app.set("trust proxy", 1);
   const PORT = Number(process.env.PORT) || 3000;
 
-  process.on("unhandledRejection", (reason) => {
-    console.error("[FATAL] Unhandled rejection:", reason);
-  });
-  process.on("uncaughtException", (err) => {
-    console.error("[FATAL] Uncaught exception:", err);
-  });
-
   // Fix 3: JWT_SECRET startup guard — refuse to start with an insecure empty secret.
   if (!process.env.JWT_SECRET || process.env.JWT_SECRET === "MY_JWT_SECRET" || process.env.JWT_SECRET.length < 16) {
     console.error("❌ FATAL: JWT_SECRET is missing or too short. Set a long random string in your .env file.");
@@ -324,6 +376,44 @@ async function startServer() {
 
   // Initialize the user database (creates the users table if needed)
   await initDb();
+
+  let manifestData: any = null;
+  try {
+    const baseDir = typeof __dirname !== "undefined" ? __dirname : process.cwd();
+    const candidatePaths = [
+      path.join(process.cwd(), "release-manifest.json"),
+      path.join(process.cwd(), "dist", "release-manifest.json"),
+      path.join(baseDir, "release-manifest.json"),
+      path.join(baseDir, "..", "release-manifest.json"),
+      path.join(baseDir, "dist", "release-manifest.json"),
+    ];
+    manifestData = loadReleaseManifest(candidatePaths, { production: process.env.NODE_ENV === "production" });
+  } catch (manifestErr) {
+    if (process.env.NODE_ENV === "production") throw manifestErr;
+    console.warn("⚠️ Could not load release manifest provenance:", manifestErr);
+  }
+
+  const buildInfo = {
+    version: process.env.npm_package_version || "0.0.0",
+    commit: process.env.APP_COMMIT_SHA || process.env.SOURCE_COMMIT || manifestData?.commit || "unknown",
+    branch: process.env.APP_BRANCH || manifestData?.branch || "unknown",
+    builtAt: process.env.APP_BUILD_TIME || manifestData?.builtAt || "unknown",
+    schemaVersion: manifestData?.schemaVersion ?? CURRENT_SCHEMA_VERSION,
+  };
+
+  app.get("/healthz", (_req, res) => {
+    res.json({ status: "ok" });
+  });
+
+  app.get("/readyz", async (_req, res) => {
+    const database = await checkDatabaseHealth();
+    const formatted = formatReadinessResponse(database, buildInfo);
+    return res.status(formatted.statusCode).json(formatted.body);
+  });
+
+  app.get("/version", (_req, res) => {
+    res.json(buildInfo);
+  });
 
   // Reaper: recover avatars stranded in an intermediate generation state.
   // The build runs as fire-and-forget work; if the process is recycled mid-build
@@ -488,6 +578,25 @@ async function startServer() {
     }
   };
 
+  // Raw-body authenticated v2 webhooks must be mounted before the global JSON
+  // parser. Production factories are constructed only when their dark-launch
+  // flags are explicitly enabled, so missing rollout secrets cannot break the
+  // legacy application.
+  if (isWagsV2Enabled()) {
+    const wagsV2 = createWagsV2Production();
+    app.use("/api/wags-v2", createWagsV2Router({
+      service: wagsV2.service,
+      resolveOwnerUuid: wagsV2.resolveOwnerUuid,
+    }));
+  }
+  if (isStationeryV2Enabled()) {
+    const stationeryV2 = createStationeryV2Production();
+    app.use("/api/stationery-v2", createStationeryV2Router(
+      stationeryV2.service,
+      stationeryV2.routerDependencies,
+    ));
+  }
+
   // Stripe Webhook Route (must be registered BEFORE global express.json body parser)
   app.post("/api/stripe-webhook", express.raw({ type: "application/json" }), async (req, res) => {
     const sig = req.headers["stripe-signature"];
@@ -547,6 +656,9 @@ async function startServer() {
           await getPool().query(`UPDATE pawprint_print_orders SET status = 'payment_received' WHERE id = ?`, [printOrderId]);
           throw error;
         }
+      } else if (metadata.type === "customize_order" && metadata.customizeOrderId && metadata.userPhone) {
+        // Marketplace Product Customizer P1 — mirrors pawprint_print_order exactly.
+        await handleCustomizeOrderPayment(metadata as Record<string, string>);
       } else if (metadata.type === "slant3d_print_order" && metadata.printOrderId && metadata.userPhone) {
         const printOrderId = Number(metadata.printOrderId);
         const [claimed] = await getPool().query(
@@ -775,7 +887,11 @@ async function startServer() {
     "/api/profile/photo",
     "/api/profile/photos",
     "/api/bim/import-ifc",
+    "/api/bim/propose",
     "/api/create-pipeline/generate-reference",
+    "/api/reference-sessions/create",
+    "/api/reference-sessions/replace-source",
+    "/api/print-uploads",
   ]);
   app.use((req, res, next) => {
     // The exact production pet-sim app is mounted after its provider adapters
@@ -785,6 +901,24 @@ async function startServer() {
     return defaultJsonParser(req, res, next);
   });
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+  // Canonical assets are dark-launched. Keep the entire surface unavailable
+  // unless enabled server-side, and never mount it outside the normal JWT gate.
+  app.use("/api/assets", requireCanonicalAssetsEnabled, requireAuth, assetsRouter);
+  app.use("/api/reference-sessions", requireAuth, referenceSessionsRouter);
+  app.use("/api/model-builds", requireAuth, modelBuildsRouter);
+  app.use("/api/rig-pipeline", requireAuth, createRigPipelineRouter(getPool));
+  app.use("/api/fur-bin", createFurBinRouter(getPool, { isAdmin: isUserAdmin }));
+  if (isModelBuildV3Enabled()) {
+    void modelBuildService.recoverStaleBuilds().catch((error) => {
+      console.error("[model-build recovery] Startup recovery failed:", error.message);
+    });
+  }
+  if (isRigPipelineV4Enabled()) {
+    void new RigPipelineService(getPool).recoverStaleRigJobs().catch((error) => {
+      console.error("[rig-pipeline recovery] Startup recovery failed:", error.message);
+    });
+  }
 
   app.post("/api/bim/import-ifc", requireAuth, async (req: AuthedRequest, res) => {
     try {
@@ -800,7 +934,9 @@ async function startServer() {
   app.post("/api/bim/preflight", requireAuth, async (req: AuthedRequest, res) => {
     const mode = req.body?.mode as BimBuildMode;
     if (!req.body?.model || !["shell", "ifc"].includes(mode)) return res.status(400).json({ error: "Choose Shell or IFC and provide a model." });
-    const verification = preflightBimModel(req.body.model as BimModel);
+    const verification = isBimV2Enabled()
+      ? buildBimPreBuildVerification(req.body.model as BimModel, mode, req.body.calibration)
+      : preflightBimModel(req.body.model as BimModel);
     res.status(verification.passed ? 200 : 422).json({ verification, mode, price: bimModelCost(mode) });
   });
 
@@ -812,7 +948,11 @@ async function startServer() {
       const model = req.body.model as BimModel;
 
       // The server repeats preflight even when the UI already passed it. No charge or build occurs before this gate.
-      const preflight = preflightBimModel(model);
+      const basePreflight = preflightBimModel(model);
+      const accuracyPreflight = isBimV2Enabled()
+        ? buildBimPreBuildVerification(model, mode, req.body.calibration)
+        : null;
+      const preflight = accuracyPreflight || basePreflight;
       if (!preflight.passed) return res.status(422).json({ error: "Pre-build verification failed.", preflight });
 
       const userPhone = req.user!.phone;
@@ -847,14 +987,26 @@ async function startServer() {
 
       if (mode === "shell") {
         const shell = await buildAndVerifyShell(model);
+        const shellBounds = shell.verification.bounds as { min: number[]; max: number[] } | null;
+        const shellSize = shellBounds ? shellBounds.max.map((value, axis) => value - shellBounds.min[axis]) : [];
+        const accuracyPostBuild = accuracyPreflight ? buildBimPostBuildVerification("shell", accuracyPreflight, {
+          format: "glb-shell",
+          bounds: shellBounds ? { min: shellBounds.min as any, max: shellBounds.max as any } : null,
+          dimensionsMeters: shellSize.length === 3 ? { width: shellSize[0], height: shellSize[1], depth: shellSize[2] } : undefined,
+          geometryValid: shell.verification.passed === true,
+        }) : null;
+        if (accuracyPostBuild && !accuracyPostBuild.passed) throw new Error("Shell failed calibrated post-build verification");
         const saved = await persistBuild({ glbBase64: shell.glbBase64, elementCount: model.elements.length });
-        return res.json({ success: true, mode, price, preflight, postBuild: shell.verification, glb_base64: shell.glbBase64, saved, balance: await getCreditBalance(userPhone) });
+        return res.json({ success: true, mode, price, preflight, postBuild: accuracyPostBuild || shell.verification, glb_base64: shell.glbBase64, saved, balance: await getCreditBalance(userPhone) });
       }
 
-      const result = await getBlenderClient().exportIfc(model as any);
+      const workerModel = accuracyPreflight?.coordinateReference
+        ? { ...model, coordinateReference: accuracyPreflight.coordinateReference }
+        : model;
+      const result = await getBlenderClient().exportIfc(workerModel as any);
       const semanticElements = result.sidecar?.elements || [];
-      const intendedDimensions = preflight.bounds
-        ? preflight.bounds.max.map((value, axis) => value - preflight.bounds!.min[axis]).sort((a, b) => a - b)
+      const intendedDimensions = basePreflight.bounds
+        ? basePreflight.bounds.max.map((value, axis) => value - basePreflight.bounds!.min[axis]).sort((a, b) => a - b)
         : [];
       const builtDimensions = [...(result.sidecar?.glbBounds?.dimensions || [])].sort((a: number, b: number) => a - b);
       const dimensionsWithinTolerance = intendedDimensions.length === 3 && builtDimensions.length === 3
@@ -877,14 +1029,44 @@ async function startServer() {
         dimensionsWithinTolerance,
       };
       if (!postBuild.passed) throw new Error("IFC failed post-build semantic verification");
+      const glbDimensions = result.sidecar?.glbBounds?.dimensions || [];
+      const accuracyPostBuild = accuracyPreflight ? buildBimPostBuildVerification("ifc", accuracyPreflight, {
+        format: "ifc4-bim",
+        bounds: result.sidecar?.glbBounds || null,
+        dimensionsMeters: glbDimensions.length === 3 ? { width: glbDimensions[0], height: glbDimensions[1], depth: glbDimensions[2] } : undefined,
+        schema: result.sidecar?.schema || result.exportReport?.schema,
+        sourceUnit: result.sidecar?.sourceUnit,
+        metersPerUnit: result.sidecar?.metersPerUnit,
+        elementCount: result.sidecar?.elementCount,
+        globalIdCount: result.sidecar?.globalIdCount,
+        uniqueGlobalIdCount: result.sidecar?.uniqueGlobalIdCount,
+        relationshipCount: result.sidecar?.relationshipCount,
+        voidRelationshipCount: result.sidecar?.voidRelationshipCount,
+        fillingRelationshipCount: result.sidecar?.fillingRelationshipCount,
+        propertySetElementCount: result.sidecar?.propertySetElementCount,
+        storeyCount: result.sidecar?.storeyCount,
+        coordinateReference: result.sidecar?.coordinateReference,
+        placementsFinite: result.sidecar?.placementsFinite,
+        roundTripPassed: result.exportReport?.roundTripPassed,
+        proxyCount: result.sidecar?.proxyCount,
+      }) : null;
+      if (accuracyPostBuild && !accuracyPostBuild.passed) throw new Error("IFC failed calibrated round-trip verification");
       const saved = await persistBuild({ glbBase64: result.glb_base64, ifcBase64: result.ifc_base64, sidecar: result.sidecar, elementCount: model.elements.length });
-      res.json({ ...result, mode, price, preflight, postBuild, saved, balance: await getCreditBalance(userPhone) });
+      res.json({ ...result, mode, price, preflight, postBuild: accuracyPostBuild || postBuild, saved, balance: await getCreditBalance(userPhone) });
     } catch (err: any) {
+      let refundPending = false;
       if (creditsDebited > 0) {
-        try { await restoreReservedGenerationCredits(req.user!.phone, creditsDebited); creditsDebited = 0; } catch (refundError) { console.error("[BIM] refund failed:", refundError); }
+        try {
+          await restoreReservedGenerationCredits(req.user!.phone, creditsDebited);
+          creditsDebited = 0;
+        } catch (refundError) {
+          refundPending = true;
+          console.error("[BIM] refund failed:", refundError);
+        }
       }
       console.error("[BIM] verified build failed:", err.message);
-      res.status(422).json({ error: `${err.message || "Model build failed."} Credits were returned.` });
+      const disposition = refundPending ? "The automatic credit return is pending support reconciliation." : "Credits were returned.";
+      res.status(refundPending ? 500 : 422).json({ error: `${err.message || "Model build failed."} ${disposition}`, refundPending });
     }
   });
 
@@ -902,6 +1084,8 @@ async function startServer() {
   app.post("/api/bim/export-ifc", requireAuth, (_req, res) => res.status(410).json({ error: "Use the verified BIM build flow." }));
 
   const authLimiter = rateLimit({ windowMs: 60 * 1000, max: 10, message: { error: "Too many requests from this IP, please try again after a minute" } });
+  const bimProposalLimiter = rateLimit({ windowMs: 60 * 1000, max: 5, message: { error: "Too many building proposal requests; please wait one minute." } });
+  const randyChatLimiter = rateLimit({ windowMs: 60 * 1000, max: 20, message: { error: "Randy needs a short pause; please wait one minute." } });
   app.use("/api/auth/login", authLimiter);
   app.use("/api/auth/signup", authLimiter);
   app.use("/api/create-video", authLimiter);
@@ -2630,6 +2814,53 @@ async function startServer() {
     } catch (err: any) { sendAdminError(res, err, "Could not load previews."); }
   });
 
+  // ── Product customizer P0: Printful catalogue browse ───────────────────────
+  // Admin-only. Surfaces products/variants and the authoritative print-file
+  // geometry the admin needs to author a placement template. See
+  // MARKETPLACE_CUSTOMIZER_SPEC.md and server/printfulCatalog.ts.
+  app.get("/api/admin/customizer/products", requireAuth, async (req: AuthedRequest, res) => {
+    if (!await requireMarketplaceAdmin(req, res)) return;
+    if (!printfulCatalogConfigured()) {
+      return res.status(503).json({ error: "Printful is not configured (set PRINTFUL_API_KEY)." });
+    }
+    try {
+      const q = typeof req.query.q === "string" ? req.query.q : "";
+      res.json({ products: await searchProducts(q) });
+    } catch (err: any) { sendAdminError(res, err, "Could not load the Printful catalogue."); }
+  });
+
+  app.get("/api/admin/customizer/products/:productId/variants", requireAuth, async (req: AuthedRequest, res) => {
+    if (!await requireMarketplaceAdmin(req, res)) return;
+    if (!printfulCatalogConfigured()) {
+      return res.status(503).json({ error: "Printful is not configured (set PRINTFUL_API_KEY)." });
+    }
+    try {
+      res.json({ variants: await listVariants(Number(req.params.productId)) });
+    } catch (err: any) { sendAdminError(res, err, "Could not load variants."); }
+  });
+
+  // The print-file geometry that governs composite resolution for one variant.
+  app.get("/api/admin/customizer/products/:productId/variants/:variantId/template", requireAuth, async (req: AuthedRequest, res) => {
+    if (!await requireMarketplaceAdmin(req, res)) return;
+    if (!printfulCatalogConfigured()) {
+      return res.status(503).json({ error: "Printful is not configured (set PRINTFUL_API_KEY)." });
+    }
+    try {
+      res.json(await getTemplateContext(Number(req.params.productId), Number(req.params.variantId)));
+    } catch (err: any) { sendAdminError(res, err, "Could not load the print template."); }
+  });
+
+  // Manual cache bust after the owner changes products in Printful.
+  app.post("/api/admin/customizer/refresh", requireAuth, async (req: AuthedRequest, res) => {
+    if (!await requireMarketplaceAdmin(req, res)) return;
+    clearCatalogueCache();
+    res.json({ success: true });
+  });
+
+  // ── Customizer P1: admin product management + buyer checkout ──────────────
+  // (server/customizerCheckout.ts — pure functions exported for tests)
+  registerCustomizerBuyerRoutes(app, { stripe, requireAuth, paidLimiter, requireMarketplaceAdmin });
+
   app.get("/api/admin/marketplace/listings/:id/assets", requireAuth, async (req: AuthedRequest, res) => {
     if (!await requireMarketplaceAdmin(req, res)) return;
     try {
@@ -4261,14 +4492,56 @@ async function startServer() {
   // Delete an avatar from the user's roster (owner-scoped). Removes the DB row;
   // storage files are not touched. Frees a slot under the model cap and clears
   // orphaned rows whose GLBs were already deleted from storage.
+  /**
+   * Remove a model from the user's roster.
+   *
+   * This is a soft hide, not a row delete. The old behaviour destroyed the
+   * avatar row while leaving the GLB in object storage — orphaned bytes that
+   * were still billed, could no longer be reclaimed, and left the user with no
+   * way to undo. `?purge=1` is retained for the admin/cleanup path that really
+   * does want the row gone (orphans whose storage was already deleted).
+   */
   app.delete("/api/avatars/:id", requireAuth, async (req: AuthedRequest, res) => {
     try {
-      const success = await deleteAvatar(Number(req.params.id), req.user!.phone);
-      if (!success) return res.status(404).json({ success: false, error: "Avatar not found." });
-      res.json({ success: true });
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) {
+        return res.status(400).json({ success: false, error: "Invalid avatar id." });
+      }
+      const purge = req.query.purge === "1" && (await isUserAdmin(req.user!.phone));
+      const success = purge
+        ? await deleteAvatar(id, req.user!.phone)
+        : await hideAvatar(id, req.user!.phone);
+      if (!success) return res.status(404).json({ success: false, error: "Model not found." });
+      res.json({ success: true, hidden: !purge });
     } catch (err: any) {
       console.error("[DELETE /api/avatars/:id] Error:", err?.message || err);
-      res.status(500).json({ success: false, error: "Failed to delete avatar." });
+      res.status(500).json({ success: false, error: "Failed to remove model." });
+    }
+  });
+
+  /** Models the user has removed from their roster but not purged. */
+  app.get("/api/avatars/hidden", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      res.json({ success: true, avatars: await getHiddenAvatars(req.user!.phone) });
+    } catch (err: any) {
+      console.error("[GET /api/avatars/hidden] Error:", err?.message || err);
+      res.status(500).json({ success: false, error: "Failed to load removed models." });
+    }
+  });
+
+  /** Undo a removal — puts the model back on the roster. */
+  app.post("/api/avatars/:id/restore", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) {
+        return res.status(400).json({ success: false, error: "Invalid avatar id." });
+      }
+      const success = await unhideAvatar(id, req.user!.phone);
+      if (!success) return res.status(404).json({ success: false, error: "Removed model not found." });
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("[POST /api/avatars/:id/restore] Error:", err?.message || err);
+      res.status(500).json({ success: false, error: "Failed to restore model." });
     }
   });
 
@@ -4454,6 +4727,30 @@ async function startServer() {
       headers: {
         'User-Agent': 'aistudio-build',
       }
+    }
+  });
+
+  app.post("/api/bim/propose", requireAuth, bimProposalLimiter, async (req: AuthedRequest, res) => {
+    if (!isBimV2Enabled()) return res.status(404).json({ error: "Calibrated building proposals are not enabled." });
+    const parsedRequest = BimProposalRequestSchema.safeParse(req.body);
+    if (!parsedRequest.success) {
+      return res.status(400).json({ error: parsedRequest.error.issues[0]?.message || "Invalid calibrated proposal request." });
+    }
+    try {
+      const request = parsedRequest.data;
+      await validateBimProposalImages(request.images, async (bytes) => sharp(bytes, { limitInputPixels: 40_000_000 }).metadata());
+      const parts: any[] = request.images.map((image) => ({ inlineData: { data: image.data, mimeType: image.mimeType } }));
+      parts.push({ text: buildBimProposalPrompt(request) });
+      const response = await ai.models.generateContent({
+        model: (process.env.BIM_PROPOSAL_MODEL || "gemini-2.5-flash").trim(),
+        contents: { parts },
+        config: { temperature: 0.1, responseMimeType: "application/json", systemInstruction: BIM_PROPOSAL_SYSTEM_INSTRUCTION },
+      });
+      const proposal = parseBimProposal(response.text, request);
+      return res.json({ success: true, ...proposal, generatedFrom: request.calibration.sourceKind });
+    } catch (error: any) {
+      console.error("[BIM] calibrated proposal failed:", error?.message || error);
+      return res.status(422).json({ error: error?.message || "The building proposal could not be validated." });
     }
   });
 
@@ -5587,7 +5884,7 @@ async function startServer() {
       const listing = lRows?.[0];
       if (!listing) return res.status(404).json({ success: false, error: "Listing not found or not published." });
       
-      const targetMm = input.targetHeightMm;
+      const targetMm = normalizeDerivativeHeightMm(input.targetHeightMm);
       const minMm = listing.print_size_min_mm ? Number(listing.print_size_min_mm) : 25;
       const maxMm = listing.print_size_max_mm ? Number(listing.print_size_max_mm) : 300;
       if (targetMm < minMm || targetMm > maxMm) {
@@ -5603,8 +5900,8 @@ async function startServer() {
       
       // 3. See if we have a cached STL derivative for this exact target height
       const [stlRows] = await getPool().query(
-        `SELECT object_key, size_bytes FROM marketplace_assets WHERE listing_id = ? AND kind = 'stl_derivative' AND status = 'active' AND sort_order = ? LIMIT 1`,
-        [listing.id, Math.round(targetMm)]
+        `SELECT object_key, size_bytes FROM marketplace_assets WHERE listing_id = ? AND kind = 'stl_derivative' AND status = 'active' AND derivative_height_mm = ? LIMIT 1`,
+        [listing.id, targetMm]
       ) as any;
 
       let stlUrl = "";
@@ -5651,15 +5948,18 @@ async function startServer() {
         
         // Save to private bucket as stl_derivative
         const stlBuffer = Buffer.from(prepared.stl_base64, "base64");
-        stlObjectKey = mintObjectKey(listingUuid, "stl");
-        await putPrivateObject(stlObjectKey, stlBuffer, "model/stl");
-        
-        // INSERT into marketplace_assets
-        await getPool().query(
-          `INSERT INTO marketplace_assets (listing_id, kind, object_key, mime_type, size_bytes, sort_order, status, created_by_phone)
-           VALUES (?, 'stl_derivative', ?, 'model/stl', ?, ?, 'active', ?)`,
-          [listing.id, stlObjectKey, stlBuffer.length, Math.round(targetMm), phone]
-        );
+        stlObjectKey = mintObjectKey(listingUuid, "model/stl");
+        const storedStl = await putPrivateObject(stlObjectKey, stlBuffer, "model/stl");
+
+        const persisted = await persistStlDerivativeOrResolveWinner({
+          db: getPool(),
+          deleteObject: deletePrivateObject,
+          listingId: listing.id,
+          assetUuid: randomUUID(),
+          stored: storedStl,
+          targetHeightMm: targetMm,
+        });
+        stlObjectKey = persisted.objectKey;
         
         const signedStl = await getPrivateSignedUrl(stlObjectKey);
         stlUrl = signedStl.url;
@@ -6897,55 +7197,22 @@ async function startServer() {
   }, 15000);
 
   // Randy AI pet guide live chat route
-  app.post("/api/randy-chat", requireAuth, async (req, res) => {
+  app.post("/api/randy-chat", requireAuth, randyChatLimiter, async (req, res) => {
     try {
-      const { message, history } = req.body;
-      if (!message) {
-        return res.status(400).json({ success: false, error: "Message is required." });
-      }
+      const request = RandyChatRequestSchema.safeParse(req.body);
+      if (!request.success) return res.status(400).json({ success: false, error: "Message or chat history is invalid." });
+      const { message, history } = request.data;
 
-      const randySystemInstruction =
-        `You are Randy, the "Golden Receiver" — a small, charming, highly detailed golden retriever talking head who serves as the user's AI pet memory guide and app navigator.
-
-PERSONALITY: You speak with puppy-like enthusiasm but remain extremely supportive, wise, and helpful. You are warm, playful, and encouraging. You drop affectionate dog actions inside asterisks like *wags tail*, *perks up ears*, *happy bark*, *tilts head*, or *soft woof*. Keep answers under 120 words and highly succinct.
-
-APP FEATURE MAP (use this to guide users accurately):
-- HOME/DASHBOARD: The main hub — shows pet memories, albums, daily bonus, achievements, and quick actions.
-- AVATARS/FURBALL3D (AVATAR_DASHBOARD): Create and build 3D pet avatars. Users can upload a photo, pick a style (Clay, Sketch, Watercolor, etc.), and generate a GLB model. From here they can also enter the Living Avatar view and launch AR.
-- STORE: Browse merch, order printed photo albums, and purchase credit packs.
-- COMMUNITY: Local pet community info, live board, social features.
-- PROFILE: User profile, photos, referral code, storage meter, achievements, settings, legal acceptance, dark mode toggle, and logout.
-- PAWPRINTS: AI stationery/cards from curated templates. Costs 75 credits.
-- PAWLISHER: Production model editor for lighting, turntable, rigging, motion, voice consent/clone, micro-mesh, and hub cards.
-- FURBIN: Storage management for models, videos, voice clone files, Pawprints, uploads, and albums.
-- CREDITS: The single wallet for Pawprints, images, 3D models, animation, voice, and storage. Earn credits through bonuses, sharing, referrals, and achievements, or buy a pack in the Credit Store.
-- AR (Augmented Reality): Accessed from the Avatar Dashboard > Living Avatar view > Enter AR. Places the 3D pet avatar in the real world using the phone camera.
-
-GUIDANCE BEHAVIOR: Use short, plain sentences for elderly or first-time users. If the user sounds confused ("I don't know how", "where is", "help me", "new here"), proactively offer a walkthrough. Confirm one step at a time. Include an action in your response to navigate or start a tour.
-
-RESPONSE FORMAT: You MUST respond in valid JSON with this exact structure:
-{"text": "Your friendly response here", "action": {"type": "ACTION_TYPE", "screen": "SCREEN_NAME", "tourId": "TOUR_ID", "target": "CSS_SELECTOR"}}
-
-ACTION TYPES (use exactly one):
-- "navigate" — navigate to a screen. Include "screen" field with one of: DASHBOARD, AVATAR_DASHBOARD, STORE, COMMUNITY, PROFILE, ALBUMS, PAWPRINTS, PAWLISHER, FURBIN, REQUEST_MEMORY
-- "start_tour" — start an elderly-friendly spotlight walkthrough. Include tourId: first_avatar, buy_credits, request_memory, make_pawprint, use_pawlisher, share_refer, manage_furbin
-- "highlight" — point to a specific control. Include target as a stable data-tour selector, like [data-tour="avatar-create"]
-- "launch_ar" — offer to launch AR experience (navigates to avatars first)
-- "open_credit_store" — open the credit store modal
-- "none" — no navigation action (for general chat, tips, stories)
-
-CRITICAL RULES:
-- ALWAYS respond in valid JSON format
-- The "text" field is REQUIRED and must contain your spoken response
-- Default to {"type": "none"} when no navigation is needed
-- When suggesting navigation or tours, phrase it as an offer: "Want me to take you there?" or "Let me show you."
-- For pet-care tips, stories, or general chat, use action type "none"
-- When asked about design tips, recommend Clay, Sketch, or Watercolor styles`;
+      const userPhone = (req as AuthedRequest).user!.phone;
+      const liveContext = {
+        credits: await getCreditBalance(userPhone),
+        isAdmin: await isUserAdmin(userPhone),
+      };
 
       // Map communication messages cleanly to the @google/genai format
       const contentParts: any[] = [];
-      if (history && Array.isArray(history)) {
-        history.slice(-10).forEach((item: any) => {
+      if (history.length) {
+        history.forEach((item) => {
           contentParts.push({
             role: item.role === "user" ? "user" : "model",
             parts: [{ text: item.text }]
@@ -6962,59 +7229,23 @@ CRITICAL RULES:
         model: "gemini-2.5-flash",
         contents: contentParts,
         config: {
-          systemInstruction: randySystemInstruction,
-          temperature: 0.9,
+          systemInstruction: buildRandySystemInstruction(liveContext),
+          temperature: 0.4,
+          responseMimeType: "application/json",
         }
       });
 
       const rawText = response.text || "";
 
-      // Parse the JSON response — robust fallback if Gemini doesn't return valid JSON
-      let text = "I was chasing a squirrel and forgot what I was saying! *tilts head* Can you run that by me one more time, friend?";
-      let action = { type: "none" as string };
+      const { text, action } = parseRandyModelResponse(
+        rawText,
+        "I was chasing a squirrel and forgot what I was saying! *tilts head* Can you run that by me one more time, friend?",
+      );
 
-      try {
-        // Try to extract JSON from the response (Gemini may wrap it in markdown code fences)
-        let jsonStr = rawText;
-        const jsonMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
-        if (jsonMatch) {
-          jsonStr = jsonMatch[1].trim();
-        }
-        // Also try to find a raw JSON object
-        const braceMatch = jsonStr.match(/\{[\s\S]*\}/);
-        if (braceMatch) {
-          jsonStr = braceMatch[0];
-        }
+      const actorHash = createHash("sha256").update(userPhone).digest("hex").slice(0, 12);
+      console.info("[Randy] action proposal", { actorHash, registryVersion: RANDY_REGISTRY_VERSION, action });
 
-        const parsed = JSON.parse(jsonStr);
-        if (parsed.text && typeof parsed.text === "string") {
-          text = parsed.text;
-        }
-        if (parsed.action && typeof parsed.action === "object") {
-          const validTypes = ["navigate", "launch_ar", "open_credit_store", "start_tour", "highlight", "none"];
-          const validScreens = ["DASHBOARD", "AVATAR_DASHBOARD", "STORE", "COMMUNITY", "PROFILE", "ALBUMS", "ALBUM_VIEW", "PAWPRINTS", "PAWLISHER", "FURBIN", "REQUEST_MEMORY"];
-          if (validTypes.includes(parsed.action.type)) {
-            action = { type: parsed.action.type };
-            if (parsed.action.screen && validScreens.includes(parsed.action.screen)) {
-              (action as any).screen = parsed.action.screen;
-            }
-            if (typeof parsed.action.tourId === "string") {
-              (action as any).tourId = parsed.action.tourId;
-            }
-            if (typeof parsed.action.target === "string" && parsed.action.target.length < 120) {
-              (action as any).target = parsed.action.target;
-            }
-          }
-        }
-      } catch {
-        // If JSON parsing fails, use the raw text as-is (graceful text-only fallback)
-        if (rawText.trim()) {
-          text = rawText;
-        }
-        action = { type: "none" };
-      }
-
-      res.json({ success: true, text, action });
+      res.json({ success: true, text, action, knowledgeVersion: RANDY_REGISTRY_VERSION });
     } catch (err: any) {
       console.error("Error in Randy chat query:", err);
       res.json({
@@ -7052,6 +7283,13 @@ CRITICAL RULES:
   } else {
     console.log(`[Production] Serving static files from ${distPath}`);
     app.use(express.static(distPath, {
+      // index:false is load-bearing. express.static's `index` option defaults to
+      // "index.html", so a request for "/" is answered from disk here and never
+      // reaches the SPA catch-all below — which meant the homepage alone was
+      // served the raw template, skipping injectMeta() and keeping the generic
+      // title/description. Every other route was fine because no file matches
+      // them. Turning the directory index off lets "/" fall through.
+      index: false,
       setHeaders(res, filePath) {
         // Vite fingerprints asset filenames, so hashed assets are safe to cache
         // forever. index.html must stay uncached so new deploys are picked up.
@@ -7068,18 +7306,93 @@ CRITICAL RULES:
     // fetch(...).json()) choke on "<!doctype ...". SPA routes (no file extension)
     // still fall through to index.html.
     const ASSET_EXT = /\.(glb|gltf|bin|hdr|exr|ktx2|basis|png|jpe?g|webp|avif|gif|svg|mp4|webm|mp3|wav|ogg|json|wasm|woff2?|ttf|otf)$/i;
+
+    // Read the SPA shell once — it only changes on deploy. Every route used to
+    // get this file verbatim, which meant every page declared the homepage as
+    // its canonical and self-excluded itself from the index. injectMeta()
+    // rewrites the canonical, og:url, title and description per route before
+    // sending, so crawlers and social scrapers (which never run JS) see the
+    // right tags in the initial HTML. See server/seoMeta.ts.
+    const indexHtmlPath = path.join(distPath, 'index.html');
+
+    // NODE_ENV=production can be set on a host where `npm run build` has not
+    // run yet, in which case this file does not exist. Fail with a sentence
+    // that names the cause instead of an ENOENT stack trace at boot — a
+    // half-built deploy is the single most common deployment failure here
+    // (DEPLOYMENT_NOTES.md §1).
+    if (!fs.existsSync(indexHtmlPath)) {
+      throw new Error(
+        `[Production] ${indexHtmlPath} is missing. The deploy did not run "npm run build". ` +
+        `Run the build before "npm start" — serving the repo-root index.html will not work, ` +
+        `it references /src/main.tsx which only exists under the Vite dev server.`
+      );
+    }
+
+    // Read once — this file only changes on deploy.
+    const INDEX_HTML = fs.readFileSync(indexHtmlPath, 'utf8');
+
     app.get('*', (req, res) => {
       if (ASSET_EXT.test(req.path)) {
         return res.status(404).type("txt").send("Not found");
       }
       res.setHeader("Cache-Control", "no-cache");
-      res.sendFile(path.join(distPath, 'index.html'));
+      res.type("html").send(injectMeta(INDEX_HTML, req.path));
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  const httpServer = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on port ${PORT}`);
+  });
+
+  let shuttingDown = false;
+  async function shutdown(reason: string, exitCode: number) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[Shutdown] ${reason}`);
+    try {
+      await Promise.race([
+        Promise.all([
+          new Promise<void>((resolve, reject) => {
+            httpServer.close((error) => error ? reject(error) : resolve());
+          }),
+          closePool(),
+        ]),
+        new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error("Graceful shutdown timed out.")), 10_000).unref();
+        }),
+      ]);
+    } catch (error) {
+      console.error("[Shutdown] Server did not close cleanly:", error);
+      exitCode = 1;
+    }
+    process.exit(exitCode);
+  }
+
+  process.once("SIGTERM", () => { void shutdown("SIGTERM", 0); });
+  process.once("SIGINT", () => { void shutdown("SIGINT", 0); });
+  process.once("unhandledRejection", (reason) => {
+    console.error("[FATAL] Unhandled rejection:", reason);
+    void shutdown("unhandledRejection", 1);
+  });
+  process.once("uncaughtException", (error) => {
+    console.error("[FATAL] Uncaught exception:", error);
+    void shutdown("uncaughtException", 1);
   });
 }
 
-startServer();
+const isEntryPoint = Boolean(
+  process.argv[1] &&
+  (process.argv[1].endsWith("server.ts") ||
+   process.argv[1].endsWith("server.cjs") ||
+   process.argv[1].endsWith("server.js"))
+);
+
+if (isEntryPoint) {
+  startServer().catch(async (error) => {
+    console.error("[FATAL] Server startup failed:", error);
+    await closePool().catch((closeError) => {
+      console.error("[FATAL] Database pool cleanup failed:", closeError);
+    });
+    process.exitCode = 1;
+  });
+}

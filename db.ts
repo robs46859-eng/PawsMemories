@@ -7,6 +7,7 @@ import type {
   PaidUsageLimits,
   PaidUsageReservation,
 } from "./server/paidApiGuards";
+import { runMigrations } from "./server/migrations/runner";
 
 /** Internal row key for the seeded admin account (not a phone number). */
 const ADMIN_KEY = process.env.ADMIN_KEY || process.env.ADMIN_PHONE || "";
@@ -18,6 +19,38 @@ const ADMIN_KEY = process.env.ADMIN_KEY || process.env.ADMIN_PHONE || "";
  */
 
 let pool: mysql.Pool | null = null;
+
+function boundedEnvInt(
+  value: string | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  const parsed = Number.parseInt(value || "", 10);
+  return Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : fallback;
+}
+
+/** Pool configuration is exported so deployment settings can be contract-tested. */
+export function databasePoolOptions(
+  env: NodeJS.ProcessEnv = process.env,
+): mysql.PoolOptions {
+  const connectionLimit = boundedEnvInt(env.DB_CONNECTION_LIMIT, 10, 1, 50);
+  return {
+    host: env.DB_HOST || "localhost",
+    port: boundedEnvInt(env.DB_PORT, 3306, 1, 65535),
+    user: env.DB_USER || "",
+    password: env.DB_PASSWORD || "",
+    database: env.DB_NAME || "",
+    waitForConnections: true,
+    connectionLimit,
+    maxIdle: boundedEnvInt(env.DB_MAX_IDLE, connectionLimit, 1, connectionLimit),
+    idleTimeout: boundedEnvInt(env.DB_IDLE_TIMEOUT_MS, 60_000, 10_000, 900_000),
+    queueLimit: boundedEnvInt(env.DB_QUEUE_LIMIT, 0, 0, 10_000),
+    connectTimeout: boundedEnvInt(env.DB_CONNECT_TIMEOUT_MS, 10_000, 1_000, 60_000),
+    enableKeepAlive: true,
+    keepAliveInitialDelay: boundedEnvInt(env.DB_KEEPALIVE_DELAY_MS, 0, 0, 60_000),
+  };
+}
 
 function databaseExplicitlyDisabledForTests(): boolean {
   return process.env.NODE_ENV === "test" && process.env.DB_DISABLED === "1";
@@ -37,18 +70,49 @@ export function getPool(): mysql.Pool {
     throw new Error("Database is disabled for this test process.");
   }
   if (!pool) {
-    pool = mysql.createPool({
-      host: process.env.DB_HOST || "localhost",
-      port: Number(process.env.DB_PORT) || 3306,
-      user: process.env.DB_USER || "",
-      password: process.env.DB_PASSWORD || "",
-      database: process.env.DB_NAME || "",
-      waitForConnections: true,
-      connectionLimit: 10,
-      queueLimit: 0,
-    });
+    pool = mysql.createPool(databasePoolOptions());
   }
   return pool;
+}
+
+export interface DatabaseHealth {
+  configured: boolean;
+  healthy: boolean;
+  latencyMs: number;
+  error?: string;
+}
+
+export async function checkDatabaseHealth(timeoutMs = 3_000): Promise<DatabaseHealth> {
+  const startedAt = Date.now();
+  if (!dbConfigured()) {
+    return { configured: false, healthy: false, latencyMs: 0, error: "Database is not configured." };
+  }
+
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      getPool().query("SELECT 1 AS ok"),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error("Database health check timed out.")), timeoutMs);
+      }),
+    ]);
+    return { configured: true, healthy: true, latencyMs: Date.now() - startedAt };
+  } catch (error) {
+    return {
+      configured: true,
+      healthy: false,
+      latencyMs: Date.now() - startedAt,
+      error: error instanceof Error ? error.message : "Database health check failed.",
+    };
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+export async function closePool(): Promise<void> {
+  const currentPool = pool;
+  pool = null;
+  if (currentPool) await currentPool.end();
 }
 
 export interface UserRow {
@@ -223,7 +287,8 @@ export async function initDb(): Promise<void> {
           await getPool().query(`ALTER TABLE users ${col.ddl}`);
           console.log(`✅ Migrated users: added column ${col.name}.`);
         } catch (colErr) {
-          console.warn(`⚠️ Could not add column ${col.name}:`, colErr);
+          console.error(`❌ Required column migration failed for ${col.name}:`, colErr);
+          throw colErr;
         }
       }
     }
@@ -457,6 +522,7 @@ export async function initDb(): Promise<void> {
         status ENUM('active','superseded') NOT NULL DEFAULT 'active',
         sort_order INT NOT NULL DEFAULT 0,
         derivative_height_mm DECIMAL(8,2) NULL,
+        generated_active_height DECIMAL(8,2) GENERATED ALWAYS AS (CASE WHEN kind='stl_derivative' AND status='active' THEN ROUND(derivative_height_mm, 2) ELSE NULL END) STORED,
         source_provider ENUM('original','sketchfab') NOT NULL DEFAULT 'original',
         source_url VARCHAR(512) NULL,
         source_author VARCHAR(190) NULL,
@@ -465,6 +531,7 @@ export async function initDb(): Promise<void> {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY uniq_marketplace_asset_uuid (asset_uuid),
         UNIQUE KEY uniq_marketplace_object_key (object_key),
+        UNIQUE KEY uniq_stl_active_derivative (listing_id, generated_active_height),
         INDEX idx_marketplace_asset_listing (listing_id, kind, status, sort_order),
         CONSTRAINT fk_marketplace_asset_listing FOREIGN KEY (listing_id) REFERENCES marketplace_listings(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -678,6 +745,11 @@ export async function initDb(): Promise<void> {
       // generation time so the build/rig stage never re-analyzes the image.
       { name: "generation_analysis", ddl: "ADD COLUMN generation_analysis JSON NULL" },
       { name: "retry_count",         ddl: "ADD COLUMN retry_count INT NOT NULL DEFAULT 0" },
+      // Soft-hide: removing a model from the roster must not destroy the row.
+      // The GLB in object storage outlives a DELETE, so a hard delete leaves
+      // orphaned bytes that are still billed and can no longer be reclaimed —
+      // and the user can't undo it. See hideAvatar()/unhideAvatar().
+      { name: "hidden_at",           ddl: "ADD COLUMN hidden_at TIMESTAMP NULL DEFAULT NULL" },
     ];
     for (const col of requiredAvatarColumns) {
       if (!avatarColumnNames.includes(col.name)) {
@@ -1480,10 +1552,65 @@ export async function initDb(): Promise<void> {
     `);
 
     console.log("✅ pet_health_profiles and pet_health_logs tables ready.");
+
+    // ── Marketplace Product Customizer P1 (MARKETPLACE_CUSTOMIZER_SPEC.md §3) ──
+    // Admin-authored Printful blank templates + buyer order lifecycle.
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS customizable_products (
+        id                  BIGINT PRIMARY KEY AUTO_INCREMENT,
+        listing_id          BIGINT NOT NULL,
+        printful_product_id INT    NOT NULL,
+        printful_variant_id INT    NOT NULL,
+        placement           VARCHAR(32) NOT NULL DEFAULT 'default',
+        printfile_width_px  INT    NOT NULL,
+        printfile_height_px INT    NOT NULL,
+        printfile_dpi       INT    NOT NULL DEFAULT 150,
+        box_x               DECIMAL(6,5) NOT NULL,
+        box_y               DECIMAL(6,5) NOT NULL,
+        box_w               DECIMAL(6,5) NOT NULL,
+        box_h               DECIMAL(6,5) NOT NULL,
+        box_shape           ENUM('rect','circle','arch') NOT NULL DEFAULT 'rect',
+        overlay_asset_uuid  CHAR(36) NULL,
+        retail_price_cents  INT    NOT NULL,
+        status              ENUM('draft','published','archived') NOT NULL DEFAULT 'draft',
+        created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_custprod_listing (listing_id, status)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+
+    await getPool().query(`
+      CREATE TABLE IF NOT EXISTS customize_orders (
+        id                    BIGINT PRIMARY KEY AUTO_INCREMENT,
+        user_phone            VARCHAR(32) NOT NULL,
+        customizable_id       BIGINT NOT NULL,
+        source_photo_url      TEXT   NOT NULL,
+        source_kind           ENUM('upload','furbin') NOT NULL,
+        print_file_url        TEXT   NULL,
+        recipient_json        JSON   NOT NULL,
+        retail_price_cents    INT    NOT NULL,
+        checkout_url          TEXT   NULL,
+        stripe_session_id     VARCHAR(255) NULL,
+        provider_order_id     VARCHAR(64)  NULL,
+        provider_payload_json JSON   NULL,
+        status ENUM('draft','awaiting_payment','payment_received','submitting',
+                    'submitted','failed','refunded') NOT NULL DEFAULT 'draft',
+        idempotency_key       VARCHAR(128) NOT NULL,
+        created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_custorder_idem (user_phone, idempotency_key),
+        INDEX idx_custorder_status (status),
+        INDEX idx_custorder_user (user_phone, created_at DESC)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+
+    console.log("✅ customizable_products and customize_orders tables ready.");
     console.log("✅ fidos_projects and wardrobe_wags tables ready.");
 
+    await runMigrations(getPool());
   } catch (err) {
     console.error("Failed to initialize database:", err);
+    throw err;
   }
 }
 
@@ -2432,8 +2559,50 @@ export async function getAvatarById(id: number, phone: string): Promise<AvatarRo
   return arr.length ? arr[0] : null;
 }
 
-export async function getAvatars(phone: string): Promise<AvatarRow[]> {
-  const [rows] = await getPool().query(`SELECT * FROM avatars WHERE user_phone = ? ORDER BY created_at ASC`, [phone]);
+/**
+ * The user's visible model roster. Hidden models are excluded here (and so also
+ * excluded from the model-cap count) but remain in the table — see hideAvatar.
+ */
+export async function getAvatars(phone: string, includeHidden = false): Promise<AvatarRow[]> {
+  const [rows] = await getPool().query(
+    includeHidden
+      ? `SELECT * FROM avatars WHERE user_phone = ? ORDER BY created_at ASC`
+      : `SELECT * FROM avatars WHERE user_phone = ? AND hidden_at IS NULL ORDER BY created_at ASC`,
+    [phone]
+  );
+  return rows as unknown as AvatarRow[];
+}
+
+/**
+ * Remove a model from the user's roster without deleting anything.
+ *
+ * This is what the UI's "Remove" action calls. The row, the rigged GLB, the pet
+ * profile and any marketplace listing all survive; the model just stops showing
+ * up and stops occupying a slot. Reversible via unhideAvatar().
+ */
+export async function hideAvatar(id: number, phone: string): Promise<boolean> {
+  const [result] = await getPool().query(
+    `UPDATE avatars SET hidden_at = CURRENT_TIMESTAMP WHERE id = ? AND user_phone = ? AND hidden_at IS NULL`,
+    [id, phone]
+  ) as any;
+  return result.affectedRows === 1;
+}
+
+/** Restore a hidden model to the roster. */
+export async function unhideAvatar(id: number, phone: string): Promise<boolean> {
+  const [result] = await getPool().query(
+    `UPDATE avatars SET hidden_at = NULL WHERE id = ? AND user_phone = ? AND hidden_at IS NOT NULL`,
+    [id, phone]
+  ) as any;
+  return result.affectedRows === 1;
+}
+
+/** Models the user has hidden — the "recently removed" list. */
+export async function getHiddenAvatars(phone: string): Promise<AvatarRow[]> {
+  const [rows] = await getPool().query(
+    `SELECT * FROM avatars WHERE user_phone = ? AND hidden_at IS NOT NULL ORDER BY hidden_at DESC`,
+    [phone]
+  );
   return rows as unknown as AvatarRow[];
 }
 

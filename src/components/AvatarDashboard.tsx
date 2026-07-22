@@ -121,12 +121,20 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
   }, [avatars]);
 
   const handleDeleteAvatar = async (id: number, name: string) => {
-    if (!confirm(`Delete "${name}"? This removes it from your models. This can't be undone.`)) return;
+    // Wording matters: this is a soft hide server-side, so promising "can't be
+    // undone" was both false and needlessly frightening.
+    if (
+      !confirm(
+        `Remove "${name}" from your models?\n\nIt stops taking up a model slot. Your file is kept and you can restore it from Profile → Removed models.`
+      )
+    ) {
+      return;
+    }
     try {
       await deleteAvatar(id);
       await loadAvatars();
     } catch (err: any) {
-      alert(err?.message || "Failed to delete model.");
+      alert(err?.message || "Failed to remove model.");
     }
   };
 
@@ -343,8 +351,8 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
                   <button
                     onClick={() => handleDeleteAvatar(avatar.id, avatar.name)}
                     className="absolute top-2 right-2 z-20 w-8 h-8 flex items-center justify-center rounded-full bg-black/40 hover:bg-error/80 text-white/80 hover:text-white backdrop-blur-sm transition-colors"
-                    title="Delete this model"
-                    aria-label={`Delete ${avatar.name}`}
+                    title="Remove from my models"
+                    aria-label={`Remove ${avatar.name} from my models`}
                   >
                     <Trash2 size={15} />
                   </button>

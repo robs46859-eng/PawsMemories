@@ -1,0 +1,300 @@
+import crypto from "node:crypto";
+import { describe, it, before, after } from "node:test";
+import assert from "node:assert/strict";
+import mysql from "mysql2/promise";
+import { runMigrations } from "../server/migrations/runner.ts";
+import { ModelBuildService, ModelBuildServiceError } from "../server/model-builds/service.ts";
+import { FakeModelBuildProvider } from "../server/model-builds/provider.ts";
+import { resetPrivateStorageClient } from "../storage.private.ts";
+import { computeOrderedManifestHash } from "../server/reference-sessions/service.ts";
+
+const MYSQL_HOST = process.env.MYSQL_TEST_HOST || "127.0.0.1";
+const MYSQL_PORT = Number(process.env.MYSQL_TEST_PORT || 3306);
+const MYSQL_USER = process.env.MYSQL_TEST_USER || "root";
+const MYSQL_PASSWORD = process.env.MYSQL_TEST_PASSWORD || "";
+const TEST_DB = "paws_phase3_service_test_db";
+
+async function isMysqlServerReachable() {
+  try {
+    const connection = await mysql.createConnection({
+      host: MYSQL_HOST,
+      port: MYSQL_PORT,
+      user: MYSQL_USER,
+      password: MYSQL_PASSWORD,
+      connectTimeout: 2000,
+    });
+    await connection.ping();
+    await connection.end();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const mysqlAvailable = await isMysqlServerReachable();
+
+describe("Phase 3 ModelBuildService Integration Test Suite", {
+  skip: mysqlAvailable ? false : "Local MySQL is not available.",
+}, () => {
+  let pool;
+  let fakeProvider;
+  let service;
+
+  before(async () => {
+    process.env.MODEL_BUILD_V3_ENABLED = "true";
+    process.env.MULTIVIEW_APPROVAL_ENABLED = "true";
+    process.env.MEDIA_PRIVATE_BUCKET_NAME = "paws-private-test";
+    process.env.MEDIA_BUCKET_NAME = "paws-public-test";
+    process.env.MEDIA_BUCKET_URL = "http://localhost:9000";
+    process.env.MEDIA_BUCKET_KEY = "testkey";
+    process.env.MEDIA_BUCKET_SECRET = "testsecret";
+    resetPrivateStorageClient();
+
+    const adminConn = await mysql.createConnection({
+      host: MYSQL_HOST,
+      port: MYSQL_PORT,
+      user: MYSQL_USER,
+      password: MYSQL_PASSWORD,
+    });
+    await adminConn.query(`DROP DATABASE IF EXISTS \`${TEST_DB}\``);
+    await adminConn.query(`CREATE DATABASE \`${TEST_DB}\``);
+    await adminConn.end();
+
+    pool = mysql.createPool({
+      host: MYSQL_HOST,
+      port: MYSQL_PORT,
+      user: MYSQL_USER,
+      password: MYSQL_PASSWORD,
+      database: TEST_DB,
+      waitForConnections: true,
+      connectionLimit: 5,
+    });
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        phone VARCHAR(64) NOT NULL UNIQUE,
+        email VARCHAR(190) NULL,
+        password_hash VARCHAR(255) NULL,
+        full_name VARCHAR(190) NULL,
+        credits INT NOT NULL DEFAULT 0,
+        is_admin TINYINT(1) DEFAULT 0
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS credit_transactions (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        user_phone VARCHAR(64) NOT NULL,
+        delta INT NOT NULL,
+        reason VARCHAR(80) NOT NULL,
+        balance_after INT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await runMigrations(pool);
+
+    fakeProvider = new FakeModelBuildProvider();
+    service = new ModelBuildService(fakeProvider, () => pool);
+  });
+
+  after(async () => {
+    if (pool) await pool.end();
+    const adminConn = await mysql.createConnection({
+      host: MYSQL_HOST,
+      port: MYSQL_PORT,
+      user: MYSQL_USER,
+      password: MYSQL_PASSWORD,
+    });
+    await adminConn.query(`DROP DATABASE IF EXISTS \`${TEST_DB}\``);
+    await adminConn.end();
+  });
+
+  async function createApprovedReferenceSession(ownerPhone) {
+    const conn = await pool.getConnection();
+    try {
+      // 1. Ensure user exists with credits
+      await conn.query(
+        `INSERT INTO users (phone, email, password_hash, full_name, credits)
+         VALUES (?, 'test@test.com', 'hash', 'Test User', 100)
+         ON DUPLICATE KEY UPDATE credits = 100`,
+        [ownerPhone],
+      );
+
+      // 2. Create approved session
+      const sessionUuid = crypto.randomUUID();
+      const [sRes] = await conn.query(
+        `INSERT INTO reference_sessions (session_uuid, owner_id, input_mode, subject_class, state)
+         VALUES (?, ?, 'photo', 'dog', 'approved')`,
+        [sessionUuid, ownerPhone],
+      );
+
+      // 3. Create approved attempt
+      const [attRes] = await conn.query(
+        `INSERT INTO reference_attempts (session_id, attempt_number, idempotency_key, provider, model, prompt_config_hash, state)
+         VALUES (?, 1, UUID(), 'gemini', 'm1', REPEAT('b', 64), 'ready')`,
+        [sRes.insertId],
+      );
+
+      await conn.query("UPDATE reference_sessions SET approved_attempt_id = ? WHERE id = ?", [attRes.insertId, sRes.insertId]);
+
+      // 4. Create 5 reference views
+      const kinds = ["front", "left", "right", "rear", "front_three_quarter"];
+      const manifestItems = [];
+      for (const kind of kinds) {
+        const [vAsset] = await conn.query(
+          "INSERT INTO assets (asset_uuid, owner_id, asset_type) VALUES (UUID(), ?, 'reference_view')",
+          [ownerPhone],
+        );
+        const [vVer] = await conn.query(
+          `INSERT INTO asset_versions (asset_id, version_number, sha256, mime_type, size_bytes, bucket, object_key)
+           VALUES (?, 1, REPEAT('c', 64), 'image/png', 500, 'private', 'view.png')`,
+          [vAsset.insertId],
+        );
+        await conn.query(
+          `INSERT INTO reference_views (attempt_id, view_kind, asset_id, asset_version_id, width_px, height_px, is_synthesized)
+           VALUES (?, ?, ?, ?, 1024, 1024, 0)`,
+          [attRes.insertId, kind, vAsset.insertId, vVer.insertId],
+        );
+        const [assetRows] = await conn.query("SELECT asset_uuid FROM assets WHERE id = ?", [vAsset.insertId]);
+        manifestItems.push({ viewKind: kind, assetUuid: assetRows[0].asset_uuid, sha256: "c".repeat(64) });
+      }
+
+      // 5. Create canonical pass report and exact approved manifest.
+      const reportHash = "d".repeat(64);
+      const [rAsset] = await conn.query(
+        "INSERT INTO assets (asset_uuid, owner_id, asset_type) VALUES (UUID(), ?, 'reference_report')",
+        [ownerPhone],
+      );
+      const [rVer] = await conn.query(
+        `INSERT INTO asset_versions (asset_id, version_number, sha256, mime_type, size_bytes, bucket, object_key)
+         VALUES (?, 1, ?, 'application/json', 200, 'private', 'rep.json')`,
+        [rAsset.insertId, reportHash],
+      );
+      await conn.query(
+        `INSERT INTO reference_reports (attempt_id, report_asset_id, report_asset_version_id, status, report_hash)
+         VALUES (?, ?, ?, 'pass', ?)`,
+        [attRes.insertId, rAsset.insertId, rVer.insertId, reportHash],
+      );
+
+      const manifestHash = computeOrderedManifestHash(manifestItems, reportHash);
+      const [mAsset] = await conn.query(
+        "INSERT INTO assets (asset_uuid, owner_id, asset_type) VALUES (UUID(), ?, 'provider_manifest')",
+        [ownerPhone],
+      );
+      const [mVer] = await conn.query(
+        `INSERT INTO asset_versions (asset_id, version_number, sha256, mime_type, size_bytes, bucket, object_key, metadata)
+         VALUES (?, 1, REPEAT('a', 64), 'application/json', 100, 'private', 'm.json', ?)`,
+        [mAsset.insertId, JSON.stringify({ manifestHash })],
+      );
+
+      // 6. Create approval record
+      await conn.query(
+        `INSERT INTO reference_approvals (session_id, attempt_id, manifest_asset_id, manifest_asset_version_id, manifest_hash, approved_by_user)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [sRes.insertId, attRes.insertId, mAsset.insertId, mVer.insertId, manifestHash, ownerPhone],
+      );
+
+      return { sessionUuid, sessionId: sRes.insertId, attemptId: attRes.insertId };
+    } finally {
+      conn.release();
+    }
+  }
+
+  it("should return valid quote for approved reference session", async () => {
+    const owner = "+15553001";
+    const { sessionUuid } = await createApprovedReferenceSession(owner);
+
+    const quote = await service.getQuote(owner, sessionUuid);
+    assert.equal(quote.referenceSessionUuid, sessionUuid);
+    assert.equal(quote.quotedCredits, 45);
+    assert.equal(quote.sufficientBalance, true);
+    assert.equal(quote.preflightPassed, true);
+    assert.equal(quote.preflightErrors.length, 0);
+  });
+
+  it("should fail preflight for non-existent reference session", async () => {
+    const owner = "+15553002";
+    const quote = await service.getQuote(owner, "00000000-0000-0000-0000-000000000000");
+    assert.equal(quote.preflightPassed, false);
+    assert.ok(quote.preflightErrors.some(e => e.includes("not found")));
+  });
+
+  it("should execute full build pipeline: start -> background process -> ready -> accept", async () => {
+    const owner = "+15553003";
+    const { sessionUuid } = await createApprovedReferenceSession(owner);
+    fakeProvider.reset();
+
+    const idempotencyKey = "22222222-2222-4222-8222-222222222222";
+    const job = await service.startBuild(owner, {
+      referenceSessionUuid: sessionUuid,
+      idempotencyKey,
+      requestedOutput: "glb",
+    });
+
+    assert.ok(job.jobUuid);
+    assert.equal(job.quotedCredits, 45);
+    assert.ok(["queued", "submitted", "processing"].includes(job.state));
+
+    // Wait for background processing to complete
+    let detail;
+    for (let i = 0; i < 20; i++) {
+      await new Promise(r => setTimeout(r, 500));
+      detail = await service.getJobDetail(owner, job.jobUuid);
+      if (detail.job.state === "ready" || detail.job.state === "failed_provider" || detail.job.state === "failed_validation") break;
+    }
+
+    if (detail.job.state !== "ready") {
+      console.log("Job detail on failure:", JSON.stringify(detail, null, 2));
+    }
+    assert.equal(detail.job.state, "ready");
+    assert.ok(detail.artifacts.length >= 2); // provider_glb + validated_glb
+    assert.ok(detail.report);
+    assert.equal(detail.report.status, "pass");
+
+    // Accept the build
+    const valGlb = detail.artifacts.find(a => a.role === "validated_glb");
+    assert.ok(valGlb);
+
+    const acceptedJob = await service.acceptBuild(owner, job.jobUuid, {
+      artifactHash: valGlb.sha256,
+      reportHash: detail.report.metricsHash,
+    });
+
+    assert.equal(acceptedJob.state, "accepted");
+  });
+
+  it("should deduct credits on start and refund on failure", async () => {
+    const owner = "+15553004";
+    const { sessionUuid } = await createApprovedReferenceSession(owner);
+
+    fakeProvider.reset();
+    fakeProvider.shouldFail = true; // Cause provider failure
+
+    const job = await service.startBuild(owner, {
+      referenceSessionUuid: sessionUuid,
+      idempotencyKey: "33333333-3333-4333-8333-333333333333",
+      requestedOutput: "glb",
+    });
+
+    // Wait for failure and refund
+    for (let i = 0; i < 20; i++) {
+      await new Promise(r => setTimeout(r, 200));
+      const j = await service.getJobPublic(owner, job.jobUuid);
+      if (j.state === "failed_provider") break;
+    }
+
+    const failedJob = await service.getJobPublic(owner, job.jobUuid);
+    assert.equal(failedJob.state, "failed_provider");
+
+    // Verify balance was refunded back to 100
+    const [userRows] = await pool.query("SELECT credits FROM users WHERE phone = ?", [owner]);
+    assert.equal(userRows[0].credits, 100);
+    const [events] = await pool.query(
+      "SELECT event_type, delta FROM model_build_credit_events WHERE owner_id = ? ORDER BY id",
+      [owner],
+    );
+    assert.deepEqual(events.map((event) => [event.event_type, event.delta]), [["charge", -45], ["refund", 45]]);
+  });
+});

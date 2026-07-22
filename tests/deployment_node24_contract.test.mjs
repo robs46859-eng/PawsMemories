@@ -5,11 +5,21 @@ import { test } from "node:test";
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 const appSource = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 const serverSource = readFileSync(new URL("../server.ts", import.meta.url), "utf8");
+const deployScript = readFileSync(new URL("../scripts/build-deploy-zip.sh", import.meta.url), "utf8");
 
 test("deployment is pinned to the supported Node 24 LTS line", () => {
   assert.equal(packageJson.engines.node, ">=24.15 <25");
   assert.equal(readFileSync(new URL("../.nvmrc", import.meta.url), "utf8").trim(), "24.18.0");
-  assert.equal(packageJson.dependencies.sharp, "^0.34.5");
+  assert.equal(packageJson.dependencies.sharp, "^0.35.3");
+  assert.equal(packageJson.overrides.sharp, "$sharp");
+});
+
+test("Hostinger archive uses the verified local build instead of rebuilding on the host", () => {
+  assert.match(deployScript, /cp -Rp dist\/\. \"\$STAGING_DIR\/dist\/\"/);
+  assert.match(deployScript, /Pre-built artifact verified/);
+  assert.match(deployScript, /node server\.cjs/);
+  assert.match(deployScript, /verify-release-directory\.mjs \"\$EXTRACT_DIR\/dist\"/);
+  assert.doesNotMatch(deployScript, /git archive HEAD/);
 });
 
 test("brand logo and product deep links remain part of the application shell", () => {

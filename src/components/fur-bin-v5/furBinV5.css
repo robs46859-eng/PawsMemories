@@ -1,0 +1,211 @@
+.furbin-v5-shell {
+  --furbin-ink: var(--color-on-surface);
+  --furbin-muted: var(--color-on-surface-variant);
+  --furbin-paper: color-mix(in srgb, var(--color-surface) 88%, transparent);
+  --furbin-line: color-mix(in srgb, var(--color-outline-variant) 72%, transparent);
+  position: relative;
+  isolation: isolate;
+  min-height: 100%;
+  overflow: hidden;
+  padding: 32px max(20px, env(safe-area-inset-right)) max(112px, calc(88px + env(safe-area-inset-bottom))) max(20px, env(safe-area-inset-left));
+  color: var(--furbin-ink);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--color-primary-fixed) 38%, transparent), transparent 38%),
+    radial-gradient(circle at 82% 8%, color-mix(in srgb, var(--color-secondary-container) 55%, transparent), transparent 30%);
+}
+
+.furbin-v5-shell button,
+.furbin-v5-shell input,
+.furbin-v5-shell select { font: inherit; }
+
+.furbin-v5-shell button:focus-visible,
+.furbin-v5-shell input:focus-visible,
+.furbin-v5-shell select:focus-visible,
+.furbin-v5-shell a:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--color-primary) 70%, white);
+  outline-offset: 3px;
+}
+
+.furbin-v5-orb { position: absolute; z-index: -1; border-radius: 999px; filter: blur(2px); opacity: .55; }
+.furbin-v5-orb-one { width: 240px; height: 240px; top: -120px; right: -65px; background: color-mix(in srgb, var(--color-primary-fixed) 55%, transparent); }
+.furbin-v5-orb-two { width: 190px; height: 190px; top: 420px; left: -110px; background: color-mix(in srgb, var(--color-secondary-container) 55%, transparent); }
+
+.furbin-v5-hero,
+.furbin-v5-toolbar,
+.furbin-v5-grid,
+.furbin-v5-showcase-search,
+.furbin-v5-empty,
+.furbin-v5-loading,
+.furbin-v5-error,
+.furbin-v5-tabs { width: min(100%, 1180px); margin-inline: auto; }
+
+.furbin-v5-hero { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
+.furbin-v5-kicker,
+.furbin-v5-eyebrow { margin: 0 0 8px; color: var(--color-primary); font-family: var(--font-display); font-size: .72rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+.furbin-v5-hero h1 { margin: 0; font-family: var(--font-display); font-size: clamp(2.6rem, 9vw, 5.4rem); font-weight: 800; letter-spacing: -.07em; line-height: .88; }
+.furbin-v5-hero p:not(.furbin-v5-kicker) { max-width: 610px; margin: 18px 0 0; color: var(--furbin-muted); font-family: var(--font-body); font-size: clamp(.95rem, 2vw, 1.1rem); line-height: 1.6; }
+.furbin-v5-total { display: grid; min-width: 112px; padding: 16px 20px; border: 1px solid var(--furbin-line); border-radius: 24px 8px 24px 8px; background: var(--furbin-paper); box-shadow: 0 18px 50px color-mix(in srgb, var(--color-primary) 12%, transparent); text-align: right; backdrop-filter: blur(18px); }
+.furbin-v5-total strong { font-family: var(--font-display); font-size: 2rem; line-height: 1; }
+.furbin-v5-total span { margin-top: 5px; color: var(--furbin-muted); font-size: .7rem; font-weight: 800; text-transform: uppercase; }
+
+.furbin-v5-tabs { display: flex; gap: 4px; margin-top: 34px; padding: 4px; border: 1px solid var(--furbin-line); border-radius: 17px; background: color-mix(in srgb, var(--color-surface-container) 72%, transparent); }
+.furbin-v5-tabs button { display: inline-flex; min-height: 44px; flex: 1; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 13px; color: var(--furbin-muted); background: transparent; font-size: .84rem; font-weight: 800; cursor: pointer; }
+.furbin-v5-tabs button[aria-current="page"] { color: var(--color-on-primary); background: var(--color-primary); box-shadow: 0 7px 18px color-mix(in srgb, var(--color-primary) 25%, transparent); }
+
+.furbin-v5-toolbar { margin-top: 16px; padding: 16px; border: 1px solid var(--furbin-line); border-radius: 24px; background: var(--furbin-paper); backdrop-filter: blur(18px); }
+.furbin-v5-search { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; min-height: 52px; padding-left: 16px; border: 1px solid var(--furbin-line); border-radius: 16px; background: var(--color-surface-container-lowest); }
+.furbin-v5-search input { min-width: 0; height: 50px; border: 0; color: var(--furbin-ink); background: transparent; }
+.furbin-v5-search input:focus { outline: 0; }
+.furbin-v5-search button { align-self: stretch; padding: 0 20px; border: 0; border-radius: 0 15px 15px 0; color: var(--color-on-primary); background: var(--color-primary); font-weight: 800; cursor: pointer; }
+.furbin-v5-filter-row,
+.furbin-v5-collection-chips,
+.furbin-v5-tag-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.furbin-v5-filter-row button,
+.furbin-v5-collection-chips button,
+.furbin-v5-tag-chips button { display: inline-flex; min-height: 40px; align-items: center; gap: 6px; padding: 8px 13px; border: 1px solid var(--furbin-line); border-radius: 999px; color: var(--furbin-muted); background: var(--color-surface-container-lowest); font-size: .76rem; font-weight: 800; cursor: pointer; }
+.furbin-v5-filter-row button[aria-pressed="true"],
+.furbin-v5-collection-chips button[aria-pressed="true"],
+.furbin-v5-tag-chips button[aria-pressed="true"] { border-color: var(--color-primary); color: var(--color-on-primary); background: var(--color-primary); }
+.furbin-v5-collection-form { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; margin-top: 14px; padding: 12px; border-radius: 16px; background: var(--color-surface-container); }
+.furbin-v5-collection-form label { font-size: .76rem; font-weight: 800; }
+.furbin-v5-collection-form input,
+.furbin-v5-inline-form select,
+.furbin-v5-publish-form input,
+.furbin-v5-publish-form select,
+.furbin-v5-showcase-search input { min-height: 44px; border: 1px solid var(--furbin-line); border-radius: 11px; padding: 0 12px; color: var(--furbin-ink); background: var(--color-surface-container-lowest); }
+
+.furbin-v5-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); gap: 18px; margin-top: 22px; }
+.furbin-v5-card { overflow: hidden; border: 1px solid var(--furbin-line); border-radius: 26px 8px 26px 8px; background: var(--furbin-paper); box-shadow: 0 16px 40px color-mix(in srgb, var(--color-primary) 8%, transparent); }
+.furbin-v5-card-open { position: relative; display: block; width: 100%; padding: 0; border: 0; color: inherit; background: transparent; text-align: left; cursor: pointer; }
+.furbin-v5-preview { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: var(--color-surface-container-highest); }
+.furbin-v5-preview-fallback { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 10px; color: var(--color-primary); background: linear-gradient(145deg, var(--color-primary-fixed), var(--color-secondary-container)); font-family: var(--font-display); font-weight: 800; }
+.furbin-v5-scope { position: absolute; top: 12px; left: 12px; display: inline-flex; align-items: center; gap: 5px; padding: 6px 9px; border-radius: 999px; color: white; background: rgba(24, 20, 18, .78); font-size: .63rem; font-weight: 800; text-transform: uppercase; backdrop-filter: blur(8px); }
+.furbin-v5-card-copy { display: grid; gap: 8px; padding: 16px; }
+.furbin-v5-card-title { font-family: var(--font-display); font-size: 1.02rem; font-weight: 800; line-height: 1.25; }
+.furbin-v5-card-meta,
+.furbin-v5-muted { color: var(--furbin-muted); font-size: .75rem; }
+.furbin-v5-card-action { display: flex; align-items: center; justify-content: space-between; margin-top: 3px; color: var(--color-primary); font-size: .78rem; font-weight: 800; }
+.furbin-v5-badge-row { display: flex; flex-wrap: wrap; gap: 5px; }
+.furbin-v5-badge { display: inline-flex; width: fit-content; align-items: center; gap: 4px; padding: 5px 8px; border-radius: 999px; color: var(--furbin-muted); background: var(--color-surface-container); font-size: .62rem; font-weight: 800; }
+.furbin-v5-badge.is-verified { color: #166534; background: #dcfce7; }
+.dark .furbin-v5-badge.is-verified { color: #bbf7d0; background: #14532d; }
+.furbin-v5-badge.is-failed { color: var(--color-error); background: var(--color-error-container); }
+
+.furbin-v5-empty,
+.furbin-v5-loading { display: grid; place-items: center; gap: 10px; margin-top: 22px; min-height: 280px; padding: 36px; border: 1px dashed var(--furbin-line); border-radius: 28px; color: var(--furbin-muted); background: var(--furbin-paper); text-align: center; }
+.furbin-v5-empty h2 { margin: 0; color: var(--furbin-ink); font-family: var(--font-display); }
+.furbin-v5-empty p { max-width: 440px; margin: 0; line-height: 1.6; }
+.furbin-v5-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--color-error) 32%, transparent); border-radius: 14px; color: var(--color-on-error-container); background: var(--color-error-container); }
+.furbin-v5-error button { border: 0; color: inherit; background: transparent; font-weight: 800; text-decoration: underline; cursor: pointer; }
+
+.furbin-v5-modal-backdrop { position: fixed; z-index: 150; inset: 0; display: grid; place-items: center; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); background: rgba(20, 15, 13, .72); backdrop-filter: blur(12px); }
+.furbin-v5-modal { width: min(100%, 980px); max-height: 94dvh; overflow: auto; border: 1px solid var(--furbin-line); border-radius: 30px 10px 30px 10px; padding: 20px; color: var(--furbin-ink); background: var(--color-surface); box-shadow: 0 28px 90px rgba(0, 0, 0, .36); }
+.furbin-v5-modal-header { position: sticky; z-index: 2; top: -20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: -20px -20px 18px; padding: 20px; border-bottom: 1px solid var(--furbin-line); background: color-mix(in srgb, var(--color-surface) 92%, transparent); backdrop-filter: blur(16px); }
+.furbin-v5-modal-header h2 { margin: 0; font-family: var(--font-display); font-size: clamp(1.35rem, 4vw, 2rem); }
+.furbin-v5-icon-button { display: grid; width: 44px; height: 44px; flex: 0 0 44px; place-items: center; border: 1px solid var(--furbin-line); border-radius: 50%; color: var(--furbin-ink); background: var(--color-surface-container); cursor: pointer; }
+.furbin-v5-detail-layout { display: grid; grid-template-columns: minmax(260px, .85fr) minmax(0, 1.15fr); gap: 22px; }
+.furbin-v5-detail-preview { overflow: hidden; border: 1px solid var(--furbin-line); border-radius: 22px; background: var(--color-surface-container-low); }
+.furbin-v5-detail-preview > p { display: flex; gap: 7px; margin: 0; padding: 12px 14px 0; color: var(--furbin-muted); font-size: .72rem; line-height: 1.45; }
+.furbin-v5-view-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px; }
+.furbin-v5-detail-copy { padding: 4px 2px; }
+.furbin-v5-detail-copy > p { margin-top: 0; color: var(--furbin-muted); line-height: 1.65; }
+.furbin-v5-detail-copy h3,
+.furbin-v5-detail-section h3 { margin: 18px 0 10px; font-family: var(--font-display); font-size: .92rem; }
+.furbin-v5-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
+.furbin-v5-tags span { color: var(--color-primary); font-size: .72rem; font-weight: 800; }
+.furbin-v5-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 18px 0; }
+.furbin-v5-facts div { padding: 11px; border-radius: 12px; background: var(--color-surface-container); }
+.furbin-v5-facts dt { color: var(--furbin-muted); font-size: .64rem; font-weight: 800; text-transform: uppercase; }
+.furbin-v5-facts dd { margin: 4px 0 0; font-size: .82rem; font-weight: 800; }
+.furbin-v5-badge-stack { display: flex; flex-wrap: wrap; gap: 7px; }
+.furbin-v5-detail-sections { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 18px; }
+.furbin-v5-detail-section { min-width: 0; padding: 16px; border: 1px solid var(--furbin-line); border-radius: 18px; background: var(--color-surface-container-low); }
+.furbin-v5-section-title { display: flex; align-items: center; gap: 8px; color: var(--color-primary); }
+.furbin-v5-section-title h3 { margin: 0; color: var(--furbin-ink); }
+.furbin-v5-version-list,
+.furbin-v5-derivative-list { display: grid; gap: 8px; margin: 12px 0 0; padding: 0; list-style: none; }
+.furbin-v5-version-list li,
+.furbin-v5-derivative-list li { display: flex; min-height: 48px; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px; border-radius: 11px; background: var(--color-surface-container); }
+.furbin-v5-version-list span,
+.furbin-v5-derivative-list span { display: grid; }
+.furbin-v5-version-list small,
+.furbin-v5-derivative-list small { margin-top: 3px; color: var(--furbin-muted); font-size: .68rem; }
+.furbin-v5-current,
+.furbin-v5-scope-pill { padding: 5px 8px; border-radius: 999px; color: var(--furbin-muted); background: var(--color-surface-container-highest); font-size: .65rem; font-weight: 800; }
+.furbin-v5-scope-pill.is-public { color: #155e75; background: #cffafe; }
+.furbin-v5-capability-note,
+.furbin-v5-fallback-note { color: var(--furbin-muted); font-size: .72rem; line-height: 1.5; }
+.furbin-v5-inline-form { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 12px; }
+.furbin-v5-publish-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+.furbin-v5-publish-form label { display: grid; gap: 5px; color: var(--furbin-muted); font-size: .7rem; font-weight: 800; }
+.furbin-v5-publish-form label:first-child,
+.furbin-v5-publish-form .furbin-v5-check,
+.furbin-v5-publish-form .furbin-v5-capability-note,
+.furbin-v5-publish-form button { grid-column: 1 / -1; }
+.furbin-v5-publish-form .furbin-v5-check { display: flex; align-items: center; }
+.furbin-v5-check input { min-height: 18px; width: 18px; }
+.furbin-v5-showcase-status { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; }
+.furbin-v5-modal-footer { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+
+.furbin-v5-primary,
+.furbin-v5-secondary,
+.furbin-v5-danger,
+.furbin-v5-text-button { display: inline-flex; min-height: 42px; align-items: center; justify-content: center; gap: 7px; border-radius: 11px; padding: 9px 13px; font-size: .76rem; font-weight: 800; text-decoration: none; cursor: pointer; }
+.furbin-v5-primary { border: 1px solid var(--color-primary); color: var(--color-on-primary); background: var(--color-primary); }
+.furbin-v5-secondary { border: 1px solid var(--furbin-line); color: var(--color-primary); background: var(--color-surface-container-lowest); }
+.furbin-v5-danger { border: 1px solid color-mix(in srgb, var(--color-error) 36%, transparent); color: var(--color-error); background: color-mix(in srgb, var(--color-error-container) 65%, transparent); }
+.furbin-v5-text-button { min-height: 36px; border: 0; color: var(--color-primary); background: transparent; }
+.furbin-v5-primary:disabled,
+.furbin-v5-secondary:disabled,
+.furbin-v5-danger:disabled,
+.furbin-v5-text-button:disabled { cursor: not-allowed; opacity: .48; }
+.furbin-v5-message { margin: 16px 0 0; padding: 12px; border-radius: 12px; color: #166534; background: #dcfce7; font-size: .8rem; font-weight: 700; }
+.furbin-v5-message.is-error { color: var(--color-on-error-container); background: var(--color-error-container); }
+
+.furbin-v5-showcase-search { margin-top: 16px; padding: clamp(20px, 5vw, 42px); border: 1px solid var(--furbin-line); border-radius: 30px 10px 30px 10px; background: var(--furbin-paper); box-shadow: 0 20px 60px color-mix(in srgb, var(--color-primary) 9%, transparent); }
+.furbin-v5-showcase-intro h2 { margin: 0; font-family: var(--font-display); font-size: clamp(1.6rem, 4vw, 2.5rem); }
+.furbin-v5-showcase-intro > p:last-child { max-width: 650px; color: var(--furbin-muted); line-height: 1.6; }
+.furbin-v5-showcase-search > form { margin-top: 24px; }
+.furbin-v5-showcase-search > form > label { display: block; margin-bottom: 7px; font-size: .75rem; font-weight: 800; }
+.furbin-v5-showcase-search > form > div { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.furbin-v5-public-card { display: grid; grid-template-columns: minmax(240px, .9fr) minmax(0, 1.1fr); gap: 0; overflow: hidden; margin-top: 28px; border: 1px solid var(--furbin-line); border-radius: 24px; background: var(--color-surface-container-lowest); }
+.furbin-v5-public-art { position: relative; min-height: 300px; }
+.furbin-v5-public-art img { width: 100%; height: 100%; object-fit: cover; }
+.furbin-v5-public-fallback { display: flex; width: 100%; height: 100%; min-height: 300px; align-items: center; justify-content: center; flex-direction: column; gap: 10px; color: var(--color-primary); background: linear-gradient(145deg, var(--color-secondary-container), var(--color-primary-fixed)); font-weight: 800; }
+.furbin-v5-public-label { position: absolute; top: 14px; left: 14px; display: inline-flex; align-items: center; gap: 5px; padding: 7px 10px; border-radius: 999px; color: white; background: rgba(24, 20, 18, .78); font-size: .66rem; font-weight: 800; text-transform: uppercase; }
+.furbin-v5-public-copy { padding: clamp(20px, 4vw, 36px); }
+.furbin-v5-public-copy h2 { margin: 0; font-family: var(--font-display); font-size: clamp(1.5rem, 4vw, 2.4rem); }
+.furbin-v5-public-copy > p:not(.furbin-v5-eyebrow, .furbin-v5-fallback-note) { color: var(--furbin-muted); line-height: 1.6; }
+
+.furbin-v5-spin { animation: furbin-v5-spin .9s linear infinite; }
+@keyframes furbin-v5-spin { to { transform: rotate(360deg); } }
+
+@media (min-width: 640px) {
+  .furbin-v5-shell {
+    padding-left: max(24px, env(safe-area-inset-left));
+    padding-right: max(24px, env(safe-area-inset-right));
+  }
+  .furbin-v5-tabs button { flex: 0 1 230px; }
+}
+
+@media (max-width: 720px) {
+  .furbin-v5-hero { align-items: start; flex-direction: column; }
+  .furbin-v5-total { align-self: stretch; grid-template-columns: auto 1fr; align-items: baseline; gap: 8px; text-align: left; }
+  .furbin-v5-search { grid-template-columns: auto 1fr; padding: 0 12px; }
+  .furbin-v5-search button { grid-column: 1 / -1; min-height: 44px; margin: 0 -12px; border-radius: 0 0 15px 15px; }
+  .furbin-v5-collection-form { grid-template-columns: 1fr; }
+  .furbin-v5-detail-layout,
+  .furbin-v5-detail-sections,
+  .furbin-v5-public-card { grid-template-columns: 1fr; }
+  .furbin-v5-modal { max-height: 100dvh; border-radius: 24px 8px 24px 8px; }
+  .furbin-v5-publish-form { grid-template-columns: 1fr; }
+  .furbin-v5-publish-form > * { grid-column: 1 !important; }
+  .furbin-v5-showcase-search > form > div { grid-template-columns: 1fr; }
+  .furbin-v5-showcase-search > form button { width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .furbin-v5-shell *,
+  .furbin-v5-shell *::before,
+  .furbin-v5-shell *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+}

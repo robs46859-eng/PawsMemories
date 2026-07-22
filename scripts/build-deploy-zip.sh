@@ -1,51 +1,107 @@
 #!/usr/bin/env bash
-# ──────────────────────────────────────────────────────────────────────────────
-# scripts/build-deploy-zip.sh
-#
-# Creates a deployment zip that includes EVERY git-tracked file.
-# Uses `git archive` so nothing can be accidentally omitted — no more
-# hand-picked allow-lists that miss index.html, agent/, etc.
-#
-# Excludes: node_modules, dist, .env (via .gitignore / git tracking)
-# Includes: everything `git ls-files` knows about, including uncommitted
-#           staged changes (we archive from HEAD, so commit first).
-#
-# Usage:  bash scripts/build-deploy-zip.sh
-# Output: pawsome3d-deploy.zip in the project root
-# ──────────────────────────────────────────────────────────────────────────────
-
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-ZIP_NAME="pawsome3d-deploy.zip"
+ALLOW_DIRTY=false
+for arg in "$@"; do
+  if [ "$arg" = "--allow-dirty" ]; then ALLOW_DIRTY=true; fi
+done
 
-# Remove stale zip if present.
-rm -f "$ZIP_NAME"
+if [ "$ALLOW_DIRTY" = false ] && [ -n "$(git status --porcelain)" ]; then
+  echo "Worktree has uncommitted changes. Commit before production packaging."
+  git status --short
+  exit 1
+fi
 
-# ── Archive from HEAD (all tracked files, respects .gitignore) ───────────────
-git archive --format=zip --output="$ZIP_NAME" HEAD
+node -e "import('./scripts/release-manifest-lib.mjs').then(m => { if (!m.validateEngineVersion(process.version)) process.exit(1); })" || {
+  echo "Node $(node --version) is incompatible; required >=24.15 <25."
+  exit 1
+}
 
-# ── Sanity check: confirm critical files are present ─────────────────────────
-echo ""
-echo "── Sanity check ──"
-MUST_HAVE=("index.html" "server.ts" "package.json" "vite.config.ts" "src/main.tsx" "agent/graph/orchestrator.ts" "agent/tools/blender_client.ts")
-ZIP_LIST=$(unzip -l "$ZIP_NAME")
-ALL_OK=true
-for f in "${MUST_HAVE[@]}"; do
-  if echo "$ZIP_LIST" | grep -qF "  $f"; then
-    echo "  ✅  $f"
-  else
-    echo "  ❌  MISSING: $f"
-    ALL_OK=false
+COMMIT_SHA=$(git rev-parse HEAD)
+BRANCH=$(git branch --show-current)
+if [ -z "$BRANCH" ]; then BRANCH="detached"; fi
+
+if [ "$ALLOW_DIRTY" = true ]; then
+  ZIP_NAME="pawsome3d-deploy-dirty.zip"
+else
+  ZIP_NAME="pawsome3d-deploy.zip"
+fi
+
+STAGING_DIR=$(mktemp -d 2>/dev/null || mktemp -d -t paws_stage)
+EXTRACT_DIR=$(mktemp -d 2>/dev/null || mktemp -d -t paws_extract)
+cleanup() { rm -rf "$STAGING_DIR" "$EXTRACT_DIR"; }
+trap cleanup EXIT
+
+echo "Running fail-closed production build..."
+npm run build
+
+echo "Packaging the locally verified Hostinger build for commit $COMMIT_SHA..."
+mkdir -p "$STAGING_DIR/dist"
+cp -Rp dist/. "$STAGING_DIR/dist/"
+cp -p package.json package-lock.json "$STAGING_DIR/"
+
+# Hostinger always runs npm install followed by npm run build. The production
+# bundle was already built under the pinned Node release, so the host must not
+# rebuild it with its older Node 24 minor. Keep the exact runtime dependency
+# graph but replace lifecycle scripts with a no-op build and the stable launcher.
+node - "$STAGING_DIR/package.json" <<'NODE'
+import fs from "node:fs";
+
+const packagePath = process.argv[2];
+const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+packageJson.scripts = {
+  build: "echo 'Pre-built artifact verified; no server-side build required.'",
+  start: "node server.cjs",
+};
+fs.writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
+NODE
+
+cat > "$STAGING_DIR/server.cjs" <<'NODE'
+// Hostinger Node.js application startup file.
+require("./dist/server.cjs");
+NODE
+
+MUST_HAVE=(package.json package-lock.json server.cjs dist/index.html dist/server.cjs dist/release-manifest.json)
+for required in "${MUST_HAVE[@]}"; do
+  if [ ! -f "$STAGING_DIR/$required" ]; then
+    echo "Required deployment file is missing: $required"
+    exit 1
   fi
 done
 
-echo ""
-if $ALL_OK; then
-  echo "✅  Created $ZIP_NAME ($(du -h "$ZIP_NAME" | cut -f1))"
-  echo "    Upload this to Hostinger — it will run npm install && npm run build."
-else
-  echo "⚠️   Some critical files are missing! Did you forget to commit?"
-  echo "    Run: git add -A && git commit, then re-run this script."
+shopt -s nullglob
+for env_file in "$STAGING_DIR"/.env*; do
+  echo "Forbidden environment file in release stage: $(basename "$env_file")"
   exit 1
-fi
+done
+shopt -u nullglob
+
+for forbidden_dir in .git node_modules coverage .nyc_output; do
+  if [ -e "$STAGING_DIR/$forbidden_dir" ]; then
+    echo "Forbidden directory in release stage: $forbidden_dir"
+    exit 1
+  fi
+done
+
+EXPECTED_COMMIT="$COMMIT_SHA" \
+EXPECTED_BRANCH="$BRANCH" \
+REQUIRE_CLEAN="$([ "$ALLOW_DIRTY" = true ] && echo false || echo true)" \
+node scripts/verify-release-directory.mjs "$STAGING_DIR/dist"
+
+rm -f "$ZIP_NAME"
+PROJECT_ROOT=$(pwd)
+(cd "$STAGING_DIR" && zip -q -r "$PROJECT_ROOT/$ZIP_NAME" .)
+
+unzip -t "$ZIP_NAME" >/dev/null
+unzip -q "$ZIP_NAME" -d "$EXTRACT_DIR"
+
+REQUIRE_CLEAN=true
+if [ "$ALLOW_DIRTY" = true ]; then REQUIRE_CLEAN=false; fi
+EXPECTED_COMMIT="$COMMIT_SHA" \
+EXPECTED_BRANCH="$BRANCH" \
+REQUIRE_CLEAN="$REQUIRE_CLEAN" \
+node scripts/verify-release-directory.mjs "$EXTRACT_DIR/dist"
+
+echo "Archive verification passed: $ZIP_NAME"
+echo "Archive SHA-256: $(shasum -a 256 "$ZIP_NAME" | awk '{print $1}')"

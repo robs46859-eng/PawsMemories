@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { UserProfile, PublicUser } from "../types";
 import { User, Zap, Flame, LogOut, Sun, Moon, Trophy, MapPin, History, Camera, ImagePlus, Trash2, Loader2, Gift, Shield, FileText, Mail, Phone, Download, AlertTriangle, Share2, ExternalLink } from "lucide-react";
-import { getCreditHistory, CreditTxn, getUserPhotos, addUserPhoto, deleteUserPhoto, uploadProfilePhoto, UserPhoto, authedFetch, fetchStorageUsage, purchaseStorageGb, type StorageUsage } from "../api";
+import { getCreditHistory, CreditTxn, getUserPhotos, addUserPhoto, deleteUserPhoto, uploadProfilePhoto, UserPhoto, authedFetch, fetchStorageUsage, purchaseStorageGb, fetchHiddenAvatars, restoreAvatar, type StorageUsage } from "../api";
 import StorageMeter from "./StorageMeter";
 
 interface ProfileScreenProps {
@@ -39,6 +39,10 @@ export default function ProfileScreen({
 }: ProfileScreenProps) {
   const [profileData, setProfileData] = useState<ProfileData | null>(null);
   const [photos, setPhotos] = useState<UserPhoto[]>([]);
+  // Soft-hidden models, plus the id currently being restored (for the button
+  // spinner). These rows still exist in the database — see db.hideAvatar.
+  const [hiddenAvatars, setHiddenAvatars] = useState<any[]>([]);
+  const [restoringAvatarId, setRestoringAvatarId] = useState<number | null>(null);
   const [thumbBusy, setThumbBusy] = useState(false);
   const [galleryBusy, setGalleryBusy] = useState(false);
   const thumbInputRef = useRef<HTMLInputElement | null>(null);
@@ -60,6 +64,7 @@ export default function ProfileScreen({
   useEffect(() => {
     getCreditHistory().then(setHistory).catch(() => {});
     getUserPhotos().then(setPhotos).catch(() => {});
+    fetchHiddenAvatars().then(setHiddenAvatars).catch(() => {});
     loadProfile();
   }, []);
 
@@ -121,6 +126,18 @@ export default function ProfileScreen({
   const removePhoto = async (id: number) => {
     const ok = await deleteUserPhoto(id);
     if (ok) setPhotos((prev) => prev.filter((p) => p.id !== id));
+  };
+
+  const handleRestoreAvatar = async (id: number) => {
+    setRestoringAvatarId(id);
+    try {
+      await restoreAvatar(id);
+      setHiddenAvatars((prev) => prev.filter((a) => a.id !== id));
+    } catch (err: any) {
+      alert(err?.message || "Could not restore that model.");
+    } finally {
+      setRestoringAvatarId(null);
+    }
   };
 
   const saveProfile = async () => {
@@ -399,6 +416,54 @@ export default function ProfileScreen({
                   <div className="text-[10px] text-on-surface-variant">{new Date(t.created_at).toLocaleString()}</div>
                 </div>
                 <div className={`shrink-0 text-sm font-black font-mono ${t.delta >= 0 ? "text-emerald-600" : "text-error"}`}>{t.delta >= 0 ? "+" : ""}{t.delta}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Removed models — the undo half of the soft-hide. Models removed from
+          the roster live here until the user restores them; nothing is deleted
+          from the database or from object storage. */}
+      <section className="glass-panel border border-outline-variant/40 rounded-3xl p-6 mb-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Trash2 size={16} className="text-primary" />
+          <h3 className="text-sm font-extrabold text-on-surface uppercase tracking-wide">Removed models</h3>
+          {hiddenAvatars.length > 0 && (
+            <span className="ml-auto rounded-full bg-primary/10 px-2 py-1 text-[10px] font-black text-primary">
+              {hiddenAvatars.length}
+            </span>
+          )}
+        </div>
+        {hiddenAvatars.length === 0 ? (
+          <p className="text-xs text-on-surface-variant">
+            Nothing removed. Models you remove from your roster appear here and can be restored at any time.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {hiddenAvatars.map((avatar) => (
+              <div key={avatar.id} className="flex items-center gap-3 rounded-xl bg-surface-container p-3">
+                {avatar.image_url && (
+                  <img
+                    src={avatar.image_url}
+                    alt=""
+                    className="h-10 w-10 shrink-0 rounded-lg object-cover"
+                  />
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-bold text-on-surface">{avatar.name || "Model"}</div>
+                  <div className="text-[11px] text-on-surface-variant">
+                    Removed {avatar.hidden_at ? new Date(avatar.hidden_at).toLocaleDateString() : "recently"}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleRestoreAvatar(avatar.id)}
+                  disabled={restoringAvatarId === avatar.id}
+                  className="shrink-0 rounded-full border border-primary/30 px-3 py-1.5 text-[11px] font-black text-primary transition hover:bg-primary/10 disabled:opacity-40"
+                >
+                  {restoringAvatarId === avatar.id ? "Restoring…" : "Restore"}
+                </button>
               </div>
             ))}
           </div>

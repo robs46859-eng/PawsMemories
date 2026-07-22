@@ -6,6 +6,7 @@ import RandyHead, { RandyHeadRef } from "./RandyHead";
 import { speakText } from "../three/randyVisemes";
 import RandyWalkthrough from "./RandyWalkthrough";
 import { tours, type TourId } from "../randy/tours";
+import { useDraggable } from "../randy/useDraggable";
 
 interface Message {
   id: string;
@@ -38,6 +39,7 @@ function resolveScreen(screen?: string): Screen | null {
     PAWLISHER: Screen.PAWLISHER,
     FURBIN: Screen.FURBIN,
     REQUEST_MEMORY: Screen.REQUEST_MEMORY,
+    WAGS_INBOX: Screen.WAGS_INBOX,
   };
   return map[screen] ?? null;
 }
@@ -50,6 +52,10 @@ export default function RandyChat({
   onLaunchAR,
 }: RandyChatProps) {
   const [isOpen, setIsOpen] = useState(false);
+  // Randy is repositionable: his default corner overlaps page controls on
+  // several screens, so the user can drag him anywhere and we remember it.
+  const { containerRef, style: dragStyle, handleProps, isDragging, hasMoved, reset: resetPosition, shouldAllowClick } =
+    useDraggable();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "initial",
@@ -341,6 +347,7 @@ export default function RandyChat({
           COMMUNITY: "Go to Community",
           PROFILE: "Go to Profile",
           ALBUMS: "Go to Albums",
+          WAGS_INBOX: "Open Wags",
         };
         return labels[action.screen || ""] || "Take me there";
       }
@@ -365,13 +372,21 @@ export default function RandyChat({
     {highlightTour && (
       <RandyWalkthrough tour={highlightTour} onClose={() => setHighlightTour(null)} onNavigate={onNavigate} />
     )}
-    <div className="fixed bottom-22 right-5 z-55 flex flex-col items-end pointer-events-none">
+    <div
+      ref={containerRef}
+      style={dragStyle}
+      className={`fixed z-55 flex flex-col items-end pointer-events-none ${isDragging ? "select-none" : ""}`}
+    >
 
       {/* Expanded chat window */}
       {isOpen && (
         <div className="w-80 h-[28rem] mb-3 bg-surface-container-low border border-outline-variant/50 rounded-3xl shadow-xl flex flex-col overflow-hidden pointer-events-auto animate-slide-up">
           {/* Header with 3D Randy Head */}
-          <div className="bg-primary/10 px-4 py-2.5 border-b border-outline-variant/30 flex justify-between items-center bg-radial from-amber-50 to-amber-100/30">
+          <div
+            {...handleProps}
+            title="Drag to move Randy"
+            className="bg-primary/10 px-4 py-2.5 border-b border-outline-variant/30 flex justify-between items-center bg-radial from-amber-50 to-amber-100/30"
+          >
             <div className="flex items-center gap-2.5">
               {/* 3D Head avatar in header */}
               <RandyHead
@@ -505,8 +520,21 @@ export default function RandyChat({
 
       {/* Floating Sparkly Button — with 3D head as collapsed avatar */}
       <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-14 h-14 bg-gradient-to-tr from-amber-500 to-orange-400 text-white rounded-full flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all cursor-pointer pointer-events-auto relative group glow-orange-shadow overflow-hidden"
+        {...handleProps}
+        aria-label={isOpen ? "Close Randy" : "Chat with Randy — drag to move"}
+        title="Drag to move Randy"
+        onClick={() => {
+          // A drag ends with a click event on the handle; swallow it so moving
+          // Randy doesn't also toggle the chat window.
+          if (!shouldAllowClick()) return;
+          setIsOpen(!isOpen);
+        }}
+        onDoubleClick={() => {
+          if (hasMoved) resetPosition();
+        }}
+        className={`w-14 h-14 bg-gradient-to-tr from-amber-500 to-orange-400 text-white rounded-full flex items-center justify-center shadow-lg transition-all pointer-events-auto relative group glow-orange-shadow overflow-hidden ${
+          isDragging ? "scale-105 ring-2 ring-white/70" : "hover:scale-105 active:scale-95"
+        }`}
       >
         {isOpen ? (
           <X size={24} className="animate-duration-300" />
@@ -523,7 +551,7 @@ export default function RandyChat({
             </div>
             {/* tooltip */}
             <span className="absolute right-16 scale-0 group-hover:scale-100 transition-all duration-200 bg-slate-900/90 text-white text-[10px] py-1 px-2.5 rounded-xl font-bold whitespace-nowrap shadow border border-slate-700 z-10">
-              Chat with Randy 🐾
+              Chat with Randy 🐾 · drag to move
             </span>
           </>
         )}

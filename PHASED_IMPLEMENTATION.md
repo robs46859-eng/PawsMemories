@@ -1,156 +1,54 @@
-# PHASED_IMPLEMENTATION.md — Animator Build-Out
+# Pawsome3D Unified Platform Implementation Tracker
 
-Companion to `ANIMATOR_SPEC.md`. Phases are ordered by dependency, not time — no timelines. Each phase ends with working, shippable software and its own exit criteria. Section references (§) point at the spec.
+Updated: 2026-07-22  
+Controlling design: `PAWSOME3D_PLATFORM_ARCHITECTURE_SPEC.md`
+Execution scaffold: `BUILD_EXECUTION_SCAFFOLD.md`
 
----
+Delivery mode: fast-track parallel lanes within one active phase. Phase 4 uses contract/persistence, worker/validation, product UI, and adversarial/evidence lanes with disjoint ownership. Phase 5 discovery may run concurrently, but Phase 5 production edits wait for the Phase 4 code gate. Full regression/build gates run at integration checkpoints and phase exit rather than after every isolated edit.
 
-## Verified Implementation Status — 2026-07-13
+This tracker records evidence, not agent claims. A phase is complete only after its exit criteria pass on the intended release commit and extracted deployment archive.
 
-This table is based on source imports, routes, worker dispatch, UI wiring, and automated tests at `main` commit `0527711`. A file or unit test alone is counted as a scaffold unless a production path invokes it and the phase exit fixture passes.
-
-| Phase | Verified status | Implemented evidence | Exit-gate blockers |
+| Phase | Status | Current evidence | Remaining exit work |
 |---|---|---|---|
-| 0 | Complete | Contracts, guarded availability, doctor, skills/personas, route stubs | None for the Phase 0 contract |
-| 1 | Complete | Layered controller, blend space, masks, EmoteQueue, behavior bridge | None; Phase 1 regression suite passes |
-| 2 | Complete | Rhubarb service, viseme rules/player, live ElevenLabs preview, Tier A fallback, production UI | Tier B requires `RHUBARB_BIN` in production, but absence degrades as designed |
-| 3 | Scaffold only | Three `BoneDefinitionProfile` JSON fixtures exist | `/rig` remains 501; no profile fitter, selective rigging, validation worker, 10-mesh corpus, or accepted batch |
-| 4 | Partial legacy foundation | AnimationSet v2 and existing Tripo/Blender retarget paths exist | No current-plan expanded clip library, profile-group batch retarget, repurpose proof, playback sweep, or foot-slide exit metric |
-| 5 | Scaffold only | `server/animator/meshops.ts` has pure Euler/LOD planning and budget checks; four focused tests pass | Module has no production importer; no QEM execution/LOD artifacts, topology extraction/repair, winding/non-manifold checks, compression pipeline, runtime switching, broken-mesh corpus, or exit report |
-| 6 | Partial foundation | Theatre camera control, multi-actor project persistence, MediaRecorder capture, an unused WebCodecs encoder, and RMS/onset helpers exist | No multi-lane sequencer, in-betweening, frame-driven MP4/image sequence, sRGB gate, audio lane, or baked GLB; `/bake` remains 501 |
-| 7 | Scaffold only | `src/animator/audio/dsp.ts` provides framing, mel-scale, RMS/onset, and stats primitives; five tests pass | No AudioWorklet/MFCC classifier or calibration, Audio2Face, UniRig/RigNet, Poisson/MLS/deviation worker, or sound-event classifier; `/reconstruct` remains 501 |
-| 8 | Scaffold only | Animator skills/personas exist; `scripts/animator-batch.mjs` validates and prints a manifest | CLI explicitly does not dispatch; no retries, QA aggregation, end-to-end batch test, or Blender MCP operating recipe proving zero-manual happy path |
+| 0. Database and release stability | Complete | Node 24.18/npm 11.16; TypeScript clean; 767 tests: 766 pass, 1 unrelated opt-in Hostinger skip; 8/8 Phase 0 live MySQL tests; fail-closed build; exact-commit complete-file archive verifier | Release evidence: `phase-evidence/PHASE_0.md`; IFC remains pinned to the Render worker environment |
+| 1. Asset registry | Complete (Lead-corrected) | Schema 18 registry plus schema 19 integrity hardening; default-off authenticated API; service-layer ownership; 27/27 Phase 1 MySQL/JWT tests; 786/789 full tests pass with 3 unrelated optional skips | Release evidence: `phase-evidence/PHASE_1.md` |
+| 2. Multiview approval | Code complete; external acceptance pending | Schemas 20-21; authenticated real Gemini adapter; source/view/report/manifest canonical assets; locked state transitions; measured image validation; 19/19 Phase 2 tests and 805/805 executed full tests pass | Live Gemini/private-storage sandbox and browser/mobile matrix remain required before production enablement; evidence: `phase-evidence/PHASE_2.md` |
+| 3. Durable 3D build and verification | Code complete; external acceptance pending | Schema 22; durable state machine; atomic per-attempt billing; strict canonical report hash; mandatory five verified renders with compensation cleanup; Three.js viewer; truthful refund disposition; 35/35 focused tests pass | Credentialed Tripo/private-storage/Blender run and browser matrix remain before production enablement; Phase 4 code may proceed default-off; evidence: `phase-evidence/PHASE_3.md` |
+| 4. Rig, facial, accessories | Code complete; external acceptance pending | Schemas 23/25; authenticated hash-bound Blender worker; body rig; A-H/X, jaw, and bilateral blink facial set; measured deformation/locality/reopen checks; optional fused watertight print derivative; canonical private lineage and recovery | Run representative human/quadruped/accessory fixtures on Render, inspect animation and slicer output, and complete browser/mobile acceptance. Keep `RIG_PIPELINE_V4_ENABLED=false`; evidence: `phase-evidence/PHASE_4.md` |
+| 5. Fur Bin showcase | Code complete; external acceptance pending | Schemas 24/26; owner-scoped V5 API/UI; immutable version/publication events; measured badges; separate public derivative; rollback/archive/moderation; responsive static fallback | Run B2 signed-URL expiry/publication races and 320/360/390/430px light/dark browser review. Keep both Fur Bin V5 flags false; evidence: `phase-evidence/PHASE_5.md` |
+| 6. Stationery and fulfillment | Domain code complete; provider integration blocked | Schema 27; strict templates, DPI/bleed/safe-area/font checks, immutable render/print manifests, durable outbox/events/reconciliation, authenticated render callbacks, payment and private-file adapters | Add shipping contract and real Printful/Slant provider adapters, run render/provider sandboxes and physical sample approval. Keep `STATIONERY_V2_ENABLED=false` |
+| 7. Wags subscription | Server code complete; external acceptance pending | Schema 28; Stripe production adapter, raw webhook verification, versioned plans/packs, period coverage, exactly-once grants/substitution/prepaid bonus, reconciliation, guarded API mount | Add/approve customer UI and run Stripe sandbox replay, proration/cancellation, failed-payment, and entitlement audits. Keep `WAGS_V2_ENABLED=false` |
+| 8. Randy assistant | Security/grounding code complete; 3D asset acceptance pending | Versioned server registry with authoritative prices, live credit/admin context, strict request/output schemas, user-confirmed action allowlist, rate limiting, and privacy-safe action audit; 7 focused tests pass | Production Randy GLB/LODs, measured rig/facial/mobile budgets, accessible non-3D fallback acceptance, and full module walkthrough corpus |
+| 9. Scaled shell and IFC | Durable server code complete; release integration blocked | Schema 29; calibrated proposal and pre/post verification; strict durable attempts, private canonical artifacts, idempotent debit/refund/reconciliation, authenticated IFC worker, semantic sidecar validation, Shell-vs-IFC pricing | Connect the UI to an authoritative accepted-model snapshot, add a real authenticated Shell worker, and run credentialed Gemini/Render IFC/browser acceptance. Keep both BIM v2 flags false |
 
-**Ordering gate:** Phases 5–8 must not be represented as complete. Phase 3 and Phase 4 exit criteria remain unmet, so later-phase implementation may build isolated foundations but cannot close its production exit gate until those dependencies land.
+## Cross-Cutting UI Track: Spatial Glow Light and Dark Modes
 
-**Numbering warning:** commits `ce62617`, `4a9a528`, and `9e2cc52` use an older “Phase 8/8.1 Animation Studio” numbering. Their Theatre and studio features are useful Phase 6 foundations here; they do not implement this plan's Phase 8 Agentic Operations scope.
+Status: Not started  
+Controlling plan: `SPATIAL_GLOW_UI_IMPLEMENTATION_PLAN.md`  
+Design sources: `liteDESIGN.md`, `darkDESIGN.md`
 
----
+Implement the supplied light and dark Spatial Glow designs through shared semantic theme tokens and reusable components after Phase 0 release stability closes. The track includes Light, Dark, and System preferences; persisted selection without first-paint flashing; accessibility and performance gates; route-by-route migration; and visual regression coverage.
 
-## Phase 0 — Foundations & Hardening
+Mobile acceptance must treat the design documents' 16px margin as the minimum **visible clearance outside panel borders, shadows, and glows**. Use a normal fluid gutter of 20-24px plus safe-area insets, prohibit accidental document-level horizontal overflow, and verify bordered panels at 320px, 360px, 390px, and 430px viewport widths. Full details and exit criteria are maintained in the controlling plan.
 
-**Goal:** the Animator never boots into a broken state, and the new pipeline has rails to run on.
+## Phase 0 Checklist
 
-- Complete `ANIMATOR_FIX_PLAN.md` item 1 (graceful 200-with-empty-shape reads, guarded `addActor`, visible degraded banner).
-- Extend `server/animator/queue.ts` with new job types: `rig`, `retarget`, `repurpose`, `lipsync`, `reconstruct`, `bake` (stubs returning `not_implemented`).
-- Add zod schemas for all §12 data contracts (BoneDefinitionProfile, VisemeTrack, rig manifest, LOD manifest, AnimationSet v2); version-checked parsing everywhere.
-- Extend `scripts/animator-doctor.mjs` to probe: Rhubarb binary, meshoptimizer, worker reachability, profile directory.
-- Create `skills/animator/` skeleton (RIGGING/LIPSYNC/MESHOPS.md) and AGENTS.md persona entries (§10) so agents can execute later phases against written standards.
+- [x] Audit normal startup for destructive SQL; no automatic `DROP TABLE` or `TRUNCATE` found.
+- [x] Bound MySQL pool settings and enable keepalive.
+- [x] Add dependency readiness and pool shutdown.
+- [x] Rethrow configured database initialization failures.
+- [x] Guarantee `users.stripe_customer_id` in compatibility migration.
+- [x] Repair marketplace digital checkout column contract.
+- [x] Repair STL derivative persistence and compensating object cleanup.
+- [x] Align manual print upload parser with the UI limit.
+- [x] Guard and scope `clear-db.ts`.
+- [x] Add and run representative legacy-schema migration test against live MySQL 8.4 (`tests/migrations_mysql_integration.test.mjs`, `tests/stl_concurrency_real.test.mjs`).
+- [x] Introduce `schema_migrations` ledger, transition baseline (v001..015), v16 Stripe customer column, and v17 STL derivative active-only generated column unique constraint (`server/migrations/runner.ts`).
+- [x] Add complete-file build/archive manifest, environment-file exclusion, fail-closed build chain, and shared extracted-archive verifier gate (`scripts/release-manifest-lib.mjs`, `scripts/generate-manifest.mjs`, `scripts/build-deploy-zip.sh`).
+- [x] Run full TypeScript, JavaScript tests, and production build locally (767 total tests: 766 pass, 1 unrelated Hostinger opt-in skip; 8/8 Phase 0 MySQL tests; tsc and Vite+esbuild pass under Node 24.18.0).
+- [x] Document IFC worker status (pinned environment `ifcopenshell==0.8.5` in Render container; local Python 3.14 lacks package).
+- [x] Verify complete extracted archive file-set equality, SHA-256 checksums, commit, branch, schema version, engine, and clean/dirty state (`scripts/verify-release-directory.mjs`).
 
-**Exit:** studio boots with zero assets and with server deps missing; all contracts typed and validated; doctor green locally.
+## Required Evidence Per Update
 
----
-
-## Phase 1 — Layered Animation Runtime
-
-**Goal:** replace single-action playback with the L0–L3 layer stack (§6.1) — the substrate every later phase drives.
-
-- Layered mixer in `createAnimationController.ts`: base locomotion (exclusive, cross-fade), additive/masked overlay layer (`makeClipAdditive` + bone masks), face layer slot (reserved for LIP), procedural post-pass slot.
-- AnimationSet v2: data-declared transitions, per-clip default layer, named bone masks, phase markers.
-- 1D locomotion blend space (idle↔walk↔run by speed) with foot-phase-synced cross-fades.
-- EmoteQueue (§6.3): priority queue, cooldowns, hold times, interruption rules; wired to the existing brain/needs behaviors for idle life.
-- node:test coverage: layer priority, mask filtering, queue scheduling, blend phase sync.
-
-**Exit:** a pet walks while wagging (`tail_wave` additive over `walk`), emotes fire from the queue without popping, all tests pass, no regression in existing behavior playback.
-
----
-
-## Phase 2 — Lip-Sync Tier B (Rhubarb) End-to-End
-
-**Goal:** phoneme-accurate speech for any avatar with a jaw, from any audio.
-
-- `server/animator/lipsync.ts`: Rhubarb CLI job runner (recognizer selection, dialog-file mandate, `--extendedShapes GHX`), Rhubarb JSON → VisemeTrack v1 normalizer.
-- Track post-processor implementing the transition rules (§5.1): A–C–D bridge, C–E–F rule, 2-frame anticipation shift, sub-frame cue merging.
-- `LipSyncPlayer` on the face layer: samples track against `AudioContext.currentTime`, cross-fades morphs/jaw 50–80 ms; bone-only fallback mapping (jaw + lip corners) for current pet rigs; Tier A kept as final fallback.
-- `speak()` pipeline integration: TTS → audio + transcript → lipsync job → cached VisemeTrack → synced playback via `audioMux.ts`.
-- Golden-audio QA corpus + transition-rule linter (§13).
-
-**Exit:** Randy and any rigged pet speak a scripted line with correct A–X shapes within ±1 frame of reference labels; non-English clip works via phonetic recognizer; player degrades tier C→B→A cleanly.
-
----
-
-## Phase 3 — Auto-Rig v1 (Profiles + Selective Rigging)
-
-**Goal:** any reasonable quadruped/biped/winged mesh gets rigged without hand work — the "rig-once, apply-many" milestone.
-
-- Canonical rigs authored/finalized in `assets/rigs/*.blend` including facial bones (jaw, tongue, eyes, brows) per §4.1.
-- BoneDefinitionProfile v1 loader in blender-worker; profile fitting (normalized bbox + landmark heuristics); **Rebind** operation.
-- Selective rigging: soft/rigid classifier + rigid parent-attach path (§4.2); manual per-mesh override surfaced in the Animator asset inspector.
-- Automated §4.3 validation suite (twist bones, neck∥jaw, silhouette probe poses, purlicue check for bipeds) with pass/fail manifest and probe screenshots.
-- Bone masking for partial/asymmetric models; spring-bone attributes read from profile.
-- Worker endpoints `/rig`, `/rig/:id`; server job orchestration → `updateAvatarRiggedModel` on success.
-
-**Exit:** a batch of ≥ 10 varied Tripo pet meshes rig unattended with ≥ 8 passing all validation rules; a collar/tag accessory stays rigid through a run cycle; a three-legged test model rigs via bone mask.
-
----
-
-## Phase 4 — Clip Library & Retargeting at Scale
-
-**Goal:** one authored clip library animating every rigged avatar; ≥ 15 quadruped clips in production.
-
-- Reconcile clip naming between `animationSets.ts` and `blender-worker/skeletal-clips.js` under AnimationSet v2 (§6.6), then author the expanded sets: quadruped +`ear_flick`, `paw_offer`, `roll_over`, `beg`; biped +`talk_gesture`, `point`, `clap`; winged +`hover`, `preen`. All with phase markers (foot contacts) and layer/mask annotations.
-- Worker retarget module: canonical actions → per-avatar armature, bone-mask filtered, batch mode over a profile group; Draco/meshopt export with all tracks.
-- Character Repurposing (§4.5): body re-rig preserving facial bones and viseme morph tracks — proven by re-rigging a Phase 2 speaking avatar and replaying its VisemeTrack unchanged.
-- Clip QA: automated playback sweep per avatar (every clip, screenshot strip, foot-slide metric from phase markers).
-
-**Exit:** full clip set retargets to every Phase 3 avatar in one batch job; repurposed legacy avatar keeps working lip-sync; foot-slide metric under threshold on locomotion clips.
-
----
-
-## Phase 5 — Mesh Processing & Quality Gates
-
-**Audit status: SCAFFOLD ONLY.** Commit `7caffe0` added tested planning/math helpers, not the production mesh pipeline. Do not mark Phase 5 complete until `optimize` or a dedicated worker job produces real LOD0–LOD3 artifacts and manifests from mesh input, and the broken-mesh/hero-pet exit corpus passes.
-
-**Goal:** every asset that enters the animator is validated, optimized, and LOD'd with formal metrics.
-
-- QEM simplification via meshoptimizer in the server pipeline; LOD chain LOD0–LOD3 with per-LOD max/mean quadric error in the manifest (§7.1); runtime LOD switching by screen-space error.
-- Topology gate pre-rig: Euler characteristic check, generalized-winding-number normal/junk detection, non-manifold + flipped-normal auto-repair (§7.3).
-- Compression standardization: meshopt vs Draco per target, KTX2/Basis textures, prune/dedup/palette passes.
-- Optional dev tooling: Hausdorff distance QA (MeshLab/CGAL) against LOD0.
-
-**Exit:** pipeline rejects/repairs a corpus of deliberately broken meshes; LOD3 of a hero pet renders under budget with reported quadric error inside tolerance; bundle/asset sizes reported per job.
-
----
-
-## Phase 6 — Sequencer Pro & Capture Upgrade
-
-**Audit status: PARTIAL FOUNDATION.** Existing Theatre, project, capture, and encoder files predate this plan and are not connected into a frame-accurate export pipeline. `createMp4Encoder` is not invoked by production UI, while `/bake` is still a 501 stub.
-
-**Goal:** the Animator becomes a multi-actor mini-studio with frame-accurate export.
-
-- Theatre.js project documents: multi-actor lanes (clips, viseme, camera, FX), versioned scene JSON via `projects.ts` (§6.5).
-- AI in-betweening v1: heuristic arc-preserving interpolation (Catmull-Rom with velocity matching) selectable per keyframe pair; provider hook for model-backed interpolation later.
-- WebCodecs render-on-demand export (fixed fps, no dropped frames), sRGB-correct encode verified by ramp asset (§9); image-sequence export; `bake` job producing a GLB with the scene's animation baked as clips.
-- Audio lane: amplitude/onset markers (§8) for beat-synced keyframing.
-
-**Exit:** a two-actor scene (pet + Randy) with dialogue, camera moves, and music exports a frame-perfect MP4 and a replayable baked GLB.
-
----
-
-## Phase 7 — Realtime & ML Frontier
-
-**Audit status: SCAFFOLD ONLY.** Commit `7caffe0` added dependency-free DSP primitives and unit tests. The file explicitly states that no production module imports it; it is not an MFCC classifier or live-mic implementation.
-
-**Goal:** live performance and hard-mesh coverage — the ambitious tail.
-
-- Tier C lip-sync: AudioWorklet MFCC classifier (20 MFCCs, 50 ms/10 ms) with per-voice calibration flow; live mic → avatar speech (§5.4).
-- Audio2Face provider interface (optional, gated): audio → full blendshape performance for cinematic renders.
-- UniRig ML rigger fallback for irregular scans/sculpts, confidence-gated by the Phase 3 validation suite; RigNet evaluation spike (§4.6).
-- Poisson reconstruction job (`reconstruct`): point cloud → watertight mesh (adaptive octree ≤ 10) + MLS pre-smooth + deviation color-map gate — the SnapGen photogrammetry on-ramp (§7.4).
-- Spectrogram-based sound-event classifier (bark/meow) driving EmoteQueue reactions.
-
-**Exit:** live mic drives a pet's mouth convincingly; one "impossible" scan (non-standard pose) rigs via UniRig and passes validation; a scanned point cloud becomes an animated avatar end-to-end.
-
----
-
-## Phase 8 — Agentic Operations & Batch Production
-
-**Audit status: SCAFFOLD ONLY.** `scripts/animator-batch.mjs` validates manifests and prints a plan, then reports `dispatch not implemented yet` and treats execution as a dry run. Skills/personas are guidance, not proof of automated operation.
-
-**Goal:** the pipeline runs itself; agents are the operators.
-
-- Complete `skills/animator/*.md` with every schema, rule table, and invocation recipe from the spec; AGENTS.md personas (Rig Technician, Lip-Sync Director, Asset Optimizer) with operational constraints (§10).
-- Validation doctrine wired in: agents re-run failed jobs with adjusted parameters (octree depth, decimation ratio, recognizer choice) instead of accepting degraded output.
-- Batch production tooling: rig + retarget + LOD + lipsync an entire catalog from one manifest; per-batch QA report (validation pass rates, error budgets, sizes).
-- Blender MCP integration recipes: interactive profile authoring and rig debugging driven by an agent against the live Blender instance.
-
-**Exit:** a single command (or agent instruction) takes N raw meshes to fully rigged, animated, lip-sync-ready, LOD'd catalog entries with a QA report and zero manual steps on the happy path.
+Record the branch and commit, changed files, exact verification totals, remaining risks, deployment/archive SHA, and manual checks. Keep worktree ownership disjoint when subagents are active. Do not mark later phases complete because similarly named older Animator phases exist.

@@ -6,7 +6,9 @@ Live site: https://pawsome3d.com  (formerly mypets.cc)
 
 ## Features
 
-- **3D pet avatars** — photos → a rigged, animated 3D avatar via Tripo3D + a multi‑agent Blender pipeline.
+- **3D pet avatars** — photos → a 3D avatar via Tripo3D, with a default-off authenticated Blender pipeline for measured body/facial rigging and fused accessory print derivatives.
+- **Fur Bin showcase** — a default-off private model library and public-derivative showcase with immutable versions, measured capability badges, moderation, and rollback.
+- **Scaled building lab** — calibrated text/image proposals, low-cost visual Shell and higher-cost IFC/BIM choices, and verification before and after construction. The durable v2 release path remains disabled until live worker/UI acceptance.
 - **AR virtual pet (WebXR / ARCore)** — place your avatar on real surfaces on Android Chrome; plane + mesh detection, drift‑free `XRAnchor` placement, and footprint center‑of‑gravity grounding so the pet plants on its feet. iOS falls back to the 8th Wall engine. The AR view is driven by an autonomous **behavior brain** (drives, hormones, reinforcement) with voice‑command training, gesture reinforcement, semantic‑scan navigation, and disc/agility trials — see `AR_PET_SIM_SPEC.md`.
 - **Store** — merch (3D prints, plush, accessories) with your Albums folded in as a tab.
 - **Community** — local info (nearby parks, weather, pet‑recall news), a live pet inspiration board (dog.ceo + dogapi.dog) with user‑uploaded memories, and a coming‑soon roadmap.
@@ -62,7 +64,7 @@ ten-mesh acceptance corpus. See `handoff.md`, `docs/P1_STATUS.md`, and
 ## Tech stack
 
 - **Frontend:** React 19 + Vite 6, Tailwind CSS 4, Lucide icons, Motion for animation
-- **Backend:** Node 22 + Express 4 (single `server.ts`, bundled to `dist/server.cjs` with esbuild)
+- **Backend:** Node 24.18 + Express 4 (single `server.ts`, bundled to `dist/server.cjs` with esbuild)
 - **Auth:** Email + password with JWT session tokens (passwords hashed with scrypt)
 - **Database:** MySQL (via `mysql2`) for the user store
 - **AI / 3D:** Google Gemini for chat, Imagen for stills, Veo for video. **Tripo3D** for Image-to-3D mesh generation (replaced Meshy for higher quality and reliability). Blender 3D via dedicated `bpy` microservice with EEVEE PBR rendering and 24-frame cycles.
@@ -174,7 +176,7 @@ src/               React frontend (App, components, api client, types)
   three/ar/        AR stage + brain bridge (ARPetStage, IK, navmesh, voice, trials)
 blender-worker/    Standalone Express + Docker microservice for running Blender scripts (+ bake_lod.py)
 x-dm-service/      X DM conversation refinement service (Node 20 + Express + TypeScript) — see X_DM_REFINEMENT_SPEC.md
-scripts/           build-deploy-zip.sh (git archive HEAD → source deploy zip)
+scripts/           build-deploy-zip.sh (verified dist → Hostinger deploy zip)
 dist/              Build output (vite assets + server.cjs)
 .env.example       Documented environment variables
 ```
@@ -206,12 +208,17 @@ Set these in Hostinger (Website → Environment variables) for production, or in
 | `RHUBARB_BIN` | Optional absolute path to the Rhubarb Linux executable; enables Tier B visemes and falls back to Tier A when absent |
 | `BLENDER_WORKER_URL` | URL to the separate blender microservice (e.g. `https://pawsmemories.onrender.com/render`) |
 | `WORKER_SHARED_SECRET` | Secret key for blender-worker auth |
+| `MODEL_BUILD_V3_ENABLED` / `RIG_PIPELINE_V4_ENABLED` | Default-off durable model and measured rig rollout flags |
+| `FUR_BIN_V5_ENABLED` / `VITE_FUR_BIN_V5_ENABLED` | Default-off Fur Bin API and build-time UI flags |
+| `STATIONERY_V2_ENABLED` | Keep `false`; provider shipping/sandbox gate is still open |
+| `WAGS_V2_ENABLED` / `WAGS_STRIPE_WEBHOOK_SECRET` | Keep `false` until the separate Wags Stripe webhook and sandbox gate pass |
+| `BIM_V2_ENABLED` / `VITE_BIM_V2_ENABLED` | Keep both `false` until accepted-model, Shell-worker, Render IFC, and browser gates pass |
 
 > **Hostinger note:** set `DB_HOST` to `127.0.0.1`, not `localhost`. On Node 18+, `mysql2` resolves `localhost` to IPv6 (`::1`), which the Hostinger MySQL user grant does not cover — causing `Access denied … @'::1'`. Forcing IPv4 with `127.0.0.1` resolves it.
 
 ## Running locally
 
-Prerequisites: Node.js 22 and a reachable MySQL database.
+Prerequisites: Node.js 24.18 and a reachable MySQL database.
 
 ```bash
 npm install          # install dependencies
@@ -231,11 +238,11 @@ npm run lint         # type-check with tsc --noEmit
 
 The pawsome3d.com Hostinger site is a **Node.js app deployed by manual zip upload** — it is **not** wired to auto‑deploy from GitHub. Pushing to `main` updates the repo but does **not** change the live site.
 
-The deploy zip is **source only** and Hostinger builds it on the host. `vite` and `esbuild` are in `dependencies` (not `devDependencies`), so they survive `npm install` under `NODE_ENV=production` and `npm run build` succeeds on Hostinger.
+The deploy zip is **pre-built locally** under the pinned Node release. Hostinger installs the locked external runtime dependencies, runs the staged no-op build script, and launches the already verified `dist/server.cjs`; it does not recompile the application on its older Node 24 minor.
 
 1. Commit your work (the zip archives `HEAD`, so uncommitted changes are excluded).
-2. Build the zip: `bash scripts/build-deploy-zip.sh` → `pawsome3d-deploy.zip` (runs `git archive HEAD`, includes every tracked file, respects `.gitignore`).
+2. Build the zip under the pinned Node release: `bash scripts/build-deploy-zip.sh` → `pawsome3d-deploy.zip`. The script compiles the exact clean commit, verifies `dist/release-manifest.json`, and packages the built application with its locked runtime dependencies and Hostinger launcher.
 3. In hPanel: **Websites → pawsome3d.com → Deployments → Settings and redeploy → Upload new files** → upload the zip → redeploy.
-4. Hostinger runs `npm install && npm run build` (produces `dist/`), then starts **`dist/server.cjs`**. Tables auto‑create on boot via `initDb()`.
+4. Hostinger runs `npm install && npm run build` (the build is a verified no-op), then starts root **`server.cjs`**, which loads **`dist/server.cjs`**. Tables auto‑create on boot via `initDb()`.
 
 The server auto‑detects prod by the presence of `dist/index.html`; if the build is skipped, `index.html` at the repo root is a Vite **dev** template (`/src/main.tsx`) and the page renders blank. Environment variables live in Hostinger's deployment config (Deployments → Settings), not in a committed file. For the full set of deploy gotchas — SPA catch-all masking `/api` 404s, the stale `.git/*.lock` workaround, three.js dedupe, CDN pins — see **`DEPLOYMENT_NOTES.md`**.

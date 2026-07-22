@@ -3,6 +3,7 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { v4 as uuidv4 } from "uuid";
@@ -43,16 +44,16 @@ import { createHash } from "node:crypto";
  * Ref: https://www.backblaze.com/docs/cloud-storage-s3-compatible-api
  */
 
-const publicBucketName = process.env.MEDIA_BUCKET_NAME;
-const privateBucketName = process.env.MEDIA_PRIVATE_BUCKET_NAME;
-const bucketEndpoint = process.env.MEDIA_BUCKET_URL;
+let publicBucketName = process.env.MEDIA_BUCKET_NAME || "";
+let privateBucketName = process.env.MEDIA_PRIVATE_BUCKET_NAME || "";
+let bucketEndpoint = process.env.MEDIA_BUCKET_URL || "";
 
 /** Private bucket may use its own credentials; otherwise it reuses the shared
  *  all-buckets key. Both live in the same B2 account behind the same endpoint. */
-const accessKeyId =
-  process.env.MEDIA_PRIVATE_BUCKET_KEY || process.env.MEDIA_BUCKET_KEY;
-const secretAccessKey =
-  process.env.MEDIA_PRIVATE_BUCKET_SECRET || process.env.MEDIA_BUCKET_SECRET;
+let accessKeyId =
+  process.env.MEDIA_PRIVATE_BUCKET_KEY || process.env.MEDIA_BUCKET_KEY || "";
+let secretAccessKey =
+  process.env.MEDIA_PRIVATE_BUCKET_SECRET || process.env.MEDIA_BUCKET_SECRET || "";
 
 const DEFAULT_SIGNED_URL_TTL_SECONDS = 900; // 15 minutes
 const MIN_TTL_SECONDS = 30;
@@ -130,6 +131,12 @@ export function isPrivateStorageConfigured(): boolean {
 let cachedClient: S3Client | null = null;
 
 function client(): S3Client {
+  publicBucketName = process.env.MEDIA_BUCKET_NAME || publicBucketName;
+  privateBucketName = process.env.MEDIA_PRIVATE_BUCKET_NAME || privateBucketName;
+  bucketEndpoint = process.env.MEDIA_BUCKET_URL || bucketEndpoint;
+  accessKeyId = process.env.MEDIA_PRIVATE_BUCKET_KEY || process.env.MEDIA_BUCKET_KEY || accessKeyId;
+  secretAccessKey = process.env.MEDIA_PRIVATE_BUCKET_SECRET || process.env.MEDIA_BUCKET_SECRET || secretAccessKey;
+
   if (cachedClient) return cachedClient;
   assertPrivateStorageConfig();
   cachedClient = new S3Client({
@@ -147,6 +154,11 @@ function client(): S3Client {
 /** Test seam — drops the memoised client so env changes take effect. */
 export function resetPrivateStorageClient(): void {
   cachedClient = null;
+  publicBucketName = process.env.MEDIA_BUCKET_NAME || "";
+  privateBucketName = process.env.MEDIA_PRIVATE_BUCKET_NAME || "";
+  bucketEndpoint = process.env.MEDIA_BUCKET_URL || "";
+  accessKeyId = process.env.MEDIA_PRIVATE_BUCKET_KEY || process.env.MEDIA_BUCKET_KEY || "";
+  secretAccessKey = process.env.MEDIA_PRIVATE_BUCKET_SECRET || process.env.MEDIA_BUCKET_SECRET || "";
 }
 
 export type PrivateAssetKind = "source_glb" | "stl_derivative";
@@ -205,6 +217,16 @@ export async function putPrivateObject(
     }),
   );
   return { objectKey, sizeBytes: body.byteLength, sha256: sha256Hex(body) };
+}
+
+/** Delete a known private object when a later metadata write cannot be committed. */
+export async function deletePrivateObject(objectKey: string): Promise<void> {
+  if (!objectKey.startsWith("marketplace/") && !objectKey.startsWith("references/") && !objectKey.startsWith("models/")) {
+    throw new PrivateStorageError("Refusing to delete an object outside allowed private prefixes.");
+  }
+  await client().send(
+    new DeleteObjectCommand({ Bucket: privateBucketName, Key: objectKey }),
+  );
 }
 
 /**

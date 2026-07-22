@@ -11,6 +11,13 @@ import Jimp from "jimp";
 import * as templates from "./animation-templates.js";
 import { buildSkeletalClipScript, SKELETAL_CLIP_MANIFEST } from "./skeletal-clips.js";
 import { buildSkeletalClipScript as buildSkeletalClipScriptHuman, SKELETAL_CLIP_MANIFEST as SKELETAL_CLIP_MANIFEST_HUMAN } from "./skeletal-clips-human.js";
+import {
+  createBlenderPipelineRunner,
+  createRigPipelineHandler,
+  createRigPipelineProcessor,
+  createWorkerAuthMiddleware,
+  RIG_PIPELINE_MAX_REQUEST_BYTES,
+} from "./rig_pipeline/index.js";
 
 const execPromise = promisify(exec);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -144,6 +151,9 @@ class BlenderBridgeClient {
 }
 
 const bridge = new BlenderBridgeClient();
+const rigPipelineProcessor = createRigPipelineProcessor({
+  runner: createBlenderPipelineRunner({ bridge }),
+});
 
 function isLoopbackBridgeHost() {
   return BRIDGE_HOST === "127.0.0.1" || BRIDGE_HOST === "localhost" || BRIDGE_HOST === "::1";
@@ -256,6 +266,16 @@ function extractBlenderError(stdout, stderr) {
 
 const app = express();
 const PORT = process.env.PORT || 10000;
+
+// Auth runs before this route-specific parser so unauthenticated callers cannot
+// force the legacy 100 MB parser to allocate for the rig pipeline endpoint.
+app.post(
+  "/rig-pipeline/process",
+  createWorkerAuthMiddleware(),
+  requireBridge,
+  express.json({ limit: RIG_PIPELINE_MAX_REQUEST_BYTES }),
+  createRigPipelineHandler(rigPipelineProcessor),
+);
 
 // Increase limit for GLB model data and large scripts
 app.use(express.json({ limit: "100mb" }));

@@ -11,6 +11,10 @@ import CreateReferenceScreen from "./components/create-flow/CreateReferenceScree
 import CreateCustomizeScreen from "./components/create-flow/CreateCustomizeScreen";
 import CreateValidateScreen from "./components/create-flow/CreateValidateScreen";
 import CreateCheckoutScreen from "./components/create-flow/CreateCheckoutScreen";
+import CreateBuildProgressScreen from "./components/create-flow/CreateBuildProgressScreen";
+import CreateBuildReviewScreen from "./components/create-flow/CreateBuildReviewScreen";
+import { CreateRigProgressScreen } from "./components/create-flow/CreateRigProgressScreen";
+import { CreateRigReviewScreen } from "./components/create-flow/CreateRigReviewScreen";
 import { CreateFlowProvider } from "./components/create-flow/CreateFlowContext";
 import MarketplaceScreen from "./components/MarketplaceScreen";
 import UnderConstructionLock from "./components/UnderConstructionLock";
@@ -744,6 +748,18 @@ export default function App() {
         {currentScreen === Screen.CREATE_CHECKOUT && (
           <CreateCheckoutScreen onNavigate={setCurrentScreen} userProfile={userProfile} />
         )}
+        {currentScreen === Screen.CREATE_BUILD_PROGRESS && (
+          <CreateBuildProgressScreen onNavigate={setCurrentScreen} />
+        )}
+        {currentScreen === Screen.CREATE_BUILD_REVIEW && (
+          <CreateBuildReviewScreen onNavigate={setCurrentScreen} />
+        )}
+        {currentScreen === Screen.CREATE_RIG_PROGRESS && (
+          <CreateRigProgressScreen onNavigate={setCurrentScreen} />
+        )}
+        {currentScreen === Screen.CREATE_RIG_REVIEW && (
+          <CreateRigReviewScreen onNavigate={setCurrentScreen} />
+        )}
 
         {currentScreen === Screen.MARKETPLACE && (
           <MarketplaceScreen onOpenCreate={() => !isAuthed ? setCurrentScreen(Screen.SIGN_UP) : setCurrentScreen(Screen.CREATE)} />
@@ -756,7 +772,7 @@ export default function App() {
         )}
 
         {/* When not authenticated and screen is not public, render sign-up. */}
-        {!isAuthed && ![Screen.DASHBOARD, Screen.CREATE, Screen.CREATE_REFERENCE, Screen.CREATE_CUSTOMIZE, Screen.CREATE_VALIDATE, Screen.CREATE_CHECKOUT, Screen.MARKETPLACE, Screen.PAWPRINTS, Screen.LANDING_MODELS, Screen.LANDING_DOGS, Screen.LANDING_MEMORIALS, Screen.HOW_IT_WORKS, Screen.PRICING].includes(currentScreen) ? (
+        {!isAuthed && ![Screen.DASHBOARD, Screen.CREATE, Screen.CREATE_REFERENCE, Screen.CREATE_CUSTOMIZE, Screen.CREATE_VALIDATE, Screen.CREATE_CHECKOUT, Screen.CREATE_BUILD_PROGRESS, Screen.CREATE_BUILD_REVIEW, Screen.CREATE_RIG_PROGRESS, Screen.CREATE_RIG_REVIEW, Screen.MARKETPLACE, Screen.PAWPRINTS, Screen.LANDING_MODELS, Screen.LANDING_DOGS, Screen.LANDING_MEMORIALS, Screen.HOW_IT_WORKS, Screen.PRICING].includes(currentScreen) ? (
           <SignUp onAuthenticated={handleAuthenticated} />
         ) : (
           isAuthed && (
@@ -991,7 +1007,13 @@ export default function App() {
 
       {/* Floating Bottom Navigator (only when signed in and past onboarding) */}
       {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN, Screen.CREATE, Screen.MARKETPLACE, Screen.WAGS_INBOX].includes(currentScreen) && (
-        <div className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 gap-1 rounded-t-2xl border-t border-outline-variant/30 bg-surface-container-lowest/90 px-1 py-2 shadow-[0_-8px_32px_0_rgba(68,42,34,0.08)] backdrop-blur-xl dark:bg-surface-dim/90 md:hidden">
+        <div
+          className="fixed inset-x-0 bottom-0 z-40 grid gap-1 rounded-t-2xl border-t border-outline-variant/30 bg-surface-container-lowest/90 px-1 py-2 shadow-[0_-8px_32px_0_rgba(68,42,34,0.08)] backdrop-blur-xl dark:bg-surface-dim/90 md:hidden"
+          // Column count follows the nav length (+1 for Help) rather than being
+          // hard-coded, so trimming MOBILE_NAV can't leave a stretched or
+          // overflowing grid again.
+          style={{ gridTemplateColumns: `repeat(${MOBILE_NAV.length + 1}, minmax(0, 1fr))` }}
+        >
           {MOBILE_NAV.map((item) => (
             <button
               key={item.id}
