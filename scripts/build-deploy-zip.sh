@@ -36,18 +36,33 @@ trap cleanup EXIT
 echo "Running fail-closed production build..."
 npm run build
 
-if [ "$ALLOW_DIRTY" = true ]; then
-  echo "Packaging a non-production dirty worktree archive..."
-  git ls-files --cached --others --exclude-standard | while IFS= read -r file; do
-    mkdir -p "$STAGING_DIR/$(dirname "$file")"
-    cp -p "$file" "$STAGING_DIR/$file"
-  done
-else
-  echo "Materializing exact commit $COMMIT_SHA..."
-  git archive HEAD | tar -x -C "$STAGING_DIR"
-fi
+echo "Packaging the locally verified Hostinger build for commit $COMMIT_SHA..."
+mkdir -p "$STAGING_DIR/dist"
+cp -Rp dist/. "$STAGING_DIR/dist/"
+cp -p package.json package-lock.json "$STAGING_DIR/"
 
-MUST_HAVE=(.env.example package.json package-lock.json server.ts db.ts index.html vite.config.ts)
+# Hostinger always runs npm install followed by npm run build. The production
+# bundle was already built under the pinned Node release, so the host must not
+# rebuild it with its older Node 24 minor. Keep the exact runtime dependency
+# graph but replace lifecycle scripts with a no-op build and the stable launcher.
+node - "$STAGING_DIR/package.json" <<'NODE'
+import fs from "node:fs";
+
+const packagePath = process.argv[2];
+const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+packageJson.scripts = {
+  build: "echo 'Pre-built artifact verified; no server-side build required.'",
+  start: "node server.cjs",
+};
+fs.writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
+NODE
+
+cat > "$STAGING_DIR/server.cjs" <<'NODE'
+// Hostinger Node.js application startup file.
+require("./dist/server.cjs");
+NODE
+
+MUST_HAVE=(package.json package-lock.json server.cjs dist/index.html dist/server.cjs dist/release-manifest.json)
 for required in "${MUST_HAVE[@]}"; do
   if [ ! -f "$STAGING_DIR/$required" ]; then
     echo "Required deployment file is missing: $required"
@@ -57,10 +72,8 @@ done
 
 shopt -s nullglob
 for env_file in "$STAGING_DIR"/.env*; do
-  if [ "$(basename "$env_file")" != ".env.example" ]; then
-    echo "Forbidden environment file in release stage: $(basename "$env_file")"
-    exit 1
-  fi
+  echo "Forbidden environment file in release stage: $(basename "$env_file")"
+  exit 1
 done
 shopt -u nullglob
 
@@ -71,12 +84,10 @@ for forbidden_dir in .git node_modules coverage .nyc_output; do
   fi
 done
 
-APP_COMMIT_SHA="$COMMIT_SHA" \
-APP_BRANCH="$BRANCH" \
-RELEASE_DIRTY="$ALLOW_DIRTY" \
-node scripts/generate-manifest.mjs \
-  "--target-dir=$STAGING_DIR" \
-  "--output=$STAGING_DIR/release-manifest.json"
+EXPECTED_COMMIT="$COMMIT_SHA" \
+EXPECTED_BRANCH="$BRANCH" \
+REQUIRE_CLEAN="$([ "$ALLOW_DIRTY" = true ] && echo false || echo true)" \
+node scripts/verify-release-directory.mjs "$STAGING_DIR/dist"
 
 rm -f "$ZIP_NAME"
 PROJECT_ROOT=$(pwd)
@@ -90,7 +101,7 @@ if [ "$ALLOW_DIRTY" = true ]; then REQUIRE_CLEAN=false; fi
 EXPECTED_COMMIT="$COMMIT_SHA" \
 EXPECTED_BRANCH="$BRANCH" \
 REQUIRE_CLEAN="$REQUIRE_CLEAN" \
-node scripts/verify-release-directory.mjs "$EXTRACT_DIR"
+node scripts/verify-release-directory.mjs "$EXTRACT_DIR/dist"
 
 echo "Archive verification passed: $ZIP_NAME"
 echo "Archive SHA-256: $(shasum -a 256 "$ZIP_NAME" | awk '{print $1}')"

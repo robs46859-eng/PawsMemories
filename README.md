@@ -176,7 +176,7 @@ src/               React frontend (App, components, api client, types)
   three/ar/        AR stage + brain bridge (ARPetStage, IK, navmesh, voice, trials)
 blender-worker/    Standalone Express + Docker microservice for running Blender scripts (+ bake_lod.py)
 x-dm-service/      X DM conversation refinement service (Node 20 + Express + TypeScript) — see X_DM_REFINEMENT_SPEC.md
-scripts/           build-deploy-zip.sh (git archive HEAD → source deploy zip)
+scripts/           build-deploy-zip.sh (verified dist → Hostinger deploy zip)
 dist/              Build output (vite assets + server.cjs)
 .env.example       Documented environment variables
 ```
@@ -238,11 +238,11 @@ npm run lint         # type-check with tsc --noEmit
 
 The pawsome3d.com Hostinger site is a **Node.js app deployed by manual zip upload** — it is **not** wired to auto‑deploy from GitHub. Pushing to `main` updates the repo but does **not** change the live site.
 
-The deploy zip is **source only** and Hostinger builds it on the host. `vite` and `esbuild` are in `dependencies` (not `devDependencies`), so they survive `npm install` under `NODE_ENV=production` and `npm run build` succeeds on Hostinger.
+The deploy zip is **pre-built locally** under the pinned Node release. Hostinger installs the locked external runtime dependencies, runs the staged no-op build script, and launches the already verified `dist/server.cjs`; it does not recompile the application on its older Node 24 minor.
 
 1. Commit your work (the zip archives `HEAD`, so uncommitted changes are excluded).
-2. Build the zip: `bash scripts/build-deploy-zip.sh` → `pawsome3d-deploy.zip` (runs `git archive HEAD`, includes every tracked file, respects `.gitignore`).
+2. Build the zip under the pinned Node release: `bash scripts/build-deploy-zip.sh` → `pawsome3d-deploy.zip`. The script compiles the exact clean commit, verifies `dist/release-manifest.json`, and packages the built application with its locked runtime dependencies and Hostinger launcher.
 3. In hPanel: **Websites → pawsome3d.com → Deployments → Settings and redeploy → Upload new files** → upload the zip → redeploy.
-4. Hostinger runs `npm install && npm run build` (produces `dist/`), then starts **`dist/server.cjs`**. Tables auto‑create on boot via `initDb()`.
+4. Hostinger runs `npm install && npm run build` (the build is a verified no-op), then starts root **`server.cjs`**, which loads **`dist/server.cjs`**. Tables auto‑create on boot via `initDb()`.
 
 The server auto‑detects prod by the presence of `dist/index.html`; if the build is skipped, `index.html` at the repo root is a Vite **dev** template (`/src/main.tsx`) and the page renders blank. Environment variables live in Hostinger's deployment config (Deployments → Settings), not in a committed file. For the full set of deploy gotchas — SPA catch-all masking `/api` 404s, the stale `.git/*.lock` workaround, three.js dedupe, CDN pins — see **`DEPLOYMENT_NOTES.md`**.

@@ -62,14 +62,14 @@ Step 2 — `esbuild server.ts`: bundles the Express server (server.ts + auth.ts 
 
 | Zip | Size | What's inside | Works on Hostinger? |
 |---|---|---|---|
-| Source zip (git archive) | ~21MB | All source + no dist | YES — Hostinger builds it |
-| Pre-built zip (dist only) | ~5–6MB | dist/ contents only | YES — needs correct package.json |
+| Source zip (git archive) | ~21MB | All source + no dist | NO for the current host — Hostinger's Node 24.6 minor is below the build contract |
+| Verified pre-built zip | ~5–6MB | `dist/`, launcher, package files | YES — recommended and produced by the release script |
 | Zip with node_modules | ~70MB+ | source + node_modules | NO — never upload these |
 | Wrong-structure zip | any | files nested under `dist/subfolder/` | NO — Hostinger can't find entry |
 
-The **~5–6MB pre-built zip** is the correct deployment artifact when zipping from inside `dist/` — it's server.cjs + the Vite frontend assets + static files. No node_modules, no TypeScript source.
+The **~5–6MB pre-built zip** is the correct deployment artifact. It contains the locally compiled `dist/`, a root `server.cjs` Hostinger launcher, and the exact package/lock files needed to install runtime dependencies. It never contains `node_modules`, TypeScript source, or environment files.
 
-The **~21MB source zip** is what `git archive HEAD` produces — full source without node_modules. Hostinger installs and builds it.
+The **~21MB source zip** is what `git archive HEAD` produces. Keep it for source transfer only; do not use it for the current Hostinger deployment because the host reports Node 24.6 while the build is pinned to Node 24.15 or newer.
 
 The **~70MB zips** were mistakes that accidentally included `node_modules/`.
 
@@ -77,71 +77,26 @@ The **~70MB zips** were mistakes that accidentally included `node_modules/`.
 
 ## 3. Deployment — Full Step-by-Step
 
-### OPTION A: Pre-built deploy (recommended — faster)
+### Production deploy: verified pre-built archive
 
-1. Build from the repo:
+1. From a clean, committed `main` checkout under Node 24.18, run:
    ```bash
-   npm run build
+   bash scripts/build-deploy-zip.sh
    ```
-   This produces/updates `dist/`.
+   The script runs the fail-closed build, verifies the exact-commit release manifest, creates the Hostinger launcher and package metadata in an isolated staging directory, rejects secrets and forbidden directories, and verifies the extracted archive.
 
-2. Create a deployment package.json:
-   ```bash
-   cat > /tmp/deploy-pkg.json << 'EOF'
-   {
-     "name": "paws-and-memories",
-     "version": "0.0.0",
-     "scripts": {
-       "build": "echo 'Pre-built. No build step required.'",
-       "start": "node server.cjs"
-     },
-     "engines": { "node": ">=18" }
-   }
-   EOF
+2. In Hostinger hPanel → Websites → pawsome3d.com → Deployments → **Upload new files** → upload `pawsome3d-deploy.zip` → Redeploy.
+
+3. Hostinger runs:
    ```
-
-3. Zip from inside `dist/`, then add the package.json:
-   ```bash
-   cd dist
-   zip -r ../pawsome3d-deploy.zip . -x "*.map"
-   cd ..
-   cp /tmp/deploy-pkg.json package.json  # temporarily
-   zip pawsome3d-deploy.zip package.json
-   rm package.json  # restore
-   ```
-
-4. In Hostinger hPanel → Websites → pawsome3d.com → Deployments → **Upload new files** → upload zip → Redeploy.
-
-5. Hostinger runs:
-   ```
-   npm install      (nothing to install — no dependencies listed)
-   npm run build    (echoes "Pre-built." and exits 0)
-   node server.cjs  (starts the Express app)
+   npm install      (installs the locked external runtime dependencies)
+   npm run build    (verified pre-built no-op)
+   node server.cjs  (loads dist/server.cjs)
    ```
 
 > **CRITICAL:** The `"build"` script is required even as a no-op — Hostinger ALWAYS runs `npm run build` and crashes without it.
 
-### OPTION B: Source deploy (simpler — Hostinger builds)
-
-1. Commit your work first (zip uses git HEAD):
-   ```bash
-   git add -A && git commit -m "your message"
-   ```
-
-2. Create the source zip with release manifest and archive verification:
-   ```bash
-   bash scripts/build-deploy-zip.sh
-   ```
-   This generates `pawsome3d-deploy.zip` (~20MB) after validating worktree cleanliness, embedding `release-manifest.json` with Node 24 engine validation, and verifying extracted archive integrity.
-
-3. Upload to Hostinger same as step 4 above.
-
-4. Hostinger runs:
-   ```
-   npm install      (installs all deps incl. vite + esbuild from dependencies)
-   npm run build    (vite build + esbuild → dist/server.cjs)
-   node dist/server.cjs
-   ```
+Do not hand-edit `package.json` or assemble this archive manually. The release script preserves dependencies (the server bundle externalizes npm packages) while replacing only the host-side lifecycle scripts in the staged copy.
 
 ### Do NOT do
 
