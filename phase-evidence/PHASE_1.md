@@ -3,7 +3,7 @@
 Status: Complete (Signed off locally)  
 Branch: `fix/text-mode-reference-screen`  
 Start commit: `29fc88a5de9755e998da8b21fb83160ff4195970`  
-Release commit: TBD (recorded upon atomic commit creation)  
+Release commit: `46cd2df1e2462197a9b4d92f16108e45b54f9b6b`  
 Owner/write boundary: `server/assets/` (`README.md`, `schemas.ts`, `types.ts`, `repository.ts`, `service.ts`, `access.ts`, `accounting.ts`, `reconciliation.ts`, `legacyAdapters.ts`, `routes.ts`), migration 18 in `server/migrations/runner.ts`, `tests/phase1_*.test.mjs`, `PHASED_IMPLEMENTATION.md`, `handoff.md`, `phase-evidence/PHASE_1.md`  
 Feature flags: `CANONICAL_ASSETS_ENABLED` (default: `false`, server-side enforced)  
 Migration versions: 18  
@@ -59,6 +59,15 @@ Migration versions: 18
 |---|---|---|
 | Homebrew MySQL 8.4 on `127.0.0.1:3306` | Migration 18 upgrade, canonical tables creation, idempotency, concurrent runners, lineage constraints, version immutability | PASS (4/4 subtests) |
 | Production Service & Router | Registration, versioning, lineage, signed URL, accounting, reconciliation, legacy adapters, Fur Bin fallback | PASS (16/16 subtests) |
+
+## Release Artifact
+
+- Archive: `pawsome3d-deploy.zip`
+- Archive SHA-256: `132029ae89066ca07ef49ef11371673ee1211c2b41f8c5bb34fc559871009697`
+- Manifest commit: `46cd2df1e2462197a9b4d92f16108e45b54f9b6b`
+- Manifest schema version: 18
+- Manifest file count: 732
+- Complete extracted checksum verification: PASS
 
 ## Exit Decision
 
