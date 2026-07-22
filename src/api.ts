@@ -1091,3 +1091,95 @@ export async function getTextureJob(jobId: string): Promise<TextureJobStatus> {
   if (!res.ok) throw new Error("Failed to fetch texture job");
   return res.json();
 }
+
+export async function createReferenceSession(
+  inputMode: "text" | "photo",
+  prompt?: string,
+  subjectClass: string = "pet",
+): Promise<{ success: boolean; sessionUuid: string; state: string }> {
+  const res = await authedFetch("/api/reference-sessions/create", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ inputMode, prompt, subjectClass }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to create reference session (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function startReferenceAttempt(
+  sessionUuid: string,
+  idempotencyKey: string,
+): Promise<{ success: boolean; session: any }> {
+  const res = await authedFetch("/api/reference-sessions/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionUuid, idempotencyKey }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to start reference attempt (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function retryReferenceAttempt(
+  sessionUuid: string,
+  idempotencyKey: string,
+  retryNotes?: string,
+): Promise<{ success: boolean; session: any }> {
+  const res = await authedFetch("/api/reference-sessions/retry", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionUuid, idempotencyKey, retryNotes }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to retry reference attempt (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function cancelReferenceSession(
+  sessionUuid: string,
+): Promise<{ success: boolean; state: string }> {
+  const res = await authedFetch("/api/reference-sessions/cancel", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionUuid }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to cancel reference session (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function approveReferenceManifest(
+  sessionUuid: string,
+  manifestHash: string,
+): Promise<{ success: boolean; session: any }> {
+  const res = await authedFetch("/api/reference-sessions/approve", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionUuid, manifestHash }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to approve reference manifest (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function getReferenceSessionDetail(
+  sessionUuid: string,
+): Promise<{ success: boolean; session: any }> {
+  const res = await authedFetch(`/api/reference-sessions/detail/${sessionUuid}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to fetch reference session detail (${res.status})`);
+  }
+  return res.json();
+}

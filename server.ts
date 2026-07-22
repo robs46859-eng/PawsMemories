@@ -18,6 +18,7 @@ import { injectMeta } from "./server/seoMeta";
 import { semanticScan as runSemanticScan } from "./server/semanticScan";
 import { animatorRouter } from "./server/animator/routes.ts";
 import { assetsRouter } from "./server/assets/routes";
+import { referenceSessionsRouter } from "./server/reference-sessions/routes";
 import { requireCanonicalAssetsEnabled } from "./server/assets/featureFlag";
 import { planWagsBox, getPriorBoxHistory } from "./server/wags/planner";
 import { deliverBox, getOwnedWardrobeItems } from "./server/wags/delivery";
@@ -864,6 +865,7 @@ async function startServer() {
   // Canonical assets are dark-launched. Keep the entire surface unavailable
   // unless enabled server-side, and never mount it outside the normal JWT gate.
   app.use("/api/assets", requireCanonicalAssetsEnabled, requireAuth, assetsRouter);
+  app.use("/api/reference-sessions", referenceSessionsRouter);
 
   app.post("/api/bim/import-ifc", requireAuth, async (req: AuthedRequest, res) => {
     try {

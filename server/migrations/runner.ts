@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type mysql from "mysql2/promise";
 
-export const CURRENT_SCHEMA_VERSION = 19;
+export const CURRENT_SCHEMA_VERSION = 20;
 
 export interface Migration {
   version: number;
@@ -173,6 +173,88 @@ export const MIGRATIONS: Migration[] = [
       `PREPARE stmt FROM @stmt`,
       `EXECUTE stmt`,
       `DEALLOCATE PREPARE stmt`,
+    ],
+  },
+  {
+    version: 20,
+    name: "multiview_reference_approval",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS reference_sessions (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        session_uuid CHAR(36) NOT NULL UNIQUE,
+        owner_id VARCHAR(190) NOT NULL,
+        input_mode ENUM('text', 'photo') NOT NULL,
+        subject_class VARCHAR(64) NOT NULL DEFAULT 'pet',
+        prompt TEXT NULL,
+        source_asset_id BIGINT NULL,
+        source_asset_version_id BIGINT NULL,
+        state ENUM('draft', 'queued', 'generating', 'ready', 'approved', 'failed', 'cancelled') NOT NULL DEFAULT 'draft',
+        current_attempt_id BIGINT NULL,
+        approved_attempt_id BIGINT NULL,
+        retry_count INT NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_ref_sessions_owner (owner_id),
+        INDEX idx_ref_sessions_state (state)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS reference_attempts (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        session_id BIGINT NOT NULL,
+        attempt_number INT NOT NULL,
+        idempotency_key VARCHAR(190) NOT NULL,
+        provider VARCHAR(64) NOT NULL DEFAULT 'gemini',
+        model VARCHAR(120) NOT NULL,
+        prompt_config_hash CHAR(64) NOT NULL,
+        retry_notes TEXT NULL,
+        state ENUM('queued', 'generating', 'ready', 'failed', 'cancelled') NOT NULL DEFAULT 'queued',
+        failure_code VARCHAR(64) NULL,
+        error_message TEXT NULL,
+        started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        completed_at TIMESTAMP NULL,
+        UNIQUE KEY uniq_ref_attempt_number (session_id, attempt_number),
+        UNIQUE KEY uniq_ref_attempt_idempotency (session_id, idempotency_key),
+        FOREIGN KEY (session_id) REFERENCES reference_sessions(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS reference_views (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        attempt_id BIGINT NOT NULL,
+        view_kind ENUM('front', 'left', 'right', 'rear', 'front_three_quarter') NOT NULL,
+        asset_id BIGINT NOT NULL,
+        asset_version_id BIGINT NOT NULL,
+        width_px INT NOT NULL,
+        height_px INT NOT NULL,
+        is_synthesized TINYINT(1) NOT NULL DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_ref_view_kind (attempt_id, view_kind),
+        FOREIGN KEY (attempt_id) REFERENCES reference_attempts(id) ON DELETE CASCADE,
+        FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE RESTRICT,
+        FOREIGN KEY (asset_version_id) REFERENCES asset_versions(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS reference_reports (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        attempt_id BIGINT NOT NULL UNIQUE,
+        report_asset_version_id BIGINT NULL,
+        status ENUM('pass', 'warn', 'fail') NOT NULL DEFAULT 'pass',
+        scale_confidence ENUM('unknown', 'declared', 'calibrated') NOT NULL DEFAULT 'unknown',
+        report_hash CHAR(64) NOT NULL,
+        metrics_json JSON NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (attempt_id) REFERENCES reference_attempts(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS reference_approvals (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        session_id BIGINT NOT NULL UNIQUE,
+        attempt_id BIGINT NOT NULL,
+        manifest_hash CHAR(64) NOT NULL,
+        approved_by_user VARCHAR(190) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (session_id) REFERENCES reference_sessions(id) ON DELETE RESTRICT,
+        FOREIGN KEY (attempt_id) REFERENCES reference_attempts(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
     ],
   },
 ];

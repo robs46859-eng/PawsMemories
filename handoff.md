@@ -1,5 +1,34 @@
 # Pawsome3D Project Handoff
 
+## Lead Architecture Update - Phase 2 - 2026-07-22
+
+Phase 2 High-Resolution Multiview Approval is complete and signed off locally.
+
+### Verified Deliverables & Evidence
+1. **Migration 20**: Migration 20 defines Schema 20 normalized tables (`reference_sessions`, `reference_attempts`, `reference_views`, `reference_reports`, `reference_approvals`) enforcing unique attempt view kinds (`front`, `left`, `right`, `rear`, `front_three_quarter`), idempotency, and immutable append-only session approvals. `CURRENT_SCHEMA_VERSION = 20`.
+2. **Domain Module (`server/reference-sessions/`)**:
+   - `types.ts`, `schemas.ts`: Strict ZodContracts (`.strict()`) for session state machine (`draft -> queued -> generating -> ready -> approved`), requests, responses, and AI reports.
+   - `repository.ts`: Transaction-boundary CRUD operations against Migration 20 tables.
+   - `service.ts`: Core state machine, authorization, attempt generation with 5 canonical reference asset versions, Zod consistency report evaluation, retry/replacement tracking, and explicit manifest hash verification (`MANIFEST_HASH_MISMATCH` protection).
+   - `provider.ts`: `ReferenceImageProvider` port and Gemini image generation adapter (`gemini-3.1-flash-image` chain), plus deterministic `FakeReferenceImageProvider` for testing.
+   - `consistency.ts`: AI multi-perspective consistency reporting and scale confidence evaluation (`unknown`/`declared`/`calibrated`).
+   - `storage.ts`: Server-minted private reference keys (`references/*`) returning computed SHA-256/size/MIME with compensating storage cleanup on attempt failure.
+   - `routes.ts`: Authenticated HTTP router mounted at `/api/reference-sessions`.
+   - `featureFlag.ts`: Server-authoritative feature flag check (`MULTIVIEW_APPROVAL_ENABLED`, default: `false`).
+3. **Frontend UI & API**:
+   - `src/api.ts`: API client functions for reference sessions.
+   - `src/components/create-flow/CreateReferenceScreen.tsx`: 5-view canonical review grid, tap-to-zoom modal with keyboard close (`Escape`), warning notice, AI consistency report card, retry with notes input, zero PupCoins price disclaimer, and explicit manifest approval.
+4. **Automated Verification**:
+   - `npm run lint`: PASS (0 errors, `tsc --noEmit`)
+   - `node --import tsx --test tests/phase2_*.test.mjs`: PASS (14/14 subtests pass across migration, service, router, and 3D provider spy)
+   - `npm run test`: PASS (800 pass, 0 fail, 3 skips)
+   - `npm run build`: PASS (Vite + esbuild clean build)
+   - `node scripts/animator-doctor.mjs`: PASS (All server-side checks passed)
+   - `git diff --check`: PASS (Clean whitespace)
+5. **3D Provider Isolation**: 3D provider spy verified zero calls to Tripo, Meshy, Blender, or any 3D provider during Phase 2 reference generation or manifest approval.
+
+Evidence document: `phase-evidence/PHASE_2.md`. Phase 3 starts at migration 21 and requires explicit lead instruction before starting.
+
 ## Lead Architecture Update - Phase 1 - 2026-07-22
 
 Phase 1 Canonical Asset Registry and Storage Accounting is complete after lead correction. Phase 2 is approved to begin from the clean correction commit.
