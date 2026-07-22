@@ -221,7 +221,7 @@ export async function putPrivateObject(
 
 /** Delete a known private object when a later metadata write cannot be committed. */
 export async function deletePrivateObject(objectKey: string): Promise<void> {
-  if (!objectKey.startsWith("marketplace/") && !objectKey.startsWith("references/")) {
+  if (!objectKey.startsWith("marketplace/") && !objectKey.startsWith("references/") && !objectKey.startsWith("models/")) {
     throw new PrivateStorageError("Refusing to delete an object outside allowed private prefixes.");
   }
   await client().send(

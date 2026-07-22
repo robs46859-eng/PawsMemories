@@ -72,7 +72,7 @@ test("Phase 2 Real MySQL 8.4 Migrations 20-21 Test Suite", async (t) => {
     try {
       const res = await runMigrations(pool);
       assert.ok(res.applied >= 1, "Must apply migrations up to version 21");
-      assert.equal(CURRENT_SCHEMA_VERSION, 21);
+      assert.ok(CURRENT_SCHEMA_VERSION >= 21);
 
       // Verify all 5 Phase 2 tables exist
       const [tables] = await pool.query(

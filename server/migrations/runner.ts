@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type mysql from "mysql2/promise";
 
-export const CURRENT_SCHEMA_VERSION = 21;
+export const CURRENT_SCHEMA_VERSION = 22;
 
 export interface Migration {
   version: number;
@@ -302,6 +302,122 @@ export const MIGRATIONS: Migration[] = [
       `SELECT COUNT(*) INTO @check_exists FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'reference_views' AND CONSTRAINT_NAME = 'chk_ref_view_min_dimensions'`,
       `SET @stmt = IF(@check_exists = 0, 'ALTER TABLE reference_views ADD CONSTRAINT chk_ref_view_min_dimensions CHECK (width_px >= 1024 AND height_px >= 1024)', 'SELECT 1')`,
       `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+    ],
+  },
+  {
+    version: 22,
+    name: "durable_model_build",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS model_build_jobs (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        job_uuid CHAR(36) NOT NULL,
+        owner_id VARCHAR(190) NOT NULL,
+        reference_session_id BIGINT NOT NULL,
+        reference_attempt_id BIGINT NOT NULL,
+        manifest_asset_id BIGINT NOT NULL,
+        manifest_asset_version_id BIGINT NOT NULL,
+        manifest_hash CHAR(64) NOT NULL,
+        requested_output VARCHAR(20) NOT NULL DEFAULT 'glb',
+        pricing_key VARCHAR(64) NOT NULL,
+        quoted_credits INT NOT NULL,
+        state VARCHAR(30) NOT NULL DEFAULT 'draft',
+        current_attempt_id BIGINT NULL,
+        accepted_artifact_id BIGINT NULL,
+        accepted_report_id BIGINT NULL,
+        credit_correlation_id VARCHAR(120) NULL,
+        refund_correlation_id VARCHAR(120) NULL,
+        failure_code VARCHAR(120) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_job_uuid (job_uuid),
+        INDEX idx_job_owner (owner_id, state),
+        CONSTRAINT chk_job_quoted_credits CHECK (quoted_credits >= 0),
+        FOREIGN KEY (reference_session_id) REFERENCES reference_sessions(id) ON DELETE RESTRICT,
+        FOREIGN KEY (reference_attempt_id) REFERENCES reference_attempts(id) ON DELETE RESTRICT,
+        FOREIGN KEY (manifest_asset_id) REFERENCES assets(id) ON DELETE RESTRICT,
+        FOREIGN KEY (manifest_asset_version_id) REFERENCES asset_versions(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS model_build_attempts (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        job_id BIGINT NOT NULL,
+        attempt_number INT NOT NULL,
+        idempotency_key CHAR(36) NOT NULL,
+        provider VARCHAR(64) NOT NULL DEFAULT 'tripo',
+        model VARCHAR(64) NOT NULL DEFAULT 'default',
+        provider_task_handle VARCHAR(255) NULL,
+        input_config_hash CHAR(64) NOT NULL,
+        lease_owner VARCHAR(120) NULL,
+        lease_expires_at TIMESTAMP NULL,
+        state VARCHAR(30) NOT NULL DEFAULT 'queued',
+        failure_code VARCHAR(120) NULL,
+        error_message VARCHAR(500) NULL,
+        started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        completed_at TIMESTAMP NULL,
+        UNIQUE KEY uniq_attempt_idempotency (idempotency_key),
+        UNIQUE KEY uniq_attempt_job_number (job_id, attempt_number),
+        CONSTRAINT chk_attempt_number CHECK (attempt_number >= 1),
+        FOREIGN KEY (job_id) REFERENCES model_build_jobs(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS model_provider_events (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        provider VARCHAR(64) NOT NULL,
+        event_hash CHAR(64) NOT NULL,
+        attempt_id BIGINT NOT NULL,
+        event_type VARCHAR(30) NOT NULL,
+        received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        processed_at TIMESTAMP NULL,
+        payload_metadata JSON NULL,
+        UNIQUE KEY uniq_provider_event (event_hash),
+        FOREIGN KEY (attempt_id) REFERENCES model_build_attempts(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS model_build_artifacts (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        attempt_id BIGINT NOT NULL,
+        asset_id BIGINT NOT NULL,
+        asset_version_id BIGINT NOT NULL,
+        role VARCHAR(30) NOT NULL,
+        computed_hash CHAR(64) NOT NULL,
+        size_bytes BIGINT NOT NULL,
+        mime_type VARCHAR(120) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_artifact_role (attempt_id, role),
+        CONSTRAINT chk_artifact_size CHECK (size_bytes >= 0),
+        FOREIGN KEY (attempt_id) REFERENCES model_build_attempts(id) ON DELETE CASCADE,
+        FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE RESTRICT,
+        FOREIGN KEY (asset_version_id) REFERENCES asset_versions(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS model_post_build_reports (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        attempt_id BIGINT NOT NULL UNIQUE,
+        report_asset_id BIGINT NOT NULL,
+        report_asset_version_id BIGINT NOT NULL,
+        status ENUM('pass', 'warn', 'fail') NOT NULL DEFAULT 'pass',
+        validator_versions VARCHAR(255) NOT NULL,
+        metrics_hash CHAR(64) NOT NULL,
+        metrics_json JSON NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (attempt_id) REFERENCES model_build_attempts(id) ON DELETE CASCADE,
+        FOREIGN KEY (report_asset_id) REFERENCES assets(id) ON DELETE RESTRICT,
+        FOREIGN KEY (report_asset_version_id) REFERENCES asset_versions(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS model_build_acceptances (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        job_id BIGINT NOT NULL UNIQUE,
+        attempt_id BIGINT NOT NULL,
+        artifact_id BIGINT NOT NULL,
+        report_id BIGINT NOT NULL,
+        accepted_by_user VARCHAR(190) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (job_id) REFERENCES model_build_jobs(id) ON DELETE RESTRICT,
+        FOREIGN KEY (attempt_id) REFERENCES model_build_attempts(id) ON DELETE RESTRICT,
+        FOREIGN KEY (artifact_id) REFERENCES model_build_artifacts(id) ON DELETE RESTRICT,
+        FOREIGN KEY (report_id) REFERENCES model_post_build_reports(id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
     ],
   },
 ];

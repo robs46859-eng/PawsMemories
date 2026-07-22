@@ -1212,3 +1212,107 @@ export async function getReferenceSessionDetail(
   }
   return res.json();
 }
+
+// ─── Phase 3 Model Build API ────────────────────────────────────────────────
+
+export async function getModelBuildQuote(
+  referenceSessionUuid: string,
+): Promise<{ success: boolean; data: any }> {
+  const res = await authedFetch("/api/model-builds/quote", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ referenceSessionUuid }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to get model build quote (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function startModelBuild(
+  referenceSessionUuid: string,
+  idempotencyKey: string,
+  requestedOutput: string = "glb",
+): Promise<{ success: boolean; data: any }> {
+  const res = await authedFetch("/api/model-builds/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ referenceSessionUuid, idempotencyKey, requestedOutput }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to start model build (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function getModelBuildDetail(
+  jobUuid: string,
+): Promise<{ success: boolean; data: any }> {
+  const res = await authedFetch(`/api/model-builds/${jobUuid}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to fetch model build detail (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function listModelBuilds(): Promise<{ success: boolean; data: any[] }> {
+  const res = await authedFetch("/api/model-builds");
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to list model builds (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function retryModelBuild(
+  jobUuid: string,
+  idempotencyKey: string,
+  correctionNotes?: string,
+): Promise<{ success: boolean; data: any }> {
+  const res = await authedFetch(`/api/model-builds/${jobUuid}/retry`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ idempotencyKey, correctionNotes }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to retry model build (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function cancelModelBuild(
+  jobUuid: string,
+  reason?: string,
+): Promise<{ success: boolean; data: any }> {
+  const res = await authedFetch(`/api/model-builds/${jobUuid}/cancel`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to cancel model build (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function acceptModelBuild(
+  jobUuid: string,
+  artifactHash: string,
+  reportHash: string,
+): Promise<{ success: boolean; data: any }> {
+  const res = await authedFetch(`/api/model-builds/${jobUuid}/accept`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ artifactHash, reportHash }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to accept model build (${res.status})`);
+  }
+  return res.json();
+}

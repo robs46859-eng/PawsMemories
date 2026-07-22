@@ -1,5 +1,35 @@
 # Pawsome3D Project Handoff
 
+## Lead Architecture Update - Phase 3 - 2026-07-22
+
+Phase 3 Durable 3D Build and Verification is complete and signed off locally behind `MODEL_BUILD_V3_ENABLED=false`.
+
+### Verified Deliverables & Evidence
+1. **Migration 22**: `durable_model_build` defines six normalized tables (`model_build_jobs`, `model_build_attempts`, `model_provider_events`, `model_build_artifacts`, `model_post_build_reports`, `model_build_acceptances`) with composite FKs, CHECK constraints for non-negative values, and UNIQUE keys for idempotency/events/one-acceptance. `CURRENT_SCHEMA_VERSION = 22`.
+2. **Domain Module (`server/model-builds/`)**:
+   - `types.ts`, `schemas.ts`: Strict Zod validation, state machine enums (`draft -> preflight -> reserving -> queued -> submitted -> processing -> downloading -> validating -> ready -> accepted`), and public DTOs excluding object keys.
+   - `repository.ts`: Row locking (`FOR UPDATE`), transaction-boundary CRUD, lease management (`claimLease`), provider event deduplication.
+   - `service.ts`: Core state machine, authorization, server-side preflight verification of Phase 2 approved manifest and 5 canonical views, credit debit/refund with correlation IDs, retry/correction (max 3), cancellation, and explicit user acceptance.
+   - `provider.ts`: `ModelBuildProvider` port, `TripoModelBuildAdapter` (maps 5 approved reference views to Tripo 4-slot multiview), SSRF URL allowlisting (`api.tripo3d.ai`), download streaming with byte limits/magic validation, and `FakeModelBuildProvider` with minimal valid GLB fixture.
+   - `storage.ts`: Server-minted private S3/B2 keys (`models/*`) with computed SHA-256 and compensating cleanup.
+   - `validation.ts`: Deterministic post-build GLB validation using `@gltf-transform/core` (magic/version, reopen, scene/mesh/primitive/POSITION accessor checks, finite position/transform bounds, triangle/vertex counts, texture details, deterministic metricsHash; never claims real-world scale).
+   - `routes.ts`: Authenticated HTTP router mounted at `/api/model-builds`.
+   - `featureFlag.ts`: Server-authoritative `MODEL_BUILD_V3_ENABLED` (default `false`).
+   - `recovery.ts`: Stale lease detection worker for admin reconciliation.
+3. **Frontend API**:
+   - `src/api.ts`: `getModelBuildQuote`, `startModelBuild`, `getModelBuildDetail`, `listModelBuilds`, `retryModelBuild`, `cancelModelBuild`, `acceptModelBuild`.
+4. **Automated Verification**:
+   - `npm run lint`: PASS (0 errors)
+   - Phase 2 suite: 19/19 PASS against live MySQL 8.4
+   - Phase 3 suite: 21/21 PASS against live MySQL 8.4 (5 migration, 3 provider, 5 validation, 4 service, 4 routes)
+   - Complete suite: 826/829 PASS (3 unrelated opt-in skips) under Node v24.18.0
+   - `npm run build`: PASS
+   - `node scripts/animator-doctor.mjs`: PASS
+   - `git diff --check`: PASS
+5. **Evidence**: `phase-evidence/PHASE_3.md` updated with full automated and integration evidence.
+
+---
+
 ## Lead Correction - Phase 2 - 2026-07-22
 
 The prior Phase 2 signoff is superseded. Lead review found fake production generation, spoofable test authentication, missing photo transport, unmeasured images, fabricated visual scores, unsafe concurrent state changes, incomplete canonical lineage, and false provider/browser evidence. These code defects are corrected in the current worktree with schema 21 hardening and 19/19 focused tests.

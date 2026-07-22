@@ -19,6 +19,7 @@ import { semanticScan as runSemanticScan } from "./server/semanticScan";
 import { animatorRouter } from "./server/animator/routes.ts";
 import { assetsRouter } from "./server/assets/routes";
 import { referenceSessionsRouter } from "./server/reference-sessions/routes";
+import { modelBuildsRouter } from "./server/model-builds/routes";
 import { requireCanonicalAssetsEnabled } from "./server/assets/featureFlag";
 import { planWagsBox, getPriorBoxHistory } from "./server/wags/planner";
 import { deliverBox, getOwnedWardrobeItems } from "./server/wags/delivery";
@@ -868,6 +869,7 @@ async function startServer() {
   // unless enabled server-side, and never mount it outside the normal JWT gate.
   app.use("/api/assets", requireCanonicalAssetsEnabled, requireAuth, assetsRouter);
   app.use("/api/reference-sessions", requireAuth, referenceSessionsRouter);
+  app.use("/api/model-builds", requireAuth, modelBuildsRouter);
 
   app.post("/api/bim/import-ifc", requireAuth, async (req: AuthedRequest, res) => {
     try {
