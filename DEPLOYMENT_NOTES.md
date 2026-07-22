@@ -1,166 +1,280 @@
-# DEPLOYMENT_NOTES.md
-# Pawsome3D — deployment gotchas & checklist
+# Pawsome3D — Architecture, Build & Deployment Reference
 
-Practical notes for shipping the app (main app on Hostinger, blender-worker on Render).
-Keep this current — it captures things that have bitten us or will.
+*Last updated: 2026-07-21*
 
 ---
 
-## 1. `index.html` is a Vite **dev** template — you MUST build for production
+## 1. System Architecture
 
-`index.html` at the repo root ends with:
+Three separate services. Each deploys independently.
 
-```html
-<script type="module" src="/src/main.tsx"></script>
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Browser (pawsome3d.com)                                            │
+│  React 19 + Vite — served as static assets from Hostinger          │
+└────────────────────────┬────────────────────────────────────────────┘
+                         │ HTTPS
+┌────────────────────────▼────────────────────────────────────────────┐
+│  HOSTINGER (pawsome3d.com)   [SERVICE 1 — Main App]                │
+│  Node.js 24 + Express 4                                            │
+│  Entry: dist/server.cjs                                            │
+│  • Serves Vite frontend from dist/                                  │
+│  • All /api/* routes (auth, avatars, payments, AI, etc.)           │
+│  • MySQL (Hostinger built-in) for users, avatars, transactions     │
+│  • Connects to Google Gemini, Tripo3D, Stripe, Twilio, S3          │
+│  • Sends Blender scripts to the worker via HTTP                    │
+└────────────────────────┬────────────────────────────────────────────┘
+                         │ POST /render (WORKER_SHARED_SECRET auth)
+┌────────────────────────▼────────────────────────────────────────────┐
+│  RENDER — pawsmemories.onrender.com  [SERVICE 2 — Blender Worker]  │
+│  Docker container (Node 20 + Blender 5.1.2 + Python/bpy)          │
+│  Entry: blender-worker/server.js                                   │
+│  • Receives { script, args } from main app                         │
+│  • Executes Blender headlessly (bpy) and returns results           │
+│  • Hosts render artifacts, IFC conversion                          │
+│  • BLENDER_WORKER_URL = https://pawsmemories.onrender.com/render   │
+└────────────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────────────┐
+│  RENDER — pawsmemories-1.onrender.com  [SERVICE 3 — X DM Bot]     │
+│  Node.js 20 (NOT Docker)                                           │
+│  Entry: x-dm-service/dist/index.js                                 │
+│  Status: SHOULD BE DISABLED (not used in production)               │
+└────────────────────────────────────────────────────────────────────┘
 ```
 
-That `/src/main.tsx` path **only works under the Vite dev server**. It does not exist in a
-production deploy. If you serve the raw repo-root `index.html`, the page loads the fonts +
-`<model-viewer>` CDN script and then a blank `#root` — no app.
+---
 
-**Correct flow:** `npm run build` runs `vite build`, which emits `dist/index.html` with the
-`/src/main.tsx` reference rewritten to the hashed production bundles (`/assets/*.js`, `*.css`).
-Deploy must run the build and serve **`dist/`**, never the repo root.
+## 2. Build Pipeline (Main App)
 
-### How the server decides dev vs prod
-`server.ts` (bottom) auto-detects production:
+### What the build does
 
-```ts
-const distPath = path.join(process.cwd(), 'dist');
-const isProduction = process.env.NODE_ENV === "production" || fs.existsSync(path.join(distPath, 'index.html'));
+```bash
+npm run build
+# = vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs
 ```
 
-- **Prod** (dist/index.html exists): `express.static(dist)` + SPA catch-all → `dist/index.html`.
-- **Dev** (no dist): mounts Vite middleware.
+Step 1 — `vite build`: compiles the entire React frontend, processes Tailwind, and emits hashed production bundles to `dist/assets/` plus `dist/index.html`.
 
-So on Hostinger the deploy must `npm install && npm run build` (produces `dist/`) **before**
-`npm start`. If `dist/index.html` is missing, the server tries to load Vite at runtime (which
-should not be present in a prod install) and the app won't serve correctly. Symptom of a
-half-built deploy: blank page, or 500s mentioning `vite`.
+Step 2 — `esbuild server.ts`: bundles the Express server (server.ts + auth.ts + db.ts etc.) into a single `dist/server.cjs` file (~955KB). The `--packages=external` flag leaves npm packages (express, mysql2, stripe, etc.) out of the bundle so they're resolved from `node_modules` at runtime.
+
+### Why file sizes vary
+
+| Zip | Size | What's inside | Works on Hostinger? |
+|---|---|---|---|
+| Source zip (git archive) | ~21MB | All source + no dist | YES — Hostinger builds it |
+| Pre-built zip (dist only) | ~5–6MB | dist/ contents only | YES — needs correct package.json |
+| Zip with node_modules | ~70MB+ | source + node_modules | NO — never upload these |
+| Wrong-structure zip | any | files nested under `dist/subfolder/` | NO — Hostinger can't find entry |
+
+The **~5–6MB pre-built zip** is the correct deployment artifact when zipping from inside `dist/` — it's server.cjs + the Vite frontend assets + static files. No node_modules, no TypeScript source.
+
+The **~21MB source zip** is what `git archive HEAD` produces — full source without node_modules. Hostinger installs and builds it.
+
+The **~70MB zips** were mistakes that accidentally included `node_modules/`.
 
 ---
 
-## 2. SPA catch-all masks unknown API routes
+## 3. Deployment — Full Step-by-Step
 
-Production serving ends with:
+### OPTION A: Pre-built deploy (recommended — faster)
 
-```ts
-app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
+1. Build from the repo:
+   ```bash
+   npm run build
+   ```
+   This produces/updates `dist/`.
+
+2. Create a deployment package.json:
+   ```bash
+   cat > /tmp/deploy-pkg.json << 'EOF'
+   {
+     "name": "paws-and-memories",
+     "version": "0.0.0",
+     "scripts": {
+       "build": "echo 'Pre-built. No build step required.'",
+       "start": "node server.cjs"
+     },
+     "engines": { "node": ">=18" }
+   }
+   EOF
+   ```
+
+3. Zip from inside `dist/`, then add the package.json:
+   ```bash
+   cd dist
+   zip -r ../pawsome3d-deploy.zip . -x "*.map"
+   cd ..
+   cp /tmp/deploy-pkg.json package.json  # temporarily
+   zip pawsome3d-deploy.zip package.json
+   rm package.json  # restore
+   ```
+
+4. In Hostinger hPanel → Websites → pawsome3d.com → Deployments → **Upload new files** → upload zip → Redeploy.
+
+5. Hostinger runs:
+   ```
+   npm install      (nothing to install — no dependencies listed)
+   npm run build    (echoes "Pre-built." and exits 0)
+   node server.cjs  (starts the Express app)
+   ```
+
+> **CRITICAL:** The `"build"` script is required even as a no-op — Hostinger ALWAYS runs `npm run build` and crashes without it.
+
+### OPTION B: Source deploy (simpler — Hostinger builds)
+
+1. Commit your work first (zip uses git HEAD):
+   ```bash
+   git add -A && git commit -m "your message"
+   ```
+
+2. Create the source zip:
+   ```bash
+   git archive HEAD --format=zip -o pawsome3d-source.zip
+   ```
+   This is ~21MB. No node_modules.
+
+3. Upload to Hostinger same as step 4 above.
+
+4. Hostinger runs:
+   ```
+   npm install      (installs all deps incl. vite + esbuild from dependencies)
+   npm run build    (vite build + esbuild → dist/server.cjs)
+   node dist/server.cjs
+   ```
+
+### Do NOT do
+
+- Upload a zip with files nested inside a subdirectory (`dist/index.html` in the zip must be at the root `index.html`, not `dist/index.html`).
+- Upload anything with `node_modules/` included.
+- Push directly to `main` — it is branch-protected (6 required CI checks). Use PR branches.
+
+---
+
+## 4. Service Redeploy Order
+
+When deploying a full update across all services:
+
+```
+1. Render Docker (blender-worker / pawsmemories.onrender.com)
+2. Render Node   (x-dm-service   / pawsmemories-1.onrender.com)  ← skip if unused
+3. Hostinger     (main app       / pawsome3d.com)
 ```
 
-This is registered **after** all `/api/*` routes, so real endpoints work. BUT any **unmatched**
-`/api/...` path (typo, un-deployed route, wrong method) returns **`index.html` (200 HTML)**, not
-a 404 JSON. When debugging "my API returns HTML", the route isn't registered/matched — it's not
-a CORS or build problem. (Future hardening H-item: add an `/api/*` 404 JSON handler before the
-catch-all.)
+Reason: the main app calls the Blender worker. Deploy the worker first so it's ready before Hostinger restarts.
+
+For code-only changes to the main app only: just step 3.
 
 ---
 
-## 3. Deploy zip is built from `git archive HEAD` — commit first
+## 5. Environment Variables
 
-`bash scripts/build-deploy-zip.sh` → `pawsome3d-deploy.zip`. It archives **HEAD**, so any
-uncommitted/staged work is **excluded**. Always commit before building, or the zip ships stale
-code. (Sanity check in the script confirms a few critical files exist.) The zip is **source
-only** — Hostinger runs `npm install && npm run build` on it.
+Set in Hostinger → Websites → pawsome3d.com → Deployments → Settings → Environment variables.
 
-## 4. Stale `.git/*.lock` and Git unlink limitations in Sandbox
+| Variable | Notes |
+|---|---|
+| `NODE_ENV` | `production` |
+| `JWT_SECRET` | Long random string ≥32 chars |
+| `ADMIN_KEY` | Internal seed key (non-secret) |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Admin login credentials |
+| `GEMINI_API_KEY` | Google Gemini — required for all AI features |
+| `GEMINI_IMAGE_MODELS` | `gemini-3-pro-image,gemini-3.1-flash-image,gemini-3.1-flash-lite-image,gemini-2.5-flash-image` |
+| `TRIPO_API_KEY` | Tripo3D Image-to-3D |
+| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | Stripe Checkout + webhook |
+| `APP_URL` | `https://pawsome3d.com` |
+| `DB_HOST` | `127.0.0.1` (**NOT** `localhost`) |
+| `DB_PORT` | `3306` |
+| `DB_NAME` / `DB_USER` / `DB_PASSWORD` | MySQL credentials |
+| `GOOGLE_MAPS_API_KEY_SERVER` | Server-side Maps key (no referrer restriction) |
+| `VITE_GOOGLE_MAPS_API_KEY_BROWSER` | Browser Maps key (baked in at build time) |
+| `MEDIA_BUCKET_NAME` / `MEDIA_BUCKET_URL` / `MEDIA_BUCKET_KEY` / `MEDIA_BUCKET_SECRET` | S3-compatible object storage |
+| `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_PHONE_NUMBER` | SMS notifications |
+| `BLENDER_WORKER_URL` | `https://pawsmemories.onrender.com/render` |
+| `WORKER_SHARED_SECRET` | Auth header for blender-worker |
+| `HEYGEN_API_KEY` / `HEYGEN_DEFAULT_VOICE_ID` | HeyGen talking avatar video |
+| `ELEVENLABS_API_KEY` / `ELEVENLABS_MODEL_ID` / `ELEVENLABS_DEFAULT_VOICE_ID` | Animator voice preview |
+| `RHUBARB_BIN` | Optional path to Rhubarb Linux binary |
 
-The Cowork/sandbox mount blocks git `unlink` calls. This causes commands that require locks or unlinks (like `git commit`, `git rebase`, or modifying `.git/index`) to fail with "Unable to create '.git/HEAD.lock': File exists" or "Device or resource busy".
+**DB_HOST must be `127.0.0.1`, not `localhost`.** mysql2 on Node 18+ resolves `localhost` to IPv6 (`::1`), which Hostinger MySQL grants don't cover.
 
-**Workaround**: 
-- **Commits**: Commits must be finalized locally on the Mac (or whatever host OS is mounting the sandbox). Avoid running mutating git commands inside the sandbox/Dev/CI environment. 
-- **Deploy Zip Fallback**: If you need to build the deploy zip inside a restricted sandbox environment where `git ls-files` fails due to lock issues, you can run the `scripts/build-deploy-zip.sh` script to output to a temporary non-mount directory, but it's best to run `bash scripts/build-deploy-zip.sh` on the host Mac after committing.
-
-## 5. Environment variables
-
-Set in the host env (see `.env.example` for the full list). Notable ones:
-
-- `GEMINI_API_KEY` — vision + text LLM (pet classify, semantic scan).
-- `TRIPO_API_KEY` — image→3D + auto-rig.
-- `BLENDER_WORKER_URL` + `WORKER_SHARED_SECRET` — must match the Render worker (`x-worker-secret`).
-- `MEDIA_BUCKET_*` — Backblaze B2 for GLB/audio uploads. **Retention policy**: B2 buckets have no lifecycle expiration rules set (objects live forever). Any 404s for `models/` are typically due to provider URL leakage (fixed in Phase 6), not bucket cleanup.
-- **AR pet sim (new):**
-  - `PETSIM_RIG_ENABLED` — feature flag for `POST /api/pets/:id/rig` (**off by default**;
-    avatars without a rig keep the current render path).
-  - `TRIPO_RIG_MODEL_VERSION` — optional; defaults to `v2.0-20250506` in code.
-
-`.env` is gitignored, so it is **not** in the deploy zip — set vars in the Hostinger panel.
-
----
-
-## 6. Three.js single-copy (AR rendering)
-
-`vite.config.ts` sets `resolve.dedupe: ['three']`. Do not remove it — multiple three.js copies
-break `GLTFLoader`, materials, and all AR rendering ("Multiple instances of Three.js"). If you
-add an R3F-ecosystem dependency, verify the build still dedupes three.
+**Hostinger Remote MySQL host:** set to `%` (wildcard) in phpMyAdmin to allow connections from Render.
 
 ---
 
-## 7. External CDN dependencies at runtime
+## 6. Blender Worker
 
-`index.html` loads from third-party CDNs: Google Fonts, `Material Symbols`, and
-`model-viewer@3.5.0` (`ajax.googleapis.com`). These must be reachable from the client (and
-allowed by any CSP). The **8th Wall iOS AR engine** binary should be **pinned + self-hosted on
-B2** (its hosted service shut down Feb 2026 — CDN longevity risk, per spec §9).
+**Path in repo:** `blender-worker/`  
+**Deployed at:** `https://pawsmemories.onrender.com`  
+**Entry:** `blender-worker/server.js`  
+**Runtime:** Docker (Node 20 + Blender 5.1.2 + headless Linux deps)
 
----
+Receives `POST /render` with `{ script, args }` and a `x-worker-secret` header. Executes the Blender Python script headlessly and returns the result.
 
-## 8. Two HTML entry points
+`sanitizeBlenderScript()` in server.ts patches deprecated Blender 5.1 API calls before sending (removes `use_contact_shadows`, swaps `PointLight.distance` → `energy`, etc.).
 
-There is both `index.html` (the app) and `landing-index.html` (a standalone marketing landing
-page). Don't confuse them — the SPA build entry is `index.html`. If the landing page is served,
-it's wired separately; the app build/serve path above is for `index.html` → `dist/`.
+To redeploy: push to `main` (if auto-deploy is on) or manually trigger in Render dashboard.
 
 ---
 
-## Quick pre-deploy checklist
-1. `git commit` all intended work (deploy zip archives HEAD).
-2. `npm run lint` (`tsc --noEmit`) clean; `npm run test` + `npm run test:ar` green.
-3. `bash scripts/build-deploy-zip.sh` → upload `pawsome3d-deploy.zip`.
-4. Host runs `npm install && npm run build` → **confirm `dist/index.html` exists** → `npm start`.
-5. Set/verify env vars (esp. `WORKER_SHARED_SECRET` matches the worker; feature flags).
-6. Smoke-test: load `/` (app renders, not blank), hit one `/api/*` route (JSON, not HTML).
+## 7. AI Image Models (Nano Banana family)
 
-## Lip-Sync (Rhubarb / Tier B)
-
-Phase 2 ships a Rhubarb-backed Tier B lip-sync pipeline
-(`server/animator/lipsync.ts` + `src/animator/viseme/*`). Rhubarb is
-**optional** — when it is absent the pipeline degrades Tier B → Tier A
-(amplitude/jaw fallback) and speech audio still plays.
-
-### Environment variable
-- `RHUBARB_BIN` — absolute path to the Rhubarb CLI. If unset, the
-  server resolves in this order: `bin/rhubarb-lipsync`, `bin/rhubarb`,
-  `vendor/rhubarb/rhubarb*`, `/usr/local/bin/rhubarb*`, `/opt/rhubarb/rhubarb`,
-  then bare `rhubarb-lipsync` / `rhubarb` on `PATH`.
-- Invocation uses **no shell** (`spawn` with an argument array); the
-  transcript is passed as a temp dialog file, never interpolated into a command.
-- `ELEVENLABS_API_KEY` — required for the Animator live voice preview.
-- `ELEVENLABS_MODEL_ID` — optional; defaults to `eleven_multilingual_v2`.
-- `ELEVENLABS_DEFAULT_VOICE_ID` — optional; defaults to the documented value
-  in `.env.example`. Non-admin previews cost 25 credits and are capped at 30 seconds.
-
-### Local development
-```
-# macOS (Homebrew)
-brew install rhubarb-lip-sync        # provides `rhubarb-lipsync`
-# or download the release binary and point at it:
-export RHUBARB_BIN="$PWD/vendor/rhubarb/rhubarb-lipsync"
+```typescript
+// server.ts line ~3553
+const IMAGE_MODELS = [
+  "gemini-3-pro-image",        // try first
+  "gemini-3.1-flash-image",
+  "gemini-3.1-flash-lite-image",
+  "gemini-2.5-flash-image"     // last fallback
+];
 ```
 
-### Hostinger / Linux (production)
-1. Download the Linux build from
-   https://github.com/DanielSWolf/rhubarb-lip-sync/releases and place it at
-   `/opt/rhubarb/rhubarb-lipsync` (or `bin/rhubarb-lipsync` in the repo).
-2. `chmod +x` the binary.
-3. In the Hostinger env / `.env`: `RHUBARB_BIN=/opt/rhubarb/rhubarb-lipsync`.
-4. `node scripts/animator-doctor.mjs` should report
-   `Rhubarb Lip Sync CLI (Tier B, optional): OK` with a version line.
+Server tries each in order until one succeeds. Controlled by `GEMINI_IMAGE_MODELS` env var.
 
-### Absence / degraded behavior
-- No binary → `resolveRhubarbBin()` returns `null`; `POST /animator/lipsync`
-  marks the job `failed` with `errorCode: BIN_NOT_FOUND`; the client
-  automatically falls back to Tier A. The doctor reports Rhubarb as a
-  **warning**, not a hard failure, so the rest of the deployment stays green.
-- The production browser bundle contains **no** Rhubarb binary or Node-only
-  server modules — Rhubarb runs only on the server.
+---
+
+## 8. Recent Changes
+
+### Text-mode generate-reference fix (2026-07-21, branch `fix/text-mode-reference-screen`)
+
+`CreateReferenceScreen.tsx`: `useEffect` previously only called `generateCandidate()` when `state.inputPhotoUrl` was truthy. In text mode, that's always null — so the screen was blank every time.
+
+Fix: check `hasInput` based on active mode:
+```typescript
+const hasInput = state.inputMode === "text"
+  ? !!(state.textPrompt || "").trim()
+  : !!state.inputPhotoUrl;
+```
+
+**Merge this branch before next deploy.**
+
+### Marketplace Customizer P1 (2026-07-20, commit `87a17f9`)
+
+- `wags_customizer_sessions`, `wags_customizer_line_items`, `wags_marketplace_items` tables
+- Stripe checkout + webhook for customizer orders
+- 35 tests passing
+
+---
+
+## 9. Known Issues
+
+| Issue | Status |
+|---|---|
+| Text-mode blank screen | Fixed — needs merge from `fix/text-mode-reference-screen` |
+| Multi-angle turnaround views | Not wired into create pipeline (only in `/api/avatars` for dogs) |
+| x-dm-service (`pawsmemories-1`) | Should be suspended/deleted in Render dashboard |
+| Old zip on Google Drive | `pawsmemories-redeploy-20260721-slim.zip` has wrong structure — replace with `pawsome3d-hostinger-fixed.zip` |
+
+---
+
+## 10. Pre-Deploy Checklist
+
+```
+[ ] All changes committed (git archive uses HEAD — uncommitted work is excluded)
+[ ] npm run build succeeds locally
+[ ] Zip structure is flat: package.json + server.cjs + index.html + assets/ all at root
+[ ] package.json has BOTH "build" (can be no-op) and "start" scripts
+[ ] Blender worker deployed first if worker code changed
+[ ] DB_HOST=127.0.0.1 in Hostinger env vars
+[ ] BLENDER_WORKER_URL=https://pawsmemories.onrender.com/render in Hostinger env vars
+[ ] After deploy: visit pawsome3d.com and confirm app loads
+```
