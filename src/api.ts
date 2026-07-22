@@ -1316,3 +1316,76 @@ export async function acceptModelBuild(
   }
   return res.json();
 }
+
+// ── Phase 4 Rig Pipeline API ────────────────────────────────────────────────
+
+export interface RigJobResponse {
+  jobUuid: string;
+  state: string;
+  classification: "biped" | "quadruped" | "unsupported" | null;
+  selectedProfile: string | null;
+  facialCapability: "full" | "partial" | "body_only" | "unsupported" | null;
+  rigValidation: {
+    boneCount: number;
+    maxInfluences: number;
+    mobileBudgetPass: boolean;
+    animationSweepPass: boolean;
+    overallPass: boolean;
+    rules: Array<{ rule: string; pass: boolean; detail: string; measured?: number | string }>;
+  } | null;
+  facialInventory: {
+    capability: "full" | "partial" | "body_only" | "unsupported";
+    morphCount: number;
+    visemeCoverage: number;
+    hasBlink: boolean;
+    hasJaw: boolean;
+    hasEyeControls: boolean;
+    deformationPass: boolean;
+  } | null;
+  accessories: Array<Record<string, unknown>>;
+  manifestHash: string | null;
+  failureCode: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function startRigJob(params: {
+  modelBuildJobUuid: string;
+  idempotencyKey: string;
+  profileId?: string;
+  requestFacial?: boolean;
+  accessoryIds?: string[];
+}): Promise<RigJobResponse> {
+  const res = await authedFetch("/api/rig-pipeline/jobs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to start rig job (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function getRigJob(jobUuid: string): Promise<RigJobResponse> {
+  const res = await authedFetch(`/api/rig-pipeline/jobs/${jobUuid}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to fetch rig job (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function acceptRigJob(jobUuid: string, manifestHash: string): Promise<RigJobResponse> {
+  const res = await authedFetch(`/api/rig-pipeline/jobs/${jobUuid}/accept`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ manifestHash }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to accept rig job (${res.status})`);
+  }
+  return res.json();
+}

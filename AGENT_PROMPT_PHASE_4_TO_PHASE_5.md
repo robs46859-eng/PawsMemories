@@ -1,4 +1,4 @@
-# Antigravity Prompt: Execute Phase 4, Then Phase 5
+
 
 Work in `/Users/robert/Desktop/claude7126/PawsMemories` from the current dirty worktree. Preserve all lead Phase 3 corrections. Do not commit, push, begin Phase 6, or include unrelated `scripts/add_visemes.py` work.
 

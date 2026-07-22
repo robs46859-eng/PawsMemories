@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode } from "react";
+import type { RigJobResponse } from "../../api";
 
 interface CreateFlowState {
   sessionId?: string;
@@ -18,6 +19,8 @@ interface CreateFlowState {
   validationState?: { passed: boolean; checks: { rule: string; pass: boolean; detail: string; }[] };
   style?: string; // e.g. "Realistic", "Cartoon"
   activeJobUuid?: string;
+  rigJobUuid?: string;
+  rigJob?: RigJobResponse;
   buildQuote?: any;
   buildJobDetail?: any;
 }
@@ -26,6 +29,10 @@ interface CreateFlowContextValue {
   state: CreateFlowState;
   setState: React.Dispatch<React.SetStateAction<CreateFlowState>>;
   resetState: () => void;
+  rigJobUuid?: string;
+  rigJob?: RigJobResponse;
+  setRigJobUuid: (uuid: string) => void;
+  setRigJob: (job: RigJobResponse) => void;
 }
 
 const CreateFlowContext = createContext<CreateFlowContextValue | undefined>(undefined);
@@ -58,8 +65,26 @@ export function CreateFlowProvider({ children }: { children: ReactNode }) {
     setState({ species: "dog", inputMode: "image" });
   };
 
+  const setRigJobUuid = (uuid: string) => {
+    setState((prev) => ({ ...prev, rigJobUuid: uuid }));
+  };
+
+  const setRigJob = (job: RigJobResponse) => {
+    setState((prev) => ({ ...prev, rigJob: job, rigJobUuid: job?.jobUuid || prev.rigJobUuid }));
+  };
+
   return (
-    <CreateFlowContext.Provider value={{ state, setState: handleSetState, resetState }}>
+    <CreateFlowContext.Provider
+      value={{
+        state,
+        setState: handleSetState,
+        resetState,
+        rigJobUuid: state.rigJobUuid,
+        rigJob: state.rigJob,
+        setRigJobUuid,
+        setRigJob,
+      }}
+    >
       {children}
     </CreateFlowContext.Provider>
   );

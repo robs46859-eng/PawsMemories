@@ -20,6 +20,8 @@ import { animatorRouter } from "./server/animator/routes.ts";
 import { assetsRouter } from "./server/assets/routes";
 import { referenceSessionsRouter } from "./server/reference-sessions/routes";
 import { modelBuildsRouter, modelBuildService } from "./server/model-builds/routes";
+import { createRigPipelineRouter } from "./server/rig-pipeline/routes";
+import { createFurBinRouter } from "./server/fur-bin/routes";
 import { isModelBuildV3Enabled } from "./server/model-builds/featureFlag";
 import { requireCanonicalAssetsEnabled } from "./server/assets/featureFlag";
 import { planWagsBox, getPriorBoxHistory } from "./server/wags/planner";
@@ -871,6 +873,8 @@ async function startServer() {
   app.use("/api/assets", requireCanonicalAssetsEnabled, requireAuth, assetsRouter);
   app.use("/api/reference-sessions", requireAuth, referenceSessionsRouter);
   app.use("/api/model-builds", requireAuth, modelBuildsRouter);
+  app.use("/api/rig-pipeline", requireAuth, createRigPipelineRouter(getPool));
+  app.use("/api/fur-bin", createFurBinRouter(getPool, { isAdmin: isUserAdmin }));
   if (isModelBuildV3Enabled()) {
     void modelBuildService.recoverStaleBuilds().catch((error) => {
       console.error("[model-build recovery] Startup recovery failed:", error.message);

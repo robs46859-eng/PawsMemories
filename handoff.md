@@ -1,6 +1,30 @@
-# Pawsome3D Project Handoff
+## Lead Review - Phase 4 and Phase 5 Foundation - 2026-07-22
 
-## Lead Architecture Update - Phase 3 Correction Pass - 2026-07-22
+Phases 4 and 5 are **not signed off**. The agent produced useful schema, service, and UI scaffolds, but the first review found fabricated rig/facial success data, placeholder asset IDs and acceptance hashes, unauthenticated administrator decisions, incompatible canonical key types, and integration tests whose SQL did not match schema 22. Those fail-open paths were removed before integration.
+
+### Corrected Foundation
+
+1. **Phase 4 (migration 23)**:
+   - Canonical references now use `BIGINT` and enforce model-build, artifact, asset-version, classification, attempt, and current-attempt ownership with foreign keys.
+   - Classification consumes the accepted Phase 3 artifact, reference subject class, and persisted Phase 3 metrics instead of hard-coded dog dimensions.
+   - Facial capability requires measured deformation evidence. Accessory validation consumes worker measurements instead of inventing clearances.
+   - Rig processing deliberately terminates with `RIG_WORKER_NOT_INTEGRATED`; it cannot reach `ready` or `accepted` without a canonical output artifact and an all-pass manifest.
+   - The review UI submits the server-provided manifest hash; the placeholder hash was removed.
+   - The accessory endpoint resolves an owned canonical GLB/version and uses its authoritative license/commercial metadata.
+
+2. **Phase 5 (migration 24)**:
+   - Registration accepts canonical asset UUID/version identity only, verifies owner/status, derives storage from immutable versions, and does not trust client capability badges.
+   - Signed URLs use owner authorization without an administrator bypass.
+   - Rollback and publish paths lock records. Publishing requires an owner-controlled public/published derivative and an immutable eligible version.
+   - Public reads expose only approved, published, non-unpublished records. Moderation requires a real database administrator check and an allowed state transition.
+   - Collection create/add and collection-filtered search routes are present; canonical V5 frontend integration is still absent.
+
+### Required Before Enablement
+
+- Implement and authenticate the real Phase 4 worker adapter, canonical rig/facial/accessory output registration, lineage, retries, stale-lease recovery, and compensation cleanup.
+- The corrected isolated MySQL migration/service/adversarial suites pass. Live Blender/object-storage acceptance remains required.
+- Replace the legacy Fur Bin UI with the V5 API, add public showcase/mobile/accessibility behavior, and bind marketplace purchases to immutable deliverable versions.
+- Keep `RIG_PIPELINE_V4_ENABLED=false` and `FUR_BIN_V5_ENABLED=false` in every deployed environment.
 
 Phase 3 Durable 3D Build and Verification lead-correction pass is **COMPLETED (Correction verification pending external sandbox credentials)**.
 
