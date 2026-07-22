@@ -5,6 +5,7 @@ import { runMigrations } from "../server/migrations/runner.ts";
 import { ModelBuildService } from "../server/model-builds/service.ts";
 import { FakeModelBuildProvider } from "../server/model-builds/provider.ts";
 import { validateGlb } from "../server/model-builds/validation.ts";
+import { computeOrderedManifestHash } from "../server/reference-sessions/service.ts";
 import { resetPrivateStorageClient } from "../storage.private.ts";
 
 const MYSQL_HOST = process.env.MYSQL_TEST_HOST || "127.0.0.1";
@@ -13,6 +14,28 @@ const MYSQL_USER = process.env.MYSQL_TEST_USER || "root";
 const MYSQL_PASSWORD = process.env.MYSQL_TEST_PASSWORD || "";
 const TEST_DB = "paws_phase3_adv_test_db";
 
+async function isMysqlServerReachable() {
+  try {
+    const connection = await mysql.createConnection({
+      host: MYSQL_HOST,
+      port: MYSQL_PORT,
+      user: MYSQL_USER,
+      password: MYSQL_PASSWORD,
+      connectTimeout: 2000,
+    });
+    await connection.ping();
+    await connection.end();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const mysqlAvailable = await isMysqlServerReachable();
+
+test.describe("Phase 3 adversarial MySQL integration", {
+  skip: mysqlAvailable ? false : "Local MySQL is not available.",
+}, () => {
 let pool;
 
 test.before(async () => {
@@ -75,8 +98,6 @@ test.after(async () => {
   process.env.MODEL_BUILD_V3_ENABLED = "false";
   if (pool) await pool.end();
 });
-
-import { computeOrderedManifestHash } from "../server/reference-sessions/service.ts";
 
 /** Helper to set up an approved reference session for testing */
 async function setupApprovedReferenceSession(pool, ownerPhone = `usr_${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`) {
@@ -508,4 +529,5 @@ test("12. Worker boundary fails closed in production mode if non-HTTPS or missin
     process.env.BLENDER_WORKER_URL = prevUrl;
     process.env.WORKER_SHARED_SECRET = prevSecret;
   }
+});
 });

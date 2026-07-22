@@ -9,7 +9,28 @@ const MYSQL_USER = process.env.MYSQL_TEST_USER || "root";
 const MYSQL_PASSWORD = process.env.MYSQL_TEST_PASSWORD || "";
 const TEST_DB = "paws_phase3_test_db";
 
-describe("Phase 3 Migration 22 MySQL Integration", () => {
+async function isMysqlServerReachable() {
+  try {
+    const connection = await mysql.createConnection({
+      host: MYSQL_HOST,
+      port: MYSQL_PORT,
+      user: MYSQL_USER,
+      password: MYSQL_PASSWORD,
+      connectTimeout: 2000,
+    });
+    await connection.ping();
+    await connection.end();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const mysqlAvailable = await isMysqlServerReachable();
+
+describe("Phase 3 Migration 22 MySQL Integration", {
+  skip: mysqlAvailable ? false : "Local MySQL is not available.",
+}, () => {
   let pool;
 
   before(async () => {
