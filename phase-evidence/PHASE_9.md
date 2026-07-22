@@ -25,8 +25,9 @@ Worker: Render, IfcOpenShell 0.8.5, NumPy 2.2.1
 | New Phase 9 tests | 14/14 PASS |
 | Focused AI/BIM plus existing BIM/pricing regressions | 105/105 PASS |
 | Python syntax compilation | PASS |
-| Full Node suite under Node 24.18 | 861 pass / 864 total / 3 opt-in skips / 0 failures |
+| Post-rebase full Node suite under Node 24.18 | 889 pass / 892 total / 3 opt-in skips / 0 failures |
 | Production build and manifest | PASS, 55 release files |
+| Animator subsystem doctor | PASS; optional Rhubarb warning only |
 
 ## Remaining Exit Work
 

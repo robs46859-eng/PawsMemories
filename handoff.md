@@ -39,7 +39,7 @@ Branch/worktree: `codex/phases-8-9` at `/Users/robert/Desktop/claude7126/PawsMem
 
 ### Evidence and blockers
 
-- Node 24.18: `npm run lint` passes; 105 focused AI/BIM plus existing BIM/pricing tests pass; full suite is 861 pass / 864 total / 3 opt-in skips / 0 failures; production build and 55-file release-manifest generation pass.
+- Post-rebase Node 24.18 integration: `npm run lint` passes; 105 focused AI/BIM plus existing BIM/pricing tests pass; full suite is 889 pass / 892 total / 3 opt-in skips / 0 failures; production build and 55-file release-manifest generation pass; animator doctor passes with only the optional Rhubarb warning.
 - Local Python 3.14.6 cannot import IfcOpenShell. `ifc_worker.py` and its tests pass Python syntax compilation, but the updated six-test IfcOpenShell suite must run in the pinned Render worker (`ifcopenshell==0.8.5`, NumPy 2.2.1).
 - Phase 8 is not complete until the other lane supplies a production Randy GLB/LOD with measured rig, facial, mobile, and accessibility evidence.
 - Phase 9 is not production-approved until BIM artifacts move from the legacy public media URL columns to private object keys/signed delivery and billing uses a durable idempotent job/credit/refund ledger. That cross-cutting schema work must be integrated after the active Phase 4-5 canonical-asset lane. A real Gemini text/image fixture, the Render IFC suite, shell/IFC downloads, refund behavior, and the 320/360/390/430px light/dark browser matrix also remain. Keep both BIM v2 flags false.

@@ -21,8 +21,9 @@ Feature flag: none for the existing chat; every action is a low-risk proposal re
 |---|---|
 | TypeScript | PASS |
 | Focused Randy tests | 7/7 PASS |
-| Full Node suite under Node 24.18 | 861 pass / 864 total / 3 opt-in skips / 0 failures |
+| Post-rebase full Node suite under Node 24.18 | 889 pass / 892 total / 3 opt-in skips / 0 failures |
 | Production build and manifest | PASS, 55 release files |
+| Animator subsystem doctor | PASS; optional Rhubarb warning only |
 
 ## Remaining Exit Work
 
