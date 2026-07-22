@@ -10,6 +10,7 @@ const mysqlHost = process.env.MYSQL_TEST_HOST || "127.0.0.1";
 const mysqlPort = Number(process.env.MYSQL_TEST_PORT || 3306);
 const mysqlUser = process.env.MYSQL_TEST_USER || "root";
 const mysqlPassword = process.env.MYSQL_TEST_PASSWORD || "";
+const INTERNAL = { internal: true };
 
 test("Phase 1 Storage Accounting and Reconciliation Suite", async (t) => {
   let conn;
@@ -64,7 +65,7 @@ test("Phase 1 Storage Accounting and Reconciliation Suite", async (t) => {
         bucket: "private",
         objectKey: sharedObjectKey,
       },
-      { isNewObjectUpload: false, pool },
+      { authorization: INTERNAL, isNewObjectUpload: false, pool },
     );
 
     // Asset 2 references the exact same sharedObjectKey (50,000 bytes)
@@ -79,7 +80,7 @@ test("Phase 1 Storage Accounting and Reconciliation Suite", async (t) => {
         bucket: "private",
         objectKey: sharedObjectKey,
       },
-      { isNewObjectUpload: false, pool },
+      { authorization: INTERNAL, isNewObjectUpload: false, pool },
     );
 
     // Version 2 of Asset 1 also references sharedObjectKey
@@ -92,6 +93,7 @@ test("Phase 1 Storage Accounting and Reconciliation Suite", async (t) => {
         bucket: "private",
         objectKey: sharedObjectKey,
       },
+      INTERNAL,
       pool,
     );
 
@@ -113,7 +115,7 @@ test("Phase 1 Storage Accounting and Reconciliation Suite", async (t) => {
         bucket: "private",
         objectKey: "private/photo.png",
       },
-      { isNewObjectUpload: false, pool },
+      { authorization: INTERNAL, isNewObjectUpload: false, pool },
     );
 
     // Manually corrupt current_version_id to a non-existent version ID 99999 (disabling FK check for corruption test)
@@ -151,7 +153,7 @@ test("Phase 1 Storage Accounting and Reconciliation Suite", async (t) => {
         bucket: "public",
         objectKey: "secret/internal/path/model_key_12345.glb",
       },
-      { isNewObjectUpload: false, pool },
+      { authorization: INTERNAL, isNewObjectUpload: false, pool },
     );
 
     const formatted = formatPublicAssetMetadata(asset, version);

@@ -83,6 +83,30 @@ export async function findAssetByUuid(
   };
 }
 
+export async function findAssetByUuidForUpdate(
+  connection: mysql.PoolConnection,
+  assetUuid: string,
+): Promise<AssetRecord | null> {
+  const [rows]: any = await connection.query(
+    `SELECT id, asset_uuid, owner_id, asset_type, visibility, status, current_version_id, created_at, updated_at
+     FROM assets WHERE asset_uuid = ? LIMIT 1 FOR UPDATE`,
+    [assetUuid],
+  );
+  if (!rows || rows.length === 0) return null;
+  const r = rows[0];
+  return {
+    id: Number(r.id),
+    asset_uuid: String(r.asset_uuid),
+    owner_id: String(r.owner_id),
+    asset_type: String(r.asset_type),
+    visibility: r.visibility as AssetVisibility,
+    status: r.status as AssetStatus,
+    current_version_id: r.current_version_id ? Number(r.current_version_id) : null,
+    created_at: new Date(r.created_at),
+    updated_at: new Date(r.updated_at),
+  };
+}
+
 export async function findAssetsByOwner(
   connection: mysql.PoolConnection | mysql.Pool,
   ownerId: string,

@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { isUserAdmin } from "../../db";
+import type { AuthedRequest } from "../../auth";
 import {
   RegisterAssetSchema,
   AddVersionSchema,
@@ -31,12 +32,21 @@ import { runAssetReconciliation } from "./reconciliation";
 
 export const assetsRouter = Router();
 
-// Middleware to extract authenticated user phone from request
 function getRequestUserPhone(req: Request): string | null {
-  const user = (req as any).user;
-  if (user && user.phone) return String(user.phone);
-  if (req.headers["x-user-phone"]) return String(req.headers["x-user-phone"]);
-  return null;
+  return (req as AuthedRequest).user?.phone || null;
+}
+
+async function requestUserIsAdmin(req: Request, userId: string): Promise<boolean> {
+  const testOverride = req.app.get("assetsIsUserAdmin");
+  if (typeof testOverride === "function") return Boolean(await testOverride(userId));
+  return isUserAdmin(userId);
+}
+
+function assetServiceStatus(error: unknown, fallback = 422): number {
+  if (!(error instanceof AssetServiceError)) return fallback;
+  if (error.code === "FORBIDDEN" || error.code === "UNAUTHORIZED") return 403;
+  if (error.code === "ASSET_NOT_FOUND" || error.code === "NOT_FOUND" || error.code === "VERSION_NOT_FOUND") return 404;
+  return fallback;
 }
 
 /**
@@ -47,13 +57,20 @@ assetsRouter.post("/register", async (req: Request, res: Response) => {
   try {
     const userPhone = getRequestUserPhone(req);
     if (!userPhone) return res.status(401).json({ success: false, error: "Authentication required" });
+    if (!await requestUserIsAdmin(req, userPhone)) {
+      return res.status(403).json({ success: false, error: "Raw asset registration is restricted to trusted administrators" });
+    }
 
     const payload = { ...req.body, ownerId: userPhone };
     const validated = RegisterAssetSchema.parse(payload);
     const pool = req.app.get("pool") || undefined;
 
-    const { asset, version } = await registerAsset(validated, { isNewObjectUpload: false, pool });
-    const formatted = formatPublicAssetMetadata(asset, version);
+    const { asset, version } = await registerAsset(validated, {
+      isNewObjectUpload: false,
+      pool,
+      authorization: { actorId: userPhone, isAdmin: true },
+    });
+    const formatted = formatPublicAssetMetadata(asset, version, { includeOwnerId: true });
 
     return res.status(201).json({ success: true, asset: formatted });
   } catch (error: any) {
@@ -73,25 +90,29 @@ assetsRouter.post("/versions", async (req: Request, res: Response) => {
   try {
     const userPhone = getRequestUserPhone(req);
     if (!userPhone) return res.status(401).json({ success: false, error: "Authentication required" });
+    const userIsAdmin = await requestUserIsAdmin(req, userPhone);
+    if (!userIsAdmin) {
+      return res.status(403).json({ success: false, error: "Raw asset version registration is restricted to trusted administrators" });
+    }
 
     const validated = AddVersionSchema.parse(req.body);
     const asset = await findAssetByUuid(req.app.get("pool") || undefined, validated.assetUuid);
     if (!asset) return res.status(404).json({ success: false, error: "Asset not found" });
 
     const pool = req.app.get("pool") || undefined;
-    if (asset.owner_id !== userPhone && !await isUserAdmin(userPhone)) {
-      return res.status(403).json({ success: false, error: "Access denied to target asset" });
-    }
-
-    const { asset: updatedAsset, version } = await addAssetVersion(validated, pool);
-    const formatted = formatPublicAssetMetadata(updatedAsset, version);
+    const { asset: updatedAsset, version } = await addAssetVersion(
+      validated,
+      { actorId: userPhone, isAdmin: userIsAdmin },
+      pool,
+    );
+    const formatted = formatPublicAssetMetadata(updatedAsset, version, { includeOwnerId: true });
 
     return res.status(201).json({ success: true, asset: formatted });
   } catch (error: any) {
     if (error.name === "ZodError") {
       return res.status(400).json({ success: false, error: "Invalid input schema", details: error.errors });
     }
-    return res.status(422).json({ success: false, error: error.message });
+    return res.status(assetServiceStatus(error)).json({ success: false, error: error.message });
   }
 });
 
@@ -109,19 +130,21 @@ assetsRouter.put("/current-version", async (req: Request, res: Response) => {
     const asset = await findAssetByUuid(pool, validated.assetUuid);
     if (!asset) return res.status(404).json({ success: false, error: "Asset not found" });
 
-    if (asset.owner_id !== userPhone && !await isUserAdmin(userPhone)) {
-      return res.status(403).json({ success: false, error: "Access denied to target asset" });
-    }
-
-    const { asset: updatedAsset, version } = await setCurrentVersion(validated.assetUuid, validated.versionNumber, pool);
-    const formatted = formatPublicAssetMetadata(updatedAsset, version);
+    const userIsAdmin = await requestUserIsAdmin(req, userPhone);
+    const { asset: updatedAsset, version } = await setCurrentVersion(
+      validated.assetUuid,
+      validated.versionNumber,
+      { actorId: userPhone, isAdmin: userIsAdmin },
+      pool,
+    );
+    const formatted = formatPublicAssetMetadata(updatedAsset, version, { includeOwnerId: true });
 
     return res.json({ success: true, asset: formatted });
   } catch (error: any) {
     if (error.name === "ZodError") {
       return res.status(400).json({ success: false, error: "Invalid input schema", details: error.errors });
     }
-    return res.status(422).json({ success: false, error: error.message });
+    return res.status(assetServiceStatus(error)).json({ success: false, error: error.message });
   }
 });
 
@@ -136,14 +159,15 @@ assetsRouter.post("/lineage", async (req: Request, res: Response) => {
 
     const validated = AddLineageSchema.parse(req.body);
     const pool = req.app.get("pool") || undefined;
-    await addLineage(validated, pool);
+    const userIsAdmin = await requestUserIsAdmin(req, userPhone);
+    await addLineage(validated, { actorId: userPhone, isAdmin: userIsAdmin }, pool);
 
     return res.status(201).json({ success: true });
   } catch (error: any) {
     if (error.name === "ZodError") {
       return res.status(400).json({ success: false, error: "Invalid input schema", details: error.errors });
     }
-    return res.status(422).json({ success: false, error: error.message });
+    return res.status(assetServiceStatus(error)).json({ success: false, error: error.message });
   }
 });
 
@@ -157,7 +181,7 @@ assetsRouter.get("/list", async (req: Request, res: Response) => {
     if (!userPhone) return res.status(401).json({ success: false, error: "Authentication required" });
 
     const query = AssetListQuerySchema.parse(req.query);
-    const ownerId = query.ownerId && await isUserAdmin(userPhone) ? query.ownerId : userPhone;
+    const ownerId = query.ownerId && await requestUserIsAdmin(req, userPhone) ? query.ownerId : userPhone;
 
     const assets = await findAssetsByOwner(req.app.get("pool") || undefined, ownerId, {
       assetType: query.assetType,
@@ -172,7 +196,7 @@ assetsRouter.get("/list", async (req: Request, res: Response) => {
         const currentVersion = a.current_version_id
           ? await findVersionById(req.app.get("pool") || undefined, a.current_version_id)
           : null;
-        return formatPublicAssetMetadata(a, currentVersion);
+        return formatPublicAssetMetadata(a, currentVersion, { includeOwnerId: true });
       }),
     );
 
@@ -197,7 +221,7 @@ assetsRouter.get("/detail/:uuid", async (req: Request, res: Response) => {
 
     const isOwner = Boolean(userPhone && asset.owner_id === userPhone);
     const userIsAdmin = (!isOwner && userPhone)
-      ? await isUserAdmin(userPhone).catch(() => false)
+      ? await requestUserIsAdmin(req, userPhone).catch(() => false)
       : false;
 
     if (asset.visibility === "private" && !isOwner && !userIsAdmin) {
@@ -209,7 +233,7 @@ assetsRouter.get("/detail/:uuid", async (req: Request, res: Response) => {
       ? await findVersionById(pool, asset.current_version_id)
       : null;
 
-    const formattedAsset = formatPublicAssetMetadata(asset, currentVersion);
+    const formattedAsset = formatPublicAssetMetadata(asset, currentVersion, { includeOwnerId: isOwner || userIsAdmin });
     const versionHistory = versions.map((v) => ({
       versionNumber: v.version_number,
       sha256: v.sha256,
@@ -223,7 +247,7 @@ assetsRouter.get("/detail/:uuid", async (req: Request, res: Response) => {
     }));
 
     let lineage: any = null;
-    if (currentVersion) {
+    if (currentVersion && (isOwner || userIsAdmin)) {
       const rels = await findRelationsByVersionId(pool, currentVersion.id);
       lineage = {
         parents: rels.parents.map((p) => ({ parentVersionId: p.parent_version_id, relationType: p.relation_type })),
@@ -249,15 +273,18 @@ assetsRouter.get("/detail/:uuid", async (req: Request, res: Response) => {
 assetsRouter.get("/signed-url/:uuid", async (req: Request, res: Response) => {
   try {
     const userPhone = getRequestUserPhone(req);
-    const assetUuid = String(req.params.uuid);
-    const ttlSeconds = req.query.ttl ? parseInt(String(req.query.ttl), 10) : 900;
-    const versionNumber = req.query.version ? parseInt(String(req.query.version), 10) : undefined;
+    const accessRequest = SignedAccessSchema.parse({
+      assetUuid: String(req.params.uuid),
+      versionNumber: req.query.version,
+      ttlSeconds: req.query.ttl,
+    });
+    const { assetUuid, ttlSeconds, versionNumber } = accessRequest;
     const pool = req.app.get("pool") || undefined;
 
     const asset = await findAssetByUuid(pool, assetUuid);
     if (!asset) return res.status(404).json({ success: false, error: "Asset not found" });
 
-    const userIsAdmin = userPhone ? await isUserAdmin(userPhone) : false;
+    const userIsAdmin = userPhone ? await requestUserIsAdmin(req, userPhone) : false;
 
     let targetVersion = null;
     if (versionNumber) {
@@ -273,6 +300,9 @@ assetsRouter.get("/signed-url/:uuid", async (req: Request, res: Response) => {
     const signedUrl = await generateSignedUrlForVersion(asset, targetVersion, userPhone || undefined, userIsAdmin, ttlSeconds);
     return res.json({ success: true, assetUuid: asset.asset_uuid, versionNumber: targetVersion.version_number, signedUrl, expiresSeconds: ttlSeconds });
   } catch (error: any) {
+    if (error.name === "ZodError") {
+      return res.status(400).json({ success: false, error: "Invalid input schema", details: error.errors });
+    }
     const statusCode = error instanceof AssetServiceError && error.code === "UNAUTHORIZED" ? 403 : 422;
     return res.status(statusCode).json({ success: false, error: error.message });
   }
@@ -301,7 +331,7 @@ assetsRouter.get("/storage-usage", async (req: Request, res: Response) => {
 assetsRouter.get("/reconciliation", async (req: Request, res: Response) => {
   try {
     const userPhone = getRequestUserPhone(req);
-    if (!userPhone || !await isUserAdmin(userPhone)) {
+    if (!userPhone || !await requestUserIsAdmin(req, userPhone)) {
       return res.status(403).json({ success: false, error: "Admin authority required" });
     }
 
@@ -321,7 +351,7 @@ assetsRouter.get("/reconciliation", async (req: Request, res: Response) => {
 assetsRouter.post("/reconciliation/fix", async (req: Request, res: Response) => {
   try {
     const userPhone = getRequestUserPhone(req);
-    if (!userPhone || !await isUserAdmin(userPhone)) {
+    if (!userPhone || !await requestUserIsAdmin(req, userPhone)) {
       return res.status(403).json({ success: false, error: "Admin authority required" });
     }
 

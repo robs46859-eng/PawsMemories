@@ -18,6 +18,7 @@ import { injectMeta } from "./server/seoMeta";
 import { semanticScan as runSemanticScan } from "./server/semanticScan";
 import { animatorRouter } from "./server/animator/routes.ts";
 import { assetsRouter } from "./server/assets/routes";
+import { requireCanonicalAssetsEnabled } from "./server/assets/featureFlag";
 import { planWagsBox, getPriorBoxHistory } from "./server/wags/planner";
 import { deliverBox, getOwnedWardrobeItems } from "./server/wags/delivery";
 import { RebakeRequestSchema, StylizeRequestSchema, viewsFromAvatarRow } from "./server/textureSchemas";
@@ -394,8 +395,6 @@ async function startServer() {
   app.get("/version", (_req, res) => {
     res.json(buildInfo);
   });
-
-  app.use("/api/assets", assetsRouter);
 
   // Reaper: recover avatars stranded in an intermediate generation state.
   // The build runs as fire-and-forget work; if the process is recycled mid-build
@@ -861,6 +860,10 @@ async function startServer() {
     return defaultJsonParser(req, res, next);
   });
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+  // Canonical assets are dark-launched. Keep the entire surface unavailable
+  // unless enabled server-side, and never mount it outside the normal JWT gate.
+  app.use("/api/assets", requireCanonicalAssetsEnabled, requireAuth, assetsRouter);
 
   app.post("/api/bim/import-ifc", requireAuth, async (req: AuthedRequest, res) => {
     try {

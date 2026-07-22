@@ -11,7 +11,10 @@ All assets adhere to three core invariants:
 
 ---
 
-## 2. Database Schema (Migration 18)
+## 2. Database Schema (Migrations 18-19)
+
+Migration 18 creates the registry. Forward-only migration 19 ensures the
+current version belongs to the same asset and rejects self-lineage in MySQL.
 
 ### `assets` Table
 - `id` BIGINT AUTO_INCREMENT PRIMARY KEY

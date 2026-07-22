@@ -1,5 +1,6 @@
 import type { AssetRecord, AssetVersionRecord } from "./types";
 import { getPrivateSignedUrl } from "../../storage.private";
+import { getPublicObjectUrl } from "../../storage";
 import { AssetServiceError } from "./service";
 
 export interface AccessAuthorizationResult {
@@ -49,12 +50,11 @@ export async function generateSignedUrlForVersion(
   }
 
   if (version.bucket === "public") {
-    const bucketUrl = String(process.env.MEDIA_BUCKET_URL || "").replace(/\/$/, "");
-    const bucketName = String(process.env.MEDIA_BUCKET_NAME || "");
-    if (!bucketUrl || !bucketName) {
+    try {
+      return getPublicObjectUrl(version.object_key);
+    } catch {
       throw new AssetServiceError("Public storage bucket is not configured", "STORAGE_NOT_CONFIGURED");
     }
-    return `${bucketUrl}/${bucketName}/${version.object_key}`;
   }
 
   // Private storage bucket signed URL

@@ -24,6 +24,7 @@ const mysqlHost = process.env.MYSQL_TEST_HOST || "127.0.0.1";
 const mysqlPort = Number(process.env.MYSQL_TEST_PORT || 3306);
 const mysqlUser = process.env.MYSQL_TEST_USER || "root";
 const mysqlPassword = process.env.MYSQL_TEST_PASSWORD || "";
+const INTERNAL = { internal: true };
 
 test("Phase 1 Production Service Suite", async (t) => {
   let conn;
@@ -70,7 +71,7 @@ test("Phase 1 Production Service Suite", async (t) => {
         objectKey: "private/photo1.png",
         metadata: { camera: "DSLR" },
       },
-      { isNewObjectUpload: false, pool },
+      { authorization: INTERNAL, isNewObjectUpload: false, pool },
     );
 
     assert.ok(asset.asset_uuid);
@@ -94,7 +95,7 @@ test("Phase 1 Production Service Suite", async (t) => {
         bucket: "private",
         objectKey: "private/model_v1.glb",
       },
-      { isNewObjectUpload: false, pool },
+      { authorization: INTERNAL, isNewObjectUpload: false, pool },
     );
 
     const { version: v2 } = await addAssetVersion(
@@ -107,6 +108,7 @@ test("Phase 1 Production Service Suite", async (t) => {
         objectKey: "private/model_v2.glb",
         setAsCurrent: true,
       },
+      INTERNAL,
       pool,
     );
 
@@ -134,7 +136,7 @@ test("Phase 1 Production Service Suite", async (t) => {
         bucket: "private",
         objectKey: "private/m1.glb",
       },
-      { isNewObjectUpload: false, pool },
+      { authorization: INTERNAL, isNewObjectUpload: false, pool },
     );
 
     const { version: v2 } = await addAssetVersion(
@@ -147,11 +149,12 @@ test("Phase 1 Production Service Suite", async (t) => {
         objectKey: "private/m2.glb",
         setAsCurrent: true,
       },
+      INTERNAL,
       pool,
     );
 
     // Roll pointer back to version 1
-    const { asset: reverted } = await setCurrentVersion(asset.asset_uuid, 1, pool);
+    const { asset: reverted } = await setCurrentVersion(asset.asset_uuid, 1, INTERNAL, pool);
     assert.notEqual(reverted.current_version_id, v2.id);
   });
 
@@ -167,7 +170,7 @@ test("Phase 1 Production Service Suite", async (t) => {
         bucket: "private",
         objectKey: "private/p.png",
       },
-      { isNewObjectUpload: false, pool },
+      { authorization: INTERNAL, isNewObjectUpload: false, pool },
     );
 
     const { asset: childAsset, version: childVersion } = await registerAsset(
@@ -181,7 +184,7 @@ test("Phase 1 Production Service Suite", async (t) => {
         bucket: "private",
         objectKey: "private/c.glb",
       },
-      { isNewObjectUpload: false, pool },
+      { authorization: INTERNAL, isNewObjectUpload: false, pool },
     );
 
     await addLineage(
@@ -192,6 +195,7 @@ test("Phase 1 Production Service Suite", async (t) => {
         childVersionNumber: 1,
         relationType: "mesh",
       },
+      INTERNAL,
       pool,
     );
 
@@ -210,11 +214,99 @@ test("Phase 1 Production Service Suite", async (t) => {
             childVersionNumber: 1,
             relationType: "mesh",
           },
+          INTERNAL,
           pool,
         );
       },
       (err) => err instanceof AssetServiceError && err.code === "INVALID_LINEAGE",
     );
+  });
+
+  await t.test("service boundary rejects cross-owner mutation and lineage", async () => {
+    const { asset: ownerAsset } = await registerAsset(
+      {
+        ownerId: "u_service_owner",
+        assetType: "model_glb",
+        visibility: "private",
+        mimeType: "model/gltf-binary",
+        sizeBytes: 100,
+        sha256: "c".repeat(64),
+        bucket: "private",
+        objectKey: "private/owner.glb",
+      },
+      { authorization: INTERNAL, isNewObjectUpload: false, pool },
+    );
+    const { asset: otherAsset } = await registerAsset(
+      {
+        ownerId: "u_service_other",
+        assetType: "model_glb",
+        visibility: "private",
+        mimeType: "model/gltf-binary",
+        sizeBytes: 100,
+        sha256: "d".repeat(64),
+        bucket: "private",
+        objectKey: "private/other.glb",
+      },
+      { authorization: INTERNAL, isNewObjectUpload: false, pool },
+    );
+
+    await assert.rejects(
+      addAssetVersion(
+        {
+          assetUuid: ownerAsset.asset_uuid,
+          mimeType: "model/gltf-binary",
+          sizeBytes: 101,
+          sha256: "e".repeat(64),
+          bucket: "private",
+          objectKey: "private/forbidden.glb",
+        },
+        { actorId: "u_service_other" },
+        pool,
+      ),
+      (err) => err instanceof AssetServiceError && err.code === "FORBIDDEN",
+    );
+
+    await assert.rejects(
+      addLineage(
+        {
+          parentAssetUuid: ownerAsset.asset_uuid,
+          parentVersionNumber: 1,
+          childAssetUuid: otherAsset.asset_uuid,
+          childVersionNumber: 1,
+          relationType: "derivative",
+        },
+        { actorId: "u_service_owner" },
+        pool,
+      ),
+      (err) => err instanceof AssetServiceError && err.code === "FORBIDDEN",
+    );
+  });
+
+  await t.test("concurrent legacy registration resolves to one canonical asset", async () => {
+    const input = {
+      ownerId: "u_race_owner",
+      assetType: "source_photo",
+      visibility: "private",
+      mimeType: "image/png",
+      sizeBytes: 300,
+      sha256: "f".repeat(64),
+      bucket: "private",
+      objectKey: "private/race.png",
+      legacyTable: "phase1_test",
+      legacyId: "concurrent-1",
+    };
+    const options = { authorization: INTERNAL, isNewObjectUpload: false, pool };
+    const [first, second] = await Promise.all([
+      registerAsset(input, options),
+      registerAsset(input, options),
+    ]);
+    assert.equal(first.asset.asset_uuid, second.asset.asset_uuid);
+    assert.equal(first.version.id, second.version.id);
+    const [rows] = await pool.query(
+      "SELECT COUNT(*) AS count FROM asset_legacy_links WHERE legacy_table = ? AND legacy_id = ?",
+      [input.legacyTable, input.legacyId],
+    );
+    assert.equal(Number(rows[0].count), 1);
   });
 
   await t.test("Legacy creation adapter idempotency and Fur Bin fallback", async () => {

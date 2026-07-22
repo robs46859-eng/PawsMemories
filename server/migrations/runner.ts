@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type mysql from "mysql2/promise";
 
-export const CURRENT_SCHEMA_VERSION = 18;
+export const CURRENT_SCHEMA_VERSION = 19;
 
 export interface Migration {
   version: number;
@@ -131,6 +131,45 @@ export const MIGRATIONS: Migration[] = [
       // Add FK constraint on assets.current_version_id after asset_versions table creation
       `SELECT COUNT(*) INTO @fk_exists FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'assets' AND CONSTRAINT_NAME = 'fk_asset_current_version'`,
       `SET @stmt = IF(@fk_exists = 0, 'ALTER TABLE assets ADD CONSTRAINT fk_asset_current_version FOREIGN KEY (current_version_id) REFERENCES asset_versions(id) ON DELETE SET NULL', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`,
+      `EXECUTE stmt`,
+      `DEALLOCATE PREPARE stmt`,
+    ],
+  },
+  {
+    version: 19,
+    name: "canonical_asset_integrity_hardening",
+    statements: [
+      // Repair any pre-existing cross-asset pointers before tightening the FK.
+      `UPDATE assets a
+       LEFT JOIN asset_versions av ON av.id = a.current_version_id AND av.asset_id = a.id
+       SET a.current_version_id = (
+         SELECT replacement.id FROM asset_versions replacement
+         WHERE replacement.asset_id = a.id
+         ORDER BY replacement.version_number DESC LIMIT 1
+       )
+       WHERE a.current_version_id IS NOT NULL AND av.id IS NULL`,
+
+      `SELECT COUNT(*) INTO @idx_exists FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'asset_versions' AND INDEX_NAME = 'uniq_asset_version_identity'`,
+      `SET @stmt = IF(@idx_exists = 0, 'ALTER TABLE asset_versions ADD UNIQUE KEY uniq_asset_version_identity (asset_id, id)', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`,
+      `EXECUTE stmt`,
+      `DEALLOCATE PREPARE stmt`,
+
+      `SELECT COUNT(*) INTO @fk_exists FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'assets' AND CONSTRAINT_NAME = 'fk_asset_current_version'`,
+      `SET @stmt = IF(@fk_exists > 0, 'ALTER TABLE assets DROP FOREIGN KEY fk_asset_current_version', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`,
+      `EXECUTE stmt`,
+      `DEALLOCATE PREPARE stmt`,
+
+      `SELECT COUNT(*) INTO @fk_exists FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'assets' AND CONSTRAINT_NAME = 'fk_asset_current_version_owned'`,
+      `SET @stmt = IF(@fk_exists = 0, 'ALTER TABLE assets ADD CONSTRAINT fk_asset_current_version_owned FOREIGN KEY (id, current_version_id) REFERENCES asset_versions(asset_id, id) ON DELETE RESTRICT', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`,
+      `EXECUTE stmt`,
+      `DEALLOCATE PREPARE stmt`,
+
+      `SELECT COUNT(*) INTO @check_exists FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'asset_relations' AND CONSTRAINT_NAME = 'chk_asset_relation_not_self'`,
+      `SET @stmt = IF(@check_exists = 0, 'ALTER TABLE asset_relations ADD CONSTRAINT chk_asset_relation_not_self CHECK (parent_version_id <> child_version_id)', 'SELECT 1')`,
       `PREPARE stmt FROM @stmt`,
       `EXECUTE stmt`,
       `DEALLOCATE PREPARE stmt`,

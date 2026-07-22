@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { getExtensionFromMime, getFolderFromMime } from "../storage.ts";
+import { getExtensionFromMime, getFolderFromMime, getPublicObjectUrl } from "../storage.ts";
 
 test("storage.ts getExtensionFromMime resolves deterministic extensions", () => {
   // Explicit map matches
@@ -32,4 +32,14 @@ test("storage.ts getFolderFromMime routes to correct folders", () => {
   assert.equal(getFolderFromMime("image/png", "avatars"), "avatars");
   assert.equal(getFolderFromMime("model/gltf-binary", "avatars"), "avatars");
   assert.equal(getFolderFromMime("audio/wav", "system"), "system");
+});
+
+test("storage.ts getPublicObjectUrl uses virtual-hosted bucket URLs and escapes keys", () => {
+  assert.equal(
+    getPublicObjectUrl("models/pet photo.glb", {
+      MEDIA_BUCKET_URL: "https://s3.us-west-004.backblazeb2.com",
+      MEDIA_BUCKET_NAME: "paws-media",
+    }),
+    "https://paws-media.s3.us-west-004.backblazeb2.com/models/pet%20photo.glb",
+  );
 });

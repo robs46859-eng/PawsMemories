@@ -2,28 +2,28 @@
 
 ## Lead Architecture Update - Phase 1 - 2026-07-22
 
-Phase 1 Canonical Asset Registry and Storage Accounting is complete and signed off locally.
+Phase 1 Canonical Asset Registry and Storage Accounting is complete after lead correction. Phase 2 is approved to begin from the clean correction commit.
 
 ### Verified Deliverables & Evidence
-1. **Migration 18 (`canonical_asset_registry`)**: Exports `CURRENT_SCHEMA_VERSION = 18` in `server/migrations/runner.ts`. Defines `assets`, `asset_versions`, `asset_relations`, and `asset_legacy_links` in MySQL with strict UUID uniqueness, version immutability `(asset_id, version_number)`, and foreign keys.
+1. **Migrations 18-19**: Migration 18 defines the canonical registry. Forward-only migration 19 adds a composite current-version foreign key so an asset cannot point at another asset's version, plus a database self-lineage check. `CURRENT_SCHEMA_VERSION = 19`.
 2. **Canonical Service Module (`server/assets/`)**:
    - `types.ts`: Domain models and enums (`AssetVisibility`, `AssetStatus`, `AssetType`, `RelationType`, `StorageBucket`).
    - `schemas.ts`: Strict Zod validation contracts rejecting unknown input fields (`.strict()`).
-   - `repository.ts`: Single-transaction DB operations and queries for schema 18 tables.
-   - `service.ts`: `registerAsset`, `addAssetVersion`, `setCurrentVersion`, `addLineage`, and compensating storage cleanup on failed new uploads.
+   - `repository.ts`: Single-transaction DB operations, including row locking for version/pointer writes.
+   - `service.ts`: `registerAsset`, `addAssetVersion`, `setCurrentVersion`, and `addLineage` enforce explicit internal/actor authorization; concurrent legacy registration resolves to one canonical record.
    - `access.ts`: Ownership authorization and short-lived signed URL generation with zero object-key leakage in public metadata responses.
    - `accounting.ts`: Storage usage totals summing distinct physical objects (`bucket`, `object_key` / `sha256`) per owner without double-counting.
    - `reconciliation.ts`: Database/object storage drift reporting and explicit `--fix` administration.
    - `legacyAdapters.ts`: Lazy/batch idempotent registration adapters for legacy tables (`creations`, `avatars`, `marketplace_assets`) and safe Fur Bin fallback composition.
-   - `routes.ts`: Authenticated HTTP router mounted under `/api/assets`.
+   - `routes.ts`: JWT-authenticated HTTP router mounted only after JSON parsing and behind `CANONICAL_ASSETS_ENABLED=false`. Caller-controlled identity headers are rejected. Raw object registration/version claims are admin-only.
 3. **Automated Verification**:
    - `npm run lint`: PASS (0 errors)
-   - `npm run test`: PASS (778 pass, 0 fail, 3 expected environment skips)
-   - `MYSQL_TEST_HOST=127.0.0.1 ./node_modules/.bin/tsx --test tests/phase1_*.test.mjs`: PASS (20 pass, 0 fail across 4 test suites against Homebrew MySQL 8.4)
+   - `npm run test`: PASS (786 pass, 0 fail, 3 pre-existing optional environment skips under Node 24.18.0)
+   - `node --import tsx --test tests/phase1_*.test.mjs`: PASS (27 pass, 0 fail, 0 skip across 4 suites against Homebrew MySQL 8.4)
    - `npm run build`: PASS
    - `git diff --check`: PASS (0 whitespace/conflict issues)
 
-Evidence document: `phase-evidence/PHASE_1.md`. Do not begin Phase 2 until lead signoff.
+Evidence document: `phase-evidence/PHASE_1.md`. Phase 2 starts at migration 20 and must follow `AGENT_PROMPT_PHASE_2_MULTIVIEW.md`.
 
 ## Lead Architecture Update - 2026-07-22
 

@@ -25,6 +25,15 @@ const s3Client = new S3Client({
   forcePathStyle: true, // Required for Backblaze B2 and some S3-compatible endpoints
 });
 
+export function getPublicObjectUrl(objectKey: string, env: NodeJS.ProcessEnv = process.env): string {
+  const endpoint = env.MEDIA_BUCKET_URL;
+  const name = env.MEDIA_BUCKET_NAME;
+  if (!endpoint || !name) throw new Error("Public object storage is not configured.");
+  const url = new URL(endpoint);
+  const encodedKey = objectKey.split("/").map(encodeURIComponent).join("/");
+  return `${url.protocol}//${name}.${url.host}/${encodedKey}`;
+}
+
 /**
  * Maps a MIME type to an appropriate file extension.
  */

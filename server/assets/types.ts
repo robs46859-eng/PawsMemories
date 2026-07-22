@@ -89,7 +89,7 @@ export interface AssetLegacyLinkRecord {
 
 export interface PublicAssetMetadata {
   assetUuid: string;
-  ownerId: string;
+  ownerId?: string;
   assetType: AssetType;
   visibility: AssetVisibility;
   status: AssetStatus;

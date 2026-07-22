@@ -31,7 +31,7 @@ export async function registerLegacyCreation(
         legacyTable: "creations",
         legacyId,
       },
-      { isNewObjectUpload: false, pool },
+      { authorization: { internal: true }, isNewObjectUpload: false, pool },
     );
     return { asset, version, isNewLink: false };
   }
@@ -62,7 +62,7 @@ export async function registerLegacyCreation(
       legacyTable: "creations",
       legacyId,
     },
-    { isNewObjectUpload: false, pool },
+    { authorization: { internal: true }, isNewObjectUpload: false, pool },
   );
 
   return { asset, version, isNewLink: true };
@@ -88,7 +88,7 @@ export async function registerLegacyMarketplaceAsset(
         legacyTable: "marketplace_assets",
         legacyId,
       },
-      { isNewObjectUpload: false, pool },
+      { authorization: { internal: true }, isNewObjectUpload: false, pool },
     );
     return { asset, version, isNewLink: false };
   }
@@ -123,7 +123,7 @@ export async function registerLegacyMarketplaceAsset(
       legacyTable: "marketplace_assets",
       legacyId,
     },
-    { isNewObjectUpload: false, pool },
+    { authorization: { internal: true }, isNewObjectUpload: false, pool },
   );
 
   return { asset, version, isNewLink: true };

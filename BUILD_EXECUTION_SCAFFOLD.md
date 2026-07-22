@@ -28,7 +28,7 @@ Conversation summaries are context only. Repository code, tests, migrations, man
 - A phase starts from a clean, named Git commit and ends at a clean, named Git commit.
 - Do not amend, reset, force-push, deploy, or merge unless the lead explicitly requests it.
 - Preserve unrelated user and agent changes. Stop if another active agent owns the same files.
-- New database changes are migration-first. Phase 1 starts at migration version 18; later phases increment from the committed registry.
+- New database changes are migration-first. Phase 1 uses registry migration 18 and corrective integrity migration 19; Phase 2 starts at migration 20.
 - Do not add new one-off compatibility DDL to `initDb()` when a managed migration can express it.
 - New API behavior belongs in focused `server/` route/service/repository modules. Do not continue expanding `server.ts` with feature internals.
 - Shared domain contracts use Zod at external boundaries and exported TypeScript types internally.
@@ -84,7 +84,7 @@ Objective: create the shared identity, version, lineage, storage, and accounting
 
 Write boundary:
 
-- New migration 18 and focused migration tests.
+- Registry migration 18, forward-only integrity hardening migration 19, and focused migration tests.
 - New `server/assets/` schemas, repository, service, routes, reconciliation, and accounting modules.
 - Minimal adapters from existing creations, avatars, marketplace assets, BIM builds, animator assets, and print artifacts.
 - Asset-management UI only where needed to prove registration and version history.
@@ -107,7 +107,7 @@ Forbidden shortcuts:
 
 Exit gate:
 
-- Migration 18 passes fresh, upgraded, idempotent, concurrent, and recovery tests on MySQL 8.4.
+- Migrations 18-19 pass fresh, upgraded, idempotent, concurrent, and integrity tests on MySQL 8.4.
 - At least one existing artifact from each major legacy source can register without duplication.
 - Version lineage, ownership, signed access, storage accounting, and reconciliation tests pass.
 - Full release gates pass with no Phase 1 skips.
@@ -125,6 +125,15 @@ Required outputs:
 - Approved reference-set version becomes immutable input to Phase 3.
 
 Exit gate: provider-independent tests, provider sandbox evidence, browser approval flow, mobile review, credit/idempotency tests, and immutable lineage proof.
+
+Phase 2 implementation boundary:
+
+- Start at migration 20; do not edit applied migrations 18 or 19.
+- Build focused `server/reference-sessions/` contracts rather than adding feature internals to `server.ts`.
+- Keep the existing single-image `/api/create-pipeline/*` behavior intact until the new path passes its flag-gated cutover tests.
+- Use `MULTIVIEW_APPROVAL_ENABLED=false` as a server-authoritative default. A client mirror may select UI only and cannot authorize generation or approval.
+- Approval records the exact ordered five-view manifest hash and immutable canonical asset-version IDs. It does not start Tripo or any other 3D provider.
+- Phase 3 alone may consume an approved reference manifest and begin a model build.
 
 ### Phase 3: Durable 3D Build and Verification
 
@@ -237,7 +246,8 @@ Every incomplete customer-facing capability is disabled by default. Flags must b
 ## Migration Allocation
 
 - Phase 0 ends at schema version 17.
-- Phase 1 begins at version 18.
+- Phase 1 begins at version 18 and closes with corrective version 19.
+- Phase 2 begins at version 20.
 - An agent reads `CURRENT_SCHEMA_VERSION` before selecting the next number.
 - One authoritative TypeScript migration registry remains the source of truth.
 - Every statement must be independently retryable because MySQL DDL autocommits.

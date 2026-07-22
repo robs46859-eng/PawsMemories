@@ -73,8 +73,8 @@ export const AddLineageSchema = z
 export const SignedAccessSchema = z
   .object({
     assetUuid: z.string().uuid(),
-    versionNumber: z.number().int().positive().optional(),
-    ttlSeconds: z.number().int().min(30).max(604800).default(900),
+    versionNumber: z.coerce.number().int().positive().optional(),
+    ttlSeconds: z.coerce.number().int().min(30).max(604800).default(900),
   })
   .strict();
 

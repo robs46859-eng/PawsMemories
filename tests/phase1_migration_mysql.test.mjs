@@ -25,14 +25,14 @@ export async function isMysqlServerReachable() {
   }
 }
 
-test("Phase 1 Real MySQL 8.4 Migration 18 Test Suite", async (t) => {
+test("Phase 1 Real MySQL 8.4 Migration 19 Test Suite", async (t) => {
   const reachable = await isMysqlServerReachable();
   if (!reachable) {
     t.skip("Local test MySQL instance not running on 127.0.0.1:3306. Provision MySQL to run integration tests.");
     return;
   }
 
-  const testDbName = `paws_test_mig18_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+  const testDbName = `paws_test_mig19_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
 
   t.before(async () => {
     const adminConn = await mysql.createConnection({
@@ -67,7 +67,7 @@ test("Phase 1 Real MySQL 8.4 Migration 18 Test Suite", async (t) => {
       connectionLimit: 5,
     });
 
-  await t.test("1. Migration 18 upgrades pre-18 baseline schema and creates canonical tables", async () => {
+  await t.test("1. Migrations 18-19 upgrade the baseline and create canonical tables", async () => {
     const pool = getTestPool();
     try {
       const conn = await pool.getConnection();
@@ -101,9 +101,9 @@ test("Phase 1 Real MySQL 8.4 Migration 18 Test Suite", async (t) => {
       `);
       conn.release();
 
-      // Execute migrations up to current version (18)
+      // Execute migrations up to the current schema version.
       const res = await runMigrations(pool);
-      assert.ok(res.applied >= 3, "Must apply migrations v16, v17, and v18");
+      assert.ok(res.applied >= 4, "Must apply migrations v16 through v19");
 
       // Verify canonical tables exist
       const [tables] = await pool.query(
@@ -177,7 +177,40 @@ test("Phase 1 Real MySQL 8.4 Migration 18 Test Suite", async (t) => {
     }
   });
 
-  await t.test("4. Concurrent migration runners respect advisory lock", async () => {
+  await t.test("4. Database rejects cross-asset current pointers and self-lineage", async () => {
+    const pool = getTestPool();
+    try {
+      const [firstAssets] = await pool.query("SELECT id FROM assets ORDER BY id LIMIT 1");
+      const firstAssetId = firstAssets[0].id;
+      const [firstVersions] = await pool.query("SELECT id FROM asset_versions WHERE asset_id = ? ORDER BY id LIMIT 1", [firstAssetId]);
+      const firstVersionId = firstVersions[0].id;
+      const [secondAsset] = await pool.query(
+        "INSERT INTO assets (asset_uuid, owner_id, asset_type, visibility) VALUES ('22222222-2222-4222-8222-222222222222', 'u_second', 'model_glb', 'private')",
+      );
+      const [secondVersion] = await pool.query(
+        `INSERT INTO asset_versions
+           (asset_id, version_number, sha256, mime_type, size_bytes, bucket, object_key)
+         VALUES (?, 1, ?, 'model/gltf-binary', 1, 'private', 'private/second.glb')`,
+        [secondAsset.insertId, "c".repeat(64)],
+      );
+
+      await assert.rejects(
+        pool.query("UPDATE assets SET current_version_id = ? WHERE id = ?", [secondVersion.insertId, firstAssetId]),
+        (err) => err.code === "ER_NO_REFERENCED_ROW_2" || err.errno === 1452,
+      );
+      await assert.rejects(
+        pool.query(
+          "INSERT INTO asset_relations (parent_version_id, child_version_id, relation_type) VALUES (?, ?, 'derivative')",
+          [firstVersionId, firstVersionId],
+        ),
+        (err) => err.code === "ER_CHECK_CONSTRAINT_VIOLATED" || err.errno === 3819,
+      );
+    } finally {
+      await pool.end();
+    }
+  });
+
+  await t.test("5. Concurrent migration runners respect advisory lock", async () => {
     const pool = getTestPool();
     try {
       const [res1, res2] = await Promise.all([runMigrations(pool), runMigrations(pool)]);

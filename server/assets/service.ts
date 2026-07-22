@@ -13,6 +13,7 @@ import {
 import {
   insertAsset,
   findAssetByUuid,
+  findAssetByUuidForUpdate,
   findAssetById,
   insertAssetVersion,
   findVersionByAssetAndNumber,
@@ -39,11 +40,25 @@ export class AssetServiceError extends Error {
   }
 }
 
+export type AssetMutationAuthorization =
+  | { internal: true }
+  | { actorId: string; isAdmin?: boolean };
+
+function assertCanMutate(ownerId: string, authorization: AssetMutationAuthorization): void {
+  if ("internal" in authorization || authorization.isAdmin || authorization.actorId === ownerId) return;
+  throw new AssetServiceError("Access denied to target asset", "FORBIDDEN");
+}
+
 export async function registerAsset(
   input: RegisterAssetInput,
-  options: { isNewObjectUpload?: boolean; pool?: mysql.Pool } = {},
+  options: {
+    authorization: AssetMutationAuthorization;
+    isNewObjectUpload?: boolean;
+    pool?: mysql.Pool;
+  },
 ): Promise<{ asset: AssetRecord; version: AssetVersionRecord }> {
   const validated = RegisterAssetSchema.parse(input);
+  assertCanMutate(validated.ownerId, options.authorization);
   const pool = options.pool || getPool();
   const assetUuid = uuidv4();
   const isNewUpload = options.isNewObjectUpload ?? true;
@@ -102,6 +117,17 @@ export async function registerAsset(
   } catch (error: any) {
     await connection.rollback();
 
+    // Concurrent legacy registrations race on the unique mapping. The loser
+    // resolves to the committed winner rather than surfacing a false failure.
+    if (validated.legacyTable && validated.legacyId && (error.code === "ER_DUP_ENTRY" || error.errno === 1062)) {
+      const existingLink = await findLegacyLink(pool, validated.legacyTable, validated.legacyId);
+      if (existingLink) {
+        const asset = await findAssetById(pool, existingLink.asset_id);
+        const version = await findVersionById(pool, existingLink.asset_version_id);
+        if (asset && version) return { asset, version };
+      }
+    }
+
     // Compensating storage cleanup ONLY for newly uploaded private objects
     if (isNewUpload && validated.bucket === "private" && validated.objectKey) {
       await deletePrivateObject(validated.objectKey).catch((cleanupErr) => {
@@ -123,6 +149,7 @@ export async function registerAsset(
 
 export async function addAssetVersion(
   input: AddVersionInput,
+  authorization: AssetMutationAuthorization,
   pool: mysql.Pool = getPool(),
 ): Promise<{ asset: AssetRecord; version: AssetVersionRecord }> {
   const validated = AddVersionSchema.parse(input);
@@ -131,10 +158,11 @@ export async function addAssetVersion(
   try {
     await connection.beginTransaction();
 
-    const asset = await findAssetByUuid(connection, validated.assetUuid);
+    const asset = await findAssetByUuidForUpdate(connection, validated.assetUuid);
     if (!asset) {
       throw new AssetServiceError(`Asset with UUID ${validated.assetUuid} not found`, "ASSET_NOT_FOUND");
     }
+    assertCanMutate(asset.owner_id, authorization);
 
     const existingVersions = await findVersionsByAssetId(connection, asset.id);
     const maxVersion = existingVersions.reduce((max, v) => (v.version_number > max ? v.version_number : max), 0);
@@ -174,6 +202,7 @@ export async function addAssetVersion(
 export async function setCurrentVersion(
   assetUuid: string,
   versionNumber: number,
+  authorization: AssetMutationAuthorization,
   pool: mysql.Pool = getPool(),
 ): Promise<{ asset: AssetRecord; version: AssetVersionRecord }> {
   SetCurrentVersionSchema.parse({ assetUuid, versionNumber });
@@ -182,8 +211,9 @@ export async function setCurrentVersion(
   try {
     await connection.beginTransaction();
 
-    const asset = await findAssetByUuid(connection, assetUuid);
+    const asset = await findAssetByUuidForUpdate(connection, assetUuid);
     if (!asset) throw new AssetServiceError(`Asset ${assetUuid} not found`, "ASSET_NOT_FOUND");
+    assertCanMutate(asset.owner_id, authorization);
 
     const version = await findVersionByAssetAndNumber(connection, asset.id, versionNumber);
     if (!version) {
@@ -214,18 +244,21 @@ export async function addLineage(
     childVersionNumber: number;
     relationType: RelationType;
   },
+  authorization: AssetMutationAuthorization,
   pool: mysql.Pool = getPool(),
 ): Promise<void> {
   const validated = AddLineageSchema.parse(input);
 
   const parentAsset = await findAssetByUuid(pool, validated.parentAssetUuid);
   if (!parentAsset) throw new AssetServiceError(`Parent asset ${validated.parentAssetUuid} not found`, "NOT_FOUND");
+  assertCanMutate(parentAsset.owner_id, authorization);
 
   const parentVersion = await findVersionByAssetAndNumber(pool, parentAsset.id, validated.parentVersionNumber);
   if (!parentVersion) throw new AssetServiceError(`Parent version ${validated.parentVersionNumber} not found`, "NOT_FOUND");
 
   const childAsset = await findAssetByUuid(pool, validated.childAssetUuid);
   if (!childAsset) throw new AssetServiceError(`Child asset ${validated.childAssetUuid} not found`, "NOT_FOUND");
+  assertCanMutate(childAsset.owner_id, authorization);
 
   const childVersion = await findVersionByAssetAndNumber(pool, childAsset.id, validated.childVersionNumber);
   if (!childVersion) throw new AssetServiceError(`Child version ${validated.childVersionNumber} not found`, "NOT_FOUND");
@@ -259,10 +292,11 @@ export function formatPublicVersionMetadata(version: AssetVersionRecord): Public
 export function formatPublicAssetMetadata(
   asset: AssetRecord,
   currentVersion: AssetVersionRecord | null,
+  options: { includeOwnerId?: boolean } = {},
 ): PublicAssetMetadata {
   return {
     assetUuid: asset.asset_uuid,
-    ownerId: asset.owner_id,
+    ...(options.includeOwnerId ? { ownerId: asset.owner_id } : {}),
     assetType: asset.asset_type,
     visibility: asset.visibility,
     status: asset.status,
