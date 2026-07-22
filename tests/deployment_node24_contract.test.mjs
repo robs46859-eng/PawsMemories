@@ -35,6 +35,7 @@ test("Hostinger starts listening before database initialization", () => {
   assert.match(deployScript, /globalThis\.__PAWSOME_HOSTINGER_BOOTSTRAP__/);
   assert.match(serverSource, /httpServer\.removeListener\("request", bootstrap\.handler\)/);
   assert.match(serverSource, /httpServer\.on\("request", app\)/);
+  assert.match(serverSource, /if \(isEntryPoint \|\| hasHostingerBootstrap\)/);
 });
 
 test("brand logo and product deep links remain part of the application shell", () => {
