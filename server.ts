@@ -374,8 +374,20 @@ async function startServer() {
     process.exit(1);
   }
 
-  // Initialize the user database (creates the users table if needed)
-  await initDb();
+  // Hostinger's Passenger wrapper requires listen() within three seconds. Open
+  // the socket before database migrations, but do not register application
+  // routes until initialization succeeds.
+  const httpServer = app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+
+  try {
+    // Initialize the user database (creates the users table if needed).
+    await initDb();
+  } catch (error) {
+    await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+    throw error;
+  }
 
   let manifestData: any = null;
   try {
@@ -7339,10 +7351,6 @@ async function startServer() {
       res.type("html").send(injectMeta(INDEX_HTML, req.path));
     });
   }
-
-  const httpServer = app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on port ${PORT}`);
-  });
 
   let shuttingDown = false;
   async function shutdown(reason: string, exitCode: number) {
