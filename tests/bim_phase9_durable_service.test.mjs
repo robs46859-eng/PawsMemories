@@ -343,7 +343,7 @@ test("durable BIM rejects unbound or failing pre-build reports before billing", 
 
 test("IFC jobs use the higher price and require the complete canonical artifact set", async () => {
   const { service, calls } = serviceHarness();
-  const queued = await service.enqueue("owner-a", enqueueInput({ mode: "ifc", idempotencyKey: "durable-ifc-key-000001" }));
+  const queued = await service.enqueue("owner-a", enqueueInput({ mode: "ifc", idempotencyKey: "durable-ifc-key-000001" })); // gitleaks:allow -- deterministic test label
   assert.equal(queued.billing.quotedCredits, DURABLE_BIM_CREDIT_POLICY.ifc);
   assert.equal(calls.quote[0].expectedCredits, DURABLE_BIM_CREDIT_POLICY.ifc);
   assert.ok(DURABLE_BIM_CREDIT_POLICY.ifc >= DURABLE_BIM_CREDIT_POLICY.shell * 4);

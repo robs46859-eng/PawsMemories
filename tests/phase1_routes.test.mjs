@@ -11,7 +11,7 @@ const mysqlHost = process.env.MYSQL_TEST_HOST || "127.0.0.1";
 const mysqlPort = Number(process.env.MYSQL_TEST_PORT || 3306);
 const mysqlUser = process.env.MYSQL_TEST_USER || "root";
 const mysqlPassword = process.env.MYSQL_TEST_PASSWORD || "";
-process.env.JWT_SECRET = "phase1-route-test-secret-at-least-32-chars";
+process.env.JWT_SECRET = "phase1-route-test-secret-at-least-32-chars"; // gitleaks:allow -- deterministic test-only value
 process.env.CANONICAL_ASSETS_ENABLED = "true";
 
 const adminToken = signToken({ phone: "u_admin", uid: 1 });

@@ -1,0 +1,5 @@
+# Exact historical fingerprints for deterministic test-only placeholders.
+# Current source lines also carry gitleaks:allow; these entries cover the
+# immutable commits included in the pull-request history scan.
+1f71ac43c7e9c24bf0cc1bfda47a08e91b3320a7:tests/bim_phase9_durable_service.test.mjs:generic-api-key:346
+a7cd67247cd5b64f39e1da2b9684c86148f5be88:tests/phase1_routes.test.mjs:generic-api-key:14
