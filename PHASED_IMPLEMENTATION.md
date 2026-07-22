@@ -9,7 +9,7 @@ This tracker records evidence, not agent claims. A phase is complete only after 
 | Phase | Status | Current evidence | Remaining exit work |
 |---|---|---|---|
 | 0. Database and release stability | Complete | Node 24.18/npm 11.16; TypeScript clean; 767 tests: 766 pass, 1 unrelated opt-in Hostinger skip; 8/8 Phase 0 live MySQL tests; fail-closed build; exact-commit complete-file archive verifier | Release evidence: `phase-evidence/PHASE_0.md`; IFC remains pinned to the Render worker environment |
-| 1. Asset registry | Not started | Existing storage and marketplace asset tables available for migration | Canonical assets/versions/relations, registration, accounting, reconciliation |
+| 1. Asset registry | Complete (Signed off locally) | Schema 18 tables, server/assets/ contract, Zod schemas, service, accounting, reconciliation, legacy adapters, 20/20 Phase 1 real MySQL 8.4 tests pass | Release evidence: `phase-evidence/PHASE_1.md` |
 | 2. Multiview approval | Not started | Legacy dog turnaround and Tripo multiview code exist | Integrate active Create flow, high-resolution contract, immutable approval and optional retry |
 | 3. Durable 3D build and verification | Not started | Tripo, Blender and partial validators exist | Durable attempts, authoritative post-mesh reports, correction/acceptance loop |
 | 4. Rig, facial, accessories | Partial legacy foundation | Animator modules, optional rigging, viseme canonicalization, preview accessories | Deterministic species routing, actual facial fallback, production accessory GLBs/fitting/export |

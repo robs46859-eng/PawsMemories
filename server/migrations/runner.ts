@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type mysql from "mysql2/promise";
 
-export const CURRENT_SCHEMA_VERSION = 17;
+export const CURRENT_SCHEMA_VERSION = 18;
 
 export interface Migration {
   version: number;
@@ -24,15 +24,16 @@ export function sha256(content: string): string {
 /**
  * Single Authoritative TypeScript Migration Registry.
  * Baseline versions 001..015 correspond to legacy boot DDL (server/migrations/001_... to 015_...).
- * First managed migrations are 16 and 17.
+ * First managed migrations are 16, 17, and 18.
  */
 export const MIGRATIONS: Migration[] = [
   {
     version: 16,
     name: "wags_stripe_customer_id",
     statements: [
+      `SELECT COUNT(*) INTO @tbl_exists FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'`,
       `SELECT COUNT(*) INTO @col_exists FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'stripe_customer_id'`,
-      `SET @stmt = IF(@col_exists = 0, 'ALTER TABLE users ADD COLUMN stripe_customer_id VARCHAR(128) NULL', 'SELECT 1')`,
+      `SET @stmt = IF(@tbl_exists > 0 AND @col_exists = 0, 'ALTER TABLE users ADD COLUMN stripe_customer_id VARCHAR(128) NULL', 'SELECT 1')`,
       `PREPARE stmt FROM @stmt`,
       `EXECUTE stmt`,
       `DEALLOCATE PREPARE stmt`,
@@ -42,30 +43,94 @@ export const MIGRATIONS: Migration[] = [
     version: 17,
     name: "stl_derivatives_unique_constraint",
     statements: [
-      // 1. Reconcile existing duplicate active STL derivatives to 'superseded'
-      `UPDATE marketplace_assets ma
-       JOIN (
-         SELECT listing_id, ROUND(derivative_height_mm, 2) as norm_height, MAX(id) as max_id
-         FROM marketplace_assets
-         WHERE kind = 'stl_derivative' AND status = 'active' AND derivative_height_mm IS NOT NULL
-         GROUP BY listing_id, ROUND(derivative_height_mm, 2)
-         HAVING COUNT(*) > 1
-       ) dupes ON ma.listing_id = dupes.listing_id 
-              AND ROUND(ma.derivative_height_mm, 2) = dupes.norm_height 
-              AND ma.id < dupes.max_id
-       SET ma.status = 'superseded'
-       WHERE ma.kind = 'stl_derivative' AND ma.status = 'active'`,
+      // 1. Reconcile existing duplicate active STL derivatives to 'superseded' (if table exists)
+      `SELECT COUNT(*) INTO @ma_exists FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'marketplace_assets'`,
+      `SET @stmt = IF(@ma_exists > 0, 'UPDATE marketplace_assets ma JOIN (SELECT listing_id, ROUND(derivative_height_mm, 2) as norm_height, MAX(id) as max_id FROM marketplace_assets WHERE kind = \\'stl_derivative\\' AND status = \\'active\\' AND derivative_height_mm IS NOT NULL GROUP BY listing_id, ROUND(derivative_height_mm, 2) HAVING COUNT(*) > 1) dupes ON ma.listing_id = dupes.listing_id AND ROUND(ma.derivative_height_mm, 2) = dupes.norm_height AND ma.id < dupes.max_id SET ma.status = \\'superseded\\' WHERE ma.kind = \\'stl_derivative\\' AND ma.status = \\'active\\'', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`,
+      `EXECUTE stmt`,
+      `DEALLOCATE PREPARE stmt`,
 
       // 2. Add generated active height stored column (evaluates to height if active, NULL otherwise)
+      `SELECT COUNT(*) INTO @tbl_exists FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'marketplace_assets'`,
       `SELECT COUNT(*) INTO @col_exists FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'marketplace_assets' AND COLUMN_NAME = 'generated_active_height'`,
-      `SET @stmt = IF(@col_exists = 0, 'ALTER TABLE marketplace_assets ADD COLUMN generated_active_height DECIMAL(8,2) GENERATED ALWAYS AS (CASE WHEN kind=\\'stl_derivative\\' AND status=\\'active\\' THEN ROUND(derivative_height_mm, 2) ELSE NULL END) STORED', 'SELECT 1')`,
+      `SET @stmt = IF(@tbl_exists > 0 AND @col_exists = 0, 'ALTER TABLE marketplace_assets ADD COLUMN generated_active_height DECIMAL(8,2) GENERATED ALWAYS AS (CASE WHEN kind=\\'stl_derivative\\' AND status=\\'active\\' THEN ROUND(derivative_height_mm, 2) ELSE NULL END) STORED', 'SELECT 1')`,
       `PREPARE stmt FROM @stmt`,
       `EXECUTE stmt`,
       `DEALLOCATE PREPARE stmt`,
 
       // 3. Add active-only unique index on (listing_id, generated_active_height)
+      `SELECT COUNT(*) INTO @tbl_exists FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'marketplace_assets'`,
       `SELECT COUNT(*) INTO @idx_exists FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'marketplace_assets' AND INDEX_NAME = 'uniq_stl_active_derivative'`,
-      `SET @stmt = IF(@idx_exists = 0, 'ALTER TABLE marketplace_assets ADD UNIQUE INDEX uniq_stl_active_derivative (listing_id, generated_active_height)', 'SELECT 1')`,
+      `SET @stmt = IF(@tbl_exists > 0 AND @idx_exists = 0, 'ALTER TABLE marketplace_assets ADD UNIQUE INDEX uniq_stl_active_derivative (listing_id, generated_active_height)', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`,
+      `EXECUTE stmt`,
+      `DEALLOCATE PREPARE stmt`,
+    ],
+  },
+  {
+    version: 18,
+    name: "canonical_asset_registry",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS assets (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        asset_uuid CHAR(36) NOT NULL,
+        owner_id VARCHAR(190) NOT NULL,
+        asset_type VARCHAR(64) NOT NULL,
+        visibility ENUM('private', 'public', 'published') NOT NULL DEFAULT 'private',
+        status ENUM('active', 'archived', 'deleted') NOT NULL DEFAULT 'active',
+        current_version_id BIGINT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_asset_uuid (asset_uuid),
+        INDEX idx_assets_owner (owner_id, asset_type, status)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS asset_versions (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        asset_id BIGINT NOT NULL,
+        version_number INT NOT NULL DEFAULT 1,
+        sha256 CHAR(64) NOT NULL,
+        mime_type VARCHAR(120) NOT NULL,
+        size_bytes BIGINT NOT NULL,
+        bucket ENUM('public', 'private') NOT NULL,
+        object_key VARCHAR(512) NOT NULL,
+        metadata JSON NULL,
+        source_provider VARCHAR(64) NOT NULL DEFAULT 'original',
+        license VARCHAR(64) NOT NULL DEFAULT 'proprietary',
+        commercial_use_eligible TINYINT(1) NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_asset_version (asset_id, version_number),
+        INDEX idx_asset_version_checksum (sha256),
+        INDEX idx_asset_version_storage (bucket, object_key(191)),
+        CONSTRAINT fk_asset_version_asset FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS asset_relations (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        parent_version_id BIGINT NOT NULL,
+        child_version_id BIGINT NOT NULL,
+        relation_type ENUM('turnaround', 'mesh', 'rig', 'stl', 'render', 'print_file', 'derivative') NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_asset_relation (parent_version_id, child_version_id, relation_type),
+        CONSTRAINT fk_asset_relation_parent FOREIGN KEY (parent_version_id) REFERENCES asset_versions(id) ON DELETE CASCADE,
+        CONSTRAINT fk_asset_relation_child FOREIGN KEY (child_version_id) REFERENCES asset_versions(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS asset_legacy_links (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        legacy_table VARCHAR(64) NOT NULL,
+        legacy_id VARCHAR(190) NOT NULL,
+        asset_id BIGINT NOT NULL,
+        asset_version_id BIGINT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_legacy_mapping (legacy_table, legacy_id),
+        CONSTRAINT fk_legacy_link_asset FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE,
+        CONSTRAINT fk_legacy_link_version FOREIGN KEY (asset_version_id) REFERENCES asset_versions(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      // Add FK constraint on assets.current_version_id after asset_versions table creation
+      `SELECT COUNT(*) INTO @fk_exists FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'assets' AND CONSTRAINT_NAME = 'fk_asset_current_version'`,
+      `SET @stmt = IF(@fk_exists = 0, 'ALTER TABLE assets ADD CONSTRAINT fk_asset_current_version FOREIGN KEY (current_version_id) REFERENCES asset_versions(id) ON DELETE SET NULL', 'SELECT 1')`,
       `PREPARE stmt FROM @stmt`,
       `EXECUTE stmt`,
       `DEALLOCATE PREPARE stmt`,

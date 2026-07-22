@@ -1,5 +1,30 @@
 # Pawsome3D Project Handoff
 
+## Lead Architecture Update - Phase 1 - 2026-07-22
+
+Phase 1 Canonical Asset Registry and Storage Accounting is complete and signed off locally.
+
+### Verified Deliverables & Evidence
+1. **Migration 18 (`canonical_asset_registry`)**: Exports `CURRENT_SCHEMA_VERSION = 18` in `server/migrations/runner.ts`. Defines `assets`, `asset_versions`, `asset_relations`, and `asset_legacy_links` in MySQL with strict UUID uniqueness, version immutability `(asset_id, version_number)`, and foreign keys.
+2. **Canonical Service Module (`server/assets/`)**:
+   - `types.ts`: Domain models and enums (`AssetVisibility`, `AssetStatus`, `AssetType`, `RelationType`, `StorageBucket`).
+   - `schemas.ts`: Strict Zod validation contracts rejecting unknown input fields (`.strict()`).
+   - `repository.ts`: Single-transaction DB operations and queries for schema 18 tables.
+   - `service.ts`: `registerAsset`, `addAssetVersion`, `setCurrentVersion`, `addLineage`, and compensating storage cleanup on failed new uploads.
+   - `access.ts`: Ownership authorization and short-lived signed URL generation with zero object-key leakage in public metadata responses.
+   - `accounting.ts`: Storage usage totals summing distinct physical objects (`bucket`, `object_key` / `sha256`) per owner without double-counting.
+   - `reconciliation.ts`: Database/object storage drift reporting and explicit `--fix` administration.
+   - `legacyAdapters.ts`: Lazy/batch idempotent registration adapters for legacy tables (`creations`, `avatars`, `marketplace_assets`) and safe Fur Bin fallback composition.
+   - `routes.ts`: Authenticated HTTP router mounted under `/api/assets`.
+3. **Automated Verification**:
+   - `npm run lint`: PASS (0 errors)
+   - `npm run test`: PASS (778 pass, 0 fail, 3 expected environment skips)
+   - `MYSQL_TEST_HOST=127.0.0.1 ./node_modules/.bin/tsx --test tests/phase1_*.test.mjs`: PASS (20 pass, 0 fail across 4 test suites against Homebrew MySQL 8.4)
+   - `npm run build`: PASS
+   - `git diff --check`: PASS (0 whitespace/conflict issues)
+
+Evidence document: `phase-evidence/PHASE_1.md`. Do not begin Phase 2 until lead signoff.
+
 ## Lead Architecture Update - 2026-07-22
 
 The controlling design is now `PAWSOME3D_PLATFORM_ARCHITECTURE_SPEC.md`; current execution status is `PHASED_IMPLEMENTATION.md`. The audit ran on branch `fix/text-mode-reference-screen` at starting commit `4ef7e84`.

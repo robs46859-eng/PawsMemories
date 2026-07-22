@@ -5,9 +5,10 @@ import os from "node:os";
 import path from "node:path";
 import { generateManifest } from "../scripts/generate-manifest.mjs";
 import { verifyReleaseDirectory } from "../scripts/release-manifest-lib.mjs";
+import { CURRENT_SCHEMA_VERSION } from "../server/migrations/runner.ts";
 
 const COMMIT = "1".repeat(40);
-const OPTIONS = { expectedCommit: COMMIT, expectedBranch: "main", expectedSchemaVersion: 17, requireClean: true };
+const OPTIONS = { expectedCommit: COMMIT, expectedBranch: "main", expectedSchemaVersion: CURRENT_SCHEMA_VERSION, requireClean: true };
 
 function fixture() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "paws-archive-verifier-"));
@@ -58,8 +59,8 @@ test("shared verifier rejects added, missing, and wrong-commit content", () => {
     fs.unlinkSync(path.join(missing.directory, "package.json"));
     assert.match(verifyReleaseDirectory(missing.directory, missing.manifest, OPTIONS).error, /missing from archive/);
     assert.match(
-      verifyReleaseDirectory(missing.directory, missing.manifest, { ...OPTIONS, expectedCommit: "2".repeat(40) }).error,
-      /does not match/,
+      verifyReleaseDirectory(missing.directory, missing.manifest, { ...OPTIONS, expectedCommit: "0".repeat(40) }).error,
+      /does not match/i,
     );
   } finally {
     fs.rmSync(missing.directory, { recursive: true, force: true });

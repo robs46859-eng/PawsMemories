@@ -17,6 +17,7 @@ import { classifyPetImage, type GenerateFn } from "./server/petClassify";
 import { injectMeta } from "./server/seoMeta";
 import { semanticScan as runSemanticScan } from "./server/semanticScan";
 import { animatorRouter } from "./server/animator/routes.ts";
+import { assetsRouter } from "./server/assets/routes";
 import { planWagsBox, getPriorBoxHistory } from "./server/wags/planner";
 import { deliverBox, getOwnedWardrobeItems } from "./server/wags/delivery";
 import { RebakeRequestSchema, StylizeRequestSchema, viewsFromAvatarRow } from "./server/textureSchemas";
@@ -393,6 +394,8 @@ async function startServer() {
   app.get("/version", (_req, res) => {
     res.json(buildInfo);
   });
+
+  app.use("/api/assets", assetsRouter);
 
   // Reaper: recover avatars stranded in an intermediate generation state.
   // The build runs as fire-and-forget work; if the process is recycled mid-build

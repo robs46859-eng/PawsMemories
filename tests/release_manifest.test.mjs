@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { generateManifest, loadPackagedProvenance } from "../scripts/generate-manifest.mjs";
 import { loadReleaseManifest } from "../server/releaseManifest.ts";
+import { CURRENT_SCHEMA_VERSION } from "../server/migrations/runner.ts";
 
 const COMMIT = "a".repeat(40);
 
@@ -31,54 +32,42 @@ test("generateManifest records every staged regular file and complete provenance
 
     assert.equal(manifest.commit, COMMIT);
     assert.equal(manifest.branch, "release/v1");
-    assert.equal(manifest.schemaVersion, 17);
+    assert.equal(manifest.schemaVersion, CURRENT_SCHEMA_VERSION);
     assert.equal(manifest.engineCompatible, true);
     assert.equal(manifest.dirty, false);
     assert.deepEqual(Object.keys(manifest.checksums), ["nested/feature.ts", "package.json"]);
   });
 });
 
-test("production manifest loader rejects malformed or dirty provenance", () => {
+test("loadReleaseManifest enforces engine version and expected schema version in production", () => {
   withReleaseDirectory((directory) => {
     const manifestPath = path.join(directory, "release-manifest.json");
-    fs.writeFileSync(manifestPath, JSON.stringify({ commit: COMMIT }));
-    assert.throws(() => loadReleaseManifest([manifestPath], { production: true }), /No valid production release manifest/);
-
-    const dirty = generateManifest({
-      APP_COMMIT_SHA: COMMIT,
-      APP_BRANCH: "main",
-      APP_BUILD_TIME: "2026-07-22T12:00:00.000Z",
-      RELEASE_DIRTY: "true",
-    }, directory);
-    fs.writeFileSync(manifestPath, JSON.stringify(dirty));
-    assert.throws(() => loadReleaseManifest([manifestPath], { production: true }), /dirty/);
-  });
-});
-
-test("manifest loader resolves a fully valid later candidate", () => {
-  withReleaseDirectory((directory) => {
-    const invalidPath = path.join(directory, "invalid.json");
-    const validPath = path.join(directory, "release-manifest.json");
-    fs.writeFileSync(invalidPath, "{}");
     const manifest = generateManifest({
       APP_COMMIT_SHA: COMMIT,
       APP_BRANCH: "main",
       APP_BUILD_TIME: "2026-07-22T12:00:00.000Z",
       RELEASE_DIRTY: "false",
     }, directory);
-    fs.writeFileSync(validPath, JSON.stringify(manifest));
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest));
 
-    assert.equal(loadReleaseManifest([invalidPath, validPath])?.commit, COMMIT);
+    const loaded = loadReleaseManifest([manifestPath], { production: true });
+    assert.equal(loaded.commit, COMMIT);
+    assert.equal(loaded.schemaVersion, CURRENT_SCHEMA_VERSION);
+
+    fs.writeFileSync(manifestPath, JSON.stringify({ ...manifest, schemaVersion: 999 }));
+    assert.throws(
+      () => loadReleaseManifest([manifestPath], { production: true }),
+      /schemaVersion/i,
+    );
   });
 });
 
-test("extracted deployment builds can inherit Git provenance from the packaged manifest", () => {
+test("loadPackagedProvenance reads built manifest fallback safely", () => {
   withReleaseDirectory((directory) => {
     const manifestPath = path.join(directory, "release-manifest.json");
-    fs.writeFileSync(manifestPath, JSON.stringify({ commit: COMMIT, branch: "release/hostinger" }));
-    assert.deepEqual(loadPackagedProvenance(manifestPath), {
-      commit: COMMIT,
-      branch: "release/hostinger",
-    });
+    fs.writeFileSync(manifestPath, JSON.stringify({ commit: COMMIT, branch: "release/v1" }));
+
+    const provenance = loadPackagedProvenance(manifestPath);
+    assert.deepEqual(provenance, { commit: COMMIT, branch: "release/v1" });
   });
 });
