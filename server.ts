@@ -11,7 +11,7 @@ import sharp from "sharp";
 import { sendSms } from "./server/sms";
 import { sendMail } from "./server/mail";
 import rateLimit from "express-rate-limit";
-import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, restoreReservedGenerationCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, hideAvatar, unhideAvatar, getHiddenAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimFreeAvatar, releaseFreeAvatar, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor, getStorageUsage, recordStorageAddHot, recordStorageRemoveHot, purchaseColdStorage, updateUserProfile, checkAndGrantProfileBonus, verifyUserPhone, verifyUserEmail, generateReferralCode, recordReferral, creditReferralIfComplete, getPawprintCategories, getPawprintTemplatesSync, acceptTermsVersion, createVoiceCloneAsset, listVoiceCloneAssets, createPasswordReset, consumePasswordReset, setUserPassword, insertBimBuild, listBimBuilds } from "./db";
+import { initDb, findUserByPhone, findUserByEmail, createUserByEmail, EmailTakenError, completeUserProfile, toPublicUser, deductCredits, addCredits, getCreditBalance, getCreditHistory, wasSessionCredited, getCommunityMemories, addCommunityMemory, setProfilePhoto, addUserPhoto, getUserPhotos, deleteUserPhoto, saveCreation, getCreations, getAllCreations, updateCreation, createJob, updateJobStatus, getJob, getRunningJobs, restoreReservedGenerationCredits, setCreationVideoUrl, setCreationModelUrl, getDailyVideoCount, isUserAdmin, addPet, getPets, updatePet, deletePet, createAlbum, getAlbums, createAvatar, updateAvatarModel, updateAvatarGenerationStatus, getAvatarById, getAvatars, deleteAvatar, hideAvatar, unhideAvatar, getHiddenAvatars, feedAvatar, waterAvatar, giveTreatToAvatar, getAvatarNeeds, saveAvatarNeeds, getPlacedObjects, addPlacedObject, deletePlacedObject, updateAvatarMultiview, parseMultiview, getPool, claimDailyStreak, claimFreeAvatar, releaseFreeAvatar, claimAchievement, getPetProfileByAvatar, getPetProfileById, upsertPetProfile, savePetState, savePetRigUrls, getSemanticScan, saveSemanticScan, getPetCommands, addPetCommand, getPetButtons, addPetButton, incrementTrainerScore, updatePetSettings, bumpDailyUsage, getSceneActors, addSceneActor, updateSceneActor, deleteSceneActor, getStorageUsage, recordStorageAddHot, recordStorageRemoveHot, purchaseColdStorage, updateUserProfile, checkAndGrantProfileBonus, verifyUserPhone, verifyUserEmail, generateReferralCode, recordReferral, creditReferralIfComplete, getPawprintCategories, getPawprintTemplatesSync, acceptTermsVersion, createVoiceCloneAsset, listVoiceCloneAssets, createPasswordReset, consumePasswordReset, setUserPassword, insertBimBuild, listBimBuilds, checkDatabaseHealth, closePool } from "./db";
 import { isEndpointEnabled, dailyCapFor, withinDailyCap, type PaidEndpoint } from "./server/paidApiGuards";
 import { classifyPetImage, type GenerateFn } from "./server/petClassify";
 import { injectMeta } from "./server/seoMeta";
@@ -42,6 +42,7 @@ import {
   digitalDownload
 } from "./server/marketplacePublic";
 import { ListingQuerySchema } from "./server/marketplaceSchemas";
+import { CURRENT_SCHEMA_VERSION } from "./server/migrations/runner";
 import {
   CreateListingSchema,
   UpdateListingSchema,
@@ -67,7 +68,7 @@ import { createHash, randomUUID } from "crypto";
 import { resolveBreedProfile } from "./server/breedProfiles";
 import { decayDrives, DEFAULT_DRIVES, DEFAULT_HORMONES, weightsFromTemperament } from "./src/brain";
 import { uploadBase64Image, uploadBinaryFromUrl, fetchUrlAsBase64, uploadBase64Binary } from "./storage";
-import { getPrivateSignedUrl, putPrivateObject, mintObjectKey } from "./storage.private";
+import { deletePrivateObject, getPrivateSignedUrl, putPrivateObject, mintObjectKey } from "./storage.private";
 import { runBuildPipeline } from "./agent/graph/orchestrator";
 import { analyzePetImage, type PetAnalysis } from "./ollama-agent";
 import { getBlenderClient } from "./agent/tools/blender_client";
@@ -296,6 +297,38 @@ function splitDataUrl(s: string): { data: string; mimeType: string } {
   return { mimeType: "image/jpeg", data: s };
 }
 
+export function formatReadinessResponse(database: { configured: boolean; healthy: boolean; latencyMs: number; error?: string }, buildInfo: any) {
+  if (!database.healthy) {
+    if (database.error) {
+      console.error("❌ Database readiness check failed:", database.error);
+    }
+    return {
+      statusCode: 503,
+      body: {
+        status: "not_ready",
+        database: {
+          configured: database.configured,
+          healthy: false,
+          latencyMs: database.latencyMs,
+          reason: "database_unavailable",
+        },
+      },
+    };
+  }
+  return {
+    statusCode: 200,
+    body: {
+      status: "ready",
+      database: {
+        configured: true,
+        healthy: true,
+        latencyMs: database.latencyMs,
+      },
+      build: buildInfo,
+    },
+  };
+}
+
 async function startServer() {
   const app = express();
   // API responses are application data, never search-result pages.
@@ -312,13 +345,6 @@ async function startServer() {
   app.set("trust proxy", 1);
   const PORT = Number(process.env.PORT) || 3000;
 
-  process.on("unhandledRejection", (reason) => {
-    console.error("[FATAL] Unhandled rejection:", reason);
-  });
-  process.on("uncaughtException", (err) => {
-    console.error("[FATAL] Uncaught exception:", err);
-  });
-
   // Fix 3: JWT_SECRET startup guard — refuse to start with an insecure empty secret.
   if (!process.env.JWT_SECRET || process.env.JWT_SECRET === "MY_JWT_SECRET" || process.env.JWT_SECRET.length < 16) {
     console.error("❌ FATAL: JWT_SECRET is missing or too short. Set a long random string in your .env file.");
@@ -327,6 +353,52 @@ async function startServer() {
 
   // Initialize the user database (creates the users table if needed)
   await initDb();
+
+  let manifestData: any = null;
+  try {
+    const baseDir = typeof __dirname !== "undefined" ? __dirname : process.cwd();
+    const candidatePaths = [
+      path.join(process.cwd(), "release-manifest.json"),
+      path.join(process.cwd(), "dist", "release-manifest.json"),
+      path.join(baseDir, "release-manifest.json"),
+      path.join(baseDir, "..", "release-manifest.json"),
+      path.join(baseDir, "dist", "release-manifest.json"),
+    ];
+    for (const candidate of candidatePaths) {
+      if (fs.existsSync(candidate)) {
+        const raw = fs.readFileSync(candidate, "utf8");
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object" && typeof parsed.commit === "string") {
+          manifestData = parsed;
+          break;
+        }
+      }
+    }
+  } catch (manifestErr) {
+    console.warn("⚠️ Could not load release manifest provenance:", manifestErr);
+  }
+
+  const buildInfo = {
+    version: process.env.npm_package_version || "0.0.0",
+    commit: process.env.APP_COMMIT_SHA || process.env.SOURCE_COMMIT || manifestData?.commit || "unknown",
+    branch: process.env.APP_BRANCH || manifestData?.branch || "unknown",
+    builtAt: process.env.APP_BUILD_TIME || manifestData?.builtAt || "unknown",
+    schemaVersion: manifestData?.schemaVersion ?? CURRENT_SCHEMA_VERSION,
+  };
+
+  app.get("/healthz", (_req, res) => {
+    res.json({ status: "ok" });
+  });
+
+  app.get("/readyz", async (_req, res) => {
+    const database = await checkDatabaseHealth();
+    const formatted = formatReadinessResponse(database, buildInfo);
+    return res.status(formatted.statusCode).json(formatted.body);
+  });
+
+  app.get("/version", (_req, res) => {
+    res.json(buildInfo);
+  });
 
   // Reaper: recover avatars stranded in an intermediate generation state.
   // The build runs as fire-and-forget work; if the process is recycled mid-build
@@ -782,6 +854,7 @@ async function startServer() {
     "/api/profile/photos",
     "/api/bim/import-ifc",
     "/api/create-pipeline/generate-reference",
+    "/api/print-uploads",
   ]);
   app.use((req, res, next) => {
     // The exact production pet-sim app is mounted after its provider adapters
@@ -5698,8 +5771,8 @@ async function startServer() {
       
       // 3. See if we have a cached STL derivative for this exact target height
       const [stlRows] = await getPool().query(
-        `SELECT object_key, size_bytes FROM marketplace_assets WHERE listing_id = ? AND kind = 'stl_derivative' AND status = 'active' AND sort_order = ? LIMIT 1`,
-        [listing.id, Math.round(targetMm)]
+        `SELECT object_key, size_bytes FROM marketplace_assets WHERE listing_id = ? AND kind = 'stl_derivative' AND status = 'active' AND derivative_height_mm = ? LIMIT 1`,
+        [listing.id, targetMm]
       ) as any;
 
       let stlUrl = "";
@@ -5746,15 +5819,52 @@ async function startServer() {
         
         // Save to private bucket as stl_derivative
         const stlBuffer = Buffer.from(prepared.stl_base64, "base64");
-        stlObjectKey = mintObjectKey(listingUuid, "stl");
-        await putPrivateObject(stlObjectKey, stlBuffer, "model/stl");
-        
-        // INSERT into marketplace_assets
-        await getPool().query(
-          `INSERT INTO marketplace_assets (listing_id, kind, object_key, mime_type, size_bytes, sort_order, status, created_by_phone)
-           VALUES (?, 'stl_derivative', ?, 'model/stl', ?, ?, 'active', ?)`,
-          [listing.id, stlObjectKey, stlBuffer.length, Math.round(targetMm), phone]
-        );
+        stlObjectKey = mintObjectKey(listingUuid, "model/stl");
+        const storedStl = await putPrivateObject(stlObjectKey, stlBuffer, "model/stl");
+
+        try {
+          await getPool().query(
+            `INSERT INTO marketplace_assets
+               (listing_id, asset_uuid, kind, bucket, object_key, mime_type, size_bytes,
+                sha256, sort_order, derivative_height_mm, status)
+             VALUES (?, ?, 'stl_derivative', 'private', ?, 'model/stl', ?, ?, ?, ?, 'active')`,
+            [
+              listing.id,
+              randomUUID(),
+              storedStl.objectKey,
+              storedStl.sizeBytes,
+              storedStl.sha256,
+              Math.round(targetMm),
+              targetMm,
+            ],
+          );
+        } catch (persistError: any) {
+          await deletePrivateObject(storedStl.objectKey).catch((cleanupError) => {
+            console.error("Marketplace STL asset persistence and cleanup failed", {
+              objectKey: storedStl.objectKey,
+              listingId: listing.id,
+              cleanupError,
+            });
+          });
+
+          const isDuplicate =
+            persistError?.code === "ER_DUP_ENTRY" ||
+            /duplicate/i.test(persistError?.message || "");
+
+          if (isDuplicate) {
+            const [winningRows] = (await getPool().query(
+              `SELECT object_key, size_bytes FROM marketplace_assets WHERE listing_id = ? AND kind = 'stl_derivative' AND status = 'active' AND derivative_height_mm = ? LIMIT 1`,
+              [listing.id, targetMm],
+            )) as any;
+            if (winningRows?.[0]) {
+              stlObjectKey = String(winningRows[0].object_key);
+            } else {
+              throw persistError;
+            }
+          } else {
+            throw persistError;
+          }
+        }
         
         const signedStl = await getPrivateSignedUrl(stlObjectKey);
         stlUrl = signedStl.url;
@@ -7204,9 +7314,59 @@ CRITICAL RULES:
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  const httpServer = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on port ${PORT}`);
+  });
+
+  let shuttingDown = false;
+  async function shutdown(reason: string, exitCode: number) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[Shutdown] ${reason}`);
+    try {
+      await Promise.race([
+        Promise.all([
+          new Promise<void>((resolve, reject) => {
+            httpServer.close((error) => error ? reject(error) : resolve());
+          }),
+          closePool(),
+        ]),
+        new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error("Graceful shutdown timed out.")), 10_000).unref();
+        }),
+      ]);
+    } catch (error) {
+      console.error("[Shutdown] Server did not close cleanly:", error);
+      exitCode = 1;
+    }
+    process.exit(exitCode);
+  }
+
+  process.once("SIGTERM", () => { void shutdown("SIGTERM", 0); });
+  process.once("SIGINT", () => { void shutdown("SIGINT", 0); });
+  process.once("unhandledRejection", (reason) => {
+    console.error("[FATAL] Unhandled rejection:", reason);
+    void shutdown("unhandledRejection", 1);
+  });
+  process.once("uncaughtException", (error) => {
+    console.error("[FATAL] Uncaught exception:", error);
+    void shutdown("uncaughtException", 1);
   });
 }
 
-startServer();
+const isEntryPoint = Boolean(
+  process.argv[1] &&
+  (process.argv[1].endsWith("server.ts") ||
+   process.argv[1].endsWith("server.cjs") ||
+   process.argv[1].endsWith("server.js"))
+);
+
+if (isEntryPoint) {
+  startServer().catch(async (error) => {
+    console.error("[FATAL] Server startup failed:", error);
+    await closePool().catch((closeError) => {
+      console.error("[FATAL] Database pool cleanup failed:", closeError);
+    });
+    process.exitCode = 1;
+  });
+}

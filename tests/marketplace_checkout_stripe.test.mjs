@@ -87,8 +87,8 @@ test("the session id and URL are persisted so a retry resumes", () => {
 });
 
 test("the buyer sees the listing name, not a generic label", () => {
-  assert.match(publicSrc, /SELECT id, title, digital_price_cents/, "title must be fetched");
-  assert.match(publicSrc, /title: String\(listing\.title/, "title must be returned to the route");
+  assert.match(publicSrc, /SELECT id, name, digital_price_cents/, "the schema's name column must be fetched");
+  assert.match(publicSrc, /title: String\(listing\.name/, "name must map to the route's title contract");
   const route = server.slice(
     server.indexOf('app.post("/api/marketplace/listings/:uuid/checkout"'),
     server.indexOf('app.get("/api/marketplace/listings/:uuid/download"'),

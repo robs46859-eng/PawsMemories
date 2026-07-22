@@ -99,7 +99,7 @@ export async function publicListing(pool: Pool, uuid: string) {
 export async function checkoutDigital(pool: Pool, userPhone: string, listingUuid: string, idempotencyKey: string) {
   // 1. Resolve listing and active source_glb
   const [lRows] = await pool.query(
-    `SELECT id, title, digital_price_cents FROM marketplace_listings WHERE uuid = ? AND status = 'published' LIMIT 1`,
+    `SELECT id, name, digital_price_cents FROM marketplace_listings WHERE uuid = ? AND status = 'published' LIMIT 1`,
     [listingUuid]
   ) as any;
   if (!lRows || lRows.length === 0) {
@@ -153,7 +153,7 @@ export async function checkoutDigital(pool: Pool, userPhone: string, listingUuid
   ) as any;
   const orderId = insert.insertId;
 
-  // `title` is returned so the Stripe checkout page can name the actual model.
+  // `title` is the route contract consumed by Stripe; the database column is `name`.
   // The route previously hardcoded "Pawsome3D Digital Model" for every purchase,
   // which is what the buyer sees on the payment screen and on their card
   // statement descriptor — a generic name there is a recognised driver of
@@ -163,7 +163,7 @@ export async function checkoutDigital(pool: Pool, userPhone: string, listingUuid
     priceCents: listing.digital_price_cents,
     listingId: listing.id,
     assetId,
-    title: String(listing.title || "Digital 3D Model"),
+    title: String(listing.name || "Digital 3D Model"),
   };
 }
 

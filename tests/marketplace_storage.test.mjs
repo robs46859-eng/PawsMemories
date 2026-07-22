@@ -110,6 +110,14 @@ test("two mints for the same listing never collide", async () => {
   assert.equal(keys.size, 200, "minted keys must be unique");
 });
 
+test("private cleanup refuses to delete outside the marketplace prefix", async () => {
+  const { deletePrivateObject, PrivateStorageError } = await loadModule();
+  await assert.rejects(
+    () => deletePrivateObject("unrelated/user-upload.glb"),
+    PrivateStorageError,
+  );
+});
+
 test("upload claims are validated before a presign is issued", async () => {
   const { validateUploadClaim, MAX_GLB_BYTES, MAX_PREVIEW_IMAGE_BYTES } = await loadModule();
 

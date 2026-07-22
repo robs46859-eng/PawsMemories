@@ -1,5 +1,17 @@
 # Pawsome3D Project Handoff
 
+## Lead Architecture Update - 2026-07-22
+
+The controlling design is now `PAWSOME3D_PLATFORM_ARCHITECTURE_SPEC.md`; current execution status is `PHASED_IMPLEMENTATION.md`. The audit ran on branch `fix/text-mode-reference-screen` at starting commit `4ef7e84`.
+
+Phase 0 Database and Release Stability corrections are complete and signed off. The patch hardens MySQL pool lifecycle and startup failure handling, sanitizes `/readyz` output (preventing credential leakage), fixes manifest resolution across environments (`/version`), introduces single-source TypeScript migration registry (`server/migrations/runner.ts` exporting `CURRENT_SCHEMA_VERSION = 17`), guarantees `users.stripe_customer_id`, implements active-only generated stored column unique index `uniq_stl_active_derivative (listing_id, generated_active_height)` for STL derivatives with valid `status = 'superseded'` and compensating object cleanup, fail-closed production build pipeline (`package.json` without `|| true`), release manifest generation with Node 24 engine validation (`scripts/generate-manifest.mjs`), live MySQL 8.4 integration suite (`tests/migrations_mysql_integration.test.mjs`, `tests/stl_concurrency_real.test.mjs`), and extracted archive verifier with file-by-file SHA-256 recalculation (`scripts/build-deploy-zip.sh`).
+
+Verification evidence under Node 24.18.0 (npm 11.16.0): TypeScript clean (`npm run lint`), 762/763 tests passing with 1 intentional skip (`npm run test` with live Homebrew MySQL 8.4 service), production client/server build passing (`npm run build`), clean `git diff --check`, and extracted-archive verifier gate passing (`bash scripts/build-deploy-zip.sh`). IFC worker tests remain pinned in the Render container environment (`ifcopenshell==0.8.5` / `numpy==2.2.1`).
+
+The active Create flow still uses one reference image. The stronger legacy multiview, rigging, and verification code must be integrated through the versioned asset/session architecture rather than copied route-by-route. Pre-build input checks must not be called mesh or print verification; post-build GLB/rig/facial/print checks are required before those badges are shown.
+
+Specialist agent order and write boundaries are defined in section 21 of the architecture specification. Read the architecture, tracker, this update, relevant `skills/animator/*.md`, and `/Users/robert/.codex/skills/image-to-3d/SKILL.md` before 3D pipeline changes.
+
 Updated: 2026-07-14
 
 ## State

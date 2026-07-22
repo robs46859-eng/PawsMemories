@@ -3,6 +3,7 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { v4 as uuidv4 } from "uuid";
@@ -205,6 +206,16 @@ export async function putPrivateObject(
     }),
   );
   return { objectKey, sizeBytes: body.byteLength, sha256: sha256Hex(body) };
+}
+
+/** Delete a known private object when a later metadata write cannot be committed. */
+export async function deletePrivateObject(objectKey: string): Promise<void> {
+  if (!objectKey.startsWith("marketplace/")) {
+    throw new PrivateStorageError("Refusing to delete an object outside the marketplace prefix.");
+  }
+  await client().send(
+    new DeleteObjectCommand({ Bucket: privateBucketName, Key: objectKey }),
+  );
 }
 
 /**

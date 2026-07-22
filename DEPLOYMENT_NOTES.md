@@ -128,11 +128,11 @@ The **~70MB zips** were mistakes that accidentally included `node_modules/`.
    git add -A && git commit -m "your message"
    ```
 
-2. Create the source zip:
+2. Create the source zip with release manifest and archive verification:
    ```bash
-   git archive HEAD --format=zip -o pawsome3d-source.zip
+   bash scripts/build-deploy-zip.sh
    ```
-   This is ~21MB. No node_modules.
+   This generates `pawsome3d-deploy.zip` (~20MB) after validating worktree cleanliness, embedding `release-manifest.json` with Node 24 engine validation, and verifying extracted archive integrity.
 
 3. Upload to Hostinger same as step 4 above.
 
@@ -185,6 +185,14 @@ Set in Hostinger → Websites → pawsome3d.com → Deployments → Settings →
 | `DB_HOST` | `127.0.0.1` (**NOT** `localhost`) |
 | `DB_PORT` | `3306` |
 | `DB_NAME` / `DB_USER` / `DB_PASSWORD` | MySQL credentials |
+| `DB_CONNECTION_LIMIT` | Bounded pool connection limit (default 10, max 50) |
+| `DB_MAX_IDLE` | Maximum idle connections (capped at DB_CONNECTION_LIMIT) |
+| `DB_IDLE_TIMEOUT_MS` | Idle connection timeout in ms (default 60000) |
+| `DB_CONNECT_TIMEOUT_MS` | Initial connection timeout in ms (default 10000) |
+| `DB_KEEPALIVE_DELAY_MS` | TCP keepalive initial delay in ms (default 0) |
+| `DB_QUEUE_LIMIT` | Max queued requests waiting for pool connection (default 0 = infinite) |
+| `APP_COMMIT_SHA` | Commit SHA for release provenance (exposed at /version and /readyz) |
+| `APP_BUILD_TIME` | ISO build timestamp for release provenance |
 | `GOOGLE_MAPS_API_KEY_SERVER` | Server-side Maps key (no referrer restriction) |
 | `VITE_GOOGLE_MAPS_API_KEY_BROWSER` | Browser Maps key (baked in at build time) |
 | `MEDIA_BUCKET_NAME` / `MEDIA_BUCKET_URL` / `MEDIA_BUCKET_KEY` / `MEDIA_BUCKET_SECRET` | S3-compatible object storage |
