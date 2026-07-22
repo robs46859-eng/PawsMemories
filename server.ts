@@ -7411,8 +7411,12 @@ const isEntryPoint = Boolean(
    process.argv[1].endsWith("server.cjs") ||
    process.argv[1].endsWith("server.js"))
 );
+const hasHostingerBootstrap = Boolean(
+  (globalThis as typeof globalThis & { __PAWSOME_HOSTINGER_BOOTSTRAP__?: unknown })
+    .__PAWSOME_HOSTINGER_BOOTSTRAP__
+);
 
-if (isEntryPoint) {
+if (isEntryPoint || hasHostingerBootstrap) {
   startServer().catch(async (error) => {
     console.error("[FATAL] Server startup failed:", error);
     await closePool().catch((closeError) => {
