@@ -1,3 +1,4 @@
+import zlib from "node:zlib";
 import crypto from "node:crypto";
 import { NodeIO } from "@gltf-transform/core";
 import { ALL_EXTENSIONS } from "@gltf-transform/extensions";
@@ -6,6 +7,84 @@ import { GLB_MAGIC, MAX_GLB_DOWNLOAD_BYTES } from "./types";
 import type { GlbValidationMetrics } from "./schemas";
 
 export const VALIDATOR_VERSION = "phase3-v1.0.0";
+
+function crc32(buf: Buffer): number {
+  let crc = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) {
+    crc ^= buf[i];
+    for (let j = 0; j < 8; j++) {
+      crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+/**
+ * Generates a valid decodable 1024x1024 PNG buffer fixture for testing and verification.
+ */
+export function createValidPngBuffer(width = 1024, height = 1024): Buffer {
+  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+  const ihdrData = Buffer.alloc(13);
+  ihdrData.writeUInt32BE(width, 0);
+  ihdrData.writeUInt32BE(height, 4);
+  ihdrData[8] = 8; // Bit depth: 8
+  ihdrData[9] = 0; // Grayscale
+  ihdrData[10] = 0;
+  ihdrData[11] = 0;
+  ihdrData[12] = 0;
+
+  const ihdrChunk = Buffer.alloc(4 + 4 + 13 + 4);
+  ihdrChunk.writeUInt32BE(13, 0);
+  ihdrChunk.write("IHDR", 4, 4, "ascii");
+  ihdrData.copy(ihdrChunk, 8);
+  const ihdrCrc = crc32(ihdrChunk.subarray(4, 21));
+  ihdrChunk.writeUInt32BE(ihdrCrc, 21);
+
+  const rawScanlines = Buffer.alloc(height * (1 + width));
+  const compressed = zlib.deflateSync(rawScanlines);
+
+  const idatChunk = Buffer.alloc(4 + 4 + compressed.length + 4);
+  idatChunk.writeUInt32BE(compressed.length, 0);
+  idatChunk.write("IDAT", 4, 4, "ascii");
+  compressed.copy(idatChunk, 8);
+  const idatCrcBuf = Buffer.concat([Buffer.from("IDAT", "ascii"), compressed]);
+  const idatCrc = crc32(idatCrcBuf);
+  idatChunk.writeUInt32BE(idatCrc, 8 + compressed.length);
+
+  const iendChunk = Buffer.alloc(4 + 4 + 4);
+  iendChunk.writeUInt32BE(0, 0);
+  iendChunk.write("IEND", 4, 4, "ascii");
+  const iendCrc = crc32(Buffer.from("IEND", "ascii"));
+  iendChunk.writeUInt32BE(iendCrc, 8);
+
+  return Buffer.concat([signature, ihdrChunk, idatChunk, iendChunk]);
+}
+
+/**
+ * Validates PNG image signature, IHDR chunk, and dimensions.
+ */
+export function validatePngImage(
+  buffer: Buffer,
+  minWidth = 1024,
+  minHeight = 1024,
+): { valid: boolean; width: number; height: number; error?: string } {
+  if (!buffer || buffer.length < 24) return { valid: false, width: 0, height: 0, error: "Buffer too small for PNG" };
+  const pngMagic = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  if (!buffer.subarray(0, 8).equals(pngMagic)) {
+    return { valid: false, width: 0, height: 0, error: "Invalid PNG magic signature" };
+  }
+  const ihdrType = buffer.toString("ascii", 12, 16);
+  if (ihdrType !== "IHDR") {
+    return { valid: false, width: 0, height: 0, error: "Missing IHDR chunk" };
+  }
+  const width = buffer.readUInt32BE(16);
+  const height = buffer.readUInt32BE(20);
+  if (width < minWidth || height < minHeight) {
+    return { valid: false, width, height, error: `Image dimensions ${width}x${height} below required ${minWidth}x${minHeight}` };
+  }
+  return { valid: true, width, height };
+}
 
 /**
  * Deterministic post-build GLB validation.
@@ -38,8 +117,8 @@ export async function validateGlb(
     if (!versionValid) errors.push(`Unsupported GLB version: ${version}`);
 
     declaredLength = glbBuffer.readUInt32LE(8);
-    if (declaredLength > actualLength) {
-      errors.push(`Declared length ${declaredLength} exceeds actual ${actualLength}`);
+    if (declaredLength !== actualLength) {
+      errors.push(`Declared length ${declaredLength} does not equal actual ${actualLength}`);
     }
   }
 
@@ -99,13 +178,12 @@ export async function validateGlb(
             vertexCount += position.getCount();
 
             // Check for NaN/Infinity in positions
-            const count = position.getCount();
-            for (let i = 0; i < Math.min(count, 10000); i++) {
-              const v = position.getElement(i, [0, 0, 0]);
-              for (const c of v) {
+            const values = position.getArray();
+            if (!values) {
+              errors.push("POSITION accessor has no readable data");
+            } else for (const c of values) {
                 if (Number.isNaN(c)) containsNaN = true;
                 if (!Number.isFinite(c)) containsInfinity = true;
-              }
             }
           } else {
             hasEmptyGeometry = true;
@@ -116,6 +194,11 @@ export async function validateGlb(
 
           const indices = prim.getIndices();
           if (indices) {
+            const indexValues = indices.getArray();
+            const positionCount = position?.getCount() || 0;
+            if (!indexValues || Array.from(indexValues).some((index) => Number(index) < 0 || Number(index) >= positionCount)) {
+              errors.push("Primitive contains an out-of-range index");
+            }
             triangleCount += Math.floor(indices.getCount() / 3);
           } else if (position) {
             triangleCount += Math.floor(position.getCount() / 3);
@@ -125,6 +208,11 @@ export async function validateGlb(
 
       // Texture details
       for (const tex of root.listTextures()) {
+        const uri = tex.getURI();
+        if (uri && !uri.startsWith("data:")) {
+          hasExternalUris = true;
+          errors.push(`External image URI detected: ${uri.slice(0, 100)}`);
+        }
         const mime = tex.getMimeType() || "image/unknown";
         const size = tex.getSize();
         textureDetails.push({

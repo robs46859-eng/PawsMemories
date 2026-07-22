@@ -54,4 +54,12 @@ describe("Phase 3 Post-Build GLB Validation Test Suite", () => {
     const res2 = await validateGlb(glb2);
     assert.equal(res1.metricsHash, res2.metricsHash);
   });
+
+  it("should fail when the declared GLB length does not exactly match the bytes", async () => {
+    const glb = createMinimalGlb();
+    glb.writeUInt32LE(glb.length - 4, 8);
+    const result = await validateGlb(glb);
+    assert.equal(result.status, "fail");
+    assert.ok(result.metrics.errors.some((error) => error.includes("does not equal actual")));
+  });
 });

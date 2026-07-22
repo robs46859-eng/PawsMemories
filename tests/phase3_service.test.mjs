@@ -6,6 +6,7 @@ import { runMigrations } from "../server/migrations/runner.ts";
 import { ModelBuildService, ModelBuildServiceError } from "../server/model-builds/service.ts";
 import { FakeModelBuildProvider } from "../server/model-builds/provider.ts";
 import { resetPrivateStorageClient } from "../storage.private.ts";
+import { computeOrderedManifestHash } from "../server/reference-sessions/service.ts";
 
 const MYSQL_HOST = process.env.MYSQL_TEST_HOST || "127.0.0.1";
 const MYSQL_PORT = Number(process.env.MYSQL_TEST_PORT || 3306);
@@ -100,18 +101,7 @@ describe("Phase 3 ModelBuildService Integration Test Suite", () => {
         [ownerPhone],
       );
 
-      // 2. Register manifest asset + version
-      const [mAsset] = await conn.query(
-        "INSERT INTO assets (asset_uuid, owner_id, asset_type) VALUES (UUID(), ?, 'reference_manifest')",
-        [ownerPhone],
-      );
-      const [mVer] = await conn.query(
-        `INSERT INTO asset_versions (asset_id, version_number, sha256, mime_type, size_bytes, bucket, object_key)
-         VALUES (?, 1, REPEAT('a', 64), 'application/json', 100, 'private', 'm.json')`,
-        [mAsset.insertId],
-      );
-
-      // 3. Create approved session
+      // 2. Create approved session
       const sessionUuid = crypto.randomUUID();
       const [sRes] = await conn.query(
         `INSERT INTO reference_sessions (session_uuid, owner_id, input_mode, subject_class, state)
@@ -119,15 +109,18 @@ describe("Phase 3 ModelBuildService Integration Test Suite", () => {
         [sessionUuid, ownerPhone],
       );
 
-      // 4. Create approved attempt
+      // 3. Create approved attempt
       const [attRes] = await conn.query(
         `INSERT INTO reference_attempts (session_id, attempt_number, idempotency_key, provider, model, prompt_config_hash, state)
          VALUES (?, 1, UUID(), 'gemini', 'm1', REPEAT('b', 64), 'ready')`,
         [sRes.insertId],
       );
 
-      // 5. Create 5 reference views
+      await conn.query("UPDATE reference_sessions SET approved_attempt_id = ? WHERE id = ?", [attRes.insertId, sRes.insertId]);
+
+      // 4. Create 5 reference views
       const kinds = ["front", "left", "right", "rear", "front_three_quarter"];
+      const manifestItems = [];
       for (const kind of kinds) {
         const [vAsset] = await conn.query(
           "INSERT INTO assets (asset_uuid, owner_id, asset_type) VALUES (UUID(), ?, 'reference_view')",
@@ -143,29 +136,43 @@ describe("Phase 3 ModelBuildService Integration Test Suite", () => {
            VALUES (?, ?, ?, ?, 1024, 1024, 0)`,
           [attRes.insertId, kind, vAsset.insertId, vVer.insertId],
         );
+        const [assetRows] = await conn.query("SELECT asset_uuid FROM assets WHERE id = ?", [vAsset.insertId]);
+        manifestItems.push({ viewKind: kind, assetUuid: assetRows[0].asset_uuid, sha256: "c".repeat(64) });
       }
 
-      // 6. Create pass report
+      // 5. Create canonical pass report and exact approved manifest.
+      const reportHash = "d".repeat(64);
       const [rAsset] = await conn.query(
         "INSERT INTO assets (asset_uuid, owner_id, asset_type) VALUES (UUID(), ?, 'reference_report')",
         [ownerPhone],
       );
       const [rVer] = await conn.query(
         `INSERT INTO asset_versions (asset_id, version_number, sha256, mime_type, size_bytes, bucket, object_key)
-         VALUES (?, 1, REPEAT('d', 64), 'application/json', 200, 'private', 'rep.json')`,
-        [rAsset.insertId],
+         VALUES (?, 1, ?, 'application/json', 200, 'private', 'rep.json')`,
+        [rAsset.insertId, reportHash],
       );
       await conn.query(
         `INSERT INTO reference_reports (attempt_id, report_asset_id, report_asset_version_id, status, report_hash)
-         VALUES (?, ?, ?, 'pass', REPEAT('e', 64))`,
-        [attRes.insertId, rAsset.insertId, rVer.insertId],
+         VALUES (?, ?, ?, 'pass', ?)`,
+        [attRes.insertId, rAsset.insertId, rVer.insertId, reportHash],
       );
 
-      // 7. Create approval record
+      const manifestHash = computeOrderedManifestHash(manifestItems, reportHash);
+      const [mAsset] = await conn.query(
+        "INSERT INTO assets (asset_uuid, owner_id, asset_type) VALUES (UUID(), ?, 'provider_manifest')",
+        [ownerPhone],
+      );
+      const [mVer] = await conn.query(
+        `INSERT INTO asset_versions (asset_id, version_number, sha256, mime_type, size_bytes, bucket, object_key, metadata)
+         VALUES (?, 1, REPEAT('a', 64), 'application/json', 100, 'private', 'm.json', ?)`,
+        [mAsset.insertId, JSON.stringify({ manifestHash })],
+      );
+
+      // 6. Create approval record
       await conn.query(
         `INSERT INTO reference_approvals (session_id, attempt_id, manifest_asset_id, manifest_asset_version_id, manifest_hash, approved_by_user)
-         VALUES (?, ?, ?, ?, REPEAT('f', 64), ?)`,
-        [sRes.insertId, attRes.insertId, mAsset.insertId, mVer.insertId, ownerPhone],
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [sRes.insertId, attRes.insertId, mAsset.insertId, mVer.insertId, manifestHash, ownerPhone],
       );
 
       return { sessionUuid, sessionId: sRes.insertId, attemptId: attRes.insertId };
@@ -263,5 +270,10 @@ describe("Phase 3 ModelBuildService Integration Test Suite", () => {
     // Verify balance was refunded back to 100
     const [userRows] = await pool.query("SELECT credits FROM users WHERE phone = ?", [owner]);
     assert.equal(userRows[0].credits, 100);
+    const [events] = await pool.query(
+      "SELECT event_type, delta FROM model_build_credit_events WHERE owner_id = ? ORDER BY id",
+      [owner],
+    );
+    assert.deepEqual(events.map((event) => [event.event_type, event.delta]), [["charge", -45], ["refund", 45]]);
   });
 });

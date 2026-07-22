@@ -67,6 +67,7 @@ describe("Phase 3 Migration 22 MySQL Integration", () => {
       "model_build_artifacts",
       "model_post_build_reports",
       "model_build_acceptances",
+      "model_build_credit_events",
     ];
     for (const tbl of expected) {
       assert.ok(tableNames.includes(tbl), `Table ${tbl} should exist`);

@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { FakeModelBuildProvider, TripoModelBuildAdapter } from "../server/model-builds/provider.ts";
+import { mintObjectKey } from "../server/model-builds/storage.ts";
 
 describe("Phase 3 Provider Port and Adapter Test Suite", () => {
   it("FakeModelBuildProvider should return valid GLB bytes", async () => {
@@ -49,5 +50,12 @@ describe("Phase 3 Provider Port and Adapter Test Suite", () => {
       },
       (err) => err.message.includes("Blocked download URL"),
     );
+  });
+
+  it("model storage keys omit owner identifiers and reject traversal", () => {
+    const key = mintObjectKey("private-user@example.com", "11111111-1111-4111-8111-111111111111", 1, "provider_glb", "glb");
+    assert.equal(key.includes("private-user"), false);
+    assert.match(key, /^models\/11111111-1111-4111-8111-111111111111\/attempt-1\/provider_glb-/);
+    assert.throws(() => mintObjectKey("owner", "../escape", 1, "provider_glb", "glb"));
   });
 });

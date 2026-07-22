@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import dns from "node:dns/promises";
+import net from "node:net";
 import { MAX_GLB_DOWNLOAD_BYTES, PROVIDER_CONNECT_TIMEOUT_MS, PROVIDER_READ_TIMEOUT_MS } from "./types";
 import { startImageTo3D, pollImageTo3D, isTripoHandle, type TripoJobInput } from "../../tripo";
 
@@ -73,7 +75,22 @@ function isPrivateIp(hostname: string): boolean {
     /^\[fc/i,
     /^\[fd/i,
   ];
-  return patterns.some(p => p.test(hostname));
+  const normalized = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (patterns.some(p => p.test(hostname))) return true;
+  if (net.isIP(normalized) === 6) {
+    return normalized === "::1" || normalized.startsWith("fe8") || normalized.startsWith("fe9") ||
+      normalized.startsWith("fea") || normalized.startsWith("feb") || normalized.startsWith("fc") ||
+      normalized.startsWith("fd") || normalized.startsWith("::ffff:127.") || normalized.startsWith("::ffff:10.") ||
+      normalized.startsWith("::ffff:192.168.");
+  }
+  return false;
+}
+
+async function assertPublicDns(hostname: string): Promise<void> {
+  const addresses = await dns.lookup(hostname, { all: true, verbatim: true });
+  if (addresses.length === 0 || addresses.some(({ address }) => isPrivateIp(address))) {
+    throw new Error("Blocked: download host resolves to a private address");
+  }
 }
 
 // ─── Tripo Adapter ──────────────────────────────────────────────────────────
@@ -124,6 +141,7 @@ export class TripoModelBuildAdapter implements ModelBuildProvider {
       if (isPrivateIp(parsed.hostname)) {
         throw new Error("Blocked: URL resolves to private address");
       }
+      await assertPublicDns(parsed.hostname);
     } catch (err: any) {
       if (err.message.includes("Blocked")) throw err;
       throw new Error(`Invalid download URL`);
@@ -177,6 +195,9 @@ export class TripoModelBuildAdapter implements ModelBuildProvider {
       const magic = buffer.readUInt32LE(0);
       if (magic !== 0x46546C67) {
         throw new Error(`Downloaded file is not a GLB (magic: 0x${magic.toString(16)})`);
+      }
+      if (buffer.readUInt32LE(4) !== 2 || buffer.readUInt32LE(8) !== buffer.length) {
+        throw new Error("Downloaded GLB header length or version is invalid");
       }
 
       return buffer;

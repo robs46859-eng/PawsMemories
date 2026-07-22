@@ -6,23 +6,29 @@ import { putPrivateObject, deletePrivateObject } from "../../storage.private";
  * All provider outputs are stored privately until validation passes.
  */
 export function mintObjectKey(
-  ownerId: string,
+  _ownerId: string,
   jobUuid: string,
   attemptNumber: number,
   role: string,
   ext: string,
 ): string {
-  const safeOwner = ownerId.replace(/[^a-zA-Z0-9_+\-.]/g, "_");
-  return `models/${safeOwner}/${jobUuid}/attempt-${attemptNumber}/${role}.${ext}`;
+  assertStorageIdentity(jobUuid, attemptNumber, role, ext);
+  return `models/${jobUuid}/attempt-${attemptNumber}/${role}-${crypto.randomUUID()}.${ext}`;
 }
 
 export function mintReportObjectKey(
-  ownerId: string,
+  _ownerId: string,
   jobUuid: string,
   attemptNumber: number,
 ): string {
-  const safeOwner = ownerId.replace(/[^a-zA-Z0-9_+\-.]/g, "_");
-  return `models/${safeOwner}/${jobUuid}/attempt-${attemptNumber}/report.json`;
+  assertStorageIdentity(jobUuid, attemptNumber, "report", "json");
+  return `models/${jobUuid}/attempt-${attemptNumber}/report-${crypto.randomUUID()}.json`;
+}
+
+function assertStorageIdentity(jobUuid: string, attemptNumber: number, role: string, ext: string): void {
+  if (!/^[0-9a-f-]{36}$/i.test(jobUuid)) throw new Error("Invalid model-build UUID");
+  if (!Number.isInteger(attemptNumber) || attemptNumber < 1) throw new Error("Invalid model-build attempt number");
+  if (!/^[a-z0-9_]+$/.test(role) || !/^(glb|json|png)$/.test(ext)) throw new Error("Invalid model-build artifact identity");
 }
 
 /**
@@ -41,7 +47,7 @@ export async function storeProviderGlb(
     const result = await putPrivateObject(objectKey, glbBuffer, "model/gltf-binary");
     return { objectKey: result.objectKey, sha256: result.sha256, sizeBytes: result.sizeBytes };
   } catch (err: any) {
-    if (process.env.NODE_ENV === "test" || process.env.MEDIA_BUCKET_URL?.includes("localhost")) {
+    if (process.env.NODE_ENV === "test" || process.env.MEDIA_BUCKET_URL?.includes("localhost") || process.env.MEDIA_BUCKET_URL?.includes("127.0.0.1")) {
       return { objectKey, sha256, sizeBytes: glbBuffer.length };
     }
     throw err;
@@ -63,8 +69,31 @@ export async function storeValidatedGlb(
     const result = await putPrivateObject(objectKey, glbBuffer, "model/gltf-binary");
     return { objectKey: result.objectKey, sha256: result.sha256, sizeBytes: result.sizeBytes };
   } catch (err: any) {
-    if (process.env.NODE_ENV === "test" || process.env.MEDIA_BUCKET_URL?.includes("localhost")) {
+    if (process.env.NODE_ENV === "test" || process.env.MEDIA_BUCKET_URL?.includes("localhost") || process.env.MEDIA_BUCKET_URL?.includes("127.0.0.1")) {
       return { objectKey, sha256, sizeBytes: glbBuffer.length };
+    }
+    throw err;
+  }
+}
+
+/**
+ * Upload a standard review render PNG image to private storage.
+ */
+export async function storeRenderArtifact(
+  ownerId: string,
+  jobUuid: string,
+  attemptNumber: number,
+  role: string,
+  imageBuffer: Buffer,
+): Promise<{ objectKey: string; sha256: string; sizeBytes: number }> {
+  const objectKey = mintObjectKey(ownerId, jobUuid, attemptNumber, role, "png");
+  const sha256 = crypto.createHash("sha256").update(imageBuffer).digest("hex");
+  try {
+    const result = await putPrivateObject(objectKey, imageBuffer, "image/png");
+    return { objectKey: result.objectKey, sha256: result.sha256, sizeBytes: result.sizeBytes };
+  } catch (err: any) {
+    if (process.env.NODE_ENV === "test" || process.env.MEDIA_BUCKET_URL?.includes("localhost") || process.env.MEDIA_BUCKET_URL?.includes("127.0.0.1")) {
+      return { objectKey, sha256, sizeBytes: imageBuffer.length };
     }
     throw err;
   }
@@ -86,7 +115,7 @@ export async function storeReport(
     const result = await putPrivateObject(objectKey, buffer, "application/json");
     return { objectKey: result.objectKey, sha256: result.sha256, sizeBytes: result.sizeBytes };
   } catch (err: any) {
-    if (process.env.NODE_ENV === "test" || process.env.MEDIA_BUCKET_URL?.includes("localhost")) {
+    if (process.env.NODE_ENV === "test" || process.env.MEDIA_BUCKET_URL?.includes("localhost") || process.env.MEDIA_BUCKET_URL?.includes("127.0.0.1")) {
       return { objectKey, sha256, sizeBytes: buffer.length };
     }
     throw err;
@@ -98,6 +127,9 @@ export async function storeReport(
  * Best-effort — never throws.
  */
 export async function cleanupPrivateObject(objectKey: string): Promise<void> {
+  if (!/^models\/[0-9a-f-]{36}\/attempt-[1-9]\d*\//i.test(objectKey)) {
+    throw new Error("Refusing to delete outside the model-build storage prefix");
+  }
   try {
     await deletePrivateObject(objectKey);
   } catch (err) {

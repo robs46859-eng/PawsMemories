@@ -17,6 +17,9 @@ interface CreateFlowState {
   customizationState?: any; // Poses, colors, etc.
   validationState?: { passed: boolean; checks: { rule: string; pass: boolean; detail: string; }[] };
   style?: string; // e.g. "Realistic", "Cartoon"
+  activeJobUuid?: string;
+  buildQuote?: any;
+  buildJobDetail?: any;
 }
 
 interface CreateFlowContextValue {
@@ -27,15 +30,36 @@ interface CreateFlowContextValue {
 
 const CreateFlowContext = createContext<CreateFlowContextValue | undefined>(undefined);
 
+const ACTIVE_JOB_KEY = "pawsome3d_active_model_build_job_uuid";
+
 export function CreateFlowProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<CreateFlowState>({ species: "dog", inputMode: "image" });
+  const [state, setState] = useState<CreateFlowState>(() => {
+    const savedJob = typeof window !== "undefined" ? sessionStorage.getItem(ACTIVE_JOB_KEY) : null;
+    return {
+      species: "dog",
+      inputMode: "image",
+      activeJobUuid: savedJob || undefined,
+    };
+  });
+
+  const handleSetState: React.Dispatch<React.SetStateAction<CreateFlowState>> = (action) => {
+    setState((prev) => {
+      const next = typeof action === "function" ? action(prev) : action;
+      if (typeof window !== "undefined") {
+        if (next.activeJobUuid) sessionStorage.setItem(ACTIVE_JOB_KEY, next.activeJobUuid);
+        else sessionStorage.removeItem(ACTIVE_JOB_KEY);
+      }
+      return next;
+    });
+  };
 
   const resetState = () => {
+    if (typeof window !== "undefined") sessionStorage.removeItem(ACTIVE_JOB_KEY);
     setState({ species: "dog", inputMode: "image" });
   };
 
   return (
-    <CreateFlowContext.Provider value={{ state, setState, resetState }}>
+    <CreateFlowContext.Provider value={{ state, setState: handleSetState, resetState }}>
       {children}
     </CreateFlowContext.Provider>
   );

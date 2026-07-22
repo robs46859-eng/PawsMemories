@@ -109,9 +109,9 @@ export async function updateJobState(
     currentAttemptId?: number;
     acceptedArtifactId?: number;
     acceptedReportId?: number;
-    creditCorrelationId?: string;
-    refundCorrelationId?: string;
-    failureCode?: string;
+    creditCorrelationId?: string | null;
+    refundCorrelationId?: string | null;
+    failureCode?: string | null;
   },
 ): Promise<void> {
   const sets: string[] = ["state = ?"];
@@ -265,7 +265,7 @@ export async function claimLease(
 }
 
 export async function releaseLease(
-  conn: mysql.PoolConnection,
+  conn: mysql.PoolConnection | mysql.Pool,
   attemptId: number,
   leaseOwner: string,
 ): Promise<void> {
@@ -275,6 +275,21 @@ export async function releaseLease(
      WHERE id = ? AND lease_owner = ?`,
     [attemptId, leaseOwner],
   );
+}
+
+export async function renewLease(
+  db: mysql.PoolConnection | mysql.Pool,
+  attemptId: number,
+  leaseOwner: string,
+  leaseExpiresAt: Date,
+): Promise<boolean> {
+  const [result] = await db.query(
+    `UPDATE model_build_attempts
+     SET lease_expires_at = ?
+     WHERE id = ? AND lease_owner = ?`,
+    [leaseExpiresAt, attemptId, leaseOwner],
+  ) as any;
+  return result.affectedRows === 1;
 }
 
 export async function findExpiredLeases(

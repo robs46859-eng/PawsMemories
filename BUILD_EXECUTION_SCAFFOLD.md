@@ -55,6 +55,19 @@ Each phase follows this sequence:
 9. Release gate: run full tests, type checking, production build, and clean archive verification.
 10. Handoff: update `PHASED_IMPLEMENTATION.md` and `handoff.md`, commit once, then stop for lead approval.
 
+## Fast-Track Execution Model
+
+Speed comes from parallel ownership, not skipped validation. For each active phase, the lead agent divides work into disjoint lanes and integrates them through stable contracts:
+
+1. **Contract/persistence lane:** migrations, schemas, repositories, state machines, authorization, billing, and canonical lineage.
+2. **Worker/validation lane:** provider ports, Blender or external-worker adapters, deterministic validators, fixtures, recovery, and cleanup.
+3. **Product UI lane:** authenticated API client, screens, accessibility, responsive themes, and failure/recovery states. This lane starts from agreed DTOs and may use typed fakes until services integrate.
+4. **Adversarial/evidence lane:** concurrency, ownership, malformed input, restart, compensation, browser matrix, evidence files, and release checklist.
+
+Lanes may run concurrently only with explicit, non-overlapping file ownership. Shared contracts are frozen before parallel edits; changes to them require lead coordination. Run the smallest relevant focused tests after each lane change. Run earlier-phase focused suites at integration checkpoints, and run the complete suite, production build, doctor, and archive verification once at the phase exit candidate. Do not repeatedly run the complete suite after documentation-only or isolated UI changes.
+
+Phase N+1 may perform read-only discovery, fixture planning, and contract drafting while Phase N integrates. It may not modify production code or migrations until Phase N's code exit gate passes. External credential blockers prevent production enablement but do not block later default-off development when local code, security, and regression gates pass and the blocker is recorded honestly.
+
 ## Phase Dependency Graph
 
 ```text

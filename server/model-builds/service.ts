@@ -2,10 +2,9 @@ import crypto from "node:crypto";
 import { v4 as uuidv4 } from "uuid";
 import type mysql from "mysql2/promise";
 import { getPool } from "../../db";
-import { deductCredits, addCredits, getCreditBalance } from "../../db";
 import { CREDIT_PRICES } from "../../src/pricing";
 import { registerAsset, addLineage } from "../assets/service";
-import { findAssetById, findVersionById } from "../assets/repository";
+import { findAssetById, findVersionById, hardDeleteUnpublishedAsset } from "../assets/repository";
 import { generateSignedUrlForVersion } from "../assets/access";
 import {
   findSessionByUuid as findRefSession,
@@ -14,6 +13,8 @@ import {
   findViewsByAttemptId as findRefViews,
   findReportByAttemptId as findRefReport,
 } from "../reference-sessions/repository";
+import { computeOrderedManifestHash } from "../reference-sessions/service";
+import type { ViewKind } from "../reference-sessions/types";
 import {
   insertJob,
   findJobByUuid,
@@ -27,6 +28,8 @@ import {
   findAttemptByIdempotencyKey,
   updateAttemptState,
   claimLease,
+  renewLease,
+  releaseLease,
   insertProviderEvent,
   computeEventHash,
   insertArtifact,
@@ -36,9 +39,12 @@ import {
   findReportByAttemptId,
   insertAcceptance,
   findAcceptanceByJobId,
+  findExpiredLeases,
 } from "./repository";
-import { storeProviderGlb, storeValidatedGlb, storeReport as storeReportJson, cleanupPrivateObject } from "./storage";
-import { validateGlb, VALIDATOR_VERSION } from "./validation";
+import { storeProviderGlb, storeValidatedGlb, storeReport as storeReportJson, storeRenderArtifact, cleanupPrivateObject } from "./storage";
+import { getPrivateObjectBuffer } from "../../storage.private";
+import { computeAdvisoryLikeness } from "./likeness";
+import { validateGlb, validatePngImage, createValidPngBuffer, VALIDATOR_VERSION } from "./validation";
 import type { ModelBuildProvider, ModelBuildProviderInput } from "./provider";
 import { assertModelBuildV3Enabled } from "./featureFlag";
 import {
@@ -53,6 +59,7 @@ import {
   type PostBuildReportPublic,
   type BuildQuotePublic,
   type PreflightResult,
+  type ArtifactRole,
 } from "./types";
 import type { StartBuildInput, RetryBuildInput, AcceptBuildInput } from "./schemas";
 
@@ -106,6 +113,9 @@ export class ModelBuildService {
       errors.push("Approved attempt not found");
       return { passed: false, errors, sessionId: session.id, attemptId: 0, manifestAssetId: 0, manifestAssetVersionId: 0, manifestHash: "", quotedCredits: 0, pricingKey: "", currentBalance: 0 };
     }
+    if (attempt.session_id !== session.id || session.approved_attempt_id !== attempt.id) {
+      errors.push("Approved attempt does not belong to this approved session");
+    }
 
     // 5. Verify manifest asset exists with versions
     if (!approval.manifest_asset_id || !approval.manifest_asset_version_id) {
@@ -113,13 +123,20 @@ export class ModelBuildService {
     } else {
       const manifestAsset = await findAssetById(pool, approval.manifest_asset_id);
       if (!manifestAsset) errors.push("Manifest asset not found in canonical registry");
+      else if (manifestAsset.owner_id !== ownerId || manifestAsset.status !== "active") errors.push("Manifest asset owner or status is invalid");
       const manifestVersion = await findVersionById(pool, approval.manifest_asset_version_id);
       if (!manifestVersion) errors.push("Manifest asset version not found");
+      else {
+        if (manifestVersion.asset_id !== approval.manifest_asset_id) errors.push("Manifest version belongs to another asset");
+        if (manifestVersion.metadata?.manifestHash !== approval.manifest_hash) errors.push("Manifest metadata hash does not match approval");
+      }
     }
 
     // 6. Verify five canonical views
     const views = await findRefViews(pool, attempt.id);
     const requiredKinds = ["front", "left", "right", "rear", "front_three_quarter"];
+    const viewManifestItems: { viewKind: ViewKind; assetUuid: string; sha256: string }[] = [];
+    if (views.length !== requiredKinds.length) errors.push("Approved attempt must contain exactly five views");
     for (const kind of requiredKinds) {
       const view = views.find(v => v.view_kind === kind);
       if (!view) {
@@ -128,8 +145,12 @@ export class ModelBuildService {
         // Verify asset/version exists
         const asset = await findAssetById(pool, view.asset_id);
         if (!asset) errors.push(`View ${kind}: asset not found`);
+        else if (asset.owner_id !== ownerId || asset.status !== "active") errors.push(`View ${kind}: owner or status is invalid`);
         const version = await findVersionById(pool, view.asset_version_id);
         if (!version) errors.push(`View ${kind}: version not found`);
+        else if (version.asset_id !== view.asset_id) errors.push(`View ${kind}: version belongs to another asset`);
+        if (view.width_px < 1024 || view.height_px < 1024) errors.push(`View ${kind}: decoded dimensions are below 1024x1024`);
+        if (asset && version) viewManifestItems.push({ viewKind: kind as ViewKind, assetUuid: asset.asset_uuid, sha256: version.sha256 });
       }
     }
 
@@ -139,6 +160,21 @@ export class ModelBuildService {
       errors.push("Reference report not found for approved attempt");
     } else if (report.status === "fail") {
       errors.push("Reference report has status 'fail'");
+    } else {
+      const reportAsset = report.report_asset_id ? await findAssetById(pool, report.report_asset_id) : null;
+      const reportVersion = report.report_asset_version_id ? await findVersionById(pool, report.report_asset_version_id) : null;
+      if (!reportAsset || !reportVersion || reportAsset.owner_id !== ownerId || reportVersion.asset_id !== reportAsset.id || reportVersion.sha256 !== report.report_hash) {
+        errors.push("Reference report canonical identity is invalid");
+      }
+      if (viewManifestItems.length === 5) {
+        try {
+          if (computeOrderedManifestHash(viewManifestItems, report.report_hash) !== approval.manifest_hash) {
+            errors.push("Approved manifest hash no longer matches its views and report");
+          }
+        } catch {
+          errors.push("Approved manifest cannot be recomputed");
+        }
+      }
     }
 
     // 8. Pricing
@@ -202,8 +238,6 @@ export class ModelBuildService {
       // 2. Check idempotency — duplicate start returns existing job
       const existingAttempt = await findAttemptByIdempotencyKey(connection, input.idempotencyKey);
       if (existingAttempt) {
-        const existingJob = await findJobByUuid(connection, "");
-        // Find the job by the attempt's job_id
         const [rows] = await connection.query(
           "SELECT job_uuid FROM model_build_jobs WHERE id = ?",
           [existingAttempt.job_id],
@@ -239,24 +273,7 @@ export class ModelBuildService {
         state: "reserving",
       });
 
-      // 5. Debit credits — idempotent via correlation ID check
-      const alreadyCharged = await this.hasCorrelation(pool, ownerId, creditCorrelationId);
-      if (!alreadyCharged) {
-        const debited = await this.deductCredits(connection, pool, ownerId, pf.quotedCredits, creditCorrelationId);
-        if (!debited) {
-          await updateJobState(connection, job.id, "failed_preflight", {
-            failureCode: "INSUFFICIENT_CREDITS",
-          });
-          await connection.commit();
-          throw new ModelBuildServiceError("Insufficient credits", "INSUFFICIENT_CREDITS");
-        }
-      }
-
-      await updateJobState(connection, job.id, "queued", {
-        creditCorrelationId,
-      });
-
-      // 6. Create first attempt
+      // 5. Create the attempt before charging so the ledger can bind to it.
       const inputConfigHash = crypto.createHash("sha256")
         .update(`${pf.manifestHash}:${input.requestedOutput || "glb"}`)
         .digest("hex");
@@ -270,8 +287,14 @@ export class ModelBuildService {
         inputConfigHash,
       });
 
+      const debited = await this.chargeCredits(connection, job.id, attempt.id, ownerId, pf.quotedCredits, creditCorrelationId);
+      if (!debited) throw new ModelBuildServiceError("Insufficient credits", "INSUFFICIENT_CREDITS");
+
       await updateJobState(connection, job.id, "queued", {
         currentAttemptId: attempt.id,
+        creditCorrelationId,
+        refundCorrelationId: null,
+        failureCode: null,
       });
 
       await connection.commit();
@@ -285,6 +308,10 @@ export class ModelBuildService {
       return this.formatJobPublic(updatedJob!);
     } catch (err: any) {
       await connection.rollback();
+      if (err?.code === "ER_DUP_ENTRY" || err?.errno === 1062) {
+        const existing = await findJobBySessionAndOwner(pool, pf.sessionId, ownerId);
+        if (existing) return this.formatJobPublic(existing);
+      }
       if (err instanceof ModelBuildServiceError) throw err;
       throw new ModelBuildServiceError(`Build start failed: ${err.message}`, "START_FAILED");
     } finally {
@@ -317,71 +344,70 @@ export class ModelBuildService {
       }
 
       const attempt = await findAttemptById(connection, attemptId);
-      if (!attempt || attempt.state !== "queued") {
+      if (!attempt || !["queued", "submitted", "processing", "downloading"].includes(attempt.state)) {
         await connection.commit();
         return;
       }
 
-      // Submit to provider
-      await updateJobState(connection, job.id, "submitted");
-      await updateAttemptState(connection, attemptId, "submitted");
+      const isNewSubmission = attempt.state === "queued";
+      if (isNewSubmission) {
+        await updateJobState(connection, job.id, "submitted");
+        await updateAttemptState(connection, attemptId, "submitted");
+      }
       await connection.commit();
 
-      // Get signed URLs for the reference views
-      const views = await findRefViews(pool, job.reference_attempt_id);
-      const viewUrls: ModelBuildProviderInput = {
-        frontUrl: "",
-        leftUrl: "",
-        rightUrl: "",
-        rearUrl: "",
-        threeQuarterUrl: "",
-      };
-
-      for (const view of views) {
-        const asset = await findAssetById(pool, view.asset_id);
-        const version = await findVersionById(pool, view.asset_version_id);
-        if (!asset || !version) continue;
-        const url = await generateSignedUrlForVersion(asset, version, ownerId, true);
-        if (!url) continue;
-        switch (view.view_kind) {
-          case "front": viewUrls.frontUrl = url; break;
-          case "left": viewUrls.leftUrl = url; break;
-          case "right": viewUrls.rightUrl = url; break;
-          case "rear": viewUrls.rearUrl = url; break;
-          case "front_three_quarter": viewUrls.threeQuarterUrl = url; break;
+      let providerTaskHandle = attempt.provider_task_handle;
+      let providerName = attempt.provider;
+      if (isNewSubmission) {
+        const views = await findRefViews(pool, job.reference_attempt_id);
+        const viewUrls: ModelBuildProviderInput = { frontUrl: "", leftUrl: "", rightUrl: "", rearUrl: "", threeQuarterUrl: "" };
+        for (const view of views) {
+          const asset = await findAssetById(pool, view.asset_id);
+          const version = await findVersionById(pool, view.asset_version_id);
+          if (!asset || !version) continue;
+          const url = await generateSignedUrlForVersion(asset, version, ownerId, true);
+          if (!url) continue;
+          if (view.view_kind === "front") viewUrls.frontUrl = url;
+          else if (view.view_kind === "left") viewUrls.leftUrl = url;
+          else if (view.view_kind === "right") viewUrls.rightUrl = url;
+          else if (view.view_kind === "rear") viewUrls.rearUrl = url;
+          else if (view.view_kind === "front_three_quarter") viewUrls.threeQuarterUrl = url;
         }
-      }
-
-      let providerResult;
-      try {
-        providerResult = await this.provider.start(viewUrls, attempt.input_config_hash);
-      } catch (err: any) {
-        await this.failJob(jobUuid, attemptId, "PROVIDER_START_FAILED", err.message);
+        if (Object.values(viewUrls).some((url) => !url)) {
+          await this.failJob(jobUuid, attemptId, "REFERENCE_URL_FAILED", "All five approved reference URLs are required");
+          return;
+        }
+        try {
+          const providerResult = await this.provider.start(viewUrls, attempt.input_config_hash);
+          providerTaskHandle = providerResult.providerTaskHandle;
+          providerName = providerResult.provider;
+          const conn2 = await pool.getConnection();
+          try {
+            await conn2.beginTransaction();
+            await updateAttemptState(conn2, attemptId, "submitted", { providerTaskHandle });
+            await conn2.commit();
+          } finally {
+            conn2.release();
+          }
+        } catch (err: any) {
+          await this.failJob(jobUuid, attemptId, "PROVIDER_START_FAILED", err.message);
+          return;
+        }
+      } else if (!providerTaskHandle) {
+        await this.failJob(jobUuid, attemptId, "PROVIDER_HANDLE_LOST", "Provider handle was not persisted before restart");
         return;
-      }
-
-      // Persist provider handle before polling
-      const conn2 = await pool.getConnection();
-      try {
-        await conn2.beginTransaction();
-        await updateAttemptState(conn2, attemptId, "submitted", {
-          providerTaskHandle: providerResult.providerTaskHandle,
-        });
-        await conn2.commit();
-      } finally {
-        conn2.release();
       }
 
       // Record task_created event
       const eventHash = computeEventHash(
-        providerResult.provider, attemptId, "task_created",
-        providerResult.providerTaskHandle,
+        providerName, attemptId, "task_created",
+        providerTaskHandle!,
       );
       const conn3 = await pool.getConnection();
       try {
         await conn3.beginTransaction();
         await insertProviderEvent(conn3, {
-          provider: providerResult.provider,
+          provider: providerName,
           eventHash,
           attemptId,
           eventType: "task_created",
@@ -398,8 +424,15 @@ export class ModelBuildService {
       const maxPolls = 120;
       for (let i = 0; i < maxPolls; i++) {
         await new Promise(r => setTimeout(r, 500));
+        const renewed = await renewLease(
+          pool,
+          attemptId,
+          leaseOwner,
+          new Date(Date.now() + DEFAULT_LEASE_DURATION_MS),
+        );
+        if (!renewed) throw new Error("Build worker lease was lost");
         try {
-          pollResult = await this.provider.poll(providerResult.providerTaskHandle);
+          pollResult = await this.provider.poll(providerTaskHandle!);
         } catch (err: any) {
           console.error(`[model-build] Poll error:`, err.message);
           continue;
@@ -483,6 +516,12 @@ export class ModelBuildService {
           mimeType: "model/gltf-binary",
         });
         await conn5.commit();
+      } catch (err) {
+        await conn5.rollback().catch(() => {});
+        await cleanupPrivateObject(providerGlbStored.objectKey);
+        await hardDeleteUnpublishedAsset(pool, providerGlbAsset.asset.id).catch(() => {});
+        await this.failJob(jobUuid, attemptId, "ARTIFACT_PERSIST_FAILED", (err as Error).message);
+        return;
       } finally {
         conn5.release();
       }
@@ -500,19 +539,29 @@ export class ModelBuildService {
 
       const validationResult = await validateGlb(glbBuffer);
 
-      // Store validated GLB (same bytes if pass/warn, still quarantined privately)
-      let validatedGlbStored;
+      // Compute advisory likeness comparison between approved reference views and build model
+      const refImageBuffers: Buffer[] = [];
       try {
-        validatedGlbStored = await storeValidatedGlb(ownerId, jobUuid, attempt.attempt_number, glbBuffer);
+        const refViews = await findRefViews(pool, job.reference_attempt_id);
+        for (const rv of refViews) {
+          const rVersion = await findVersionById(pool, rv.asset_version_id);
+          if (rVersion && rVersion.object_key) {
+            const buf = await getPrivateObjectBuffer(rVersion.object_key).catch(() => null);
+            if (buf) refImageBuffers.push(buf);
+          }
+        }
       } catch (err: any) {
-        await this.failJob(jobUuid, attemptId, "STORAGE_FAILED", err.message);
-        return;
+        console.warn("[model-build] Ref image loading warning:", err?.message);
       }
 
-      // Register validated GLB
-      let validatedGlbAsset;
-      try {
-        validatedGlbAsset = await registerAsset({
+      const advisoryLikeness = await computeAdvisoryLikeness(glbBuffer, refImageBuffers);
+
+      let validatedGlbStored: Awaited<ReturnType<typeof storeValidatedGlb>> | null = null;
+      let validatedGlbAsset: Awaited<ReturnType<typeof registerAsset>> | null = null;
+      if (validationResult.status !== "fail") {
+        try {
+          validatedGlbStored = await storeValidatedGlb(ownerId, jobUuid, attempt.attempt_number, glbBuffer);
+          validatedGlbAsset = await registerAsset({
           ownerId,
           assetType: "model_glb",
           visibility: "private",
@@ -531,50 +580,160 @@ export class ModelBuildService {
             validationStatus: validationResult.status,
             validatorVersion: VALIDATOR_VERSION,
           },
-        }, { authorization: { internal: true }, pool });
-      } catch (err: any) {
-        await cleanupPrivateObject(validatedGlbStored.objectKey);
-        await this.failJob(jobUuid, attemptId, "ASSET_REGISTRATION_FAILED", err.message);
-        return;
+          }, { authorization: { internal: true }, pool });
+        } catch (err: any) {
+          if (validatedGlbStored) await cleanupPrivateObject(validatedGlbStored.objectKey);
+          await this.failJob(jobUuid, attemptId, "ASSET_REGISTRATION_FAILED", err.message);
+          return;
+        }
       }
 
       // Add lineage: manifest → provider GLB → validated GLB
       try {
+        const manifestAsset = await findAssetById(pool, job.manifest_asset_id);
+        const manifestVersion = await findVersionById(pool, job.manifest_asset_version_id);
+        if (!manifestAsset || !manifestVersion) throw new Error("Canonical manifest disappeared during build");
         await addLineage({
-          parentAssetUuid: (await findAssetById(pool, job.manifest_asset_id))!.asset_uuid,
-          parentVersionNumber: 1,
+          parentAssetUuid: manifestAsset.asset_uuid,
+          parentVersionNumber: manifestVersion.version_number,
           childAssetUuid: providerGlbAsset.asset.asset_uuid,
-          childVersionNumber: 1,
+          childVersionNumber: providerGlbAsset.version.version_number,
           relationType: "mesh",
         }, { internal: true }, pool);
 
-        await addLineage({
+        if (validatedGlbAsset) await addLineage({
           parentAssetUuid: providerGlbAsset.asset.asset_uuid,
-          parentVersionNumber: 1,
+          parentVersionNumber: providerGlbAsset.version.version_number,
           childAssetUuid: validatedGlbAsset.asset.asset_uuid,
-          childVersionNumber: 1,
+          childVersionNumber: validatedGlbAsset.version.version_number,
           relationType: "derivative",
         }, { internal: true }, pool);
       } catch (err: any) {
-        console.warn("[model-build] Lineage recording failed (non-fatal):", err.message);
+        if (validatedGlbStored) await cleanupPrivateObject(validatedGlbStored.objectKey);
+        if (validatedGlbAsset) await hardDeleteUnpublishedAsset(pool, validatedGlbAsset.asset.id).catch(() => {});
+        await this.failJob(jobUuid, attemptId, "LINEAGE_FAILED", err.message);
+        return;
       }
+
+      // Mandatory 5 standard high-resolution review renders via Blender worker boundary
+      const REQUIRED_RENDER_ROLES: ArtifactRole[] = [
+        "render_front",
+        "render_rear",
+        "render_left",
+        "render_right",
+        "render_three_quarter",
+      ];
+      const renderArtifactsStored: { role: ArtifactRole; objectKey: string; sha256: string; sizeBytes: number; assetId: number; versionId: number }[] = [];
+
+      if (validatedGlbAsset && validationResult.status !== "fail") {
+        const renderedViews = await this.renderStandardViewsWithWorker(glbBuffer);
+        if (!renderedViews || Object.keys(renderedViews).length !== 5) {
+          if (validatedGlbStored) await cleanupPrivateObject(validatedGlbStored.objectKey);
+          if (validatedGlbAsset) await hardDeleteUnpublishedAsset(pool, validatedGlbAsset.asset.id).catch(() => {});
+          await this.failJob(jobUuid, attemptId, "RENDER_FAILED", "Standard review renders missing or incomplete (expected exactly 5 valid PNG views)");
+          return;
+        }
+
+        try {
+          for (const role of REQUIRED_RENDER_ROLES) {
+            const imgBuf = renderedViews[role];
+            if (!imgBuf) throw new Error(`Missing required render view role: ${role}`);
+
+            const pngCheck = validatePngImage(imgBuf, 1024, 1024);
+            if (!pngCheck.valid) throw new Error(`Invalid render image for ${role}: ${pngCheck.error}`);
+
+            const stored = await storeRenderArtifact(ownerId, jobUuid, attempt.attempt_number, role, imgBuf);
+            const assetReg = await registerAsset({
+              ownerId,
+              assetType: "model_render",
+              visibility: "private",
+              mimeType: "image/png",
+              sizeBytes: stored.sizeBytes,
+              sha256: stored.sha256,
+              bucket: "private",
+              objectKey: stored.objectKey,
+              sourceProvider: "blender",
+              license: "proprietary",
+              commercialUseEligible: false,
+              metadata: { phase: 3, role, jobUuid },
+            }, { authorization: { internal: true }, pool });
+
+            // Track the object and canonical asset before lineage so every
+            // subsequent failure can compensate the complete partial batch.
+            renderArtifactsStored.push({
+              role,
+              objectKey: stored.objectKey,
+              sha256: stored.sha256,
+              sizeBytes: stored.sizeBytes,
+              assetId: assetReg.asset.id,
+              versionId: assetReg.version.id,
+            });
+
+            await addLineage({
+              parentAssetUuid: validatedGlbAsset.asset.asset_uuid,
+              parentVersionNumber: validatedGlbAsset.version.version_number,
+              childAssetUuid: assetReg.asset.asset_uuid,
+              childVersionNumber: assetReg.version.version_number,
+              relationType: "derivative",
+            }, { internal: true }, pool);
+
+          }
+        } catch (err: any) {
+          // ATOMIC BATCH CLEANUP of any created render artifacts
+          for (const art of renderArtifactsStored) {
+            await cleanupPrivateObject(art.objectKey).catch(() => {});
+            await hardDeleteUnpublishedAsset(pool, art.assetId).catch(() => {});
+          }
+          if (validatedGlbStored) await cleanupPrivateObject(validatedGlbStored.objectKey);
+          if (validatedGlbAsset) await hardDeleteUnpublishedAsset(pool, validatedGlbAsset.asset.id).catch(() => {});
+          await this.failJob(jobUuid, attemptId, "RENDER_PERSISTENCE_FAILED", err.message || String(err));
+          return;
+        }
+      }
+
+      // Compute complete canonical metrics object & canonical metricsHash covering geometry, likeness, AND renders
+      const renderEvidence = renderArtifactsStored.map((r) => ({
+        role: r.role,
+        sha256: r.sha256,
+        sizeBytes: r.sizeBytes,
+      }));
+
+      const completeMetrics = {
+        ...validationResult.metrics,
+        advisoryLikeness,
+        renders: renderEvidence,
+      };
+
+      const canonicalReportContent = {
+        validatorVersion: VALIDATOR_VERSION,
+        status: validationResult.status,
+        metrics: completeMetrics,
+        providerGlbHash: providerGlbStored.sha256,
+        validatedGlbHash: validatedGlbStored?.sha256 || null,
+        jobUuid,
+        attemptNumber: attempt.attempt_number,
+      };
+      const canonicalMetricsHash = crypto
+        .createHash("sha256")
+        .update(JSON.stringify(canonicalReportContent))
+        .digest("hex");
 
       // Store report
       const reportJson = {
-        validatorVersion: VALIDATOR_VERSION,
-        status: validationResult.status,
-        metrics: validationResult.metrics,
-        metricsHash: validationResult.metricsHash,
-        providerGlbHash: providerGlbStored.sha256,
-        validatedGlbHash: validatedGlbStored.sha256,
-        jobUuid,
-        attemptNumber: attempt.attempt_number,
+        ...canonicalReportContent,
+        metricsHash: canonicalMetricsHash,
       };
 
       let reportStored;
       try {
         reportStored = await storeReportJson(ownerId, jobUuid, attempt.attempt_number, reportJson);
       } catch (err: any) {
+        for (const art of renderArtifactsStored) {
+          await cleanupPrivateObject(art.objectKey).catch(() => {});
+          await hardDeleteUnpublishedAsset(pool, art.assetId).catch(() => {});
+        }
+        if (validatedGlbStored) await cleanupPrivateObject(validatedGlbStored.objectKey).catch(() => {});
+        if (validatedGlbAsset) await hardDeleteUnpublishedAsset(pool, validatedGlbAsset.asset.id).catch(() => {});
         await this.failJob(jobUuid, attemptId, "STORAGE_FAILED", err.message);
         return;
       }
@@ -598,16 +757,43 @@ export class ModelBuildService {
         }, { authorization: { internal: true }, pool });
       } catch (err: any) {
         await cleanupPrivateObject(reportStored.objectKey);
+        for (const art of renderArtifactsStored) {
+          await cleanupPrivateObject(art.objectKey).catch(() => {});
+          await hardDeleteUnpublishedAsset(pool, art.assetId).catch(() => {});
+        }
+        if (validatedGlbStored) await cleanupPrivateObject(validatedGlbStored.objectKey).catch(() => {});
+        if (validatedGlbAsset) await hardDeleteUnpublishedAsset(pool, validatedGlbAsset.asset.id).catch(() => {});
         await this.failJob(jobUuid, attemptId, "ASSET_REGISTRATION_FAILED", err.message);
         return;
       }
+      try {
+        const reportParent = validatedGlbAsset || providerGlbAsset;
+        await addLineage({
+          parentAssetUuid: reportParent.asset.asset_uuid,
+          parentVersionNumber: reportParent.version.version_number,
+          childAssetUuid: reportAsset.asset.asset_uuid,
+          childVersionNumber: reportAsset.version.version_number,
+          relationType: "derivative",
+        }, { internal: true }, pool);
+      } catch (err: any) {
+        await cleanupPrivateObject(reportStored.objectKey);
+        await hardDeleteUnpublishedAsset(pool, reportAsset.asset.id).catch(() => {});
+        for (const art of renderArtifactsStored) {
+          await cleanupPrivateObject(art.objectKey).catch(() => {});
+          await hardDeleteUnpublishedAsset(pool, art.assetId).catch(() => {});
+        }
+        if (validatedGlbStored) await cleanupPrivateObject(validatedGlbStored.objectKey).catch(() => {});
+        if (validatedGlbAsset) await hardDeleteUnpublishedAsset(pool, validatedGlbAsset.asset.id).catch(() => {});
+        await this.failJob(jobUuid, attemptId, "LINEAGE_FAILED", err.message);
+        return;
+      }
 
-      // Record validated GLB artifact + report
+      // Record validated GLB artifact + report + renders
       const conn7 = await pool.getConnection();
       try {
         await conn7.beginTransaction();
 
-        await insertArtifact(conn7, {
+        if (validatedGlbAsset && validatedGlbStored) await insertArtifact(conn7, {
           attemptId,
           assetId: validatedGlbAsset.asset.id,
           assetVersionId: validatedGlbAsset.version.id,
@@ -617,14 +803,26 @@ export class ModelBuildService {
           mimeType: "model/gltf-binary",
         });
 
+        for (const renderArt of renderArtifactsStored) {
+          await insertArtifact(conn7, {
+            attemptId,
+            assetId: renderArt.assetId,
+            assetVersionId: renderArt.versionId,
+            role: renderArt.role,
+            computedHash: renderArt.sha256,
+            sizeBytes: renderArt.sizeBytes,
+            mimeType: "image/png",
+          });
+        }
+
         await insertReport(conn7, {
           attemptId,
           reportAssetId: reportAsset.asset.id,
           reportAssetVersionId: reportAsset.version.id,
           status: validationResult.status,
           validatorVersions: VALIDATOR_VERSION,
-          metricsHash: validationResult.metricsHash,
-          metricsJson: validationResult.metrics as any,
+          metricsHash: canonicalMetricsHash,
+          metricsJson: completeMetrics as any,
         });
 
         if (validationResult.status === "fail") {
@@ -640,7 +838,7 @@ export class ModelBuildService {
           await conn7.commit();
 
           // Refund
-          await this.refundJob(jobUuid);
+          await this.refundJob(jobUuid, attemptId);
           return;
         }
 
@@ -649,6 +847,18 @@ export class ModelBuildService {
         });
         await updateJobState(conn7, job.id, "ready");
         await conn7.commit();
+      } catch (err) {
+        await conn7.rollback().catch(() => {});
+        if (validatedGlbStored) await cleanupPrivateObject(validatedGlbStored.objectKey);
+        if (validatedGlbAsset) await hardDeleteUnpublishedAsset(pool, validatedGlbAsset.asset.id).catch(() => {});
+        for (const renderArt of renderArtifactsStored) {
+          await cleanupPrivateObject(renderArt.objectKey).catch(() => {});
+          await hardDeleteUnpublishedAsset(pool, renderArt.assetId).catch(() => {});
+        }
+        await cleanupPrivateObject(reportStored.objectKey);
+        await hardDeleteUnpublishedAsset(pool, reportAsset.asset.id).catch(() => {});
+        await this.failJob(jobUuid, attemptId, "ARTIFACT_PERSIST_FAILED", (err as Error).message);
+        return;
       } finally {
         conn7.release();
       }
@@ -656,6 +866,7 @@ export class ModelBuildService {
       console.error(`[model-build] Unhandled error in processAttempt for ${jobUuid}:`, err.message);
       await this.failJob(jobUuid, attemptId, "INTERNAL_ERROR", err.message).catch(() => {});
     } finally {
+      await releaseLease(pool, attemptId, leaseOwner).catch(() => {});
       connection.release();
     }
   }
@@ -691,7 +902,7 @@ export class ModelBuildService {
 
       // Refund if credits were charged
       if (job.credit_correlation_id && !job.refund_correlation_id) {
-        await this.refundJob(jobUuid);
+        await this.refundJob(jobUuid, attemptId);
       }
     } catch (err: any) {
       await conn.rollback();
@@ -703,26 +914,19 @@ export class ModelBuildService {
 
   // ── Refund ────────────────────────────────────────────────────────────
 
-  private async refundJob(jobUuid: string): Promise<void> {
+  private async refundJob(jobUuid: string, attemptId: number): Promise<void> {
     const pool = this.getPoolFn();
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
       const job = await findJobByUuidForUpdate(conn, jobUuid);
-      if (!job || job.refund_correlation_id) {
-        await conn.commit();
-        return; // Already refunded or no job
-      }
-
-      const refundCorrelationId = `model_build_refund:${jobUuid}`;
-      const alreadyRefunded = await this.hasCorrelation(pool, job.owner_id, refundCorrelationId);
-      if (alreadyRefunded) {
-        await updateJobState(conn, job.id, job.state, { refundCorrelationId });
+      if (!job || job.current_attempt_id !== attemptId || !job.credit_correlation_id) {
         await conn.commit();
         return;
       }
 
-      await this.addCredits(pool, job.owner_id, job.quoted_credits, refundCorrelationId);
+      const refundCorrelationId = `${job.credit_correlation_id}:refund`;
+      await this.refundCredits(conn, job.id, attemptId, job.owner_id, job.quoted_credits, refundCorrelationId);
       await updateJobState(conn, job.id, job.state, { refundCorrelationId });
       await conn.commit();
     } catch (err: any) {
@@ -779,20 +983,16 @@ export class ModelBuildService {
         inputConfigHash,
       });
 
-      // Re-charge credits for retry
+      // Charge this immutable attempt exactly once.
       const creditCorrelationId = `model_build:${jobUuid}:retry:${nextNumber}`;
-      const alreadyCharged = await this.hasCorrelation(pool, ownerId, creditCorrelationId);
-      if (!alreadyCharged) {
-        const debited = await this.deductCredits(conn, pool, ownerId, job.quoted_credits, creditCorrelationId);
-        if (!debited) {
-          throw new ModelBuildServiceError("Insufficient credits for retry", "INSUFFICIENT_CREDITS");
-        }
-      }
+      const debited = await this.chargeCredits(conn, job.id, attempt.id, ownerId, job.quoted_credits, creditCorrelationId);
+      if (!debited) throw new ModelBuildServiceError("Insufficient credits for retry", "INSUFFICIENT_CREDITS");
 
       await updateJobState(conn, job.id, "queued", {
         currentAttemptId: attempt.id,
         creditCorrelationId,
-        failureCode: null as any,
+        refundCorrelationId: null,
+        failureCode: null,
       });
 
       await conn.commit();
@@ -826,8 +1026,8 @@ export class ModelBuildService {
       if (!job) throw new ModelBuildServiceError("Job not found", "NOT_FOUND");
       if (job.owner_id !== ownerId) throw new ModelBuildServiceError("Not authorized", "FORBIDDEN");
 
-      // Can only cancel before provider submission
-      if (!["draft", "preflight", "reserving", "queued"].includes(job.state)) {
+      // Can only cancel before provider processing
+      if (!["draft", "preflight", "reserving", "queued", "submitted"].includes(job.state)) {
         throw new ModelBuildServiceError(
           `Cannot cancel job in state '${job.state}'`,
           "INVALID_STATE",
@@ -850,7 +1050,7 @@ export class ModelBuildService {
 
       // Refund if charged
       if (job.credit_correlation_id && !job.refund_correlation_id) {
-        await this.refundJob(jobUuid);
+        if (job.current_attempt_id) await this.refundJob(jobUuid, job.current_attempt_id);
       }
 
       const updatedJob = await findJobByUuid(pool, jobUuid);
@@ -942,7 +1142,7 @@ export class ModelBuildService {
     const job = await findJobByUuid(pool, jobUuid);
     if (!job) throw new ModelBuildServiceError("Job not found", "NOT_FOUND");
     if (job.owner_id !== ownerId) throw new ModelBuildServiceError("Not authorized", "FORBIDDEN");
-    return this.formatJobPublic(job);
+    return this.formatJobPublicHydrated(pool, job);
   }
 
   async getJobDetail(ownerId: string, jobUuid: string): Promise<{
@@ -1006,7 +1206,7 @@ export class ModelBuildService {
     }
 
     return {
-      job: this.formatJobPublic(job),
+      job: await this.formatJobPublicHydrated(pool, job),
       attempts: attemptPublics,
       artifacts: artifactPublics,
       report: reportPublic,
@@ -1017,7 +1217,20 @@ export class ModelBuildService {
     assertModelBuildV3Enabled();
     const pool = this.getPoolFn();
     const jobs = await findJobsByOwner(pool, ownerId);
-    return jobs.map(j => this.formatJobPublic(j));
+    return Promise.all(jobs.map(j => this.formatJobPublicHydrated(pool, j)));
+  }
+
+  async recoverStaleBuilds(): Promise<{ timestamp: string; expiredLeases: number; recoveredJobs: string[] }> {
+    const pool = this.getPoolFn();
+    const expired = await findExpiredLeases(pool);
+    const recoveredJobs: string[] = [];
+    for (const attempt of expired) {
+      const [rows]: any = await pool.query("SELECT job_uuid, owner_id FROM model_build_jobs WHERE id = ?", [attempt.job_id]);
+      if (!rows[0]) continue;
+      await this.processAttempt(String(rows[0].owner_id), String(rows[0].job_uuid), attempt.id);
+      recoveredJobs.push(String(rows[0].job_uuid));
+    }
+    return { timestamp: new Date().toISOString(), expiredLeases: expired.length, recoveredJobs };
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────
@@ -1034,61 +1247,237 @@ export class ModelBuildService {
       state: job.state,
       currentAttemptNumber: null, // Filled by route layer
       failureCode: job.failure_code,
+      billingDisposition: "not_charged",
       createdAt: job.created_at.toISOString(),
       updatedAt: job.updated_at.toISOString(),
     };
   }
 
-  private async deductCredits(
+  private async formatJobPublicHydrated(
+    db: mysql.Pool,
+    job: BuildJobRecord,
+  ): Promise<BuildJobPublic> {
+    const value = this.formatJobPublic(job);
+    const [sessionRows] = await db.query(
+      "SELECT session_uuid FROM reference_sessions WHERE id = ? LIMIT 1",
+      [job.reference_session_id],
+    ) as any;
+    let currentAttemptNumber: number | null = null;
+    if (job.current_attempt_id) {
+      const attempt = await findAttemptById(db, job.current_attempt_id);
+      currentAttemptNumber = attempt?.attempt_number ?? null;
+    }
+
+    let billingDisposition: "charged" | "refunded" | "not_charged" | "refund_pending" = "not_charged";
+    const [creditEvents]: any = await db.query(
+      "SELECT event_type, delta FROM model_build_credit_events WHERE job_id = ?",
+      [job.id],
+    );
+    const hasCharge = creditEvents.some((e: any) => e.event_type === "charge" || Number(e.delta) < 0);
+    const hasRefund = creditEvents.some((e: any) => e.event_type === "refund" || Number(e.delta) > 0);
+
+    if (hasRefund) {
+      billingDisposition = "refunded";
+    } else if (hasCharge) {
+      if (["failed_provider", "failed_validation", "cancelled"].includes(job.state)) {
+        billingDisposition = "refund_pending";
+      } else {
+        billingDisposition = "charged";
+      }
+    } else {
+      billingDisposition = "not_charged";
+    }
+
+    return {
+      ...value,
+      referenceSessionUuid: sessionRows[0]?.session_uuid || "",
+      currentAttemptNumber,
+      billingDisposition,
+    };
+  }
+
+  private async chargeCredits(
     conn: mysql.PoolConnection,
-    pool: mysql.Pool,
+    jobId: number,
+    attemptId: number,
     phone: string,
     amount: number,
-    reason: string,
+    correlationId: string,
   ): Promise<boolean> {
+    const [existing]: any = await conn.query("SELECT 1 FROM model_build_credit_events WHERE correlation_id = ?", [correlationId]);
+    if (existing.length > 0) return true;
     const [result]: any = await conn.query(
       "UPDATE users SET credits = credits - ? WHERE phone = ? AND credits >= ?",
       [amount, phone, amount],
     );
     if (result.affectedRows === 1) {
-      await this.recordCreditTxn(pool, phone, -Math.abs(amount), reason);
+      await this.recordCreditEvent(conn, jobId, attemptId, phone, -Math.abs(amount), correlationId, "charge");
     }
     return result.affectedRows === 1;
   }
 
-  private async addCredits(
-    pool: mysql.Pool,
+  private async refundCredits(
+    conn: mysql.PoolConnection,
+    jobId: number,
+    attemptId: number,
     phone: string,
     amount: number,
-    reason: string,
+    correlationId: string,
   ): Promise<void> {
-    await pool.query("UPDATE users SET credits = credits + ? WHERE phone = ?", [amount, phone]);
-    await this.recordCreditTxn(pool, phone, Math.abs(amount), reason);
+    const [existing]: any = await conn.query("SELECT 1 FROM model_build_credit_events WHERE correlation_id = ?", [correlationId]);
+    if (existing.length > 0) return;
+    const [result]: any = await conn.query("UPDATE users SET credits = credits + ? WHERE phone = ?", [amount, phone]);
+    if (result.affectedRows !== 1) throw new Error("Refund owner no longer exists");
+    await this.recordCreditEvent(conn, jobId, attemptId, phone, Math.abs(amount), correlationId, "refund");
   }
 
-  private async recordCreditTxn(
-    pool: mysql.Pool,
+  private async recordCreditEvent(
+    conn: mysql.PoolConnection,
+    jobId: number,
+    attemptId: number,
     phone: string,
     delta: number,
-    reason: string,
+    correlationId: string,
+    eventType: "charge" | "refund",
   ): Promise<void> {
-    try {
-      const [rows]: any = await pool.query("SELECT credits FROM users WHERE phone = ?", [phone]);
-      const balance = rows[0] ? Number(rows[0].credits || 0) : 0;
-      await pool.query(
-        "INSERT INTO credit_transactions (user_phone, delta, reason, balance_after) VALUES (?, ?, ?, ?)",
-        [phone, delta, reason.slice(0, 80), balance],
-      );
-    } catch (err: any) {
-      console.warn("[credit ledger] failed to record transaction:", err.message);
-    }
+    const [rows]: any = await conn.query("SELECT credits FROM users WHERE phone = ? FOR UPDATE", [phone]);
+    if (!rows[0]) throw new Error("Credit owner not found");
+    const balance = Number(rows[0].credits || 0);
+    await conn.query(
+      `INSERT INTO model_build_credit_events
+       (job_id, attempt_id, owner_id, correlation_id, event_type, delta, balance_after)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [jobId, attemptId, phone, correlationId, eventType, delta, balance],
+    );
+    await conn.query(
+      "INSERT INTO credit_transactions (user_phone, delta, reason, balance_after) VALUES (?, ?, ?, ?)",
+      [phone, delta, correlationId.slice(0, 80), balance],
+    );
   }
 
-  private async hasCorrelation(pool: mysql.Pool, phone: string, correlationId: string): Promise<boolean> {
-    const [rows] = await pool.query(
-      "SELECT 1 FROM credit_transactions WHERE user_phone = ? AND reason = ? LIMIT 1",
-      [phone, correlationId.slice(0, 80)],
-    ) as any;
-    return rows.length > 0;
+  private async renderStandardViewsWithWorker(
+    glbBuffer: Buffer,
+  ): Promise<Record<Extract<ArtifactRole, `render_${string}`>, Buffer> | null> {
+    const rawWorkerUrl = String(process.env.BLENDER_WORKER_URL || "").trim().replace(/\/render$/, "").replace(/\/$/, "");
+
+    // Non-production fallback when worker URL is unconfigured
+    if (!rawWorkerUrl) {
+      if (process.env.NODE_ENV !== "production") {
+        const fixturePng = createValidPngBuffer(1024, 1024);
+        return {
+          render_front: fixturePng,
+          render_rear: fixturePng,
+          render_left: fixturePng,
+          render_right: fixturePng,
+          render_three_quarter: fixturePng,
+        };
+      }
+      return null;
+    }
+
+    let urlObj: URL;
+    try {
+      urlObj = new URL(rawWorkerUrl);
+    } catch {
+      console.error("[model-build] Invalid Blender worker URL format");
+      return null;
+    }
+
+    if (process.env.NODE_ENV === "production" && urlObj.protocol !== "https:") {
+      console.error("[model-build] Blender worker URL must use HTTPS in production");
+      return null;
+    }
+
+    const secret = process.env.WORKER_SHARED_SECRET || "";
+    if (process.env.NODE_ENV === "production" && !secret) {
+      console.error("[model-build] WORKER_SHARED_SECRET is required in production");
+      return null;
+    }
+
+    const res = await fetch(`${rawWorkerUrl}/texture/render-views`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-worker-secret": secret },
+      body: JSON.stringify({
+        glb_base64: glbBuffer.toString("base64"),
+        tier: "standard",
+        views: ["front", "back", "left", "right", "front_right"],
+        resolution: 1024,
+      }),
+      signal: AbortSignal.timeout(60000),
+    });
+
+    if (!res.ok) return null;
+
+    const contentLength = Number(res.headers.get("content-length") || "0");
+    if (contentLength > 50 * 1024 * 1024) {
+      console.error("[model-build] Worker response exceeds 50MB limit");
+      return null;
+    }
+
+    const responseBytes = Buffer.from(await res.arrayBuffer());
+    if (responseBytes.length > 50 * 1024 * 1024) {
+      console.error("[model-build] Worker response exceeds 50MB limit");
+      return null;
+    }
+    const data: any = (() => {
+      try { return JSON.parse(responseBytes.toString("utf8")); } catch { return null; }
+    })();
+    if (!data || data.success !== true || !data.views || typeof data.views !== "object") {
+      return null;
+    }
+
+    const roleMap: Record<string, ArtifactRole> = {
+      front: "render_front",
+      back: "render_rear",
+      rear: "render_rear",
+      left: "render_left",
+      right: "render_right",
+      front_right: "render_three_quarter",
+      front_three_quarter: "render_three_quarter",
+    };
+
+    const requiredRoles: ArtifactRole[] = [
+      "render_front",
+      "render_rear",
+      "render_left",
+      "render_right",
+      "render_three_quarter",
+    ];
+
+    const result: Partial<Record<ArtifactRole, Buffer>> = {};
+    const suppliedKeys: string[] = Object.keys(data.views as Record<string, unknown>);
+    const expectedKeys = ["front", "back", "left", "right", "front_right"];
+    if (suppliedKeys.length !== expectedKeys.length || expectedKeys.some((key) => !suppliedKeys.includes(key))) {
+      console.error("[model-build] Worker response must contain exactly the five requested views");
+      return null;
+    }
+
+    for (const [viewKey, base64Val] of Object.entries(data.views as Record<string, unknown>)) {
+      const role = roleMap[viewKey];
+      if (!role) continue;
+
+      if (typeof base64Val !== "string" || !base64Val.length) continue;
+      const raw = base64Val.startsWith("data:") ? base64Val.split(",")[1] : base64Val;
+
+      if (raw.length < 100 || raw.length > 15 * 1024 * 1024) continue;
+
+      if (!/^[A-Za-z0-9+/]+={0,2}$/.test(raw) || raw.length % 4 !== 0) continue;
+      const imgBuf = Buffer.from(raw, "base64");
+      const pngVal = validatePngImage(imgBuf, 1024, 1024);
+      if (!pngVal.valid) {
+        console.warn(`[model-build] View ${viewKey} failed PNG validation: ${pngVal.error}`);
+        continue;
+      }
+
+      result[role] = imgBuf;
+    }
+
+    const hasAll5 = requiredRoles.every((r) => result[r] !== undefined);
+    if (!hasAll5) {
+      console.error("[model-build] Worker response missing one or more required render views");
+      return null;
+    }
+
+    return result as Record<ArtifactRole, Buffer>;
   }
 }

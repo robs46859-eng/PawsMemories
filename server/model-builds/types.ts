@@ -173,6 +173,7 @@ export interface BuildJobPublic {
   state: BuildJobState;
   currentAttemptNumber: number | null;
   failureCode: string | null;
+  billingDisposition: "charged" | "refunded" | "not_charged" | "refund_pending";
   createdAt: string;
   updatedAt: string;
 }

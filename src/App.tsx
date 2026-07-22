@@ -11,6 +11,8 @@ import CreateReferenceScreen from "./components/create-flow/CreateReferenceScree
 import CreateCustomizeScreen from "./components/create-flow/CreateCustomizeScreen";
 import CreateValidateScreen from "./components/create-flow/CreateValidateScreen";
 import CreateCheckoutScreen from "./components/create-flow/CreateCheckoutScreen";
+import CreateBuildProgressScreen from "./components/create-flow/CreateBuildProgressScreen";
+import CreateBuildReviewScreen from "./components/create-flow/CreateBuildReviewScreen";
 import { CreateFlowProvider } from "./components/create-flow/CreateFlowContext";
 import MarketplaceScreen from "./components/MarketplaceScreen";
 import UnderConstructionLock from "./components/UnderConstructionLock";
@@ -744,6 +746,12 @@ export default function App() {
         {currentScreen === Screen.CREATE_CHECKOUT && (
           <CreateCheckoutScreen onNavigate={setCurrentScreen} userProfile={userProfile} />
         )}
+        {currentScreen === Screen.CREATE_BUILD_PROGRESS && (
+          <CreateBuildProgressScreen onNavigate={setCurrentScreen} />
+        )}
+        {currentScreen === Screen.CREATE_BUILD_REVIEW && (
+          <CreateBuildReviewScreen onNavigate={setCurrentScreen} />
+        )}
 
         {currentScreen === Screen.MARKETPLACE && (
           <MarketplaceScreen onOpenCreate={() => !isAuthed ? setCurrentScreen(Screen.SIGN_UP) : setCurrentScreen(Screen.CREATE)} />
@@ -756,7 +764,7 @@ export default function App() {
         )}
 
         {/* When not authenticated and screen is not public, render sign-up. */}
-        {!isAuthed && ![Screen.DASHBOARD, Screen.CREATE, Screen.CREATE_REFERENCE, Screen.CREATE_CUSTOMIZE, Screen.CREATE_VALIDATE, Screen.CREATE_CHECKOUT, Screen.MARKETPLACE, Screen.PAWPRINTS, Screen.LANDING_MODELS, Screen.LANDING_DOGS, Screen.LANDING_MEMORIALS, Screen.HOW_IT_WORKS, Screen.PRICING].includes(currentScreen) ? (
+        {!isAuthed && ![Screen.DASHBOARD, Screen.CREATE, Screen.CREATE_REFERENCE, Screen.CREATE_CUSTOMIZE, Screen.CREATE_VALIDATE, Screen.CREATE_CHECKOUT, Screen.CREATE_BUILD_PROGRESS, Screen.CREATE_BUILD_REVIEW, Screen.MARKETPLACE, Screen.PAWPRINTS, Screen.LANDING_MODELS, Screen.LANDING_DOGS, Screen.LANDING_MEMORIALS, Screen.HOW_IT_WORKS, Screen.PRICING].includes(currentScreen) ? (
           <SignUp onAuthenticated={handleAuthenticated} />
         ) : (
           isAuthed && (

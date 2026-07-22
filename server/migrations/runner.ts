@@ -330,12 +330,13 @@ export const MIGRATIONS: Migration[] = [
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         UNIQUE KEY uniq_job_uuid (job_uuid),
+        UNIQUE KEY uniq_job_reference_owner (reference_session_id, owner_id),
         INDEX idx_job_owner (owner_id, state),
         CONSTRAINT chk_job_quoted_credits CHECK (quoted_credits >= 0),
         FOREIGN KEY (reference_session_id) REFERENCES reference_sessions(id) ON DELETE RESTRICT,
-        FOREIGN KEY (reference_attempt_id) REFERENCES reference_attempts(id) ON DELETE RESTRICT,
+        FOREIGN KEY (reference_session_id, reference_attempt_id) REFERENCES reference_attempts(session_id, id) ON DELETE RESTRICT,
         FOREIGN KEY (manifest_asset_id) REFERENCES assets(id) ON DELETE RESTRICT,
-        FOREIGN KEY (manifest_asset_version_id) REFERENCES asset_versions(id) ON DELETE RESTRICT
+        FOREIGN KEY (manifest_asset_id, manifest_asset_version_id) REFERENCES asset_versions(asset_id, id) ON DELETE RESTRICT
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 
       `CREATE TABLE IF NOT EXISTS model_build_attempts (
@@ -356,6 +357,7 @@ export const MIGRATIONS: Migration[] = [
         completed_at TIMESTAMP NULL,
         UNIQUE KEY uniq_attempt_idempotency (idempotency_key),
         UNIQUE KEY uniq_attempt_job_number (job_id, attempt_number),
+        UNIQUE KEY uniq_model_attempt_identity (job_id, id),
         CONSTRAINT chk_attempt_number CHECK (attempt_number >= 1),
         FOREIGN KEY (job_id) REFERENCES model_build_jobs(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
@@ -384,10 +386,11 @@ export const MIGRATIONS: Migration[] = [
         mime_type VARCHAR(120) NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY uniq_artifact_role (attempt_id, role),
+        UNIQUE KEY uniq_model_artifact_identity (attempt_id, id),
         CONSTRAINT chk_artifact_size CHECK (size_bytes >= 0),
         FOREIGN KEY (attempt_id) REFERENCES model_build_attempts(id) ON DELETE CASCADE,
         FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE RESTRICT,
-        FOREIGN KEY (asset_version_id) REFERENCES asset_versions(id) ON DELETE RESTRICT
+        FOREIGN KEY (asset_id, asset_version_id) REFERENCES asset_versions(asset_id, id) ON DELETE RESTRICT
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 
       `CREATE TABLE IF NOT EXISTS model_post_build_reports (
@@ -402,7 +405,8 @@ export const MIGRATIONS: Migration[] = [
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (attempt_id) REFERENCES model_build_attempts(id) ON DELETE CASCADE,
         FOREIGN KEY (report_asset_id) REFERENCES assets(id) ON DELETE RESTRICT,
-        FOREIGN KEY (report_asset_version_id) REFERENCES asset_versions(id) ON DELETE RESTRICT
+        UNIQUE KEY uniq_model_report_identity (attempt_id, id),
+        FOREIGN KEY (report_asset_id, report_asset_version_id) REFERENCES asset_versions(asset_id, id) ON DELETE RESTRICT
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 
       `CREATE TABLE IF NOT EXISTS model_build_acceptances (
@@ -414,9 +418,25 @@ export const MIGRATIONS: Migration[] = [
         accepted_by_user VARCHAR(190) NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (job_id) REFERENCES model_build_jobs(id) ON DELETE RESTRICT,
-        FOREIGN KEY (attempt_id) REFERENCES model_build_attempts(id) ON DELETE RESTRICT,
-        FOREIGN KEY (artifact_id) REFERENCES model_build_artifacts(id) ON DELETE RESTRICT,
-        FOREIGN KEY (report_id) REFERENCES model_post_build_reports(id) ON DELETE RESTRICT
+        FOREIGN KEY (job_id, attempt_id) REFERENCES model_build_attempts(job_id, id) ON DELETE RESTRICT,
+        FOREIGN KEY (attempt_id, artifact_id) REFERENCES model_build_artifacts(attempt_id, id) ON DELETE RESTRICT,
+        FOREIGN KEY (attempt_id, report_id) REFERENCES model_post_build_reports(attempt_id, id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS model_build_credit_events (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        job_id BIGINT NOT NULL,
+        attempt_id BIGINT NOT NULL,
+        owner_id VARCHAR(190) NOT NULL,
+        correlation_id VARCHAR(120) NOT NULL,
+        event_type ENUM('charge', 'refund') NOT NULL,
+        delta INT NOT NULL,
+        balance_after INT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_model_credit_correlation (correlation_id),
+        INDEX idx_model_credit_job (job_id, attempt_id),
+        CONSTRAINT chk_model_credit_delta CHECK (delta <> 0),
+        FOREIGN KEY (job_id, attempt_id) REFERENCES model_build_attempts(job_id, id) ON DELETE RESTRICT
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
     ],
   },

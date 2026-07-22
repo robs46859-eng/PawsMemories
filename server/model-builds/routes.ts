@@ -13,7 +13,6 @@ import {
 } from "./schemas";
 import { ModelBuildService, ModelBuildServiceError } from "./service";
 import { TripoModelBuildAdapter, type ModelBuildProvider } from "./provider";
-import { recoverStaleLeases } from "./recovery";
 
 function getRequestUserPhone(req: Request): string | null {
   return (req as AuthedRequest).user?.phone || null;
@@ -24,10 +23,11 @@ export function createModelBuildsRouter(
     provider: ModelBuildProvider;
     pool?: mysql.Pool;
     isAdmin?: (userId: string) => Promise<boolean>;
+    service?: ModelBuildService;
   },
 ): Router {
   const router = Router();
-  const service = new ModelBuildService(options.provider, () => options.pool || getPool());
+  const service = options.service || new ModelBuildService(options.provider, () => options.pool || getPool());
   const checkAdmin = options.isAdmin || isUserAdmin;
 
   const buildLimiter = rateLimit({
@@ -221,7 +221,7 @@ export function createModelBuildsRouter(
       const isAdmin = await checkAdmin(userPhone);
       if (!isAdmin) return res.status(403).json({ success: false, error: "Admin access required" });
 
-      const report = await recoverStaleLeases(options.pool || getPool());
+      const report = await service.recoverStaleBuilds();
       return res.json({ success: true, data: report });
     } catch (err: any) {
       return handleError(res, err);
@@ -231,9 +231,9 @@ export function createModelBuildsRouter(
   return router;
 }
 
-export const modelBuildsRouter = createModelBuildsRouter({
-  provider: new TripoModelBuildAdapter(),
-});
+const productionProvider = new TripoModelBuildAdapter();
+export const modelBuildService = new ModelBuildService(productionProvider);
+export const modelBuildsRouter = createModelBuildsRouter({ provider: productionProvider, service: modelBuildService });
 
 
 function handleError(res: Response, err: any): Response {
