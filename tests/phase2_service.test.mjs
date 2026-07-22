@@ -91,7 +91,7 @@ test("Phase 2 Production Reference Session Service Suite", async (t) => {
     assert.deepEqual(viewKinds, ORDERED_VIEW_KINDS);
 
     assert.ok(publicData.report);
-    assert.equal(publicData.report.status, "pass");
+    assert.equal(publicData.report.status, "warn");
     assert.ok(publicData.manifestHash);
   });
 
@@ -104,6 +104,19 @@ test("Phase 2 Production Reference Session Service Suite", async (t) => {
     const { attempt: att2 } = await service.startOrRetryAttempt(ownerId, session.session_uuid, idempotencyKey);
 
     assert.equal(att1.id, att2.id);
+  });
+
+  await t.test("3b. Concurrent idempotent starts invoke the provider only once", async () => {
+    const ownerId = "+15551114444";
+    const provider = new FakeReferenceImageProvider();
+    const concurrentService = new ReferenceSessionService(provider, () => pool);
+    const session = await concurrentService.createSession(ownerId, { inputMode: "text", prompt: "A beagle" });
+    const [first, second] = await Promise.all([
+      concurrentService.startOrRetryAttempt(ownerId, session.session_uuid, "same-concurrent-key"),
+      concurrentService.startOrRetryAttempt(ownerId, session.session_uuid, "same-concurrent-key"),
+    ]);
+    assert.equal(first.attempt.id, second.attempt.id);
+    assert.equal(provider.calls, 1);
   });
 
   await t.test("4. approveManifest approves session with matching 5-view manifest hash and enters terminal state", async () => {
@@ -135,12 +148,8 @@ test("Phase 2 Production Reference Session Service Suite", async (t) => {
       (err) => err instanceof ReferenceSessionError && err.code === "SESSION_APPROVED",
     );
 
-    await assert.rejects(
-      async () => {
-        await service.approveManifest(ownerId, session.session_uuid, validHash);
-      },
-      (err) => err instanceof ReferenceSessionError && err.code === "ALREADY_APPROVED",
-    );
+    const repeatedApproval = await service.approveManifest(ownerId, session.session_uuid, validHash);
+    assert.equal(repeatedApproval.state, "approved");
   });
 
   await t.test("5. Retry attempt creates attempt #2 and preserves history", async () => {

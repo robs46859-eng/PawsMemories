@@ -5,6 +5,9 @@ import mysql from "mysql2/promise";
 import { runMigrations } from "../server/migrations/runner.ts";
 import { createReferenceSessionsRouter } from "../server/reference-sessions/routes.ts";
 import { FakeReferenceImageProvider } from "../server/reference-sessions/provider.ts";
+import { requireAuth, signToken } from "../auth.ts";
+
+process.env.JWT_SECRET = "phase2-route-test-secret-at-least-32-characters";
 
 const mysqlHost = process.env.MYSQL_TEST_HOST || "127.0.0.1";
 const mysqlPort = Number(process.env.MYSQL_TEST_PORT || 3306);
@@ -57,12 +60,15 @@ test("Phase 2 API Router Suite (/api/reference-sessions)", async (t) => {
 
     await runMigrations(pool);
 
-    const router = createReferenceSessionsRouter(new FakeReferenceImageProvider());
-    router.pool = pool;
+    const router = createReferenceSessionsRouter({
+      provider: new FakeReferenceImageProvider(),
+      pool,
+      isAdmin: async () => false,
+    });
 
     const app = express();
     app.use(express.json());
-    app.use("/api/reference-sessions", router);
+    app.use("/api/reference-sessions", requireAuth, router);
 
     await new Promise((resolve) => {
       server = app.listen(0, () => {
@@ -82,13 +88,17 @@ test("Phase 2 API Router Suite (/api/reference-sessions)", async (t) => {
   });
 
   const baseUrl = () => `http://127.0.0.1:${serverPort}`;
+  const authHeaders = (userPhone) => ({
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${signToken({ phone: userPhone, uid: 1 })}`,
+  });
 
   await t.test("1. When MULTIVIEW_APPROVAL_ENABLED=false, endpoints fail-closed with 403 FEATURE_DISABLED", async () => {
     delete process.env.MULTIVIEW_APPROVAL_ENABLED;
 
     const res = await fetch(`${baseUrl()}/api/reference-sessions/create`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-user-phone": "+15551112222" },
+      headers: authHeaders("+15551112222"),
       body: JSON.stringify({ inputMode: "text", prompt: "A dog" }),
     });
 
@@ -104,7 +114,7 @@ test("Phase 2 API Router Suite (/api/reference-sessions)", async (t) => {
     // A. Create Session
     const createRes = await fetch(`${baseUrl()}/api/reference-sessions/create`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-user-phone": userPhone },
+      headers: authHeaders(userPhone),
       body: JSON.stringify({ inputMode: "text", prompt: "A golden retriever" }),
     });
     const createBody = await createRes.json();
@@ -115,7 +125,7 @@ test("Phase 2 API Router Suite (/api/reference-sessions)", async (t) => {
     // B. Start Generation Attempt
     const startRes = await fetch(`${baseUrl()}/api/reference-sessions/start`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-user-phone": userPhone },
+      headers: authHeaders(userPhone),
       body: JSON.stringify({ sessionUuid, idempotencyKey: "idem_route_1" }),
     });
     const startBody = await startRes.json();
@@ -126,20 +136,30 @@ test("Phase 2 API Router Suite (/api/reference-sessions)", async (t) => {
     // C. Non-owner cannot access or approve
     const strangerRes = await fetch(`${baseUrl()}/api/reference-sessions/approve`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-user-phone": "+15559990000" },
+      headers: authHeaders("+15559990000"),
       body: JSON.stringify({ sessionUuid, manifestHash }),
     });
-    assert.equal(strangerRes.status, 422);
+    assert.equal(strangerRes.status, 403);
 
     // D. Owner approves manifest
     const approveRes = await fetch(`${baseUrl()}/api/reference-sessions/approve`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-user-phone": userPhone },
+      headers: authHeaders(userPhone),
       body: JSON.stringify({ sessionUuid, manifestHash }),
     });
     const approveBody = await approveRes.json();
     assert.equal(approveRes.status, 200);
     assert.equal(approveBody.session.state, "approved");
+  });
+
+  await t.test("2b. x-user-phone cannot spoof authentication", async () => {
+    process.env.MULTIVIEW_APPROVAL_ENABLED = "true";
+    const response = await fetch(`${baseUrl()}/api/reference-sessions/create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-user-phone": "+15551112222" },
+      body: JSON.stringify({ inputMode: "text", prompt: "spoof attempt" }),
+    });
+    assert.equal(response.status, 401);
   });
 
   await t.test("3. 3D Provider Spy: Prove ZERO 3D provider calls made by Phase 2 endpoints", async () => {
@@ -158,13 +178,13 @@ test("Phase 2 API Router Suite (/api/reference-sessions)", async (t) => {
     try {
       const res = await fetch(`${baseUrl()}/api/reference-sessions/create`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-user-phone": "+15551112222" },
+        headers: authHeaders("+15551112222"),
         body: JSON.stringify({ inputMode: "text", prompt: "Spy test dog" }),
       });
       const body = await res.json();
       await fetch(`${baseUrl()}/api/reference-sessions/start`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-user-phone": "+15551112222" },
+        headers: authHeaders("+15551112222"),
         body: JSON.stringify({ sessionUuid: body.sessionUuid, idempotencyKey: "idem_spy" }),
       });
 

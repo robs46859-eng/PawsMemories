@@ -167,6 +167,22 @@ export async function updateAssetCurrentVersion(
   await connection.query("UPDATE assets SET current_version_id = ? WHERE id = ?", [currentVersionId, assetId]);
 }
 
+/** Hard-delete is reserved for compensating a failed registration before publication. */
+export async function hardDeleteUnpublishedAsset(
+  connection: mysql.PoolConnection | mysql.Pool,
+  assetId: number,
+): Promise<void> {
+  await connection.query("UPDATE assets SET current_version_id = NULL WHERE id = ?", [assetId]);
+  await connection.query(
+    `DELETE ar FROM asset_relations ar
+     JOIN asset_versions av ON av.id = ar.parent_version_id OR av.id = ar.child_version_id
+     WHERE av.asset_id = ?`,
+    [assetId],
+  );
+  await connection.query("DELETE FROM asset_versions WHERE asset_id = ?", [assetId]);
+  await connection.query("DELETE FROM assets WHERE id = ?", [assetId]);
+}
+
 export async function insertAssetVersion(
   connection: mysql.PoolConnection | mysql.Pool,
   data: {

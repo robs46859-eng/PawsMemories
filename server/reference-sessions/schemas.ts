@@ -17,16 +17,26 @@ export const CreateSessionSchema = z
     inputMode: InputModeSchema,
     subjectClass: z.string().min(1).max(64).default("pet"),
     prompt: z.string().max(2000).optional().nullable(),
+    sourceImageBase64: z.string().max(28_000_000).optional(),
+    sourceMimeType: z.enum(["image/png", "image/jpeg", "image/webp"]).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.inputMode === "text" && !value.prompt?.trim()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["prompt"], message: "A prompt is required for text input." });
+    }
+    if (value.inputMode === "photo" && (!value.sourceImageBase64 || !value.sourceMimeType)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["sourceImageBase64"], message: "A source image is required for photo input." });
+    }
+  });
 
 export type CreateSessionInput = z.infer<typeof CreateSessionSchema>;
 
 export const ReplaceSourcePhotoSchema = z
   .object({
     sessionUuid: z.string().uuid(),
-    imageBufferBase64: z.string().min(1),
-    mimeType: z.string().min(1).max(120),
+    imageBufferBase64: z.string().min(1).max(28_000_000),
+    mimeType: z.enum(["image/png", "image/jpeg", "image/webp"]),
   })
   .strict();
 
@@ -51,6 +61,8 @@ export const ApproveManifestSchema = z
     manifestHash: z.string().length(64).regex(/^[a-fA-F0-9]{64}$/),
   })
   .strict();
+
+export const CancelSessionSchema = z.object({ sessionUuid: z.string().uuid() }).strict();
 
 export const ConsistencyMetricItemSchema = z
   .object({

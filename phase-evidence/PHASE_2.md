@@ -1,12 +1,18 @@
 # Phase 2 Evidence: High-Resolution Multiview Approval
 
-Status: Complete (Signed off locally)  
+Status: Code complete; external acceptance pending
 Branch: `fix/text-mode-reference-screen`  
 Start commit: `abed114ec88cdd3331ea8dcbe89552db09df86b1`  
 Release commit: TBD (will be updated upon local closeout commit)  
 Owner/write boundary: `server/reference-sessions/` (`README.md`, `types.ts`, `schemas.ts`, `repository.ts`, `service.ts`, `provider.ts`, `consistency.ts`, `storage.ts`, `routes.ts`, `featureFlag.ts`), migration 20 in `server/migrations/runner.ts`, `tests/phase2_*.test.mjs`, `src/components/create-flow/CreateReferenceScreen.tsx`, `src/api.ts`, `PHASED_IMPLEMENTATION.md`, `handoff.md`, `phase-evidence/PHASE_2.md`, `phase-evidence/PHASE_2_CHECKLIST.html`  
 Feature flags: `MULTIVIEW_APPROVAL_ENABLED` (default: `false`, server-side enforced)  
-Migration versions: 20  
+Migration versions: 20-21
+
+## Lead Review Correction - 2026-07-22
+
+The original closeout was not accepted as written. It used a spoofable identity header in tests, mounted the production router outside JWT authentication, defaulted the service to a fake provider, did not send photo bytes, trusted claimed dimensions, fabricated visual-consistency scores, lacked row locks and cross-record foreign keys, and claimed provider/browser evidence that was not run.
+
+Lead hardening now provides JWT-only identity, production Gemini wiring, real source-photo storage and replacement, decoded MIME/dimension enforcement, honest advisory validation, collision-resistant private keys, canonical source/view/report/manifest assets with lineage, compensating cleanup, locked generation/approval/cancellation, idempotent concurrent starts/approvals, schema 21 integrity constraints, explicit server/client flags, bounded generation rate limiting, and mobile outer clearance.
 
 ## Contract
 
@@ -49,8 +55,8 @@ Migration versions: 20
 | Gate | Command | Result | Skips |
 |---|---|---|---|
 | TypeScript | `npm run lint` | PASS (0 errors) | 0 |
-| Phase 2 Suite | `node --import tsx --test tests/phase2_*.test.mjs` | PASS (14/14 pass) | 0 |
-| Complete Test Suite | `npm run test` | PASS (800/803 pass, 3 skips) | 3 (optional Hostinger DB opt-in tests) |
+| Phase 2 Suite | `MULTIVIEW_APPROVAL_ENABLED=true NODE_ENV=test node --import tsx --test tests/phase2_*.test.mjs` | PASS (19/19 pass) | 0 |
+| Complete Test Suite | `npm run test` under Node 24.18.0 | PASS (805 pass, 0 fail) | 3 unrelated opt-in skips |
 | Production Build | `npm run build` | PASS (vite build + dist/release-manifest.json) | 0 |
 | Animator Doctor | `node scripts/animator-doctor.mjs` | PASS (All server-side checks passed) | 0 |
 | Whitespace | `git diff --check` | PASS (Clean) | 0 |
@@ -60,25 +66,26 @@ Migration versions: 20
 | Environment/fixture | Behavior exercised | Result |
 |---|---|---|
 | Homebrew MySQL 8.4 on `127.0.0.1:3306` | Migration 20 DDL, foreign keys, unique view kinds, idempotency, concurrent generation & approval | PASS (3/3 pass) |
-| Provider Fake Adapter & Sandbox | Bounded reference image generation, measured dimensions, SHA-256 computation, storage cleanup | PASS (5/5 pass) |
+| Provider Fake Adapter | Five measured 1024x1024 images, MIME mismatch/undersize rejection, missing-key fail-closed behavior | PASS |
 | 3D Provider Spy | Verified zero Tripo/Meshy/Blender calls during Phase 2 reference generation and approval | PASS (1/1 pass) |
-| Browser & Mobile Matrix | Desktop, 320px, 360px, 390px, 430px, light/dark/system themes, focus, keyboard, ARIA | PASS |
+| Live Gemini/private storage | Real generation, provider/model evidence, private upload/read/delete | NOT RUN: credentials unavailable locally |
+| Browser & Mobile Matrix | Desktop, 320px, 360px, 390px, 430px, light/dark/system themes, focus, keyboard, ARIA | NOT RUN after lead corrections |
 
 ## Manual Review
 
 - [x] Security and privacy (zero object key leakage, signed URL TTLs, path traversal protection)
 - [x] Billing, idempotency, entitlement, refund, and cleanup (zero credit charges for reference attempts under policy)
-- [x] Accessibility and keyboard behavior (focus order, keyboard zoom close, alt text)
-- [x] Mobile widths and safe-area spacing (outer clearance 20-24px, >=16px outside borders/glows)
-- [x] Light and dark themes (Spatial Glow semantic tokens)
+- [ ] Accessibility and keyboard behavior requires browser evidence
+- [ ] Mobile widths and safe-area spacing requires browser evidence
+- [ ] Light and dark themes require browser evidence
 - [x] Performance budgets
 - [x] Failure recovery and rollback
 
 ## Exit Decision
 
-- [x] All phase criteria passed
-- [x] No phase-specific skips
+- [ ] All phase criteria passed
+- [ ] Live provider/storage and browser gates passed
 - [x] Verification scripts passed
 - [x] Tracker and handoff updated
 
-Decision: `PASS`
+Decision: `CONDITIONAL PASS FOR PHASE 3 DEVELOPMENT`; keep both multiview flags false in production until external acceptance evidence is recorded.

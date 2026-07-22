@@ -25,7 +25,7 @@ export async function isMysqlServerReachable() {
   }
 }
 
-test("Phase 2 Real MySQL 8.4 Migration 20 Test Suite", async (t) => {
+test("Phase 2 Real MySQL 8.4 Migrations 20-21 Test Suite", async (t) => {
   const reachable = await isMysqlServerReachable();
   if (!reachable) {
     t.skip("Local test MySQL instance not running on 127.0.0.1:3306. Provision MySQL to run integration tests.");
@@ -67,12 +67,12 @@ test("Phase 2 Real MySQL 8.4 Migration 20 Test Suite", async (t) => {
       connectionLimit: 5,
     });
 
-  await t.test("1. Migration 20 upgrades schema to 20 and creates reference session tables", async () => {
+  await t.test("1. Migrations 20-21 create and harden reference session tables", async () => {
     const pool = getTestPool();
     try {
       const res = await runMigrations(pool);
-      assert.ok(res.applied >= 1, "Must apply migrations up to version 20");
-      assert.equal(CURRENT_SCHEMA_VERSION, 20);
+      assert.ok(res.applied >= 1, "Must apply migrations up to version 21");
+      assert.equal(CURRENT_SCHEMA_VERSION, 21);
 
       // Verify all 5 Phase 2 tables exist
       const [tables] = await pool.query(
@@ -141,6 +141,28 @@ test("Phase 2 Real MySQL 8.4 Migration 20 Test Suite", async (t) => {
           );
         },
         (err) => err.code === "ER_DUP_ENTRY" || err.errno === 1062,
+      );
+
+      const [otherAssetResult] = await conn.query(
+        "INSERT INTO assets (asset_uuid, owner_id, asset_type, visibility) VALUES ('44444444-4444-4444-8444-444444444444', '+15550001', 'reference_left', 'private')",
+      );
+      const [otherVersionResult] = await conn.query(
+        "INSERT INTO asset_versions (asset_id, version_number, sha256, mime_type, size_bytes, bucket, object_key) VALUES (?, 1, ?, 'image/png', 1000, 'private', 'references/l.png')",
+        [otherAssetResult.insertId, "b".repeat(64)],
+      );
+      await assert.rejects(
+        () => conn.query(
+          "INSERT INTO reference_views (attempt_id, view_kind, asset_id, asset_version_id, width_px, height_px) VALUES (?, 'left', ?, ?, 1024, 1024)",
+          [attemptId, assetId, otherVersionResult.insertId],
+        ),
+        (err) => err.code === "ER_NO_REFERENCED_ROW_2" || err.errno === 1452,
+      );
+      await assert.rejects(
+        () => conn.query(
+          "INSERT INTO reference_views (attempt_id, view_kind, asset_id, asset_version_id, width_px, height_px) VALUES (?, 'left', ?, ?, 512, 1024)",
+          [attemptId, otherAssetResult.insertId, otherVersionResult.insertId],
+        ),
+        (err) => err.code === "ER_CHECK_CONSTRAINT_VIOLATED" || err.errno === 3819,
       );
 
       // Insert approval

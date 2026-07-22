@@ -851,6 +851,8 @@ async function startServer() {
     "/api/profile/photos",
     "/api/bim/import-ifc",
     "/api/create-pipeline/generate-reference",
+    "/api/reference-sessions/create",
+    "/api/reference-sessions/replace-source",
     "/api/print-uploads",
   ]);
   app.use((req, res, next) => {
@@ -865,7 +867,7 @@ async function startServer() {
   // Canonical assets are dark-launched. Keep the entire surface unavailable
   // unless enabled server-side, and never mount it outside the normal JWT gate.
   app.use("/api/assets", requireCanonicalAssetsEnabled, requireAuth, assetsRouter);
-  app.use("/api/reference-sessions", referenceSessionsRouter);
+  app.use("/api/reference-sessions", requireAuth, referenceSessionsRouter);
 
   app.post("/api/bim/import-ifc", requireAuth, async (req: AuthedRequest, res) => {
     try {

@@ -10,18 +10,19 @@
     th, td { border: 1px solid #334155; padding: 0.75rem; text-align: left; }
     th { background: #1e293b; }
     .status-pass { color: #4ade80; font-weight: bold; }
+    .status-pending { color: #fbbf24; font-weight: bold; }
     code { background: #1e293b; padding: 0.2rem 0.4rem; border-radius: 4px; font-size: 0.9em; }
   </style>
 </head>
 <body>
   <h1>Pawsome3D Phase 2 Execution Evidence Checklist</h1>
-  <p>Status: <span class="status-pass">PASS</span> | Controlling Prompt: <code>AGENT_PROMPT_PHASE_2_MULTIVIEW.md</code></p>
+  <p>Status: <span class="status-pending">CODE COMPLETE; EXTERNAL ACCEPTANCE PENDING</span> | Controlling Prompt: <code>AGENT_PROMPT_PHASE_2_MULTIVIEW.md</code></p>
   
   <h2>1. Core Architectural Contracts</h2>
   <ul>
     <li><input type="checkbox" id="chk-boundary" checked disabled> Phase 2 boundary strictly enforced: text/photo -> 5 high-res reference views -> consistency report -> optional retry/replace -> explicit approval. Zero 3D provider calls verified by provider spy.</li>
     <li><input type="checkbox" id="chk-flag" checked disabled> <code>MULTIVIEW_APPROVAL_ENABLED</code> defaults to <code>false</code> (server-authoritative).</li>
-    <li><input type="checkbox" id="chk-migration" checked disabled> Migration 20 implemented in <code>server/migrations/runner.ts</code> with <code>CURRENT_SCHEMA_VERSION = 20</code>.</li>
+    <li><input type="checkbox" id="chk-migration" checked disabled> Migrations 20-21 implemented with <code>CURRENT_SCHEMA_VERSION = 21</code>.</li>
     <li><input type="checkbox" id="chk-views" checked disabled> Exact 5 ordered views enforced: <code>front</code>, <code>left</code>, <code>right</code>, <code>rear</code>,  accumulation/perspective <code>front_three_quarter</code>.</li>
     <li><input type="checkbox" id="chk-state" checked disabled> State machine enforced: <code>draft -> queued -> generating -> ready -> approved</code>.</li>
     <li><input type="checkbox" id="chk-immutable" checked disabled> Immutable approval: <code>approved</code> state is terminal for a session.</li>
@@ -50,13 +51,13 @@
         <td>Phase 2 Test Suite</td>
         <td><code>node --import tsx --test tests/phase2_*.test.mjs</code></td>
         <td><span class="status-pass">PASS</span></td>
-        <td>14/14 subtests pass, 0 fail, 0 skip</td>
+        <td>19/19 subtests pass, 0 fail, 0 skip</td>
       </tr>
       <tr>
         <td>Complete Test Suite</td>
         <td><code>npm run test</code></td>
         <td><span class="status-pass">PASS</span></td>
-        <td>800 pass, 0 fail, 3 skips (optional Hostinger DB opt-in tests)</td>
+        <td>805 pass, 0 fail, 3 unrelated opt-in skips under Node 24.18.0</td>
       </tr>
       <tr>
         <td>Production Build</td>
@@ -82,7 +83,9 @@
   <h2>3. Notes & Execution Progress</h2>
   <div id="notes">
     <!-- Notes and execution progress logs -->
-    <p>Execution completed successfully. Migration 20 DDL, domain module, state machine, provider adapter, Zod consistency report, zero-charge billing policy, and Create review grid & approval UI fully implemented and verified against live MySQL 8.4.</p>
+    <p>Lead correction completed locally: JWT-only identity, real Gemini adapter, source-photo persistence/replacement, decoded image validation, schema 21 integrity, locked idempotent transitions, canonical report/manifest lineage, honest advisory reporting, and compensating cleanup.</p>
+    <p class="status-pending"><input type="checkbox" disabled> Pending: bounded live Gemini plus private-storage generation/read/delete evidence.</p>
+    <p class="status-pending"><input type="checkbox" disabled> Pending: desktop and 320/360/390/430px browser matrix in light/dark/system modes, including keyboard and accessibility checks.</p>
   </div>
 </body>
 </html>

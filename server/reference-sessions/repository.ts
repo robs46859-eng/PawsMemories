@@ -104,6 +104,42 @@ export async function findSessionByUuid(
   };
 }
 
+export async function findSessionByUuidForUpdate(
+  connection: mysql.PoolConnection,
+  sessionUuid: string,
+): Promise<ReferenceSessionRecord | null> {
+  const [rows]: any = await connection.query(
+    `SELECT id, session_uuid, owner_id, input_mode, subject_class, prompt, source_asset_id, source_asset_version_id, state, current_attempt_id, approved_attempt_id, retry_count, created_at, updated_at
+     FROM reference_sessions WHERE session_uuid = ? LIMIT 1 FOR UPDATE`,
+    [sessionUuid],
+  );
+  if (!rows?.length) return null;
+  const r = rows[0];
+  return {
+    id: Number(r.id), session_uuid: String(r.session_uuid), owner_id: String(r.owner_id), input_mode: r.input_mode as InputMode,
+    subject_class: String(r.subject_class), prompt: r.prompt ? String(r.prompt) : null,
+    source_asset_id: r.source_asset_id ? Number(r.source_asset_id) : null,
+    source_asset_version_id: r.source_asset_version_id ? Number(r.source_asset_version_id) : null,
+    state: r.state as SessionState, current_attempt_id: r.current_attempt_id ? Number(r.current_attempt_id) : null,
+    approved_attempt_id: r.approved_attempt_id ? Number(r.approved_attempt_id) : null,
+    retry_count: Number(r.retry_count), created_at: new Date(r.created_at), updated_at: new Date(r.updated_at),
+  };
+}
+
+export async function updateSessionSource(
+  connection: mysql.PoolConnection | mysql.Pool,
+  sessionId: number,
+  assetId: number,
+  assetVersionId: number,
+): Promise<void> {
+  await connection.query(
+    `UPDATE reference_sessions
+     SET source_asset_id = ?, source_asset_version_id = ?, state = 'draft', current_attempt_id = NULL
+     WHERE id = ?`,
+    [assetId, assetVersionId, sessionId],
+  );
+}
+
 export async function findSessionsByOwner(
   connection: mysql.PoolConnection | mysql.Pool,
   ownerId: string,
@@ -293,6 +329,15 @@ export async function updateAttemptState(
   );
 }
 
+export async function updateAttemptProvider(
+  connection: mysql.PoolConnection | mysql.Pool,
+  attemptId: number,
+  provider: string,
+  model: string,
+): Promise<void> {
+  await connection.query("UPDATE reference_attempts SET provider = ?, model = ? WHERE id = ?", [provider, model, attemptId]);
+}
+
 export async function insertView(
   connection: mysql.PoolConnection | mysql.Pool,
   data: {
@@ -305,7 +350,7 @@ export async function insertView(
     isSynthesized?: boolean;
   },
 ): Promise<ReferenceViewRecord> {
-  const isSynthesized = data.isSynthesized ?? true ? 1 : 0;
+  const isSynthesized = (data.isSynthesized ?? true) ? 1 : 0;
   const [result]: any = await connection.query(
     `INSERT INTO reference_views
        (attempt_id, view_kind, asset_id, asset_version_id, width_px, height_px, is_synthesized)
@@ -346,7 +391,8 @@ export async function findViewsByAttemptId(
 ): Promise<ReferenceViewRecord[]> {
   const [rows]: any = await connection.query(
     `SELECT id, attempt_id, view_kind, asset_id, asset_version_id, width_px, height_px, is_synthesized, created_at
-     FROM reference_views WHERE attempt_id = ? ORDER BY id ASC`,
+     FROM reference_views WHERE attempt_id = ?
+     ORDER BY FIELD(view_kind, 'front', 'left', 'right', 'rear', 'front_three_quarter')`,
     [attemptId],
   );
 
@@ -367,6 +413,7 @@ export async function insertReport(
   connection: mysql.PoolConnection | mysql.Pool,
   data: {
     attemptId: number;
+    reportAssetId?: number | null;
     reportAssetVersionId?: number | null;
     status: ReportStatus;
     scaleConfidence: ScaleConfidence;
@@ -377,10 +424,11 @@ export async function insertReport(
   const jsonStr = data.metricsJson ? JSON.stringify(data.metricsJson) : null;
   const [result]: any = await connection.query(
     `INSERT INTO reference_reports
-       (attempt_id, report_asset_version_id, status, scale_confidence, report_hash, metrics_json)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+       (attempt_id, report_asset_id, report_asset_version_id, status, scale_confidence, report_hash, metrics_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [
       data.attemptId,
+      data.reportAssetId || null,
       data.reportAssetVersionId || null,
       data.status,
       data.scaleConfidence,
@@ -390,7 +438,7 @@ export async function insertReport(
   );
 
   const [rows]: any = await connection.query(
-    `SELECT id, attempt_id, report_asset_version_id, status, scale_confidence, report_hash, metrics_json, created_at
+    `SELECT id, attempt_id, report_asset_id, report_asset_version_id, status, scale_confidence, report_hash, metrics_json, created_at
      FROM reference_reports WHERE id = ? LIMIT 1`,
     [result.insertId],
   );
@@ -398,6 +446,7 @@ export async function insertReport(
   return {
     id: Number(r.id),
     attempt_id: Number(r.attempt_id),
+    report_asset_id: r.report_asset_id ? Number(r.report_asset_id) : null,
     report_asset_version_id: r.report_asset_version_id ? Number(r.report_asset_version_id) : null,
     status: r.status as ReportStatus,
     scale_confidence: r.scale_confidence as ScaleConfidence,
@@ -412,7 +461,7 @@ export async function findReportByAttemptId(
   attemptId: number,
 ): Promise<ReferenceReportRecord | null> {
   const [rows]: any = await connection.query(
-    `SELECT id, attempt_id, report_asset_version_id, status, scale_confidence, report_hash, metrics_json, created_at
+    `SELECT id, attempt_id, report_asset_id, report_asset_version_id, status, scale_confidence, report_hash, metrics_json, created_at
      FROM reference_reports WHERE attempt_id = ? LIMIT 1`,
     [attemptId],
   );
@@ -421,6 +470,7 @@ export async function findReportByAttemptId(
   return {
     id: Number(r.id),
     attempt_id: Number(r.attempt_id),
+    report_asset_id: r.report_asset_id ? Number(r.report_asset_id) : null,
     report_asset_version_id: r.report_asset_version_id ? Number(r.report_asset_version_id) : null,
     status: r.status as ReportStatus,
     scale_confidence: r.scale_confidence as ScaleConfidence,
@@ -435,19 +485,21 @@ export async function insertApproval(
   data: {
     sessionId: number;
     attemptId: number;
+    manifestAssetId: number;
+    manifestAssetVersionId: number;
     manifestHash: string;
     approvedByUser: string;
   },
 ): Promise<ReferenceApprovalRecord> {
   const [result]: any = await connection.query(
     `INSERT INTO reference_approvals
-       (session_id, attempt_id, manifest_hash, approved_by_user)
-     VALUES (?, ?, ?, ?)`,
-    [data.sessionId, data.attemptId, data.manifestHash, data.approvedByUser],
+       (session_id, attempt_id, manifest_asset_id, manifest_asset_version_id, manifest_hash, approved_by_user)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [data.sessionId, data.attemptId, data.manifestAssetId, data.manifestAssetVersionId, data.manifestHash, data.approvedByUser],
   );
 
   const [rows]: any = await connection.query(
-    `SELECT id, session_id, attempt_id, manifest_hash, approved_by_user, created_at
+    `SELECT id, session_id, attempt_id, manifest_asset_id, manifest_asset_version_id, manifest_hash, approved_by_user, created_at
      FROM reference_approvals WHERE id = ? LIMIT 1`,
     [result.insertId],
   );
@@ -456,6 +508,8 @@ export async function insertApproval(
     id: Number(r.id),
     session_id: Number(r.session_id),
     attempt_id: Number(r.attempt_id),
+    manifest_asset_id: r.manifest_asset_id ? Number(r.manifest_asset_id) : null,
+    manifest_asset_version_id: r.manifest_asset_version_id ? Number(r.manifest_asset_version_id) : null,
     manifest_hash: String(r.manifest_hash),
     approved_by_user: String(r.approved_by_user),
     created_at: new Date(r.created_at),
@@ -467,7 +521,7 @@ export async function findApprovalBySessionId(
   sessionId: number,
 ): Promise<ReferenceApprovalRecord | null> {
   const [rows]: any = await connection.query(
-    `SELECT id, session_id, attempt_id, manifest_hash, approved_by_user, created_at
+    `SELECT id, session_id, attempt_id, manifest_asset_id, manifest_asset_version_id, manifest_hash, approved_by_user, created_at
      FROM reference_approvals WHERE session_id = ? LIMIT 1`,
     [sessionId],
   );
@@ -477,6 +531,8 @@ export async function findApprovalBySessionId(
     id: Number(r.id),
     session_id: Number(r.session_id),
     attempt_id: Number(r.attempt_id),
+    manifest_asset_id: r.manifest_asset_id ? Number(r.manifest_asset_id) : null,
+    manifest_asset_version_id: r.manifest_asset_version_id ? Number(r.manifest_asset_version_id) : null,
     manifest_hash: String(r.manifest_hash),
     approved_by_user: String(r.approved_by_user),
     created_at: new Date(r.created_at),

@@ -9,6 +9,7 @@ import {
   retryReferenceAttempt,
   approveReferenceManifest,
   cancelReferenceSession,
+  replaceReferenceSource,
 } from "../../api";
 
 interface CreateReferenceScreenProps {
@@ -43,6 +44,7 @@ export default function CreateReferenceScreen({ onNavigate }: CreateReferenceScr
   const [retryNotes, setRetryNotes] = useState<string>("");
   const [zoomedView, setZoomedView] = useState<ViewItem | null>(null);
   const [isApproved, setIsApproved] = useState(false);
+  const multiviewEnabled = import.meta.env.VITE_MULTIVIEW_APPROVAL_ENABLED === "true";
 
   const viewLabels: Record<string, string> = {
     front: "Front View",
@@ -58,21 +60,16 @@ export default function CreateReferenceScreen({ onNavigate }: CreateReferenceScr
     try {
       const mode = state.inputMode === "text" ? "text" : "photo";
       const prompt = state.inputMode === "text" ? (state.textPrompt || "").trim() : undefined;
-      const created = await createReferenceSession(mode, prompt, state.species || "pet");
+      const created = await createReferenceSession(mode, prompt, state.species || "pet", state.inputPhotoUrl);
       setMultiviewSessionUuid(created.sessionUuid);
 
-      const idempotencyKey = `att_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+      const idempotencyKey = `att_${crypto.randomUUID()}`;
       const started = await startReferenceAttempt(created.sessionUuid, idempotencyKey);
 
       setMultiviewViews(started.session.views || []);
       setMultiviewReport(started.session.report || null);
       setManifestHash(started.session.manifestHash || null);
     } catch (err: any) {
-      if (err.message?.includes("disabled")) {
-        // Fall back to legacy single-image concept generation
-        generateLegacyCandidate();
-        return;
-      }
       setError(err.message);
     } finally {
       setIsGenerating(false);
@@ -84,12 +81,36 @@ export default function CreateReferenceScreen({ onNavigate }: CreateReferenceScr
     setIsGenerating(true);
     setError(null);
     try {
-      const idempotencyKey = `retry_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+      const idempotencyKey = `retry_${crypto.randomUUID()}`;
       const retried = await retryReferenceAttempt(multiviewSessionUuid, idempotencyKey, retryNotes);
       setMultiviewViews(retried.session.views || []);
       setMultiviewReport(retried.session.report || null);
       setManifestHash(retried.session.manifestHash || null);
       setRetryNotes("");
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleReplaceSource = async (file: File) => {
+    if (!multiviewSessionUuid) return;
+    setIsGenerating(true);
+    setError(null);
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error("Could not read the replacement photo."));
+        reader.readAsDataURL(file);
+      });
+      await replaceReferenceSource(multiviewSessionUuid, dataUrl);
+      const restarted = await startReferenceAttempt(multiviewSessionUuid, `replace_${crypto.randomUUID()}`);
+      setMultiviewViews(restarted.session.views || []);
+      setMultiviewReport(restarted.session.report || null);
+      setManifestHash(restarted.session.manifestHash || null);
+      setState((current) => ({ ...current, inputPhotoUrl: dataUrl }));
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -160,7 +181,8 @@ export default function CreateReferenceScreen({ onNavigate }: CreateReferenceScr
         ? !!(state.textPrompt || "").trim()
         : !!state.inputPhotoUrl;
     if (!state.candidateImageUrl && multiviewViews.length === 0 && !isGenerating && !error && hasInput) {
-      initMultiviewSession();
+      if (multiviewEnabled) initMultiviewSession();
+      else generateLegacyCandidate();
     }
   }, []);
 
@@ -174,7 +196,7 @@ export default function CreateReferenceScreen({ onNavigate }: CreateReferenceScr
   }, []);
 
   return (
-    <div className="w-full max-w-5xl mx-auto px-4 py-8 animate-in fade-in zoom-in duration-500">
+    <div className="w-full max-w-5xl mx-auto px-5 sm:px-6 py-8 animate-in fade-in zoom-in duration-500">
       <div className="mb-6 flex items-center justify-between">
         <button
           onClick={() => onNavigate(Screen.CREATE)}
@@ -201,7 +223,7 @@ export default function CreateReferenceScreen({ onNavigate }: CreateReferenceScr
         </p>
       </div>
 
-      <div className="glass-panel p-6 rounded-3xl relative overflow-hidden min-h-[400px] flex flex-col items-center justify-center">
+      <div className="glass-panel p-4 sm:p-6 rounded-3xl relative overflow-hidden min-h-[400px] flex flex-col items-center justify-center">
         {isGenerating ? (
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <RefreshCw className="animate-spin text-primary mb-6" size={48} />
@@ -272,10 +294,10 @@ export default function CreateReferenceScreen({ onNavigate }: CreateReferenceScr
               <div className="p-5 rounded-2xl bg-surface-variant/20 border border-outline-variant/40 flex flex-col gap-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <CheckCircle className="text-emerald-500" size={20} />
+                    {multiviewReport.status === "pass" ? <CheckCircle className="text-emerald-500" size={20} /> : <AlertTriangle className="text-amber-500" size={20} />}
                     <h4 className="font-bold text-on-surface">AI Visual Consistency Report</h4>
                   </div>
-                  <span className="px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-400">
+                  <span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${multiviewReport.status === "pass" ? "bg-emerald-500/20 text-emerald-400" : "bg-amber-500/20 text-amber-400"}`}>
                     Status: {multiviewReport.status} | Scale: {multiviewReport.scaleConfidence}
                   </span>
                 </div>
@@ -284,7 +306,7 @@ export default function CreateReferenceScreen({ onNavigate }: CreateReferenceScr
                     {multiviewReport.metrics.metrics.map((m: any, idx: number) => (
                       <div key={idx} className="flex items-center justify-between p-2 rounded-lg bg-surface/40">
                         <span className="font-medium text-on-surface">{m.name}</span>
-                        <span className="font-bold text-emerald-400">{(m.score * 100).toFixed(0)}%</span>
+                        <span className={`font-bold ${m.status === "pass" ? "text-emerald-400" : m.status === "fail" ? "text-error" : "text-amber-400"}`}>{m.status === "warn" && m.score === 0 ? "Review" : `${(m.score * 100).toFixed(0)}%`}</span>
                       </div>
                     ))}
                   </div>
@@ -307,6 +329,21 @@ export default function CreateReferenceScreen({ onNavigate }: CreateReferenceScr
               >
                 <RefreshCw size={16} /> Retry Multiview
               </button>
+              {state.inputMode !== "text" && (
+                <label className="py-3 px-6 rounded-xl font-bold text-on-surface bg-surface-variant hover:bg-surface-variant/80 border border-outline-variant transition-colors flex items-center justify-center gap-2 text-sm cursor-pointer">
+                  Replace Source
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="sr-only"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void handleReplaceSource(file);
+                      event.currentTarget.value = "";
+                    }}
+                  />
+                </label>
+              )}
             </div>
 
             {/* Action Buttons & Pricing Disclaimer */}

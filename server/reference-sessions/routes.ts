@@ -1,29 +1,40 @@
 import { Router, type Request, type Response } from "express";
-import { isUserAdmin } from "../../db";
+import rateLimit from "express-rate-limit";
+import type mysql from "mysql2/promise";
+import { getPool, isUserAdmin } from "../../db";
+import type { AuthedRequest } from "../../auth";
 import { assertMultiviewApprovalEnabled } from "./featureFlag";
 import {
   CreateSessionSchema,
   StartAttemptSchema,
   RetryAttemptSchema,
   ApproveManifestSchema,
+  CancelSessionSchema,
+  ReplaceSourcePhotoSchema,
 } from "./schemas";
 import { ReferenceSessionService, ReferenceSessionError } from "./service";
-import { ReferenceImageProvider } from "./provider";
+import { GeminiReferenceImageProvider, type ReferenceImageProvider } from "./provider";
 
 function getRequestUserPhone(req: Request): string | null {
-  const user = (req as any).user;
-  if (user && user.phone) return String(user.phone);
-  if (req.headers["x-user-phone"]) return String(req.headers["x-user-phone"]);
-  return null;
+  return (req as AuthedRequest).user?.phone || null;
 }
 
 export function createReferenceSessionsRouter(
-  provider?: ReferenceImageProvider,
+  options: {
+    provider: ReferenceImageProvider;
+    pool?: mysql.Pool;
+    isAdmin?: (userId: string) => Promise<boolean>;
+  },
 ): Router {
   const router = Router();
-  const service = new ReferenceSessionService(provider, () => {
-    const appPool = (router as any).pool || undefined;
-    return appPool;
+  const service = new ReferenceSessionService(options.provider, () => options.pool || getPool());
+  const checkAdmin = options.isAdmin || isUserAdmin;
+  const generationLimiter = rateLimit({
+    windowMs: 60_000,
+    max: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { success: false, error: "Too many reference generation requests. Try again shortly.", code: "RATE_LIMITED" },
   });
 
   // Feature flag check on all router routes
@@ -60,10 +71,24 @@ export function createReferenceSessionsRouter(
     }
   });
 
+  router.post("/replace-source", async (req: Request, res: Response) => {
+    try {
+      const userPhone = getRequestUserPhone(req);
+      if (!userPhone) return res.status(401).json({ success: false, error: "Authentication required" });
+      const validated = ReplaceSourcePhotoSchema.parse(req.body);
+      const session = await service.replaceSourcePhoto(userPhone, validated.sessionUuid, validated.imageBufferBase64, validated.mimeType);
+      return res.json({ success: true, session });
+    } catch (error: any) {
+      if (error.name === "ZodError") return res.status(400).json({ success: false, error: "Invalid input schema", details: error.errors });
+      const statusCode = error instanceof ReferenceSessionError && error.code === "UNAUTHORIZED" ? 403 : 422;
+      return res.status(statusCode).json({ success: false, error: error.message, code: error.code });
+    }
+  });
+
   /**
    * POST /api/reference-sessions/start
    */
-  router.post("/start", async (req: Request, res: Response) => {
+  router.post("/start", generationLimiter, async (req: Request, res: Response) => {
     try {
       const userPhone = getRequestUserPhone(req);
       if (!userPhone) return res.status(401).json({ success: false, error: "Authentication required" });
@@ -89,7 +114,7 @@ export function createReferenceSessionsRouter(
   /**
    * POST /api/reference-sessions/retry
    */
-  router.post("/retry", async (req: Request, res: Response) => {
+  router.post("/retry", generationLimiter, async (req: Request, res: Response) => {
     try {
       const userPhone = getRequestUserPhone(req);
       if (!userPhone) return res.status(401).json({ success: false, error: "Authentication required" });
@@ -108,7 +133,8 @@ export function createReferenceSessionsRouter(
       if (error.name === "ZodError") {
         return res.status(400).json({ success: false, error: "Invalid input schema", details: error.errors });
       }
-      return res.status(422).json({ success: false, error: error.message });
+      const statusCode = error instanceof ReferenceSessionError && error.code === "UNAUTHORIZED" ? 403 : 422;
+      return res.status(statusCode).json({ success: false, error: error.message, code: error.code });
     }
   });
 
@@ -120,12 +146,13 @@ export function createReferenceSessionsRouter(
       const userPhone = getRequestUserPhone(req);
       if (!userPhone) return res.status(401).json({ success: false, error: "Authentication required" });
 
-      const sessionUuid = String(req.body.sessionUuid);
+      const { sessionUuid } = CancelSessionSchema.parse(req.body);
       await service.cancelSession(userPhone, sessionUuid);
 
       return res.json({ success: true, state: "cancelled" });
     } catch (error: any) {
-      return res.status(422).json({ success: false, error: error.message });
+      const statusCode = error instanceof ReferenceSessionError && error.code === "UNAUTHORIZED" ? 403 : 422;
+      return res.status(statusCode).json({ success: false, error: error.message, code: error.code });
     }
   });
 
@@ -149,9 +176,9 @@ export function createReferenceSessionsRouter(
       if (error.name === "ZodError") {
         return res.status(400).json({ success: false, error: "Invalid input schema", details: error.errors });
       }
-      const statusCode =
-        error instanceof ReferenceSessionError &&
-        (error.code === "MANIFEST_HASH_MISMATCH" || error.code === "ALREADY_APPROVED")
+      const statusCode = error instanceof ReferenceSessionError && error.code === "UNAUTHORIZED"
+        ? 403
+        : error instanceof ReferenceSessionError && (error.code === "MANIFEST_HASH_MISMATCH" || error.code === "ALREADY_APPROVED")
           ? 409
           : 422;
       return res.status(statusCode).json({ success: false, error: error.message, code: error.code });
@@ -165,7 +192,7 @@ export function createReferenceSessionsRouter(
     try {
       const userPhone = getRequestUserPhone(req);
       const sessionUuid = String(req.params.sessionUuid);
-      const userIsAdmin = userPhone ? await isUserAdmin(userPhone).catch(() => false) : false;
+      const userIsAdmin = userPhone ? await checkAdmin(userPhone).catch(() => false) : false;
 
       const publicData = await service.getSessionPublic(sessionUuid, userPhone || undefined, userIsAdmin);
       return res.json({ success: true, session: publicData });
@@ -178,4 +205,6 @@ export function createReferenceSessionsRouter(
   return router;
 }
 
-export const referenceSessionsRouter = createReferenceSessionsRouter();
+export const referenceSessionsRouter = createReferenceSessionsRouter({
+  provider: new GeminiReferenceImageProvider(),
+});

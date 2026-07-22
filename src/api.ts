@@ -1096,11 +1096,22 @@ export async function createReferenceSession(
   inputMode: "text" | "photo",
   prompt?: string,
   subjectClass: string = "pet",
+  sourceImageDataUrl?: string,
 ): Promise<{ success: boolean; sessionUuid: string; state: string }> {
+  const sourceMatch = sourceImageDataUrl?.match(/^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/i);
+  if (inputMode === "photo" && !sourceMatch) {
+    throw new Error("The source photo must be an embedded PNG, JPEG, or WebP image.");
+  }
   const res = await authedFetch("/api/reference-sessions/create", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ inputMode, prompt, subjectClass }),
+    body: JSON.stringify({
+      inputMode,
+      prompt,
+      subjectClass,
+      sourceImageBase64: sourceMatch?.[2],
+      sourceMimeType: sourceMatch?.[1]?.toLowerCase(),
+    }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -1121,6 +1132,24 @@ export async function startReferenceAttempt(
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || `Failed to start reference attempt (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function replaceReferenceSource(
+  sessionUuid: string,
+  sourceImageDataUrl: string,
+): Promise<{ success: boolean; session: any }> {
+  const match = sourceImageDataUrl.match(/^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/i);
+  if (!match) throw new Error("The replacement must be a PNG, JPEG, or WebP image.");
+  const res = await authedFetch("/api/reference-sessions/replace-source", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionUuid, mimeType: match[1].toLowerCase(), imageBufferBase64: match[2] }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to replace reference source (${res.status})`);
   }
   return res.json();
 }

@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type mysql from "mysql2/promise";
 
-export const CURRENT_SCHEMA_VERSION = 20;
+export const CURRENT_SCHEMA_VERSION = 21;
 
 export interface Migration {
   version: number;
@@ -255,6 +255,53 @@ export const MIGRATIONS: Migration[] = [
         FOREIGN KEY (session_id) REFERENCES reference_sessions(id) ON DELETE RESTRICT,
         FOREIGN KEY (attempt_id) REFERENCES reference_attempts(id) ON DELETE RESTRICT
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    ],
+  },
+  {
+    version: 21,
+    name: "multiview_reference_integrity_hardening",
+    statements: [
+      `SELECT COUNT(*) INTO @col_exists FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'reference_reports' AND COLUMN_NAME = 'report_asset_id'`,
+      `SET @stmt = IF(@col_exists = 0, 'ALTER TABLE reference_reports ADD COLUMN report_asset_id BIGINT NULL AFTER attempt_id', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+
+      `SELECT COUNT(*) INTO @col_exists FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'reference_approvals' AND COLUMN_NAME = 'manifest_asset_id'`,
+      `SET @stmt = IF(@col_exists = 0, 'ALTER TABLE reference_approvals ADD COLUMN manifest_asset_id BIGINT NULL AFTER attempt_id', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+      `SELECT COUNT(*) INTO @col_exists FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'reference_approvals' AND COLUMN_NAME = 'manifest_asset_version_id'`,
+      `SET @stmt = IF(@col_exists = 0, 'ALTER TABLE reference_approvals ADD COLUMN manifest_asset_version_id BIGINT NULL AFTER manifest_asset_id', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+
+      `SELECT COUNT(*) INTO @idx_exists FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'reference_attempts' AND INDEX_NAME = 'uniq_ref_attempt_identity'`,
+      `SET @stmt = IF(@idx_exists = 0, 'ALTER TABLE reference_attempts ADD UNIQUE KEY uniq_ref_attempt_identity (session_id, id)', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+
+      `SELECT COUNT(*) INTO @fk_exists FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'reference_sessions' AND CONSTRAINT_NAME = 'fk_ref_session_current_attempt_owned'`,
+      `SET @stmt = IF(@fk_exists = 0, 'ALTER TABLE reference_sessions ADD CONSTRAINT fk_ref_session_current_attempt_owned FOREIGN KEY (id, current_attempt_id) REFERENCES reference_attempts(session_id, id) ON DELETE RESTRICT', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+      `SELECT COUNT(*) INTO @fk_exists FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'reference_sessions' AND CONSTRAINT_NAME = 'fk_ref_session_approved_attempt_owned'`,
+      `SET @stmt = IF(@fk_exists = 0, 'ALTER TABLE reference_sessions ADD CONSTRAINT fk_ref_session_approved_attempt_owned FOREIGN KEY (id, approved_attempt_id) REFERENCES reference_attempts(session_id, id) ON DELETE RESTRICT', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+
+      `SELECT COUNT(*) INTO @fk_exists FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'reference_sessions' AND CONSTRAINT_NAME = 'fk_ref_session_source_version_owned'`,
+      `SET @stmt = IF(@fk_exists = 0, 'ALTER TABLE reference_sessions ADD CONSTRAINT fk_ref_session_source_version_owned FOREIGN KEY (source_asset_id, source_asset_version_id) REFERENCES asset_versions(asset_id, id) ON DELETE RESTRICT', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+      `SELECT COUNT(*) INTO @fk_exists FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'reference_views' AND CONSTRAINT_NAME = 'fk_ref_view_version_owned'`,
+      `SET @stmt = IF(@fk_exists = 0, 'ALTER TABLE reference_views ADD CONSTRAINT fk_ref_view_version_owned FOREIGN KEY (asset_id, asset_version_id) REFERENCES asset_versions(asset_id, id) ON DELETE RESTRICT', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+      `SELECT COUNT(*) INTO @fk_exists FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'reference_reports' AND CONSTRAINT_NAME = 'fk_ref_report_version_owned'`,
+      `SET @stmt = IF(@fk_exists = 0, 'ALTER TABLE reference_reports ADD CONSTRAINT fk_ref_report_version_owned FOREIGN KEY (report_asset_id, report_asset_version_id) REFERENCES asset_versions(asset_id, id) ON DELETE RESTRICT', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+      `SELECT COUNT(*) INTO @fk_exists FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'reference_approvals' AND CONSTRAINT_NAME = 'fk_ref_approval_attempt_owned'`,
+      `SET @stmt = IF(@fk_exists = 0, 'ALTER TABLE reference_approvals ADD CONSTRAINT fk_ref_approval_attempt_owned FOREIGN KEY (session_id, attempt_id) REFERENCES reference_attempts(session_id, id) ON DELETE RESTRICT', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+      `SELECT COUNT(*) INTO @fk_exists FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'reference_approvals' AND CONSTRAINT_NAME = 'fk_ref_approval_manifest_version_owned'`,
+      `SET @stmt = IF(@fk_exists = 0, 'ALTER TABLE reference_approvals ADD CONSTRAINT fk_ref_approval_manifest_version_owned FOREIGN KEY (manifest_asset_id, manifest_asset_version_id) REFERENCES asset_versions(asset_id, id) ON DELETE RESTRICT', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+
+      `SELECT COUNT(*) INTO @check_exists FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'reference_views' AND CONSTRAINT_NAME = 'chk_ref_view_min_dimensions'`,
+      `SET @stmt = IF(@check_exists = 0, 'ALTER TABLE reference_views ADD CONSTRAINT chk_ref_view_min_dimensions CHECK (width_px >= 1024 AND height_px >= 1024)', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
     ],
   },
 ];

@@ -15,55 +15,45 @@ export function evaluateReferenceConsistency(
   inputMode: "text" | "photo",
   declaredScale?: string | null,
 ): { payload: ConsistencyReportPayload; hash: string } {
-  const viewKinds = views.map((v) => v.viewKind);
-  const hasAllFive = viewKinds.length === 5;
+  const required = ["front", "left", "right", "rear", "front_three_quarter"];
+  const viewKinds = new Set(views.map((v) => v.viewKind));
+  const hasAllFive = views.length === 5 && required.every((kind) => viewKinds.has(kind as any));
+  const dimensionsValid = views.every((view) => view.widthPx >= 1024 && view.heightPx >= 1024);
 
   let scaleConfidence: ScaleConfidence = "unknown";
   if (declaredScale) scaleConfidence = "declared";
 
   const metrics = [
     {
-      name: "Silhouette and Proportions",
-      status: (hasAllFive ? "pass" : "warn") as ReportStatus,
-      score: hasAllFive ? 0.95 : 0.7,
-      details: "High proportion alignment across front, profile, and three-quarter angles.",
+      name: "Required View Coverage",
+      status: (hasAllFive ? "pass" : "fail") as ReportStatus,
+      score: hasAllFive ? 1 : 0,
+      details: hasAllFive ? "All five required view kinds are present." : "One or more required view kinds are missing or duplicated.",
     },
     {
-      name: "Markings and Color Palette",
-      status: "pass" as ReportStatus,
-      score: 0.92,
-      details: "Dominant color palette and coat pattern preserved across synthesized views.",
+      name: "Decoded Image Resolution",
+      status: (dimensionsValid ? "pass" : "fail") as ReportStatus,
+      score: dimensionsValid ? 1 : 0,
+      details: dimensionsValid ? "Every image decodes at or above 1024x1024 pixels." : "At least one image is below the minimum decoded resolution.",
     },
     {
-      name: "Anatomy and Structure Count",
-      status: "pass" as ReportStatus,
-      score: 0.98,
-      details: "Symmetrical limb and feature count verified across all angles.",
-    },
-    {
-      name: "Crop and Framing Suitability",
-      status: "pass" as ReportStatus,
-      score: 0.9,
-      details: "Subject fully contained within viewport without edge clipping.",
-    },
-    {
-      name: "Cross-View Identity Continuity",
-      status: "pass" as ReportStatus,
-      score: 0.94,
-      details: "Consistent subject identity maintained across views.",
+      name: "Cross-View Identity Review",
+      status: "warn" as ReportStatus,
+      score: 0,
+      details: "Identity, anatomy, markings, and framing require human approval; no automated visual evaluator has verified them.",
     },
   ];
 
   const payload: ConsistencyReportPayload = {
-    status: hasAllFive ? "pass" : "warn",
+    status: hasAllFive && dimensionsValid ? "warn" : "fail",
     scaleConfidence,
     summaryNote:
       inputMode === "photo"
-        ? "Source photo identity preserved. Synthesized profile and rear angles estimated for 3D build."
-        : "Character sheet generated from prompt. All 5 angles verified for identity continuity.",
+        ? "Five-view photo set generated. Automated checks cover file validity and resolution only; the user must verify identity before approval."
+        : "Five-view prompt set generated. Automated checks cover file validity and resolution only; the user must verify identity before approval.",
     metrics,
-    crossViewIdentityScore: 0.94,
-    cropSuitabilityScore: 0.9,
+    crossViewIdentityScore: 0,
+    cropSuitabilityScore: 0,
   };
 
   // Validate with Zod

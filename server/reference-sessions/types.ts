@@ -81,6 +81,7 @@ export interface ReferenceViewRecord {
 export interface ReferenceReportRecord {
   id: number;
   attempt_id: number;
+  report_asset_id: number | null;
   report_asset_version_id: number | null;
   status: ReportStatus;
   scale_confidence: ScaleConfidence;
@@ -93,6 +94,8 @@ export interface ReferenceApprovalRecord {
   id: number;
   session_id: number;
   attempt_id: number;
+  manifest_asset_id: number | null;
+  manifest_asset_version_id: number | null;
   manifest_hash: string;
   approved_by_user: string;
   created_at: Date;

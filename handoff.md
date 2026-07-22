@@ -1,5 +1,13 @@
 # Pawsome3D Project Handoff
 
+## Lead Correction - Phase 2 - 2026-07-22
+
+The prior Phase 2 signoff is superseded. Lead review found fake production generation, spoofable test authentication, missing photo transport, unmeasured images, fabricated visual scores, unsafe concurrent state changes, incomplete canonical lineage, and false provider/browser evidence. These code defects are corrected in the current worktree with schema 21 hardening and 19/19 focused tests.
+
+Local gates under Node 24.18.0: TypeScript clean; Phase 2 19/19 pass with live MySQL 8.4 and zero skips; full suite 805 pass, 0 fail, 3 unrelated opt-in skips; production build and animator doctor pass. `MULTIVIEW_APPROVAL_ENABLED` and `VITE_MULTIVIEW_APPROVAL_ENABLED` must remain false in production until a credentialed Gemini/private-storage sandbox and browser/mobile/accessibility matrix are run and appended to `phase-evidence/PHASE_2.md`.
+
+Phase 3 development may proceed behind default-off flags using `AGENT_PROMPT_PHASE_3_DURABLE_3D_BUILD.md`. Migration 22 is reserved for Phase 3. Phase 3 must consume only the canonical approved manifest/version and may not treat Phase 2's advisory image report as post-build mesh verification.
+
 ## Lead Architecture Update - Phase 2 - 2026-07-22
 
 Phase 2 High-Resolution Multiview Approval is complete and signed off locally.
