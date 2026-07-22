@@ -59,7 +59,34 @@ NODE
 
 cat > "$STAGING_DIR/server.cjs" <<'NODE'
 // Hostinger Node.js application startup file.
-require("./dist/server.cjs");
+// Passenger requires listen() within three seconds, while loading the complete
+// production bundle can exceed that budget. Start a bounded bootstrap response
+// immediately; server.ts adopts this same listener once the bundle is loaded.
+const http = require("node:http");
+const port = Number(process.env.PORT) || 3000;
+const bootstrapHandler = (_req, res) => {
+  res.writeHead(503, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+    "Retry-After": "3",
+  });
+  res.end('{"status":"starting"}');
+};
+const bootstrapServer = http.createServer(bootstrapHandler);
+
+globalThis.__PAWSOME_HOSTINGER_BOOTSTRAP__ = {
+  server: bootstrapServer,
+  handler: bootstrapHandler,
+};
+
+bootstrapServer.listen(port, "0.0.0.0", () => {
+  try {
+    require("./dist/server.cjs");
+  } catch (error) {
+    console.error("[FATAL] Production bundle failed to load:", error);
+    bootstrapServer.close(() => process.exit(1));
+  }
+});
 NODE
 
 MUST_HAVE=(package.json package-lock.json server.cjs dist/index.html dist/server.cjs dist/release-manifest.json)

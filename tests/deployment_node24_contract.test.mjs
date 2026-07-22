@@ -23,13 +23,18 @@ test("Hostinger archive uses the verified local build instead of rebuilding on t
 });
 
 test("Hostinger starts listening before database initialization", () => {
-  const listenIndex = serverSource.indexOf("const httpServer = app.listen(");
+  const listenIndex = serverSource.indexOf("httpServer = app.listen(");
   const initDbIndex = serverSource.indexOf("await initDb();");
 
   assert.notEqual(listenIndex, -1, "server listener is missing");
   assert.notEqual(initDbIndex, -1, "database initialization is missing");
   assert.ok(listenIndex < initDbIndex, "Passenger requires listen() before database migrations");
   assert.match(serverSource, /httpServer\.close\(\(\) => resolve\(\)\)/);
+  assert.match(deployScript, /http\.createServer\(bootstrapHandler\)/);
+  assert.match(deployScript, /bootstrapServer\.listen\(port, "0\.0\.0\.0"/);
+  assert.match(deployScript, /globalThis\.__PAWSOME_HOSTINGER_BOOTSTRAP__/);
+  assert.match(serverSource, /httpServer\.removeListener\("request", bootstrap\.handler\)/);
+  assert.match(serverSource, /httpServer\.on\("request", app\)/);
 });
 
 test("brand logo and product deep links remain part of the application shell", () => {
