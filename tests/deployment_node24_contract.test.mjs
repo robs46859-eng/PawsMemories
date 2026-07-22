@@ -9,7 +9,8 @@ const serverSource = readFileSync(new URL("../server.ts", import.meta.url), "utf
 test("deployment is pinned to the supported Node 24 LTS line", () => {
   assert.equal(packageJson.engines.node, ">=24.15 <25");
   assert.equal(readFileSync(new URL("../.nvmrc", import.meta.url), "utf8").trim(), "24.18.0");
-  assert.equal(packageJson.dependencies.sharp, "^0.34.5");
+  assert.equal(packageJson.dependencies.sharp, "^0.35.3");
+  assert.equal(packageJson.overrides.sharp, "$sharp");
 });
 
 test("brand logo and product deep links remain part of the application shell", () => {
