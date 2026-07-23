@@ -6542,15 +6542,17 @@ async function startServer() {
         return res.status(400).json({ success: false, error: "A description is required to generate from text." });
       }
       
-      let id = sessionId;
-      if (!id) {
-        const { randomUUID } = await import("crypto");
-        id = randomUUID();
-      }
-      
       const { getCreatePipelineSession, upsertCreatePipelineSession } = await import("./db");
-      
-      let session = await getCreatePipelineSession(id, userPhone);
+      const { randomUUID } = await import("crypto");
+      const { resolveOwnedReferenceSession } = await import("./server/createPipelineSession");
+      const resolvedSession = await resolveOwnedReferenceSession(
+        sessionId,
+        userPhone,
+        getCreatePipelineSession,
+        randomUUID,
+      );
+      const id = resolvedSession.id;
+      const session = resolvedSession.session;
       if (session && session.status !== "draft" && session.status !== "reference_ready") {
         return res.status(400).json({ success: false, error: "Session is no longer editable." });
       }

@@ -730,7 +730,7 @@ export default function App() {
         )}
 
       {/* Main Content Router viewport */}
-      <CreateFlowProvider>
+      <CreateFlowProvider ownerKey={isAuthed ? userProfile.email : null}>
       <main className={`flex min-w-0 flex-grow flex-col items-center justify-center pt-16 pb-24 md:pb-0 ${isAuthed ? 'relative w-full md:ml-64 md:w-[calc(100%-16rem)]' : 'w-full'}`}>
         {/* Render public screens regardless of auth state */}
         {[Screen.DASHBOARD, Screen.LANDING_MODELS, Screen.LANDING_DOGS, Screen.LANDING_MEMORIALS, Screen.HOW_IT_WORKS, Screen.PRICING].includes(currentScreen) && (

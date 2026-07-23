@@ -1,7 +1,11 @@
-import React, { createContext, useContext, useState, ReactNode } from "react";
+import React, { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import type { RigJobResponse } from "../../api";
+import {
+  activeModelJobStorageKey,
+  createInitialCreateFlowState,
+} from "./createFlowPersistence";
 
-interface CreateFlowState {
+export interface CreateFlowState {
   sessionId?: string;
   species: string;
   breed?: string;
@@ -37,32 +41,40 @@ interface CreateFlowContextValue {
 
 const CreateFlowContext = createContext<CreateFlowContextValue | undefined>(undefined);
 
-const ACTIVE_JOB_KEY = "pawsome3d_active_model_build_job_uuid";
-
-export function CreateFlowProvider({ children }: { children: ReactNode }) {
+export function CreateFlowProvider({
+  children,
+  ownerKey,
+}: {
+  children: ReactNode;
+  ownerKey?: string | null;
+}) {
   const [state, setState] = useState<CreateFlowState>(() => {
-    const savedJob = typeof window !== "undefined" ? sessionStorage.getItem(ACTIVE_JOB_KEY) : null;
-    return {
-      species: "dog",
-      inputMode: "image",
-      activeJobUuid: savedJob || undefined,
-    };
+    const storage = typeof window !== "undefined" ? window.sessionStorage : undefined;
+    return createInitialCreateFlowState(ownerKey, storage);
   });
+
+  useEffect(() => {
+    const storage = typeof window !== "undefined" ? window.sessionStorage : undefined;
+    setState(createInitialCreateFlowState(ownerKey, storage));
+  }, [ownerKey]);
 
   const handleSetState: React.Dispatch<React.SetStateAction<CreateFlowState>> = (action) => {
     setState((prev) => {
       const next = typeof action === "function" ? action(prev) : action;
       if (typeof window !== "undefined") {
-        if (next.activeJobUuid) sessionStorage.setItem(ACTIVE_JOB_KEY, next.activeJobUuid);
-        else sessionStorage.removeItem(ACTIVE_JOB_KEY);
+        const key = activeModelJobStorageKey(ownerKey);
+        if (ownerKey && next.activeJobUuid) sessionStorage.setItem(key, next.activeJobUuid);
+        else sessionStorage.removeItem(key);
       }
       return next;
     });
   };
 
   const resetState = () => {
-    if (typeof window !== "undefined") sessionStorage.removeItem(ACTIVE_JOB_KEY);
-    setState({ species: "dog", inputMode: "image" });
+    if (typeof window !== "undefined") {
+      sessionStorage.removeItem(activeModelJobStorageKey(ownerKey));
+    }
+    setState(createInitialCreateFlowState(ownerKey));
   };
 
   const setRigJobUuid = (uuid: string) => {

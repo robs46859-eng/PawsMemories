@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Screen } from "../../types";
 import { useCreateFlow } from "./CreateFlowContext";
 import { ChevronLeft, ChevronRight, RefreshCw, AlertTriangle, ZoomIn, X, CheckCircle, Info } from "lucide-react";
@@ -44,6 +44,7 @@ export default function CreateReferenceScreen({ onNavigate }: CreateReferenceScr
   const [retryNotes, setRetryNotes] = useState<string>("");
   const [zoomedView, setZoomedView] = useState<ViewItem | null>(null);
   const [isApproved, setIsApproved] = useState(false);
+  const generationStartedForRef = useRef<string | null>(null);
   const multiviewEnabled = import.meta.env.VITE_MULTIVIEW_APPROVAL_ENABLED === "true";
 
   const viewLabels: Record<string, string> = {
@@ -180,11 +181,39 @@ export default function CreateReferenceScreen({ onNavigate }: CreateReferenceScr
       state.inputMode === "text"
         ? !!(state.textPrompt || "").trim()
         : !!state.inputPhotoUrl;
-    if (!state.candidateImageUrl && multiviewViews.length === 0 && !isGenerating && !error && hasInput) {
+    const generationKey = JSON.stringify([
+      state.inputMode,
+      state.species,
+      state.breed,
+      state.style,
+      state.inputMode === "text" ? state.textPrompt : state.inputPhotoUrl,
+      multiviewEnabled,
+    ]);
+    if (
+      !state.candidateImageUrl
+      && multiviewViews.length === 0
+      && !isGenerating
+      && !error
+      && hasInput
+      && generationStartedForRef.current !== generationKey
+    ) {
+      generationStartedForRef.current = generationKey;
       if (multiviewEnabled) initMultiviewSession();
       else generateLegacyCandidate();
     }
-  }, []);
+  }, [
+    error,
+    isGenerating,
+    multiviewEnabled,
+    multiviewViews.length,
+    state.breed,
+    state.candidateImageUrl,
+    state.inputMode,
+    state.inputPhotoUrl,
+    state.species,
+    state.style,
+    state.textPrompt,
+  ]);
 
   // Keyboard close for zoom modal
   useEffect(() => {
@@ -238,7 +267,11 @@ export default function CreateReferenceScreen({ onNavigate }: CreateReferenceScr
             <h3 className="text-xl font-bold text-on-surface mb-2">Oops, something went wrong</h3>
             <p className="text-on-surface-variant mb-6">{error}</p>
             <button
-              onClick={() => initMultiviewSession()}
+              onClick={() => {
+                generationStartedForRef.current = null;
+                if (multiviewEnabled) initMultiviewSession();
+                else generateLegacyCandidate();
+              }}
               className="px-6 py-3 bg-primary text-on-primary font-bold rounded-xl shadow-md hover:scale-105 transition-transform"
             >
               Try Again
