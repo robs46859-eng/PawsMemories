@@ -21,6 +21,7 @@ function stubFetch(routes) {
 test.afterEach(() => {
   globalThis.fetch = ORIGINAL_FETCH;
   delete process.env.PRINTFUL_API_BASE_URL;
+  delete process.env.PRINTFUL_STORE_ID;
 });
 
 test("listProducts maps the catalogue shape", async () => {
@@ -197,5 +198,27 @@ test("global catalog reads do not send store context", async () => {
   };
   await cat.listProducts();
   assert.equal(requestedHeaders["X-PF-Store-Id"], undefined);
-  delete process.env.PRINTFUL_STORE_ID;
+});
+
+test("print-file template reads send the configured store context", async () => {
+  const cat = await import("../server/printfulCatalog.ts");
+  cat.clearCatalogueCache();
+  process.env.PRINTFUL_STORE_ID = "18500371";
+  let requestedHeaders;
+  globalThis.fetch = async (_url, options) => {
+    requestedHeaders = options?.headers;
+    return new Response(JSON.stringify({
+      code: 200,
+      result: {
+        printfiles: [{ printfile_id: 5, width: 2400, height: 3000, dpi: 300 }],
+        variant_printfiles: [{ variant_id: 20, placements: { front: 5 } }],
+      },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  const placements = await cat.getVariantPrintfiles(10, 20);
+  assert.equal(requestedHeaders["X-PF-Store-Id"], "18500371");
+  assert.deepEqual(placements, [{ placement: "front", widthPx: 2400, heightPx: 3000, dpi: 300 }]);
 });

@@ -89,10 +89,19 @@ async function parse(response: Response): Promise<any> {
   return payload?.result ?? payload;
 }
 
-async function get(path: string, timeoutMs = 30_000): Promise<any> {
+async function get(path: string, timeoutMs = 30_000, storeScoped = false): Promise<any> {
   const { base, headers } = configuration();
+  const requestHeaders = {
+    ...headers,
+    ...(storeScoped && process.env.PRINTFUL_STORE_ID
+      ? { "X-PF-Store-Id": process.env.PRINTFUL_STORE_ID }
+      : {}),
+  };
   try {
-    return parse(await fetch(`${base}${path}`, { headers, signal: AbortSignal.timeout(timeoutMs) }));
+    return parse(await fetch(`${base}${path}`, {
+      headers: requestHeaders,
+      signal: AbortSignal.timeout(timeoutMs),
+    }));
   } catch (error) {
     if (error instanceof PrintfulCatalogError) throw error;
     throw new PrintfulCatalogError(
@@ -261,7 +270,10 @@ export async function getVariantPrintfiles(
   if (!Number.isInteger(variantId) || variantId <= 0) throw new Error(`Invalid variant id: ${variantId}`);
 
   const payload = await cached(`printfiles:${productId}`, () =>
-    get(`/mockup-generator/printfiles/${productId}`)
+    // Unlike blank-product catalogue reads, Printful's mockup-generator
+    // print-file endpoint requires an explicit store context for account-level
+    // tokens.
+    get(`/mockup-generator/printfiles/${productId}`, 30_000, true)
   );
 
   const printfiles: any[] = payload?.printfiles || [];
