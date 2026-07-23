@@ -17,6 +17,17 @@ Live site: https://pawsome3d.com  (formerly mypets.cc)
 - **Animation Studio Tooling** — A multi-actor Three.js studio with layered animation, blend spaces, emote scheduling, Theatre camera control, project persistence, Director scripts, CC0 clip discovery, IK, recording, and live ElevenLabs/Rhubarb lip-sync preview. The current production baseline is Animator Phase 2; later rigging, LOD, frame-accurate sequencing, realtime ML, and agentic batch phases remain incomplete as documented in `PHASED_IMPLEMENTATION.md`.
 - **Randy AI** — Gemini‑powered pet guide (spec for a 3D talking head in `RANDY_AI_SPEC.md`).
 
+## Current release candidate
+
+The schema 30 acceptance-correction release adds fail-closed full-body human
+reference checks, durable create-pipeline recovery, authenticated Blender print
+repair/validation, a visible real Voice Test, and a visible Scaled BIM preview.
+Shop no longer routes the legacy marketplace or manual print-request panels;
+physical manufacturing checkout remains in Create. Durable BIM and the other
+Phase 2-9 dark-launch features remain disabled. Deploy the Render Blender worker
+before installing the matching Hostinger archive because both sides of the worker
+contract changed. Live-product debugging is deferred to the next release pass.
+
 ## Animator implementation status
 
 The active phase definitions are in `PHASED_IMPLEMENTATION.md`; `handoff.md` records the audited next-agent state.

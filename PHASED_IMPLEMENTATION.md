@@ -21,6 +21,41 @@ This tracker records evidence, not agent claims. A phase is complete only after 
 | 8. Randy assistant | Security/grounding code complete; 3D asset acceptance pending | Versioned server registry with authoritative prices, live credit/admin context, strict request/output schemas, user-confirmed action allowlist, rate limiting, and privacy-safe action audit; 7 focused tests pass | Production Randy GLB/LODs, measured rig/facial/mobile budgets, accessible non-3D fallback acceptance, and full module walkthrough corpus |
 | 9. Scaled shell and IFC | Durable server code complete; release integration blocked | Schema 29; calibrated proposal and pre/post verification; strict durable attempts, private canonical artifacts, idempotent debit/refund/reconciliation, authenticated IFC worker, semantic sidecar validation, Shell-vs-IFC pricing | Connect the UI to an authoritative accepted-model snapshot, add a real authenticated Shell worker, and run credentialed Gemini/Render IFC/browser acceptance. Keep both BIM v2 flags false |
 
+## Release Acceptance Correction Track
+
+Status: Implementation complete; deployment and live debugging deferred
+
+Schema: 30
+
+Branch: `codex/release-acceptance-fixes`
+
+- [x] Fail closed on cropped or ambiguous full-body human references before a paid
+  model build.
+- [x] Add exact exported-STL validation, conservative repair, and measured
+  voxel-remesh fallback to the Blender print-preparation path.
+- [x] Add durable create-pipeline leases, source fingerprints, heartbeats, bounded
+  rig attempts, terminal-state rejection, and idempotent refund markers.
+- [x] Implement and authenticate `physics_validate` from the agent tool through the
+  Render worker route.
+- [x] Add a visible paid Voice Test with real audio playback and mouth-cue status.
+- [x] Add a visible, non-billable Scaled BIM preview that explains Shell versus IFC
+  and pre/post verification while durable BIM remains disabled.
+- [x] Remove legacy marketplace/manual print panels from the Shop route without
+  removing physical checkout from Create.
+- [x] Default X-DM polling off and stop automatic polling after 401/403.
+- [x] Pass local automated gates: 1,067 tests with 1,064 pass, 0 fail, 3 intentional
+  skips; TypeScript clean; production build clean; print Python 8/8; X-DM 131/131;
+  local MySQL recovery coverage pass.
+- [x] Close implementation after the complete local automated gate; no additional
+  test phase is planned for this release candidate.
+
+Operational deployment and live-product debugging are deferred to the next pass.
+They are not open coding tasks in this phase tracker.
+
+This correction track does not enable Phases 2-9 dark-launch features or satisfy
+their external acceptance gates. The rejected production archive predates these
+corrections and must not be reused.
+
 ## Cross-Cutting UI Track: Spatial Glow Light and Dark Modes
 
 Status: Not started  

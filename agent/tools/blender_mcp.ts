@@ -15,6 +15,7 @@ import type {
   SceneGraph,
   ExportResult,
   ImportGlbResult,
+  PhysicsValidationResult,
 } from "./blender_client";
 
 // ---------------------------------------------------------------------------
@@ -138,6 +139,23 @@ export const BLENDER_TOOLS: ToolDefinition[] = [
       "Use this at the end of the build pipeline to get the final rigged model.",
     parameters: {},
   },
+  {
+    name: "physics_validate",
+    description:
+      "Run deterministic anatomy, weight, symmetry, gravity, and optional facial-rig quality gates " +
+      "against the currently imported scene.",
+    parameters: {
+      profile: {
+        type: "string",
+        description: "Rig profile such as biped, quadruped, or winged.",
+        required: true,
+      },
+      facial: {
+        type: "boolean",
+        description: "Whether facial viseme targets are required.",
+      },
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -249,6 +267,13 @@ export async function executeBlenderTool(
           },
           error: result.error || undefined,
         };
+      }
+
+      case "physics_validate": {
+        const profile = String(args.profile || "").trim();
+        if (!profile) return { success: false, data: null, error: "Missing rig profile" };
+        const result: PhysicsValidationResult = await client.physicsValidate(profile, Boolean(args.facial));
+        return { success: result.success, data: result, error: result.error };
       }
 
       default:

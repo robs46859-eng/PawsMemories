@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type mysql from "mysql2/promise";
 
-export const CURRENT_SCHEMA_VERSION = 29;
+export const CURRENT_SCHEMA_VERSION = 30;
 
 export interface Migration {
   version: number;
@@ -1480,6 +1480,52 @@ export const MIGRATIONS: Migration[] = [
 
       `SELECT COUNT(*) INTO @fk_exists FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'bim_build_jobs_v2' AND CONSTRAINT_NAME = 'fk_bim_v2_current_attempt'`,
       `SET @stmt = IF(@fk_exists = 0, 'ALTER TABLE bim_build_jobs_v2 ADD CONSTRAINT fk_bim_v2_current_attempt FOREIGN KEY (id, current_attempt_id) REFERENCES bim_build_attempts_v2(job_id, id) ON DELETE RESTRICT', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+    ],
+  },
+  {
+    version: 30,
+    name: "create_pipeline_rig_recovery_leases",
+    skipWhenTableMissing: "generation_jobs",
+    statements: [
+      `SELECT COUNT(*) INTO @col_exists FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'generation_jobs' AND COLUMN_NAME = 'rig_attempt_count'`,
+      `SET @stmt = IF(@col_exists = 0, 'ALTER TABLE generation_jobs ADD COLUMN rig_attempt_count TINYINT UNSIGNED NOT NULL DEFAULT 0', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+
+      `SELECT COUNT(*) INTO @col_exists FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'generation_jobs' AND COLUMN_NAME = 'recovery_lease_owner'`,
+      `SET @stmt = IF(@col_exists = 0, 'ALTER TABLE generation_jobs ADD COLUMN recovery_lease_owner VARCHAR(128) NULL', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+
+      `SELECT COUNT(*) INTO @col_exists FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'generation_jobs' AND COLUMN_NAME = 'recovery_lease_expires_at'`,
+      `SET @stmt = IF(@col_exists = 0, 'ALTER TABLE generation_jobs ADD COLUMN recovery_lease_expires_at DATETIME(3) NULL', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+
+      `SELECT COUNT(*) INTO @col_exists FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'generation_jobs' AND COLUMN_NAME = 'recovery_started_at'`,
+      `SET @stmt = IF(@col_exists = 0, 'ALTER TABLE generation_jobs ADD COLUMN recovery_started_at DATETIME(3) NULL', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+
+      `SELECT COUNT(*) INTO @col_exists FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'generation_jobs' AND COLUMN_NAME = 'recovery_last_heartbeat_at'`,
+      `SET @stmt = IF(@col_exists = 0, 'ALTER TABLE generation_jobs ADD COLUMN recovery_last_heartbeat_at DATETIME(3) NULL', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+
+      `SELECT COUNT(*) INTO @col_exists FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'generation_jobs' AND COLUMN_NAME = 'recovery_reason'`,
+      `SET @stmt = IF(@col_exists = 0, 'ALTER TABLE generation_jobs ADD COLUMN recovery_reason VARCHAR(255) NULL', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+
+      `SELECT COUNT(*) INTO @col_exists FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'generation_jobs' AND COLUMN_NAME = 'rig_source_model_hash'`,
+      `SET @stmt = IF(@col_exists = 0, 'ALTER TABLE generation_jobs ADD COLUMN rig_source_model_hash CHAR(64) NULL', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+
+      `SELECT COUNT(*) INTO @col_exists FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'generation_jobs' AND COLUMN_NAME = 'rig_refunded_at'`,
+      `SET @stmt = IF(@col_exists = 0, 'ALTER TABLE generation_jobs ADD COLUMN rig_refunded_at DATETIME(3) NULL', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+
+      `SELECT COUNT(*) INTO @col_exists FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'generation_jobs' AND COLUMN_NAME = 'generation_refunded_at'`,
+      `SET @stmt = IF(@col_exists = 0, 'ALTER TABLE generation_jobs ADD COLUMN generation_refunded_at DATETIME(3) NULL', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+
+      `SELECT COUNT(*) INTO @idx_exists FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'generation_jobs' AND INDEX_NAME = 'idx_generation_jobs_recovery_lease'`,
+      `SET @stmt = IF(@idx_exists = 0, 'ALTER TABLE generation_jobs ADD INDEX idx_generation_jobs_recovery_lease (status, recovery_lease_expires_at, updated_at)', 'SELECT 1')`,
       `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
     ],
   },

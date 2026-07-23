@@ -10,7 +10,7 @@ export interface ShellNavigationItem {
 
 export const TOP_PRIMARY_NAV: ShellNavigationItem[] = [
   { id: "create", label: "Create", screen: Screen.CREATE, materialIcon: "add_circle", imageSrc: "/brand/furball3d.jpg" },
-  { id: "marketplace", label: "Marketplace", screen: Screen.MARKETPLACE, materialIcon: "storefront" },
+  { id: "voice", label: "Voice Test", screen: Screen.VOICE_TEST, materialIcon: "graphic_eq" },
   { id: "pawprints", label: "Pawprints", screen: Screen.PAWPRINTS, materialIcon: "auto_stories", imageSrc: "/brand/pawprints.png" },
 ];
 
@@ -19,9 +19,9 @@ export const TOP_PRIMARY_NAV: ShellNavigationItem[] = [
  *
  * Deliberately exactly four. The header previously carried ten controls on the
  * right (Pet Health, Store, Community, theme, profile, PupCoins, help, two
- * admin buttons, logout), which is why nothing in it read as primary. Those
- * controls are not deleted — everything except the four below now lives in the
- * profile overflow menu, so the shell keeps one obvious row of destinations.
+ * admin buttons, logout), which is why nothing in it read as primary. Retired
+ * panels remain in source but are not routed; supported secondary controls live
+ * in the profile overflow menu.
  *
  * "Stencil" here means stroke-only lucide glyphs at a uniform 1.75 stroke
  * width, no fills and no pill/border chrome. Active state is carried by colour
@@ -50,7 +50,7 @@ export const SHELL_ICON_NAV: ShellIconNavItem[] = [
       Screen.CREATE_CHECKOUT,
     ],
   },
-  { id: "marketplace", label: "Marketplace", screen: Screen.MARKETPLACE, screens: [Screen.MARKETPLACE] },
+  { id: "voice", label: "Voice Test", screen: Screen.VOICE_TEST, screens: [Screen.VOICE_TEST] },
   { id: "pawprints", label: "Pawprints", screen: Screen.PAWPRINTS, screens: [Screen.PAWPRINTS, Screen.PAWLISHER] },
   { id: "profile", label: "Profile", screen: Screen.PROFILE, screens: [Screen.PROFILE] },
 ];
@@ -58,7 +58,7 @@ export const SHELL_ICON_NAV: ShellIconNavItem[] = [
 export const SIDEBAR_NAV: ShellNavigationItem[] = [
   { id: "home", label: "Home", screen: Screen.DASHBOARD, materialIcon: "home" },
   { id: "fur-bin", label: "Fur Bin©️", screen: Screen.FURBIN, materialIcon: "inventory_2" },
-  { id: "marketplace-side", label: "Marketplace", screen: Screen.MARKETPLACE, materialIcon: "storefront" },
+  { id: "bim", label: "Scaled BIM", screen: Screen.BIM, materialIcon: "domain" },
   { id: "wags-inbox", label: "Wags", screen: Screen.WAGS_INBOX, materialIcon: "redeem" },
   // RD-1: "Animate" removed while Animation Studio is gated behind
   // UnderConstructionLock — the shell must never navigate to a dead end.
@@ -68,7 +68,7 @@ export const SIDEBAR_NAV: ShellNavigationItem[] = [
 /**
  * MOBILE_NAV — the bottom bar on small screens.
  *
- * Deliberately NOT `SIDEBAR_NAV + Profile`. Profile and Marketplace are both
+ * Deliberately NOT `SIDEBAR_NAV + Profile`. Profile and Voice Test are both
  * reachable from the header's SHELL_ICON_NAV on every screen, so repeating them
  * in the bottom bar spent two of five slots on duplicates — and with the Help
  * button the row was rendering six items into a five-column grid, squeezing
@@ -76,5 +76,5 @@ export const SIDEBAR_NAV: ShellNavigationItem[] = [
  * one-tap route.
  */
 export const MOBILE_NAV: ShellNavigationItem[] = SIDEBAR_NAV.filter(
-  (item) => item.screen !== Screen.PROFILE && item.screen !== Screen.MARKETPLACE
+  (item) => item.screen !== Screen.PROFILE && item.screen !== Screen.VOICE_TEST
 );

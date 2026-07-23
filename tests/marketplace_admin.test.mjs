@@ -110,13 +110,13 @@ test("every upload stage reports progress, including a typed error stage", () =>
 /* Screen wiring                                                       */
 /* ------------------------------------------------------------------ */
 
-test("admin screen is wired and gated like the Wags panel", () => {
+test("admin screen and backend are preserved but retired from the user-facing shell", () => {
   const app = read("src/App.tsx");
-  assert.match(app, /Screen\.ADMIN_MARKETPLACE[\s\S]{0,400}MarketplaceAdminScreen/);
-  assert.match(app, /\[Screen\.ADMIN_MARKETPLACE\]: "\/admin\/marketplace"/);
-  // Client gate mirrors ADMIN_WAGS (server gate is the real one).
-  const block = app.slice(app.indexOf("Screen.ADMIN_MARKETPLACE &&"));
-  assert.match(block.slice(0, 600), /userProfile\.isAdmin/);
+  assert.doesNotMatch(app, /MarketplaceAdminScreen/);
+  assert.doesNotMatch(app, /\[Screen\.ADMIN_MARKETPLACE\]: "\/admin\/marketplace"/);
+  assert.match(app, /normalized === "\/marketplace" \|\| normalized === "\/admin\/marketplace"\) return Screen\.STORE/);
+  assert.match(screen, /Marketplace Admin/);
+  assert.match(server, /\/api\/admin\/marketplace\/listings/);
 });
 
 test("screen uses the shared upload pipeline rather than reimplementing it", () => {

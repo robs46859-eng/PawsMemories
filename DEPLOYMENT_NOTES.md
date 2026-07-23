@@ -118,6 +118,10 @@ When deploying a full update across all services:
 
 Reason: the main app calls the Blender worker. Deploy the worker first so it's ready before Hostinger restarts.
 
+The schema 30 acceptance-correction release changes both sides of the Blender
+contract (`physics_validate` plus exact print preparation), so steps 1 and 3 are
+both required. The X-DM service is independent and may remain suspended.
+
 For code-only changes to the main app only: just step 3.
 
 ---
@@ -178,7 +182,10 @@ Set in Hostinger → Websites → pawsome3d.com → Deployments → Settings →
 **Entry:** `blender-worker/server.js`  
 **Runtime:** Docker (Node 20 + Blender 5.1.2 + headless Linux deps)
 
-Receives `POST /render` with `{ script, args }` and a `x-worker-secret` header. Executes the Blender Python script headlessly and returns the result.
+Receives authenticated render, rig, validation, and print-preparation requests
+with a `x-worker-secret` header. The `WORKER_SHARED_SECRET` value must be identical
+on Render and Hostinger. The schema 30 release also protects
+`POST /physics-validate`; deploy the worker before the matching main app.
 
 `sanitizeBlenderScript()` in server.ts patches deprecated Blender 5.1 API calls before sending (removes `use_contact_shadows`, swaps `PointLight.distance` → `energy`, etc.).
 
@@ -203,6 +210,20 @@ Server tries each in order until one succeeds. Controlled by `GEMINI_IMAGE_MODEL
 ---
 
 ## 8. Recent Changes
+
+### Schema 30 acceptance corrections (2026-07-22)
+
+- Reject ambiguous/cropped full-body human references before paid generation.
+- Recover create/rig work only through durable leases, source fingerprints,
+  bounded attempts, terminal-state checks, and idempotent refunds.
+- Repair and validate the exact Blender-exported STL before manufacturing.
+- Add the authenticated `physics_validate` worker route/tool.
+- Add visible Voice Test and Scaled BIM preview screens.
+- Remove legacy marketplace/manual print panels from Shop routing.
+- Disable X-DM fallback polling by default and stop it after 401/403.
+
+The former deployment zip predates these corrections and is rejected. Build a new
+`pawsome3d-deploy.zip` from the committed correction release.
 
 ### Text-mode generate-reference fix (2026-07-21, branch `fix/text-mode-reference-screen`)
 
@@ -231,8 +252,12 @@ const hasInput = state.inputMode === "text"
 |---|---|
 | Text-mode blank screen | Fixed — needs merge from `fix/text-mode-reference-screen` |
 | Multi-angle turnaround views | Not wired into create pipeline (only in `/api/avatars` for dogs) |
-| x-dm-service (`pawsmemories-1`) | Should be suspended/deleted in Render dashboard |
-| Old zip on Google Drive | `pawsmemories-redeploy-20260721-slim.zip` has wrong structure — replace with `pawsome3d-hostinger-fixed.zip` |
+| x-dm-service (`pawsmemories-1`) | Suspend/delete if unused; otherwise deploy with `X_DM_POLLING_ENABLED=false` |
+| Old zip on Google Drive | `pawsmemories-redeploy-20260721-slim.zip` has wrong structure — replace it with the newly generated `pawsome3d-deploy.zip` |
+
+If the X-DM service is intentionally retained, enable polling only when DM lookup
+fallback is required and its X API credentials have been verified. A 401 or 403
+now suspends polling until the service restarts.
 
 ---
 
@@ -244,6 +269,7 @@ const hasInput = state.inputMode === "text"
 [ ] Zip structure is flat: package.json + server.cjs + index.html + assets/ all at root
 [ ] package.json has BOTH "build" (can be no-op) and "start" scripts
 [ ] Blender worker deployed first if worker code changed
+[ ] WORKER_SHARED_SECRET matches on Hostinger and the Blender worker
 [ ] DB_HOST=127.0.0.1 in Hostinger env vars
 [ ] BLENDER_WORKER_URL=https://pawsmemories.onrender.com/render in Hostinger env vars
 [ ] After deploy: visit pawsome3d.com and confirm app loads

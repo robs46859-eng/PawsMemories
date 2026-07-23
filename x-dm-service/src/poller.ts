@@ -135,6 +135,10 @@ export async function pollOnce(): Promise<number> {
         // 429 is handled by xFetch, other errors should stop polling
         const text = await resp.text().catch(() => 'unknown');
         console.error(`[Poller] DM events fetch failed: HTTP ${resp.status} — ${text}`);
+        if (resp.status === 401 || resp.status === 403) {
+          stopPoller();
+          console.error('[Poller] Authentication rejected; polling suspended until service restart');
+        }
         break;
       }
 

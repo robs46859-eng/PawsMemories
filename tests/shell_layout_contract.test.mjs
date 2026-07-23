@@ -54,4 +54,6 @@ test("mobile shell derives its column count from MOBILE_NAV", () => {
     /grid-cols-5[^"']*md:hidden|md:hidden[^"']*grid-cols-5/,
     "bottom bar must not re-introduce a hard-coded column count"
   );
+  assert.match(source, /safe-area-inset-bottom/, "bottom navigation must respect phone safe areas");
+  assert.doesNotMatch(source, /material-symbols-outlined/, "shell icons must not become raw words when an external icon font is unavailable");
 });

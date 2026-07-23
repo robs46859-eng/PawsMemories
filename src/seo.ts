@@ -23,10 +23,6 @@ const PUBLIC_METADATA: Partial<Record<Screen, { title: string; desc: string }>> 
     title: `Personalized Pawprints Pet Art | ${BRAND}`,
     desc: "Create digital and printable pet keepsakes with your photos, message, and chosen occasion."
   },
-  [Screen.MARKETPLACE]: {
-    title: `Pet 3D Model Marketplace | ${BRAND}`,
-    desc: "Browse customizable pet models, accessories, memorial pieces, and seasonal keepsakes."
-  },
   [Screen.HOW_IT_WORKS]: {
     title: `How Custom 3D Pet Models Work | ${BRAND}`,
     desc: "Upload photos, personalize the model, check printability, and order your physical pet keepsake."
@@ -53,6 +49,8 @@ const PRIVATE_TITLES: Partial<Record<Screen, string>> = {
   [Screen.ALBUMS]: "My Albums",
   [Screen.PROFILE]: "Profile",
   [Screen.STORE]: "Store",
+  [Screen.VOICE_TEST]: "Voice and Lip-Sync Test",
+  [Screen.BIM]: "Scaled BIM Preview",
   [Screen.COMMUNITY]: "Community",
 };
 

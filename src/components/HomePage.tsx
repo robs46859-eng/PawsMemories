@@ -1,12 +1,12 @@
 import React from "react";
-import { ArrowRight, Camera, Palette, ShieldCheck, Printer, Bell, Sparkles, Star, Heart, Gift, Dog, PawPrint } from "lucide-react";
+import { ArrowRight, Camera, Palette, ShieldCheck, Printer, Sparkles, Star, Heart, Gift, Dog, PawPrint } from "lucide-react";
 import { UserProfile } from "../types";
 import HeroScroller from "./HeroScroller";
 
 interface HomePageProps {
   userProfile: UserProfile;
   onOpenCreate: () => void;
-  onOpenMarketplace: () => void;
+  onOpenShop: () => void;
   onOpenPawprints: () => void;
   onOpenFurball: () => void;
   onOpenFidos: () => void;
@@ -67,17 +67,10 @@ const STORIES = [
   { title: "Family Companions", desc: "Celebrate the pet that made your house a home.", icon: Star, color: "text-sky-500" },
 ];
 
-const MARKETPLACE_CATEGORIES = [
-  { title: "Breed Models", desc: "Explore curated models by breed.", icon: "🐕" },
-  { title: "Memorial Pieces", desc: "Honoring companions who crossed the bridge.", icon: "🕊️" },
-  { title: "Accessories", desc: "Collars, plaques, bases, and more.", icon: "🎀" },
-  { title: "Seasonal", desc: "Holiday-themed and limited editions.", icon: "🎄" },
-];
-
 export default function HomePage({
   userProfile,
   onOpenCreate,
-  onOpenMarketplace,
+  onOpenShop,
   onOpenPawprints,
 }: HomePageProps) {
   const firstName = userProfile.fullName?.split(" ")[0] || "there";
@@ -120,12 +113,12 @@ export default function HomePage({
                   <ArrowRight size={16} />
                 </button>
                 <button
-                  id="hero-marketplace-cta"
+                  id="hero-shop-cta"
                   type="button"
-                  onClick={onOpenMarketplace}
+                  onClick={onOpenShop}
                   className="glass-button flex items-center justify-center gap-2 rounded-2xl px-7 py-4 text-sm font-bold text-on-surface transition-all hover:text-primary"
                 >
-                  Browse Marketplace
+                  Shop status
                   <ArrowRight size={14} />
                 </button>
               </div>
@@ -160,7 +153,7 @@ export default function HomePage({
         <HeroScroller
           onOpenCreate={onOpenCreate}
           onOpenPawprints={onOpenPawprints}
-          onOpenMarketplace={onOpenMarketplace}
+          onOpenShop={onOpenShop}
         />
       </section>
 
@@ -284,50 +277,6 @@ export default function HomePage({
               >
                 <PawPrint size={16} />
                 Create a Pawprint
-                <ArrowRight size={14} />
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ─────────────── MARKETPLACE ─────────────── */}
-      <section className="mt-16 px-4 sm:px-6">
-        <div className="mx-auto max-w-6xl">
-          <div className="glass-card rounded-[2rem] p-8 md:p-10">
-            <div className="mb-6 text-center">
-              <span className="text-[10px] font-black uppercase tracking-[.18em] text-primary">Marketplace</span>
-              <h2 className="mt-1 text-xl font-black tracking-tight text-on-surface md:text-2xl">
-                Explore the 3D Pet Marketplace
-              </h2>
-              <p className="mt-2 text-sm text-on-surface-variant">
-                Browse breed-specific models, memorial pieces, accessories, and seasonal collections.
-              </p>
-            </div>
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-              {MARKETPLACE_CATEGORIES.map((cat) => (
-                <button
-                  key={cat.title}
-                  type="button"
-                  onClick={onOpenMarketplace}
-                  className="glass-tile group flex flex-col items-center gap-3 rounded-2xl p-5 text-center"
-                >
-                  <span className="text-3xl">{cat.icon}</span>
-                  <h3 className="text-sm font-black text-on-surface">{cat.title}</h3>
-                  <p className="text-[10px] text-on-surface-variant">{cat.desc}</p>
-                  <span className="mt-auto flex items-center gap-1 text-[10px] font-bold text-primary opacity-0 transition-opacity group-hover:opacity-100">
-                    Browse <ArrowRight size={10} />
-                  </span>
-                </button>
-              ))}
-            </div>
-            <div className="mt-6 text-center">
-              <button
-                type="button"
-                onClick={onOpenMarketplace}
-                className="inline-flex items-center gap-2 rounded-xl border border-primary/30 px-6 py-3 text-sm font-black text-primary transition-all hover:bg-primary/10 active:scale-95"
-              >
-                Explore the Marketplace
                 <ArrowRight size={14} />
               </button>
             </div>

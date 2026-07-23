@@ -25,7 +25,7 @@ import { ArrowRight, Gift, Film, Crown, Gamepad2 } from "lucide-react";
 export interface HeroScrollerProps {
   onOpenCreate: () => void;
   onOpenPawprints: () => void;
-  onOpenMarketplace: () => void;
+  onOpenShop: () => void;
 }
 
 type SlideId = "pawprint-offer" | "appeal-reel" | "collection" | "playpen";
@@ -411,7 +411,7 @@ function Playpen({ reduced, onOpenCreate }: { reduced: boolean; onOpenCreate: ()
 export default function HeroScroller({
   onOpenCreate,
   onOpenPawprints,
-  onOpenMarketplace,
+  onOpenShop,
 }: HeroScrollerProps) {
   const reduced = usePrefersReducedMotion();
   const railRef = useRef<HTMLDivElement | null>(null);
@@ -422,10 +422,10 @@ export default function HeroScroller({
     () => ({
       "pawprint-offer": onOpenPawprints,
       "appeal-reel": onOpenCreate,
-      collection: onOpenMarketplace,
+      collection: onOpenShop,
       playpen: onOpenCreate,
     }),
-    [onOpenCreate, onOpenPawprints, onOpenMarketplace],
+    [onOpenCreate, onOpenPawprints, onOpenShop],
   );
 
   useEffect(() => {

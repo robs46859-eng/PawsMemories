@@ -447,12 +447,13 @@ app.use([
   //   /texture/rebake       server.ts /api/texture/rebake
   //   /texture/render-views server/textureJob.ts (UV2)
   "/prepare-print",
+  "/physics-validate",
   "/texture/rebake",
   "/texture/render-views",
 ], requireWorkerAuth, requireBridge);
 
 // NOT protected, deliberately, for now: /render, /rig-model, /bake-clips,
-// /bake-sprites, /physics-validate. Their callers do NOT send the secret yet,
+// /bake-sprites. Their callers do NOT send the secret yet,
 // so adding them here would break avatar generation and rigging in production.
 // Closing that gap means adding the header at each call site first, then
 // extending the list above — a separate change with its own deploy.
