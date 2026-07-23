@@ -2084,12 +2084,21 @@ export interface JobRow {
   user_phone: string;
   creation_id: number | null;
   kind: 'still' | 'video' | 'model';
-  status: 'queued' | 'running' | 'done' | 'failed';
+  status: 'queued' | 'running' | 'rigging' | 'validating' | 'done' | 'done_static_fallback' | 'failed';
   operation_name: string | null;
   credits_reserved: number;
   error: string | null;
   created_at: string;
   updated_at: string;
+  rig_attempt_count: number;
+  recovery_lease_owner: string | null;
+  recovery_lease_expires_at: string | null;
+  recovery_started_at: string | null;
+  recovery_last_heartbeat_at: string | null;
+  recovery_reason: string | null;
+  rig_source_model_hash: string | null;
+  rig_refunded_at: string | null;
+  generation_refunded_at: string | null;
 }
 
 export type JobKind = 'still' | 'video' | 'model';
@@ -2150,8 +2159,12 @@ export async function updateJobStatus(
   operationName?: string | null
 ): Promise<boolean> {
   const [result] = await getPool().query(
-    `UPDATE generation_jobs SET status = ?, error = ?, operation_name = COALESCE(?, operation_name) WHERE id = ?`,
-    [status, error || null, operationName || null, jobId]
+    `UPDATE generation_jobs
+        SET status = ?, error = ?, operation_name = COALESCE(?, operation_name),
+            recovery_lease_owner = CASE WHEN ? IN ('done','done_static_fallback','failed') THEN NULL ELSE recovery_lease_owner END,
+            recovery_lease_expires_at = CASE WHEN ? IN ('done','done_static_fallback','failed') THEN NULL ELSE recovery_lease_expires_at END
+      WHERE id = ?`,
+    [status, error || null, operationName || null, status, status, jobId]
   ) as any;
   return result.affectedRows === 1;
 }

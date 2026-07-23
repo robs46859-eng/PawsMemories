@@ -33,6 +33,16 @@ import base64
 import math
 import queue
 
+BRIDGE_DIR = os.path.dirname(os.path.abspath(__file__))
+if BRIDGE_DIR not in sys.path:
+    sys.path.insert(0, BRIDGE_DIR)
+
+from print_mesh_contract import (  # noqa: E402 - Blender initializes bpy first
+    format_repair_failure,
+    inspect_binary_stl,
+    validate_print_metrics,
+)
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -320,6 +330,145 @@ def handle_export_glb(params: dict) -> dict:
         return {"success": False, "error": str(e)}
 
 
+def _print_mesh_metrics(obj) -> dict:
+    """Measure the current derivative without mutating it."""
+    import bmesh
+
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bm.verts.ensure_lookup_table()
+    bm.edges.ensure_lookup_table()
+    bm.faces.ensure_lookup_table()
+
+    finite_vertices = []
+    for vertex in bm.verts:
+        world = obj.matrix_world @ vertex.co
+        if all(math.isfinite(value) for value in world):
+            finite_vertices.append(world)
+
+    components = 0
+    visited = set()
+    for vertex in bm.verts:
+        if vertex in visited:
+            continue
+        components += 1
+        pending = [vertex]
+        visited.add(vertex)
+        while pending:
+            current = pending.pop()
+            for edge in current.link_edges:
+                neighbor = edge.other_vert(current)
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    pending.append(neighbor)
+
+    dimensions = {"x": math.nan, "y": math.nan, "z": math.nan}
+    if finite_vertices and len(finite_vertices) == len(bm.verts):
+        dimensions = {
+            axis: max(vertex[index] for vertex in finite_vertices) - min(vertex[index] for vertex in finite_vertices)
+            for index, axis in enumerate(("x", "y", "z"))
+        }
+
+    metrics = {
+        "vertex_count": len(bm.verts),
+        "finite_vertex_count": len(finite_vertices),
+        "triangle_count": len(bm.faces),
+        "non_manifold_edges": sum(1 for edge in bm.edges if not edge.is_manifold),
+        "degenerate_faces": sum(1 for face in bm.faces if face.calc_area() <= 1e-10),
+        "component_count": components,
+        "dimensions_mm": dimensions,
+    }
+    bm.free()
+    return metrics
+
+
+def _scale_print_mesh_to_height(obj, target_height_mm: float) -> None:
+    metrics = _print_mesh_metrics(obj)
+    source_height = metrics["dimensions_mm"]["z"]
+    if not math.isfinite(source_height) or source_height <= 1e-9:
+        raise ValueError("Model has zero or non-finite physical height")
+    scale_factor = target_height_mm / source_height
+    obj.scale = tuple(value * scale_factor for value in obj.scale)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+
+
+def _repair_print_mesh_with_bmesh(obj) -> list[str]:
+    """Apply conservative cleanup before considering a voxel remesh."""
+    import bmesh
+
+    metrics = _print_mesh_metrics(obj)
+    largest_dimension = max(metrics["dimensions_mm"].values())
+    weld_distance = max(1e-5, min(0.05, largest_dimension * 1e-5))
+    operations = [f"merge vertices within {weld_distance:.6g} mm"]
+
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=weld_distance)
+    bmesh.ops.dissolve_degenerate(bm, edges=list(bm.edges), dist=max(1e-7, weld_distance * 0.1))
+    operations.append("remove degenerate and loose geometry")
+
+    loose_vertices = [vertex for vertex in bm.verts if not vertex.link_faces]
+    if loose_vertices:
+        bmesh.ops.delete(bm, geom=loose_vertices, context="VERTS")
+
+    boundary_edges = [edge for edge in bm.edges if len(edge.link_faces) == 1]
+    if boundary_edges:
+        bmesh.ops.holes_fill(bm, edges=boundary_edges, sides=0)
+        operations.append(f"fill boundaries from {len(boundary_edges)} open edges")
+
+    if bm.faces:
+        bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
+        bmesh.ops.triangulate(bm, faces=list(bm.faces))
+        operations.append("recalculate normals and triangulate")
+    bm.to_mesh(obj.data)
+    obj.data.update()
+    bm.free()
+    return operations
+
+
+def _repair_print_mesh_with_voxels(obj) -> tuple[list[str], float]:
+    """Fuse intersecting shells when conservative cleanup cannot close them."""
+    metrics = _print_mesh_metrics(obj)
+    largest_dimension = max(metrics["dimensions_mm"].values())
+    voxel_size = max(0.1, min(1.0, largest_dimension / 256.0))
+    bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+    obj.data.remesh_voxel_size = voxel_size
+    obj.data.remesh_voxel_adaptivity = 0.0
+    bpy.ops.object.voxel_remesh()
+    operations = [f"voxel remesh at {voxel_size:.6g} mm to fuse intersecting shells"]
+    operations.extend(_repair_print_mesh_with_bmesh(obj))
+    return operations, voxel_size
+
+
+def _topology_response(metrics: dict, validation: dict, repair: dict) -> dict:
+    return {
+        "vertex_count": metrics["vertex_count"],
+        "triangle_count": metrics["triangle_count"],
+        "non_manifold_edges": metrics["non_manifold_edges"],
+        "degenerate_faces": metrics["degenerate_faces"],
+        "component_count": metrics["component_count"],
+        "finite": metrics["finite_vertex_count"] == metrics["vertex_count"],
+        "manifold": metrics["non_manifold_edges"] == 0,
+        "watertight": metrics["non_manifold_edges"] == 0,
+        "issues": validation["issues"],
+        "repair": repair,
+    }
+
+
+def _json_safe_print_metrics(metrics: dict) -> dict:
+    dimensions = metrics.get("dimensions_mm") or {}
+    return {
+        **metrics,
+        "dimensions_mm": {
+            axis: value if isinstance(value, (int, float)) and math.isfinite(value) else None
+            for axis, value in dimensions.items()
+        },
+    }
+
+
 def handle_prepare_print_stl(params: dict) -> dict:
     """Create a uniformly scaled STL derivative and report basic topology.
 
@@ -327,14 +476,15 @@ def handle_prepare_print_stl(params: dict) -> dict:
     are emitted in millimeters; target_height_mm is the authoritative physical
     calibration supplied by the customer.
     """
-    target_height_mm = float(params.get("target_height_mm") or 100.0)
-    if target_height_mm < 25.0 or target_height_mm > 300.0:
-        return {"success": False, "error": "target_height_mm must be between 25 and 300"}
-    output_path = os.path.join(tempfile.gettempdir(), "pawsome_print_ready.stl")
     try:
-        import bmesh
-        from mathutils import Vector
-
+        target_height_mm = float(params.get("target_height_mm") or 100.0)
+    except (TypeError, ValueError):
+        return {"success": False, "printable": False, "error": "target_height_mm must be a finite number between 25 and 300"}
+    if not math.isfinite(target_height_mm) or target_height_mm < 25.0 or target_height_mm > 300.0:
+        return {"success": False, "printable": False, "error": "target_height_mm must be between 25 and 300"}
+    output_fd, output_path = tempfile.mkstemp(prefix="pawsome_print_ready_", suffix=".stl")
+    os.close(output_fd)
+    try:
         mesh_objects = [obj for obj in bpy.context.scene.objects if obj.type == "MESH"]
         if not mesh_objects:
             return {"success": False, "error": "No mesh objects found"}
@@ -347,64 +497,116 @@ def handle_prepare_print_stl(params: dict) -> dict:
             bpy.ops.object.join()
         obj = bpy.context.view_layer.objects.active
         bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+        _scale_print_mesh_to_height(obj, target_height_mm)
 
-        world_corners = [obj.matrix_world @ Vector(corner) for corner in obj.bound_box]
-        mins = [min(v[i] for v in world_corners) for i in range(3)]
-        maxs = [max(v[i] for v in world_corners) for i in range(3)]
-        source_height = maxs[2] - mins[2]
-        if source_height <= 1e-9:
-            return {"success": False, "error": "Model has zero physical height"}
+        before_metrics = _print_mesh_metrics(obj)
+        before_validation = validate_print_metrics(before_metrics, target_height_mm)
+        repair = {
+            "attempted": not before_validation["passed"],
+            "strategy": "none",
+            "operations": [],
+            "succeeded": before_validation["passed"],
+            "before": _json_safe_print_metrics(before_metrics),
+        }
 
-        # Convert the unitless/imported model to an explicit millimeter target.
-        scale_factor = target_height_mm / source_height
-        obj.scale = (scale_factor, scale_factor, scale_factor)
-        bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+        final_metrics = before_metrics
+        final_validation = before_validation
+        finite_check = next(item for item in before_validation["checks"] if item["name"] == "finite_vertices")
+        if not before_validation["passed"] and finite_check["passed"]:
+            if obj.data.shape_keys:
+                bpy.context.view_layer.objects.active = obj
+                bpy.ops.object.shape_key_remove(all=True)
+                repair["operations"].append("freeze basis shape before manufacturing repair")
 
-        triangulate = obj.modifiers.new(name="PrintTriangulate", type="TRIANGULATE")
-        bpy.context.view_layer.objects.active = obj
-        bpy.ops.object.modifier_apply(modifier=triangulate.name)
+            repair["strategy"] = "conservative_cleanup"
+            repair["operations"].extend(_repair_print_mesh_with_bmesh(obj))
+            _scale_print_mesh_to_height(obj, target_height_mm)
+            final_metrics = _print_mesh_metrics(obj)
+            final_validation = validate_print_metrics(final_metrics, target_height_mm)
 
-        bm = bmesh.new()
-        bm.from_mesh(obj.data)
-        non_manifold_edges = sum(1 for edge in bm.edges if not edge.is_manifold)
-        degenerate_faces = sum(1 for face in bm.faces if face.calc_area() <= 1e-10)
-        vertex_count = len(bm.verts)
-        triangle_count = len(bm.faces)
-        bm.free()
+            if not final_validation["passed"]:
+                repair["strategy"] = "voxel_remesh"
+                voxel_operations, voxel_size = _repair_print_mesh_with_voxels(obj)
+                repair["operations"].extend(voxel_operations)
+                repair["voxel_size_mm"] = voxel_size
+                _scale_print_mesh_to_height(obj, target_height_mm)
+                final_metrics = _print_mesh_metrics(obj)
+                final_validation = validate_print_metrics(final_metrics, target_height_mm)
 
-        corners = [obj.matrix_world @ Vector(corner) for corner in obj.bound_box]
-        dims_mm = [max(v[i] for v in corners) - min(v[i] for v in corners) for i in range(3)]
+        repair["succeeded"] = final_validation["passed"]
+        repair["after"] = _json_safe_print_metrics(final_metrics)
+        if not final_validation["passed"]:
+            topology = _topology_response(final_metrics, final_validation, repair)
+            return {
+                "success": False,
+                "printable": False,
+                "error": format_repair_failure(final_validation),
+                "dimensions_mm": _json_safe_print_metrics(final_metrics)["dimensions_mm"],
+                "topology": topology,
+                "validation": final_validation,
+                "repair": repair,
+            }
 
         bpy.ops.object.select_all(action="DESELECT")
         obj.select_set(True)
         bpy.context.view_layer.objects.active = obj
         if hasattr(bpy.ops.wm, "stl_export"):
-            bpy.ops.wm.stl_export(filepath=output_path, export_selected_objects=True)
+            export_kwargs = filter_operator_kwargs(
+                bpy.ops.wm.stl_export,
+                {
+                    "filepath": output_path,
+                    "export_selected_objects": True,
+                    "ascii_format": False,
+                    "apply_modifiers": True,
+                },
+            )
+            bpy.ops.wm.stl_export(**export_kwargs)
         else:
-            bpy.ops.export_mesh.stl(filepath=output_path, use_selection=True)
+            export_kwargs = filter_operator_kwargs(
+                bpy.ops.export_mesh.stl,
+                {
+                    "filepath": output_path,
+                    "use_selection": True,
+                    "ascii": False,
+                    "use_mesh_modifiers": True,
+                },
+            )
+            bpy.ops.export_mesh.stl(**export_kwargs)
 
         with open(output_path, "rb") as f:
-            stl_base64 = base64.b64encode(f.read()).decode("utf-8")
-        size_bytes = os.path.getsize(output_path)
-        os.remove(output_path)
+            stl_bytes = f.read()
+        exported = inspect_binary_stl(stl_bytes, target_height_mm)
+        exported_metrics = exported["metrics"]
+        exported_validation = exported["validation"]
+        repair["export_validation"] = exported_validation
+        topology = _topology_response(exported_metrics, exported_validation, repair)
+        if not exported_validation["passed"]:
+            return {
+                "success": False,
+                "printable": False,
+                "error": format_repair_failure(exported_validation),
+                "dimensions_mm": _json_safe_print_metrics(exported_metrics)["dimensions_mm"],
+                "topology": topology,
+                "validation": exported_validation,
+                "repair": repair,
+            }
+
         return {
             "success": True,
-            "stl_base64": stl_base64,
-            "size_bytes": size_bytes,
+            "stl_base64": base64.b64encode(stl_bytes).decode("utf-8"),
+            "size_bytes": len(stl_bytes),
             "units": "mm",
-            "dimensions_mm": {"x": dims_mm[0], "y": dims_mm[1], "z": dims_mm[2]},
-            "topology": {
-                "vertex_count": vertex_count,
-                "triangle_count": triangle_count,
-                "non_manifold_edges": non_manifold_edges,
-                "degenerate_faces": degenerate_faces,
-            },
-            "printable": non_manifold_edges == 0 and degenerate_faces == 0,
+            "dimensions_mm": exported_metrics["dimensions_mm"],
+            "topology": topology,
+            "validation": exported_validation,
+            "repair": repair,
+            "printable": True,
         }
     except Exception as e:
+        return {"success": False, "printable": False, "error": f"Print preparation failed safely: {e}"}
+    finally:
         if os.path.exists(output_path):
             os.remove(output_path)
-        return {"success": False, "error": str(e)}
 
 
 def handle_import_glb(params: dict) -> dict:

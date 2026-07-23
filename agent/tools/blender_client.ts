@@ -86,6 +86,15 @@ export interface ImportGlbResult {
   error?: string;
 }
 
+export interface PhysicsValidationResult {
+  success: boolean;
+  pass?: boolean;
+  profile?: string;
+  facial?: Record<string, unknown>;
+  checks?: Array<Record<string, unknown>>;
+  error?: string;
+}
+
 export interface ClipManifestEntry {
   name: string;
   loop: boolean;
@@ -230,6 +239,11 @@ export class BlenderClient {
   /** Export the scene as GLB and return base64. */
   async exportGlb(): Promise<ExportResult> {
     return this.send<ExportResult>("/export-glb", "POST");
+  }
+
+  /** Validate the currently imported rig against worker-side anatomy and physics gates. */
+  async physicsValidate(profile: string, facial: boolean): Promise<PhysicsValidationResult> {
+    return this.send<PhysicsValidationResult>("/physics-validate", "POST", { profile, facial });
   }
 
   async convertIfc(ifcBase64: string): Promise<IfcConversionResult> {

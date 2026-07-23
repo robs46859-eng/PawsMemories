@@ -25,6 +25,15 @@ const unit = z
 
 const bool = z.coerce.boolean();
 
+const defaultHumanFraming = {
+  headFullyVisible: false,
+  leftFootFullyVisible: false,
+  rightFootFullyVisible: false,
+  safeMarginAboveHead: false,
+  safeMarginBelowFeet: false,
+  cropLocation: "unknown" as const,
+};
+
 export const TriageSchema = z.object({
   // ── Detection ───────────────────────────────────────────────────────────
   subjectClass: z.enum(["dog", "cat", "bird", "rabbit", "horse", "reptile", "small_animal", "other", "human", "object"]),
@@ -47,6 +56,20 @@ export const TriageSchema = z.object({
     cleanBackground: bool.default(true),
     bakedShadowsOrHarshLight: bool.default(false),
     watermarkOrText: bool.default(false),
+    // Required to pass human QC. The fail-closed default prevents an omitted or
+    // ambiguous framing assessment from qualifying a cropped human reference.
+    humanFraming: z
+      .object({
+        headFullyVisible: bool.default(false),
+        leftFootFullyVisible: bool.default(false),
+        rightFootFullyVisible: bool.default(false),
+        safeMarginAboveHead: bool.default(false),
+        safeMarginBelowFeet: bool.default(false),
+        cropLocation: z
+          .enum(["none", "ankles", "knees", "above_knees", "other", "not_applicable", "unknown"])
+          .default("unknown"),
+      })
+      .default(defaultHumanFraming),
   }),
   // ── Anatomy / colour (best-effort; used to skip a second analysis) ────────
   species: z.string().default(""),
@@ -102,6 +125,11 @@ export function buildTriagePrompt(userType: ExtendedSubjectClass): string {
     `\n\nThe user asked to create a "${userType}" (${classLabel(userType)}). Decide the TRUE class from the image using the definitions above — do not just echo the user's choice.\n\n` +
     `Also judge how suitable this image is for single-image/multiview 3D reconstruction. ` +
     `A good image has exactly ONE subject, the WHOLE subject visible with margin, a clean plain background, and no watermark or text. ` +
+    `HUMAN FRAMING IS FAIL-CLOSED: when the true subject is human, inspect the top and bottom frame edges separately. The complete head/hair, ` +
+    `left foot and right foot must each be fully visible, with clear plain-background margin above the head and below both feet. ` +
+    `If the frame cuts or touches the person at the knees, lower legs, ankles, shoes, feet, head or hair, set fullSubjectVisible false, ` +
+    `identify the nearest cropLocation, and set the affected visibility or margin booleans false. A knee-up or ankle-cropped person is NEVER full-body, ` +
+    `even when the upper body is clear. For non-humans use cropLocation "not_applicable"; humanFraming does not change animal qualification. ` +
     `A soft contact shadow beneath the subject and gentle ambient occlusion are GOOD (this is a 3D render) — only set bakedShadowsOrHarshLight true for HARSH, hard-edged directional cast shadows or strong baked highlights that would corrupt the texture. ` +
     `For a living subject a neutral standing/A-pose is best; for an object, pose is not applicable (set poseOk true).\n\n` +
     `Return EXACTLY this JSON shape:\n` +
@@ -119,7 +147,15 @@ export function buildTriagePrompt(userType: ExtendedSubjectClass): string {
     `    "poseOk": boolean,\n` +
     `    "cleanBackground": boolean,\n` +
     `    "bakedShadowsOrHarshLight": boolean,\n` +
-    `    "watermarkOrText": boolean\n` +
+    `    "watermarkOrText": boolean,\n` +
+    `    "humanFraming": {\n` +
+    `      "headFullyVisible": boolean,\n` +
+    `      "leftFootFullyVisible": boolean,\n` +
+    `      "rightFootFullyVisible": boolean,\n` +
+    `      "safeMarginAboveHead": boolean,\n` +
+    `      "safeMarginBelowFeet": boolean,\n` +
+    `      "cropLocation": "none"|"ankles"|"knees"|"above_knees"|"other"|"not_applicable"\n` +
+    `    }\n` +
     `  },\n` +
     `  "species": string ("dog","cat","bird",... or "" for objects/humans),\n` +
     `  "breed": string (best guess or ""),\n` +
@@ -156,6 +192,13 @@ export function triagePasses(t: TriageResult): boolean {
   if (!q.singleSubject) return false;
   if (!q.fullSubjectVisible) return false;
   if (q.watermarkOrText) return false;
+  if (t.subjectClass === "human") {
+    const framing = q.humanFraming;
+    if (!framing.headFullyVisible) return false;
+    if (!framing.leftFootFullyVisible || !framing.rightFootFullyVisible) return false;
+    if (!framing.safeMarginAboveHead || !framing.safeMarginBelowFeet) return false;
+    if (framing.cropLocation !== "none") return false;
+  }
   return q.score >= QUALIFY_PASS_SCORE;
 }
 
@@ -173,6 +216,19 @@ export function correctiveFromTriage(t: TriageResult): string {
   // Human anatomy correction: if the detected counts drift from the canonical
   // human figure, force a regeneration that renders exactly the right features.
   if (t.subjectClass === "human") {
+    const framing = q.humanFraming;
+    const framingOff =
+      !framing.headFullyVisible ||
+      !framing.leftFootFullyVisible ||
+      !framing.rightFootFullyVisible ||
+      !framing.safeMarginAboveHead ||
+      !framing.safeMarginBelowFeet ||
+      framing.cropLocation !== "none";
+    if (framingOff) {
+      fixes.push(
+        "pull the camera back and show the complete person from head through both complete feet, with visible plain-background margin above the head and below both feet; never crop at the knees or ankles"
+      );
+    }
     const a = t.humanAnatomy;
     const anatomyOff =
       (a?.anomalies?.length ?? 0) > 0 ||

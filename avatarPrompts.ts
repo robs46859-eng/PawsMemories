@@ -127,10 +127,12 @@ export const HUMAN_PROPORTION_SPEC =
  * top of the head to the soles of both feet must be inside the frame.
  */
 export const HUMAN_FULLBODY_SPEC =
-  `COMPLETE FULL-BODY FIGURE: render the ENTIRE person from the top of the head down to the soles of BOTH feet, ` +
-  `standing upright and grounded, with both feet flat on the floor and clearly visible. ` +
+  `COMPLETE FULL-BODY FIGURE: use a pulled-back camera and render the ENTIRE person from the top of the head through BOTH complete feet, ` +
+  `standing upright and grounded, with the full outline of each foot (including toes and heels) clearly visible. ` +
   `This is NOT a bust, portrait, half-body or floating figure — head, torso, both arms, both hands, both legs and both feet ` +
-  `must all be fully inside the frame with generous margin above the head and below the feet. Nothing is cropped by the frame edge.`;
+  `must all be fully inside the frame. Leave a generous SAFE MARGIN of visible plain background above the head, below both feet, and on both sides. ` +
+  `The frame edge must not touch or intersect the head, hair, hands, legs, ankles, shoes or feet. ` +
+  `A person cropped at the knees or ankles is invalid; never use portrait, knee-up, three-quarter-length or ankle-cropped framing.`;
 
 const STYLE_CLAUSES: Record<string, string> = {
   auto:            `a clean, well-lit 3D-reconstruction-friendly render with clear surface details and accurate proportions`,
@@ -301,27 +303,29 @@ export function turnaroundViewsForType(type: ExtendedSubjectClass): { view: "lef
     ];
   }
   if (type === 'human') {
+    const turnaroundFraming =
+      ` ${HUMAN_FULLBODY_SPEC} Preserve the same pulled-back camera distance, subject scale, and safe margins as the front view.`;
     return [
       {
         view: "left",
         prompt:
           `This image is the FRONT view of a stylized 3D human character. Generate the EXACT SAME character, same pose, ` +
           `same style, same lighting and background, but seen in a PERFECT LEFT SIDE PROFILE (camera at the person's left, ` +
-          `person's nose pointing to the left edge of the frame, full body visible, arms slightly out).`,
+          `person's nose pointing to the left edge of the frame, full body visible, arms slightly out).` + turnaroundFraming,
       },
       {
         view: "back",
         prompt:
           `This image is the FRONT view of a stylized 3D human character. Generate the EXACT SAME character, same pose, ` +
           `same style, same lighting and background, but seen DIRECTLY FROM BEHIND (camera behind the person, head facing away, ` +
-          `back of body and hair clearly visible).`,
+          `back of body and hair clearly visible).` + turnaroundFraming,
       },
       {
         view: "right",
         prompt:
           `This image is the FRONT view of a stylized 3D human character. Generate the EXACT SAME character, same pose, ` +
           `same style, same lighting and background, but seen in a PERFECT RIGHT SIDE PROFILE (camera at the person's right, ` +
-          `person's nose pointing to the right edge of the frame, full body visible, arms slightly out).`,
+          `person's nose pointing to the right edge of the frame, full body visible, arms slightly out).` + turnaroundFraming,
       },
     ];
   } else {

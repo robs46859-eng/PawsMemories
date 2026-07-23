@@ -3,10 +3,10 @@ import { test } from "node:test";
 import { Screen } from "../src/types.ts";
 import { MOBILE_NAV, SIDEBAR_NAV, TOP_PRIMARY_NAV, SHELL_ICON_NAV } from "../src/shellNavigation.ts";
 
-test("top panel exposes Create, Marketplace, Pawprints", () => {
+test("top panel exposes Create, Voice Test, Pawprints", () => {
   assert.deepEqual(TOP_PRIMARY_NAV.map(({ screen }) => screen), [
     Screen.CREATE,
-    Screen.MARKETPLACE,
+    Screen.VOICE_TEST,
     Screen.PAWPRINTS,
   ]);
 });
@@ -17,16 +17,17 @@ test("desktop sidebar keeps creation studios out of the global shell", () => {
   assert.deepEqual(SIDEBAR_NAV.map(({ screen }) => screen), [
     Screen.DASHBOARD,
     Screen.FURBIN,
-    Screen.MARKETPLACE,
+    Screen.BIM,
     Screen.WAGS_INBOX,
   ]);
-  // MOBILE_NAV is NOT "sidebar + Profile". Profile and Marketplace both have a
+  // MOBILE_NAV is NOT "sidebar + Profile". Profile and Voice Test both have a
   // permanent one-tap route in the header (SHELL_ICON_NAV), so repeating them
   // in the bottom bar spent two of five slots on duplicates — and with the Help
   // button the row rendered six items into a five-column grid.
   assert.deepEqual(MOBILE_NAV.map(({ screen }) => screen), [
     Screen.DASHBOARD,
     Screen.FURBIN,
+    Screen.BIM,
     Screen.WAGS_INBOX,
   ]);
   assert.ok(!SIDEBAR_NAV.some(({ screen }) => screen === Screen.MODELS || screen === Screen.PAWLISHER));

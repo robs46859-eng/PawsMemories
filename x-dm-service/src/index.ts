@@ -104,7 +104,7 @@ app.listen(config.PORT, () => {
  * Waits 30s before the first attempt (gives deploy time to settle so CRC
  * succeeds). Retries up to 3 times at 60s intervals on failure.
  *
- * Once webhook + subscriptions succeed, starts the poller.
+ * Once webhook + subscriptions succeed, starts the optional poller.
  */
 async function scheduleBootSetup(): Promise<void> {
   // Wait 30s for deploy to settle
@@ -115,7 +115,11 @@ async function scheduleBootSetup(): Promise<void> {
       const webhookId = await ensureWebhookRegistered();
       if (webhookId) {
         await ensureSubscriptions(webhookId);
-        startPoller();
+        if (config.X_DM_POLLING_ENABLED) {
+          startPoller();
+        } else {
+          console.log('[Boot] DM polling fallback disabled (X_DM_POLLING_ENABLED=false)');
+        }
         console.log(`[Boot] Setup complete on attempt ${attempt}`);
         return;
       }

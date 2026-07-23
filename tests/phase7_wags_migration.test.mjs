@@ -28,8 +28,8 @@ test("migration 28 contains the complete durable Wags v2 schema", () => {
   const migration = MIGRATIONS.find((item) => item.version === 28);
   assert.ok(migration);
   assert.equal(migration.name, "wags_entitlements_v2");
-  assert.equal(CURRENT_SCHEMA_VERSION, 29, "Wags schema changes must remain in unshipped migration 28");
-  assert.equal(MIGRATIONS.some((item) => item.version === 30), false);
+  assert.equal(CURRENT_SCHEMA_VERSION, 30, "Wags schema changes must remain in migration 28");
+  assert.equal(MIGRATIONS.some((item) => item.version === 31), false);
   const ddl = migration.statements.join("\n");
 
   for (const table of [

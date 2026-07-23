@@ -93,7 +93,15 @@ import { SKELETON_CONTRACTS } from "./skeletonContract";
 import { TERMS_VERSION } from "./src/legal";
 import { avatarGenerationCost, bimModelCost, CREDIT_PACKS, CREDIT_PRICES, REUSE_DISCOUNT, createModelCost, riggingAddonCost, type BimBuildMode, type RiggingSelection } from "./src/pricing";
 import { executeBlenderTool } from "./agent/tools/blender_mcp";
-import { getPipelineSessionByBuildJobId, setCreationRiggedModel } from "./db";
+import {
+  formatPipelineRecoveryDiagnostic,
+  PIPELINE_RIG_MAX_ATTEMPTS,
+  PipelineRigRecoveryStore,
+  pipelineRiggingSelection,
+  type PipelineRigRecoveryContext,
+  type RecoveryClaim,
+} from "./server/pipeline-rig-recovery";
+import { getPipelineSessionByBuildJobId } from "./db";
 import { preflightBimModel, type BimModel } from "./src/bim/model";
 import { buildAndVerifyShell } from "./server/bim/shell";
 import { buildBimPostBuildVerification, buildBimPreBuildVerification } from "./server/bim/verification";
@@ -127,6 +135,8 @@ import { objectBuildProfile, humanRigHints } from "./server/subjectProfiles";
 // one retry, both gated by the worker's physics_validate (gravity 9.8 m/s²).
 // ---------------------------------------------------------------------------
 const pipelineRigLocks = new Set<number>();
+const pipelineRigRecovery = new PipelineRigRecoveryStore(getPool);
+const PIPELINE_RIG_HEARTBEAT_MS = 60 * 1000;
 
 /**
  * Poll a Veo video operation by its stored operation name.
@@ -154,21 +164,116 @@ function veoOperationHandle(operationName: string): GenerateVideosOperation {
   return Object.assign(new GenerateVideosOperation(), { name: operationName });
 }
 
-async function runCreatePipelineRigStage(job: { id: number; user_phone: string; creation_id: number | null }, glbUrl: string): Promise<void> {
-  if (pipelineRigLocks.has(job.id)) return;
-  pipelineRigLocks.add(job.id);
-  const { updateJobStatus, restoreReservedGenerationCredits } = await import("./db");
-  try {
-    const session = await getPipelineSessionByBuildJobId(job.id);
-    const rigging: RiggingSelection | undefined = session?.customization_state?.rigging;
-    if (!rigging?.enabled) {
-      await updateJobStatus(job.id, "done");
-      return;
-    }
-    await updateJobStatus(job.id, "rigging");
+function logPipelineRecovery(prefix: string, claim: RecoveryClaim): void {
+  if (claim.context) {
+    console.log(`[PipelineRig ${prefix}] ${formatPipelineRecoveryDiagnostic(claim.context, claim)}`);
+  } else {
+    console.log(`[PipelineRig ${prefix}] decision=skip reason=${claim.reason}`);
+  }
+}
 
-    const glbBase64 = await fetchUrlAsBase64(glbUrl);
-    const referenceBase64 = session?.candidate_image_url ? await fetchUrlAsBase64(session.candidate_image_url).catch(() => null) : null;
+function rigAddonForContext(context: PipelineRigRecoveryContext | null): number {
+  return context ? riggingAddonCost(pipelineRiggingSelection(context)) : 0;
+}
+
+async function rejectPipelineRigRecovery(jobId: number, context: PipelineRigRecoveryContext | null, reason: string, expectedLeaseOwner?: string): Promise<void> {
+  const result = await pipelineRigRecovery.finalizeRejected(jobId, reason, rigAddonForContext(context), expectedLeaseOwner);
+  console.warn(`[PipelineRig recovery] job=${jobId} finalized=${result.status} reason=${reason} refunded=${result.refunded}`);
+}
+
+interface PipelineProviderGate {
+  isCreatePipeline: boolean;
+  claim: RecoveryClaim | null;
+}
+
+async function claimPipelineProviderPoll(jobId: number): Promise<PipelineProviderGate> {
+  const context = await pipelineRigRecovery.getContext(jobId);
+  if (!context?.sessionId) return { isCreatePipeline: false, claim: null };
+  const claim = await pipelineRigRecovery.claimProviderPoll(jobId);
+  logPipelineRecovery("provider", claim);
+  const concurrentOrTerminal = new Set([
+    "active_lease",
+    "job_rigging",
+    "job_validating",
+    "job_done",
+    "job_done_static_fallback",
+    "job_failed",
+  ]);
+  if (!claim.eligible && !concurrentOrTerminal.has(claim.reason)) {
+    await rejectPipelineRigRecovery(jobId, claim.context, claim.reason);
+  }
+  return { isCreatePipeline: true, claim };
+}
+
+async function finishStoredPipelineModel(jobId: number, providerClaim: RecoveryClaim, modelUrl: string): Promise<'rigging' | 'done' | 'failed'> {
+  if (!providerClaim.leaseOwner || !providerClaim.context) return "failed";
+  const rigging = pipelineRiggingSelection(providerClaim.context);
+  if (!rigging.enabled) {
+    const completed = await pipelineRigRecovery.completeWithoutRig(jobId, providerClaim.leaseOwner);
+    return completed ? "done" : "failed";
+  }
+  const prepared = await pipelineRigRecovery.prepareRig(jobId, providerClaim.leaseOwner, modelUrl);
+  logPipelineRecovery("prepare", prepared);
+  if (!prepared.eligible) {
+    if (prepared.reason !== "provider_lease_lost") {
+      await rejectPipelineRigRecovery(jobId, prepared.context, prepared.reason, providerClaim.leaseOwner);
+    }
+    return "failed";
+  }
+  void runCreatePipelineRigStage(jobId);
+  return "rigging";
+}
+
+async function runCreatePipelineRigStage(jobId: number): Promise<void> {
+  if (pipelineRigLocks.has(jobId)) return;
+  pipelineRigLocks.add(jobId);
+  let lastContext: PipelineRigRecoveryContext | null = null;
+  try {
+    let glbBase64: string | null = null;
+    let referenceBase64: string | null = null;
+    let report: unknown = null;
+
+    while (true) {
+      const claim = await pipelineRigRecovery.claimRigAttempt(jobId);
+      lastContext = claim.context;
+      logPipelineRecovery("claim", claim);
+      if (!claim.eligible || !claim.context || !claim.leaseOwner || !claim.attemptNumber) {
+        if (!['active_lease', 'job_done', 'job_done_static_fallback', 'job_failed'].includes(claim.reason)) {
+          await rejectPipelineRigRecovery(jobId, claim.context, claim.reason);
+        }
+        return;
+      }
+
+      const context = claim.context;
+      const attempt = claim.attemptNumber;
+      const leaseOwner = claim.leaseOwner;
+      const rigging = pipelineRiggingSelection(context);
+      let leaseLost = false;
+      let heartbeatBusy = false;
+      const heartbeat = setInterval(() => {
+        if (heartbeatBusy || leaseLost) return;
+        heartbeatBusy = true;
+        void pipelineRigRecovery.heartbeat(jobId, leaseOwner)
+          .then((ok) => { if (!ok) leaseLost = true; })
+          .catch((error) => {
+            leaseLost = true;
+            console.error(`[PipelineRig job ${jobId}] heartbeat failed:`, error?.message || error);
+          })
+          .finally(() => { heartbeatBusy = false; });
+      }, PIPELINE_RIG_HEARTBEAT_MS);
+      heartbeat.unref?.();
+
+      try {
+        const beforeBuild = await pipelineRigRecovery.verifyRigLease(jobId, leaseOwner);
+        if (!beforeBuild.eligible) throw new Error(`Recovery cancelled before Blender call: ${beforeBuild.reason}`);
+        if (!glbBase64) glbBase64 = await fetchUrlAsBase64(context.currentModelUrl!);
+        if (referenceBase64 === null) {
+          const session = await getPipelineSessionByBuildJobId(jobId);
+          referenceBase64 = session?.candidate_image_url
+            ? await fetchUrlAsBase64(session.candidate_image_url).catch(() => "")
+            : "";
+        }
+
     // Derive anatomy from the shared species→profile mapper rather than a
     // hardcoded `species === "human"` test.
     //
@@ -193,11 +298,12 @@ async function runCreatePipelineRigStage(job: { id: number; user_phone: string; 
     //
     // getBuildProfileForSpecies already handles human, winged, reptile and
     // small_animal; routing through it means birds stop being described as dogs too.
-    const species = String(session?.species || "dog");
+        const session = await getPipelineSessionByBuildJobId(jobId);
+        const species = String(session?.species || "dog");
     const buildProfile = getBuildProfileForSpecies(species as ExtendedSubjectClass);
     const isBiped = buildProfile === "human";
     const isWinged = buildProfile === "winged";
-    const petAnalysis: PetAnalysis = {
+        const petAnalysis: PetAnalysis = {
       species,
       breed: session?.breed || "Mixed",
       // A bird is neither a biped nor a quadruped — it stands on two legs and
@@ -212,47 +318,39 @@ async function runCreatePipelineRigStage(job: { id: number; user_phone: string; 
       bodyProportions: { headSize: "medium", legLength: "medium", bodyLength: "medium", neckLength: "medium" },
       coatColors: ["#C0A080"],
       coatPattern: "solid",
-    };
+        };
 
-    let riggedGlbBase64: string | null = null;
-    let report: unknown = null;
-    for (let attempt = 1; attempt <= 2 && !riggedGlbBase64; attempt++) {
-      try {
         const buildState = await runBuildPipeline(
           petAnalysis,
           glbBase64,
-          async (step, pct, detail) => console.log(`[PipelineRig job ${job.id} attempt ${attempt}] ${step}: ${detail} (${pct}%)`),
-          referenceBase64,
+          async (step, pct, detail) => console.log(`[PipelineRig job ${jobId} attempt ${attempt}] ${step}: ${detail} (${pct}%)`),
+          referenceBase64 || null,
           { facialVisemes: !!rigging.facial } // P4: visemes only when purchased
         );
         if (buildState.status !== "completed" || !buildState.riggedGlbBase64) {
-          console.warn(`[PipelineRig job ${job.id}] attempt ${attempt} did not produce a rig: ${buildState.statusMessage || buildState.status}`);
-          continue;
+          throw new Error(buildState.statusMessage || `Build ended with ${buildState.status}`);
         }
+        if (leaseLost) throw new Error("Recovery lease was lost while Blender was running");
+        const beforeValidation = await pipelineRigRecovery.verifyRigLease(jobId, leaseOwner);
+        if (!beforeValidation.eligible) throw new Error(`Recovery cancelled before quality calls: ${beforeValidation.reason}`);
         // Quality gates: anatomy + physics at 9.8 m/s² (§5.4 known-bug guards).
-        await updateJobStatus(job.id, "validating");
+        const movedToValidation = await pipelineRigRecovery.setRigPhase(jobId, leaseOwner, "validating", `rig_attempt_${attempt}_validating`);
+        if (!movedToValidation) throw new Error("Recovery lease was lost before validation");
         const imported = await executeBlenderTool("import_glb", { glb_base64: buildState.riggedGlbBase64 });
         if (!imported.success) throw new Error(imported.error || "rigged GLB re-import failed");
+        const beforePhysics = await pipelineRigRecovery.verifyRigLease(jobId, leaseOwner);
+        if (!beforePhysics.eligible) throw new Error(`Recovery cancelled before physics validation: ${beforePhysics.reason}`);
         const validation = await executeBlenderTool("physics_validate", {
           profile: petAnalysis.bodyType,
           facial: !!rigging.facial,
         });
         report = validation.data ?? validation;
         const passed = !!(validation.success && (validation.data?.pass ?? (validation as any).pass));
-        if (passed) {
-          riggedGlbBase64 = buildState.riggedGlbBase64;
-        } else {
-          console.warn(`[PipelineRig job ${job.id}] attempt ${attempt} failed quality gates:`, JSON.stringify(report).slice(0, 600));
-          await updateJobStatus(job.id, "rigging");
-        }
-      } catch (attemptErr: any) {
-        console.error(`[PipelineRig job ${job.id}] attempt ${attempt} error:`, attemptErr?.message || attemptErr);
-      }
-    }
+        if (!passed) throw new Error(`Quality gates failed: ${JSON.stringify(report).slice(0, 360)}`);
 
-    if (riggedGlbBase64 && job.creation_id) {
-      const riggedUrl = await uploadBase64Binary(riggedGlbBase64, "model/gltf-binary");
-      await setCreationRiggedModel(job.creation_id, job.user_phone, riggedUrl, report);
+        const beforeUpload = await pipelineRigRecovery.verifyRigLease(jobId, leaseOwner);
+        if (!beforeUpload.eligible) throw new Error(`Recovery cancelled before artifact upload: ${beforeUpload.reason}`);
+        const riggedUrl = await uploadBase64Binary(buildState.riggedGlbBase64, "model/gltf-binary");
 
       // A body rig can pass its quality gates while the facial pass finds no
       // usable viseme targets — facialVisemes.ts reports available:false rather
@@ -260,45 +358,58 @@ async function runCreatePipelineRigStage(job: { id: number; user_phone: string; 
       // refunded (product decision), so the outcome has to be stated plainly
       // instead of being reported as an unqualified success. The pre-purchase
       // warning in CreateCustomizeScreen is the other half of this contract.
-      const facialRequested = !!rigging.facial;
-      const facialReport = (report as any)?.facial ?? (report as any)?.visemes ?? null;
-      const facialLanded = facialRequested
-        ? Boolean(facialReport?.available ?? facialReport?.shapes?.length)
-        : null;
+        const facialRequested = !!rigging.facial;
+        const facialReport = (report as any)?.facial ?? (report as any)?.visemes ?? null;
+        const facialLanded = facialRequested
+          ? Boolean(facialReport?.available ?? facialReport?.shapes?.length)
+          : null;
+        const completionMessage = facialRequested && facialLanded === false
+          ? "Body rig applied. Facial rig unavailable — this model returned no usable mouth shapes, so lip-sync falls back to jaw movement."
+          : null;
+        const completed = await pipelineRigRecovery.completeRig(jobId, leaseOwner, riggedUrl, report, completionMessage);
+        if (!completed.eligible) {
+          console.warn(`[PipelineRig job ${jobId}] stale result discarded: ${completed.reason}`);
+          if (!['lease_lost', 'lease_expired'].includes(completed.reason)) {
+            await rejectPipelineRigRecovery(jobId, await pipelineRigRecovery.getContext(jobId), completed.reason, leaseOwner);
+          }
+          return;
+        }
 
-      if (facialRequested && facialLanded === false) {
-        await updateJobStatus(
-          job.id,
-          "done",
-          "Body rig applied. Facial rig unavailable — this model returned no usable mouth shapes, so lip-sync falls back to jaw movement.",
-        );
+        if (completionMessage) {
         await sendSms(
-          job.user_phone,
+          context.userPhone,
           `🐾 Paws & Memories: Your rigged 3D model is ready. Heads up — facial rigging couldn't be applied to this model (it animates with jaw movement instead). View it at ${process.env.APP_URL || "your app"}.`,
         );
-      } else {
-        await updateJobStatus(job.id, "done");
-        await sendSms(job.user_phone, `🐾 Paws & Memories: Your rigged 3D model is ready! View it at ${process.env.APP_URL || "your app"}.`);
+        } else {
+          await sendSms(context.userPhone, `🐾 Paws & Memories: Your rigged 3D model is ready! View it at ${process.env.APP_URL || "your app"}.`);
+        }
+        return;
+      } catch (attemptErr: any) {
+        clearInterval(heartbeat);
+        const detail = String(attemptErr?.message || attemptErr);
+        console.error(`[PipelineRig job ${jobId}] attempt ${attempt} error:`, detail);
+        if (leaseLost) return;
+        const recorded = await pipelineRigRecovery.recordAttemptFailure(jobId, leaseOwner, detail);
+        if (!recorded) return;
+        if (attempt >= PIPELINE_RIG_MAX_ATTEMPTS) {
+          const fallback = await pipelineRigRecovery.finalizeRejected(
+            jobId,
+            "Rigging did not pass quality gates; static model delivered and rigging credits refunded.",
+            rigAddonForContext(context),
+          );
+          console.warn(`[PipelineRig job ${jobId}] attempt budget exhausted; finalized=${fallback.status} refunded=${fallback.refunded}`);
+          await sendSms(context.userPhone, `🐾 Paws & Memories: Your 3D model is ready as a static model. Rigging didn't pass our quality checks, so those PupCoins were refunded.`);
+          return;
+        }
+      } finally {
+        clearInterval(heartbeat);
       }
-    } else {
-      // Static fallback: model already delivered; refund only the add-on.
-      const addon = riggingAddonCost(rigging);
-      if (addon > 0) await restoreReservedGenerationCredits(job.user_phone, addon);
-      if (job.creation_id) await setCreationRiggedModel(job.creation_id, job.user_phone, "", report).catch?.(() => {});
-      await updateJobStatus(job.id, "done_static_fallback", "Rigging did not pass quality gates; static model delivered and rigging credits refunded.");
-      await sendSms(job.user_phone, `🐾 Paws & Memories: Your 3D model is ready as a static model. Rigging didn't pass our quality checks, so those PupCoins were refunded.`);
     }
   } catch (err: any) {
-    console.error(`[PipelineRig job ${job.id}] fatal:`, err?.message || err);
-    const { updateJobStatus: setStatus, restoreReservedGenerationCredits: refund } = await import("./db");
-    try {
-      const session = await getPipelineSessionByBuildJobId(job.id);
-      const addon = riggingAddonCost(session?.customization_state?.rigging);
-      if (addon > 0) await refund(job.user_phone, addon);
-    } catch {}
-    await setStatus(job.id, "done_static_fallback", "Rigging stage errored; static model delivered and rigging credits refunded.").catch?.(() => {});
+    console.error(`[PipelineRig job ${jobId}] fatal:`, err?.message || err);
+    await rejectPipelineRigRecovery(jobId, lastContext, "Rigging stage errored; static model delivered and rigging credits refunded.").catch(() => {});
   } finally {
-    pipelineRigLocks.delete(job.id);
+    pipelineRigLocks.delete(jobId);
   }
 }
 import {
@@ -6998,6 +7109,11 @@ async function startServer() {
         }
         // --- Meshy 3D-model branch ---
         if (job.operation_name && isTripoHandle(job.operation_name)) {
+          const providerGate = await claimPipelineProviderPoll(jobId);
+          if (providerGate.isCreatePipeline && !providerGate.claim?.eligible) {
+            const current = await getJob(jobId, req.user!.phone);
+            return res.json({ success: true, status: current?.status || "failed", model_url: providerGate.claim?.context?.currentModelUrl || null, error: current?.error || null });
+          }
           try {
             const result = await pollImageTo3D(job.operation_name);
             if (result.done) {
@@ -7006,27 +7122,40 @@ async function startServer() {
                 // never cost the user their base model (P3 §5.3).
                 const modelUrl = await uploadBinaryFromUrl(result.glbUrl, "model/gltf-binary");
                 await setCreationModelUrl(job.creation_id!, req.user!.phone, modelUrl);
-                const rigSession = await getPipelineSessionByBuildJobId(jobId);
-                if (rigSession?.customization_state?.rigging?.enabled) {
-                  await updateJobStatus(jobId, "rigging");
-                  void runCreatePipelineRigStage({ id: jobId, user_phone: req.user!.phone, creation_id: job.creation_id ?? null }, result.glbUrl);
-                  return res.json({ success: true, status: "rigging", model_url: modelUrl });
+                if (providerGate.isCreatePipeline && providerGate.claim) {
+                  const status = await finishStoredPipelineModel(jobId, providerGate.claim, modelUrl);
+                  if (status === "done") {
+                    await sendSms(req.user!.phone, `🐾 Paws & Memories: Your 3D pet model is ready! View it at ${process.env.APP_URL || "your app"}.`);
+                  }
+                  return res.json({ success: true, status, model_url: modelUrl });
                 }
                 await updateJobStatus(jobId, "done");
                 await sendSms(req.user!.phone, `🐾 Paws & Memories: Your 3D pet model is ready! View it at ${process.env.APP_URL || "your app"}.`);
                 return res.json({ success: true, status: "done", model_url: modelUrl });
               } else {
-                await updateJobStatus(jobId, "failed", result.error || "Meshy generation failed");
-                await restoreReservedGenerationCredits(req.user!.phone, job.credits_reserved);
+                if (providerGate.isCreatePipeline) {
+                  await rejectPipelineRigRecovery(jobId, providerGate.claim?.context || null, result.error || "Provider returned no model", providerGate.claim?.leaseOwner);
+                } else {
+                  await updateJobStatus(jobId, "failed", result.error || "Meshy generation failed");
+                  await restoreReservedGenerationCredits(req.user!.phone, job.credits_reserved);
+                }
                 return res.json({ success: true, status: "failed", error: result.error || "Meshy generation failed" });
               }
             } else {
-              await updateJobStatus(jobId, "running");
+              if (providerGate.isCreatePipeline && providerGate.claim?.leaseOwner) {
+                await pipelineRigRecovery.releaseProviderPoll(jobId, providerGate.claim.leaseOwner, "provider_still_running");
+              } else {
+                await updateJobStatus(jobId, "running");
+              }
             }
           } catch (pollErr: any) {
             console.error("Meshy poll error:", pollErr);
-            await updateJobStatus(jobId, "failed", pollErr.message);
-            await restoreReservedGenerationCredits(req.user!.phone, job.credits_reserved);
+            if (providerGate.isCreatePipeline) {
+              await rejectPipelineRigRecovery(jobId, providerGate.claim?.context || null, `Provider poll failed: ${pollErr.message}`, providerGate.claim?.leaseOwner);
+            } else {
+              await updateJobStatus(jobId, "failed", pollErr.message);
+              await restoreReservedGenerationCredits(req.user!.phone, job.credits_reserved);
+            }
             return res.json({ success: true, status: "failed", error: pollErr.message });
           }
           return res.json({ success: true, status: job.status, model_url: null, error: job.error });
@@ -7083,7 +7212,29 @@ async function startServer() {
     }
   });
 
-  // Background poller for orphaned/running jobs (runs every 15s)
+  // Restart recovery is explicit and conservative. Legacy rows without a
+  // source fingerprint/recovery timestamp are finalized without touching the
+  // Blender worker; only a recent, leased, current-model rig can resume.
+  let pipelineRigRecoverySweepActive = false;
+  async function recoverPipelineRigJobs(): Promise<void> {
+    if (pipelineRigRecoverySweepActive) return;
+    pipelineRigRecoverySweepActive = true;
+    try {
+      const jobIds = await pipelineRigRecovery.listRigRecoveryCandidates();
+      for (const jobId of jobIds) {
+        await runCreatePipelineRigStage(jobId);
+      }
+    } catch (error: any) {
+      console.error("[PipelineRig recovery] sweep failed:", error?.message || error);
+    } finally {
+      pipelineRigRecoverySweepActive = false;
+    }
+  }
+  void recoverPipelineRigJobs();
+  setInterval(() => void recoverPipelineRigJobs(), 60 * 1000);
+
+  // Background poller for orphaned/running provider jobs (runs every 15s).
+  // Create-pipeline model jobs must acquire a provider lease before polling.
   setInterval(async () => {
     try {
       const jobs = await getRunningJobs();
@@ -7152,6 +7303,8 @@ async function startServer() {
         }
         // --- Meshy 3D-model branch ---
         if (isTripoHandle(job.operation_name)) {
+          const providerGate = await claimPipelineProviderPoll(job.id);
+          if (providerGate.isCreatePipeline && !providerGate.claim?.eligible) continue;
           try {
             const result = await pollImageTo3D(job.operation_name);
             if (result.done) {
@@ -7161,18 +7314,25 @@ async function startServer() {
                 if (job.creation_id) {
                   await setCreationModelUrl(job.creation_id, job.user_phone, modelUrl);
                 }
-                const rigSession = await getPipelineSessionByBuildJobId(job.id);
-                if (rigSession?.customization_state?.rigging?.enabled) {
-                  await updateJobStatus(job.id, "rigging");
-                  void runCreatePipelineRigStage({ id: job.id, user_phone: job.user_phone, creation_id: job.creation_id ?? null }, result.glbUrl);
+                if (providerGate.isCreatePipeline && providerGate.claim) {
+                  const status = await finishStoredPipelineModel(job.id, providerGate.claim, modelUrl);
+                  if (status === "done") {
+                    await sendSms(job.user_phone, `🐾 Paws & Memories: Your 3D pet model is ready! View it at ${process.env.APP_URL || "your app"}.`);
+                  }
                   continue;
                 }
                 await updateJobStatus(job.id, "done");
                 await sendSms(job.user_phone, `🐾 Paws & Memories: Your 3D pet model is ready! View it at ${process.env.APP_URL || "your app"}.`);
               } else {
-                await updateJobStatus(job.id, "failed", result.error || "Meshy generation failed");
-                await restoreReservedGenerationCredits(job.user_phone, job.credits_reserved);
+                if (providerGate.isCreatePipeline) {
+                  await rejectPipelineRigRecovery(job.id, providerGate.claim?.context || null, result.error || "Provider returned no model", providerGate.claim?.leaseOwner);
+                } else {
+                  await updateJobStatus(job.id, "failed", result.error || "Meshy generation failed");
+                  await restoreReservedGenerationCredits(job.user_phone, job.credits_reserved);
+                }
               }
+            } else if (providerGate.isCreatePipeline && providerGate.claim?.leaseOwner) {
+              await pipelineRigRecovery.releaseProviderPoll(job.id, providerGate.claim.leaseOwner, "provider_still_running");
             }
           } catch (err: any) {
             // Preserve the real cause. This previously stored the literal string
@@ -7180,8 +7340,12 @@ async function startServer() {
             // the message that would have explained them was thrown away.
             const reason = String(err?.message || err).slice(0, 480);
             console.error(`Background Tripo poller error for job ${job.id}:`, err);
-            await updateJobStatus(job.id, "failed", `Tripo poll failed: ${reason}`);
-            await restoreReservedGenerationCredits(job.user_phone, job.credits_reserved);
+            if (providerGate.isCreatePipeline) {
+              await rejectPipelineRigRecovery(job.id, providerGate.claim?.context || null, `Provider poll failed: ${reason}`, providerGate.claim?.leaseOwner);
+            } else {
+              await updateJobStatus(job.id, "failed", `Tripo poll failed: ${reason}`);
+              await restoreReservedGenerationCredits(job.user_phone, job.credits_reserved);
+            }
           }
           continue;
         }

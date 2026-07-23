@@ -51,6 +51,8 @@ Node major version.
 |---|---|---|
 | `HEYGEN_API_KEY` | Talking-pet video + animator voiceover | Voiceover/talking video disabled |
 | `HEYGEN_DEFAULT_VOICE_ID` | Default HeyGen voice | Voiceover has no default voice |
+| `ELEVENLABS_API_KEY` | Voice Test and animator speech generation | Voice Test cannot create audio |
+| `ELEVENLABS_MODEL_ID` / `ELEVENLABS_DEFAULT_VOICE_ID` | Voice Test model and default voice | Code defaults apply when available |
 | `TWILIO_ACCOUNT_SID` | SMS "your memory is ready" notifications | Fulfillment still works; SMS skipped |
 | `TWILIO_AUTH_TOKEN` | " | " |
 | `TWILIO_PHONE_NUMBER` | " | " |
@@ -132,6 +134,12 @@ Render worker variables are configured in Render, not Hostinger:
 | `RIG_PIPELINE_SOURCE_HOSTS` | Comma-separated exact hostname(s) from generated private signed source URLs; no scheme or wildcard |
 | `IFC_MAX_CONCURRENT` | `1` |
 | `PORT` | `10000` |
+
+The schema 30 acceptance corrections add no new Hostinger variable. They do
+require the existing `WORKER_SHARED_SECRET` to remain identical because
+`/physics-validate` is now authenticated. The separate Render X-DM service should
+be suspended if unused; if retained, set `X_DM_POLLING_ENABLED=false` there. Do
+not add that X-DM-only value to Hostinger or the Blender worker.
 
 ---
 

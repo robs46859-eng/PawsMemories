@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { pollOnce } from '../src/poller.js';
+import { pollOnce, startPoller, stopPoller } from '../src/poller.js';
 
 // Mock db
 vi.mock('../src/db.js', () => ({
@@ -67,6 +67,7 @@ function makeResponse(
 
 describe('pollOnce', () => {
   beforeEach(() => {
+    stopPoller();
     vi.clearAllMocks();
     vi.mocked(kvGet).mockReset();
     vi.mocked(kvSet).mockReset();
@@ -171,6 +172,25 @@ describe('pollOnce', () => {
     const count = await pollOnce();
     expect(count).toBe(0);
     expect(xFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([401, 403])('should stop automatic polling after HTTP %s', async (status) => {
+    vi.mocked(kvGet)
+      .mockResolvedValueOnce('false') // immediate shouldPoll check
+      .mockResolvedValueOnce(null); // pollOnce last-seen lookup
+    vi.mocked(xFetch).mockResolvedValue({
+      ok: false,
+      status,
+      text: async () => 'Unauthorized',
+      headers: new Headers(),
+    } as Response);
+    const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval');
+
+    startPoller();
+
+    await vi.waitFor(() => expect(xFetch).toHaveBeenCalledTimes(1));
+    expect(clearIntervalSpy).toHaveBeenCalledTimes(1);
+    clearIntervalSpy.mockRestore();
   });
 
   it('should build the correct query params from spec §5.4', async () => {

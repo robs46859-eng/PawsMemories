@@ -53,4 +53,5 @@ test("unrigged models fail closed", () => {
 test("worker HTTP exposes /physics-validate behind the bridge", () => {
   assert.match(server, /app\.post\("\/physics-validate"/);
   assert.match(server, /physicsValidate\(profile, facial\)/);
+  assert.match(server, /"\/physics-validate",[\s\S]{0,200}\], requireWorkerAuth, requireBridge\)/);
 });

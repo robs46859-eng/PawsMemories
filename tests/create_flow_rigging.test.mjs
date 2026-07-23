@@ -53,9 +53,19 @@ test("static model is stored before the rig stage in both poll paths", () => {
 
 test("rig failure falls back to static and refunds only the add-on", () => {
   const server = fs.readFileSync("server.ts", "utf8");
+  const recovery = fs.readFileSync("server/pipeline-rig-recovery.ts", "utf8");
   assert.match(server, /done_static_fallback/);
-  assert.match(server, /riggingAddonCost\(rigging\)/);
-  assert.match(server, /restoreReservedGenerationCredits\(job\.user_phone, addon\)/);
+  assert.match(server, /riggingAddonCost\(pipelineRiggingSelection\(context\)\)/);
+  assert.match(server, /finalizeRejected\(/);
+  assert.match(recovery, /status === "done_static_fallback"/);
+  assert.match(recovery, /Math\.min\(Math\.max\(0, Math\.trunc\(refundAmount\)\), context\.creditsReserved\)/);
+  assert.match(recovery, /rig_refunded_at = CASE/);
+});
+
+test("provider failure without a static model refunds the full reservation idempotently", () => {
+  const recovery = fs.readFileSync("server/pipeline-rig-recovery.ts", "utf8");
+  assert.match(recovery, /status === "failed"[\s\S]{0,120}context\.creditsReserved/);
+  assert.match(recovery, /generation_refunded_at = CASE/);
 });
 
 test("rig stage is gated by physics_validate quality checks", () => {

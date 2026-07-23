@@ -34,6 +34,8 @@ export interface Config {
   MEDIA_BUCKET_SECRET: string;
   DM_DAILY_SEND_CAP: number;
   HARVEST_MAX_POSTS_PER_RUN: number;
+  /** Enables the optional DM lookup fallback. Defaults off to avoid unauthorized retry loops. */
+  X_DM_POLLING_ENABLED: boolean;
   PORT: number;
   /** Portal-issued app-only bearer token (optional). When set, bypasses the OAuth2 client_credentials fetch. */
   X_BEARER_TOKEN: string;
@@ -73,6 +75,7 @@ export function loadConfig(): Config {
   const MEDIA_BUCKET_SECRET = env.MEDIA_BUCKET_SECRET;
   let DM_DAILY_SEND_CAP = env.DM_DAILY_SEND_CAP ? Number(env.DM_DAILY_SEND_CAP) : 400;
   let HARVEST_MAX_POSTS_PER_RUN = env.HARVEST_MAX_POSTS_PER_RUN ? Number(env.HARVEST_MAX_POSTS_PER_RUN) : 300;
+  const X_DM_POLLING_ENABLED = parseBoolean(env.X_DM_POLLING_ENABLED, false);
   let PORT = env.PORT ? Number(env.PORT) : 3001;
   const X_BEARER_TOKEN = env.X_BEARER_TOKEN ?? '';
   const X_CONSUMER_KEY = env.X_CONSUMER_KEY ?? '';
@@ -151,12 +154,18 @@ export function loadConfig(): Config {
     MEDIA_BUCKET_SECRET: MEDIA_BUCKET_SECRET!,
     DM_DAILY_SEND_CAP,
     HARVEST_MAX_POSTS_PER_RUN,
+    X_DM_POLLING_ENABLED,
     PORT,
     X_BEARER_TOKEN,
     X_CONSUMER_KEY,
     X_ACCESS_TOKEN,
     X_ACCESS_TOKEN_SECRET,
   };
+}
+
+function parseBoolean(value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined || value.trim() === '') return fallback;
+  return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
 }
 
 /**

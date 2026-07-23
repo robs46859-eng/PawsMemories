@@ -1,10 +1,77 @@
+## Release Acceptance Corrections - 2026-07-22
+
+This section supersedes the release position below for the next deployment. The
+reported production build was **not approved** and the rejected archive must not
+be reused. The corrections are implemented on
+`codex/release-acceptance-fixes`. Implementation is closed for this pass; package
+deployment and live debugging are explicitly deferred to the owner's next pass.
+
+### Corrected Behavior
+
+- Managed schema is now version 30. Migration 30 adds durable create-pipeline
+  recovery leases, heartbeats, source-model fingerprints, bounded rig attempts,
+  and idempotent generation/rig refund markers. Recovery rejects stale,
+  ambiguous, replaced, foreign, and already-completed jobs before any Blender
+  call.
+- Human reference generation explicitly requests head-to-feet framing with safe
+  margins. Human photo triage fails closed when the full body cannot be verified,
+  preventing cropped-at-the-knees source images from entering a paid 3D build.
+- Physical-print preparation validates the exact exported STL, attempts
+  conservative mesh cleanup first, uses a voxel-remesh fallback only when needed,
+  and refuses manufacturing checkout with measured diagnostics when the repaired
+  artifact still fails. This path requires a live Blender worker acceptance model.
+- The `physics_validate` tool is now implemented end to end and protected by the
+  same `WORKER_SHARED_SECRET` as the other worker operations. The worker and main
+  app are one coordinated release.
+- **Voice Test** is a visible authenticated screen that creates a real
+  ElevenLabs/Rhubarb preview, reports the charge before submission, plays the
+  returned audio, and displays mouth-cue activity. Replay does not charge again.
+- **Scaled BIM** is visible in navigation as a non-billable preview. It explains
+  Shell versus IFC/BIM, the higher IFC price, and verification both before and
+  after construction. Durable BIM remains disabled until its live Shell/IFC gates
+  pass.
+- The legacy marketplace and manual print-request panels are no longer routed
+  from Shop. Physical model checkout remains in the Create flow with automatic
+  repair and manufacturing validation.
+- X-DM fallback polling is default-off. A 401 or 403 stops polling until restart,
+  preventing the unused service from logging an unauthorized request every minute.
+
+### Automated Evidence
+
+- Node 24.18 full suite: 1,067 tests, 1,064 pass, 0 fail, 3 intentional opt-in
+  skips.
+- TypeScript: clean.
+- Production Vite and server build: pass; release manifest generated at schema 30.
+- Print geometry Python tests: 8/8 pass.
+- X-DM tests: 131/131 pass and its TypeScript build passes.
+- Live local MySQL recovery tests pass for lease/attempt limits and both idempotent
+  refund paths.
+- Blender itself is not installed locally; exact worker repair behavior still
+  requires the deployed Render smoke test and a real model.
+
+### Coordinated Deployment And Acceptance
+
+1. Merge the reviewed correction commit to `main` and deploy the Render Blender
+   worker first. Preserve `WORKER_SHARED_SECRET`; it must byte-match Hostinger.
+2. Suspend the unused `pawsmemories-1` X-DM service. If it is intentionally kept,
+   redeploy it with `X_DM_POLLING_ENABLED=false` until valid X credentials and a
+   real polling requirement exist.
+3. Build a new verified `pawsome3d-deploy.zip` from the clean merged commit and
+   deploy it to Hostinger. Do not upload the previously rejected archive.
+4. The next debugging pass should exercise a new full-body human build, a new
+   physical-model checkout, Voice Test audio plus mouth cues, Scaled BIM discovery,
+   the cleaned Shop, and absence of stale recovery/401 polling traffic. These are
+   deferred operational checks, not open implementation work in this release.
+
 ## Phase 4-9 Integration Handoff - 2026-07-22
 
 This section supersedes the older Phase 4/5 foundation status below. Historical sections remain for audit context.
 
 ### Integrated Code
 
-- Managed schema is now version 29. Migration 27 matches the concrete Stationery repository tables; migration 28 contains Wags entitlement/payment/grant ledgers; migration 29 contains durable BIM jobs, attempts, reports, private artifact references, acceptance, and credit events.
+- The historical integration baseline in this section used schema 29. The release
+  correction section above advances the managed schema to 30 without changing
+  migrations 27-29.
 - Phase 4 uses an authenticated, hash-bound Blender worker. Body rigging, semantic facial targets (A-H/X, jaw, bilateral blink), measured deformation/locality/reopen checks, accessory fitting, and a separate fused watertight print derivative are implemented. Canonical storage and lineage remain private and version-bound.
 - Phase 5 has owner-scoped V5 API/UI, measured badges, immutable version/publication events, rollback/archive, moderation, and a separate public derivative boundary.
 - Phase 6 has strict versioned template/render/print contracts, durable outbox and provider-event reconciliation, HMAC-authenticated render/provider callbacks, paid-payment lookup, and owner/hash-bound private file delivery. Physical provider submission remains fail-closed because the v2 contract does not yet carry an approved shipping snapshot.

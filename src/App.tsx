@@ -16,7 +16,6 @@ import CreateBuildReviewScreen from "./components/create-flow/CreateBuildReviewS
 import { CreateRigProgressScreen } from "./components/create-flow/CreateRigProgressScreen";
 import { CreateRigReviewScreen } from "./components/create-flow/CreateRigReviewScreen";
 import { CreateFlowProvider } from "./components/create-flow/CreateFlowContext";
-import MarketplaceScreen from "./components/MarketplaceScreen";
 import UnderConstructionLock from "./components/UnderConstructionLock";
 import EditMemory from "./components/EditMemory";
 import RequestMemory from "./components/RequestMemory";
@@ -29,10 +28,12 @@ const RandyChat = lazy(() => import("./components/RandyChat"));
 import AlbumView from "./components/AlbumView";
 import AlbumsPage from "./components/AlbumsPage";
 import { fetchMe, fetchCreations, fetchAlbums, createAlbum, clearToken, claimAchievement, claimDailyStreak, claimShareReward, confirmCreditsSession, acceptCurrentTerms } from "./api";
-import { Sun, Moon, LogOut, RefreshCw, Zap, Bell, ShoppingCart, Users, HelpCircle, PackageCheck, ShoppingBag, Activity, PlusCircle, Store as StoreIcon, PawPrint, User as UserIcon, MoreHorizontal } from "lucide-react";
+import { Sun, Moon, LogOut, RefreshCw, Zap, Bell, ShoppingCart, Users, HelpCircle, PackageCheck, Activity, PlusCircle, Mic2, PawPrint, User as UserIcon, MoreHorizontal, House, Archive, Building2, Gift } from "lucide-react";
 import CreditStore from "./components/CreditStore";
 const AvatarDashboard = lazy(() => import("./components/AvatarDashboard"));
 import Store from "./components/Store";
+import VoiceFlowTest from "./components/VoiceFlowTest";
+import BimPreviewScreen from "./components/BimPreviewScreen";
 import ProfileScreen from "./components/ProfileScreen";
 import Community from "./components/Community";
 import HelpModal from "./components/HelpModal";
@@ -42,10 +43,9 @@ const FurBinScreen = lazy(() => import("./components/FurBinScreen"));
 const WagsAdminPanel = lazy(() => import("./components/WagsAdminPanel"));
 const PetHealthScreen = lazy(() => import("./components/PetHealthScreen"));
 const WagsInboxScreen = lazy(() => import("./components/WagsInboxScreen"));
-const MarketplaceAdminScreen = lazy(() => import("./components/MarketplaceAdminScreen"));
 const AnimatorScreen = lazy(() => import("./animator/components/AnimatorScreen"));
 import WarehouseMode from "./components/WarehouseMode";
-import { MOBILE_NAV, SIDEBAR_NAV, TOP_PRIMARY_NAV, SHELL_ICON_NAV } from "./shellNavigation";
+import { MOBILE_NAV, SIDEBAR_NAV, SHELL_ICON_NAV } from "./shellNavigation";
 import { syncSeoMetadata } from "./seo";
 
 const EMPTY_PROFILE: UserProfile = { fullName: "", email: "", credits: 0, treats: 0, isAdmin: false, city: "", ageVerified: false, acceptedTermsVersion: null, currentTermsVersion: undefined, requiresTermsAcceptance: false };
@@ -59,6 +59,8 @@ const SCREEN_PATHS: Partial<Record<Screen, string>> = {
   [Screen.PAWLISHER]: "/fidos-styles",
   [Screen.FURBIN]: "/fur-bin",
   [Screen.STORE]: "/store",
+  [Screen.VOICE_TEST]: "/voice-test",
+  [Screen.BIM]: "/bim",
   [Screen.COMMUNITY]: "/community",
   [Screen.PROFILE]: "/profile",
   [Screen.ALBUMS]: "/albums",
@@ -68,7 +70,6 @@ const SCREEN_PATHS: Partial<Record<Screen, string>> = {
   [Screen.CREATE_CUSTOMIZE]: "/create/customize",
   [Screen.CREATE_VALIDATE]: "/create/validate",
   [Screen.CREATE_CHECKOUT]: "/create/checkout",
-  [Screen.MARKETPLACE]: "/marketplace",
   [Screen.LANDING_MODELS]: "/3d-pet-models",
   [Screen.LANDING_DOGS]: "/custom-dog-figurines",
   [Screen.LANDING_MEMORIALS]: "/pet-memorial-models",
@@ -77,12 +78,13 @@ const SCREEN_PATHS: Partial<Record<Screen, string>> = {
   [Screen.ADMIN_WAGS]: "/admin/wags",
   [Screen.PET_HEALTH]: "/pet-health",
   [Screen.WAGS_INBOX]: "/wags",
-  [Screen.ADMIN_MARKETPLACE]: "/admin/marketplace",
 };
 
 function screenFromPath(pathname: string): Screen | null {
   const normalized = pathname.replace(/\/+$/, "") || "/";
   if (normalized === "/creations") return Screen.FURBIN;
+  // Retired marketplace surfaces fall through to the safe Shop landing page.
+  if (normalized === "/marketplace" || normalized === "/admin/marketplace") return Screen.STORE;
   if (normalized === "/home" || normalized === "/") return Screen.DASHBOARD;
   const entry = Object.entries(SCREEN_PATHS).find(([, path]) => path === normalized);
   return entry ? entry[0] as Screen : null;
@@ -103,6 +105,8 @@ const getBackgroundImage = (screen: Screen) => {
       };
     case Screen.MODELS:
     case Screen.STORE:
+    case Screen.VOICE_TEST:
+    case Screen.BIM:
     case Screen.PAWPRINTS:
     case Screen.PAWLISHER:
     case Screen.FURBIN:
@@ -111,7 +115,6 @@ const getBackgroundImage = (screen: Screen) => {
     case Screen.CREATE_CUSTOMIZE:
     case Screen.CREATE_VALIDATE:
     case Screen.CREATE_CHECKOUT:
-    case Screen.MARKETPLACE:
       return {
         url: "/MAIN2.jpg",
         className: "opacity-45 blur-[1px]"
@@ -145,9 +148,16 @@ const getBackgroundImage = (screen: Screen) => {
  */
 const SHELL_ICONS: Record<string, React.ComponentType<{ size?: number; strokeWidth?: number; "aria-hidden"?: boolean | "true" | "false" }>> = {
   create: PlusCircle,
-  marketplace: StoreIcon,
+  voice: Mic2,
   pawprints: PawPrint,
   profile: UserIcon,
+};
+
+const SHELL_NAV_ICONS: Record<string, React.ComponentType<{ size?: number; strokeWidth?: number; "aria-hidden"?: boolean | "true" | "false" }>> = {
+  home: House,
+  "fur-bin": Archive,
+  bim: Building2,
+  "wags-inbox": Gift,
 };
 
 export default function App() {
@@ -430,7 +440,6 @@ export default function App() {
     { id: "theme", label: isDarkMode ? "Light mode" : "Dark mode", icon: isDarkMode ? Sun : Moon, run: toggleDarkMode },
     { id: "help", label: "Help & Support", icon: HelpCircle, run: () => setShowHelpModal(true) },
     { id: "admin-wags", label: "Wags admin", icon: PackageCheck, run: () => setCurrentScreen(Screen.ADMIN_WAGS), adminOnly: true },
-    { id: "admin-market", label: "Marketplace admin", icon: ShoppingBag, run: () => setCurrentScreen(Screen.ADMIN_MARKETPLACE), adminOnly: true },
     { id: "logout", label: "Log out", icon: LogOut, run: handleLogout, danger: true },
   ];
 
@@ -559,8 +568,7 @@ export default function App() {
       {/* Dynamic Upper Header Bar */}
       <header className="fixed inset-x-0 top-0 z-50 h-16 bg-surface/85 backdrop-blur-xl shadow-[0_8px_32px_0_rgba(68,42,34,0.08)]">
         {/* Two corners only: brand on the left, four stencil icons on the right.
-            The centre is intentionally empty — the old middle nav duplicated
-            Create/Marketplace/Pawprints, which now live in the icon row. */}
+            The centre is intentionally empty so primary tools remain legible. */}
         <nav className="mx-auto flex h-16 w-full max-w-[96rem] items-center justify-between gap-2 px-3 sm:px-5 lg:px-8">
           <button
             type="button"
@@ -691,27 +699,30 @@ export default function App() {
 
       <div className="flex-grow flex w-full relative">
         {/* Desktop Sidebar */}
-        {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN, Screen.CREATE, Screen.CREATE_REFERENCE, Screen.CREATE_CUSTOMIZE, Screen.CREATE_VALIDATE, Screen.CREATE_CHECKOUT, Screen.MARKETPLACE, Screen.ADMIN_WAGS, Screen.ADMIN_MARKETPLACE, Screen.WAGS_INBOX, Screen.PET_HEALTH].includes(currentScreen) && (
+        {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.VOICE_TEST, Screen.BIM, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN, Screen.CREATE, Screen.CREATE_REFERENCE, Screen.CREATE_CUSTOMIZE, Screen.CREATE_VALIDATE, Screen.CREATE_CHECKOUT, Screen.ADMIN_WAGS, Screen.WAGS_INBOX, Screen.PET_HEALTH].includes(currentScreen) && (
           <aside className="fixed bottom-0 left-0 top-16 z-40 hidden w-64 shrink-0 flex-col overflow-x-hidden overflow-y-auto border-r border-outline-variant/20 bg-surface/85 py-5 shadow-xl backdrop-blur-xl dark:bg-surface-dim/85 md:flex">
             <nav className="mt-4 flex-1 space-y-2 px-4">
-              {SIDEBAR_NAV.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => item.screen === Screen.ANIMATOR ? openAnimationStudio() : setCurrentScreen(item.screen)}
-                  className={`flex min-h-12 w-full items-center gap-4 rounded-lg px-4 py-3 text-left transition-all ${currentScreen === item.screen ? "bg-primary text-on-primary shadow-sm" : "text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30"}`}
-                >
-                  <span className="material-symbols-outlined shrink-0 font-sans" style={{ fontVariationSettings: currentScreen === item.screen ? "'FILL' 1" : "'FILL' 0" }}>{item.materialIcon}</span>
-                  <span className="min-w-0 truncate font-medium">{item.label}</span>
-                </button>
-              ))}
+              {SIDEBAR_NAV.map((item) => {
+                const NavIcon = SHELL_NAV_ICONS[item.id] || HelpCircle;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => item.screen === Screen.ANIMATOR ? openAnimationStudio() : setCurrentScreen(item.screen)}
+                    className={`flex min-h-12 w-full items-center gap-4 rounded-lg px-4 py-3 text-left transition-all ${currentScreen === item.screen ? "bg-primary text-on-primary shadow-sm" : "text-on-surface-variant hover:bg-secondary-container/50 dark:hover:bg-surface-variant/30"}`}
+                  >
+                    <NavIcon size={20} strokeWidth={1.9} aria-hidden="true" />
+                    <span className="min-w-0 truncate font-medium">{item.label}</span>
+                  </button>
+                );
+              })}
             </nav>
             <div className="mx-4 mt-auto space-y-2 border-t border-outline-variant/20 px-4 py-6">
               <button onClick={() => setCurrentScreen(Screen.PROFILE)} className={`flex w-full items-center gap-4 rounded-lg px-4 py-2 transition-all ${currentScreen === Screen.PROFILE ? "bg-primary text-on-primary" : "text-on-surface-variant hover:bg-secondary-container/30"}`}>
-                <span className="material-symbols-outlined shrink-0 font-sans">person</span>
+                <UserIcon size={20} strokeWidth={1.9} aria-hidden="true" />
                 <span className="text-body-sm">Profile</span>
               </button>
               <button onClick={() => setShowHelpModal(true)} className="flex w-full items-center gap-4 rounded-lg px-4 py-2 text-on-surface-variant transition-all hover:bg-secondary-container/30">
-                <span className="material-symbols-outlined shrink-0 font-sans">help</span>
+                <HelpCircle size={20} strokeWidth={1.9} aria-hidden="true" />
                 <span className="text-body-sm">Help / Support</span>
               </button>
             </div>
@@ -726,7 +737,7 @@ export default function App() {
           <HomePage
             userProfile={userProfile}
             onOpenCreate={() => !isAuthed ? setCurrentScreen(Screen.SIGN_UP) : setCurrentScreen(Screen.CREATE)}
-            onOpenMarketplace={() => setCurrentScreen(Screen.MARKETPLACE)}
+            onOpenShop={() => !isAuthed ? setCurrentScreen(Screen.SIGN_UP) : setCurrentScreen(Screen.STORE)}
             onOpenPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
             onOpenFurball={() => setCurrentScreen(Screen.CREATE)} /* RD-6: Furball3D gated; route to Create */
             onOpenFidos={() => setCurrentScreen(Screen.PAWLISHER)}
@@ -761,10 +772,6 @@ export default function App() {
           <CreateRigReviewScreen onNavigate={setCurrentScreen} />
         )}
 
-        {currentScreen === Screen.MARKETPLACE && (
-          <MarketplaceScreen onOpenCreate={() => !isAuthed ? setCurrentScreen(Screen.SIGN_UP) : setCurrentScreen(Screen.CREATE)} />
-        )}
-
         {currentScreen === Screen.PAWPRINTS && (
           <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
             <PawprintsScreen userProfile={userProfile} creations={creations} onOpenCreditStore={() => setShowCreditStore(true)} onUserUpdate={applyUser} onCreationSaved={refreshCreations} />
@@ -772,7 +779,7 @@ export default function App() {
         )}
 
         {/* When not authenticated and screen is not public, render sign-up. */}
-        {!isAuthed && ![Screen.DASHBOARD, Screen.CREATE, Screen.CREATE_REFERENCE, Screen.CREATE_CUSTOMIZE, Screen.CREATE_VALIDATE, Screen.CREATE_CHECKOUT, Screen.CREATE_BUILD_PROGRESS, Screen.CREATE_BUILD_REVIEW, Screen.CREATE_RIG_PROGRESS, Screen.CREATE_RIG_REVIEW, Screen.MARKETPLACE, Screen.PAWPRINTS, Screen.LANDING_MODELS, Screen.LANDING_DOGS, Screen.LANDING_MEMORIALS, Screen.HOW_IT_WORKS, Screen.PRICING].includes(currentScreen) ? (
+        {!isAuthed && ![Screen.DASHBOARD, Screen.CREATE, Screen.CREATE_REFERENCE, Screen.CREATE_CUSTOMIZE, Screen.CREATE_VALIDATE, Screen.CREATE_CHECKOUT, Screen.CREATE_BUILD_PROGRESS, Screen.CREATE_BUILD_REVIEW, Screen.CREATE_RIG_PROGRESS, Screen.CREATE_RIG_REVIEW, Screen.PAWPRINTS, Screen.LANDING_MODELS, Screen.LANDING_DOGS, Screen.LANDING_MEMORIALS, Screen.HOW_IT_WORKS, Screen.PRICING].includes(currentScreen) ? (
           <SignUp onAuthenticated={handleAuthenticated} />
         ) : (
           isAuthed && (
@@ -856,14 +863,16 @@ export default function App() {
 
             {currentScreen === Screen.STORE && (
               <Store
-                userProfile={userProfile}
-                onOpenCreditStore={() => setShowCreditStore(true)}
-                onGoToAvatars={() => setCurrentScreen(Screen.CREATE)} /* RD-6: avatars gated; route to Create */
-                albums={albums}
-                creations={creations}
-                onSelectCreation={handleSelectCreation}
                 onNavigate={setCurrentScreen}
               />
+            )}
+
+            {currentScreen === Screen.VOICE_TEST && (
+              <VoiceFlowTest userProfile={userProfile} onUserUpdate={applyUser} />
+            )}
+
+            {currentScreen === Screen.BIM && (
+              <BimPreviewScreen onGoToCreate={() => setCurrentScreen(Screen.CREATE)} />
             )}
 
             {currentScreen === Screen.PROFILE && (
@@ -905,23 +914,6 @@ export default function App() {
               </Suspense>
             )}
 
-            {currentScreen === Screen.ADMIN_MARKETPLACE && (
-              userProfile.isAdmin ? (
-                <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
-                  <MarketplaceAdminScreen onClose={() => setCurrentScreen(Screen.DASHBOARD)} />
-                </Suspense>
-              ) : (
-                <HomePage
-                  userProfile={userProfile}
-                  onOpenCreate={() => setCurrentScreen(Screen.CREATE)}
-                  onOpenMarketplace={() => setCurrentScreen(Screen.MARKETPLACE)}
-                  onOpenPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
-                  onOpenFurball={() => setCurrentScreen(Screen.CREATE)}
-                  onOpenFidos={() => setCurrentScreen(Screen.PAWLISHER)}
-                />
-              )
-            )}
-
             {currentScreen === Screen.WAGS_INBOX && (
               <Suspense fallback={<div className="flex-1 flex items-center justify-center py-24 text-on-surface-variant"><RefreshCw className="animate-spin" size={22} /></div>}>
                 <WagsInboxScreen onGoToFidos={() => setCurrentScreen(Screen.PAWLISHER)} />
@@ -939,7 +931,7 @@ export default function App() {
                 <HomePage
                   userProfile={userProfile}
                   onOpenCreate={() => setCurrentScreen(Screen.CREATE)}
-                  onOpenMarketplace={() => setCurrentScreen(Screen.MARKETPLACE)}
+                  onOpenShop={() => setCurrentScreen(Screen.STORE)}
                   onOpenPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
                   onOpenFurball={() => setCurrentScreen(Screen.CREATE)}
                   onOpenFidos={() => setCurrentScreen(Screen.PAWLISHER)}
@@ -967,7 +959,7 @@ export default function App() {
               <HomePage
                 userProfile={userProfile}
                 onOpenCreate={() => setCurrentScreen(Screen.CREATE)}
-                onOpenMarketplace={() => setCurrentScreen(Screen.MARKETPLACE)}
+                onOpenShop={() => setCurrentScreen(Screen.STORE)}
                 onOpenPawprints={() => setCurrentScreen(Screen.PAWPRINTS)}
                 onOpenFurball={() => setCurrentScreen(Screen.CREATE)} /* RD-6: Furball3D gated; route to Create */
                 onOpenFidos={() => setCurrentScreen(Screen.PAWLISHER)}
@@ -1006,26 +998,29 @@ export default function App() {
       )}
 
       {/* Floating Bottom Navigator (only when signed in and past onboarding) */}
-      {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN, Screen.CREATE, Screen.MARKETPLACE, Screen.WAGS_INBOX].includes(currentScreen) && (
+      {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.VOICE_TEST, Screen.BIM, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN, Screen.CREATE, Screen.WAGS_INBOX].includes(currentScreen) && (
         <div
-          className="fixed inset-x-0 bottom-0 z-40 grid gap-1 rounded-t-2xl border-t border-outline-variant/30 bg-surface-container-lowest/90 px-1 py-2 shadow-[0_-8px_32px_0_rgba(68,42,34,0.08)] backdrop-blur-xl dark:bg-surface-dim/90 md:hidden"
+          className="fixed inset-x-0 bottom-0 z-40 grid gap-1 rounded-t-2xl border-t border-outline-variant/30 bg-surface-container-lowest/90 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-8px_32px_0_rgba(68,42,34,0.08)] backdrop-blur-xl dark:bg-surface-dim/90 md:hidden"
           // Column count follows the nav length (+1 for Help) rather than being
           // hard-coded, so trimming MOBILE_NAV can't leave a stretched or
           // overflowing grid again.
           style={{ gridTemplateColumns: `repeat(${MOBILE_NAV.length + 1}, minmax(0, 1fr))` }}
         >
-          {MOBILE_NAV.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => item.screen === Screen.ANIMATOR ? openAnimationStudio() : setCurrentScreen(item.screen)}
-              className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 py-2 transition-colors ${currentScreen === item.screen ? "bg-primary text-on-primary" : "text-on-surface-variant hover:bg-surface-variant/50"}`}
-            >
-              <span className="material-symbols-outlined shrink-0 font-sans" style={{ fontVariationSettings: currentScreen === item.screen ? "'FILL' 1" : "'FILL' 0" }}>{item.materialIcon}</span>
-              <span className="w-full truncate text-center text-[9px] font-bold">{item.label}</span>
-            </button>
-          ))}
+          {MOBILE_NAV.map((item) => {
+            const NavIcon = SHELL_NAV_ICONS[item.id] || HelpCircle;
+            return (
+              <button
+                key={item.id}
+                onClick={() => item.screen === Screen.ANIMATOR ? openAnimationStudio() : setCurrentScreen(item.screen)}
+                className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 py-2 transition-colors ${currentScreen === item.screen ? "bg-primary text-on-primary" : "text-on-surface-variant hover:bg-surface-variant/50"}`}
+              >
+                <NavIcon size={20} strokeWidth={1.9} aria-hidden="true" />
+                <span className="w-full truncate text-center text-[9px] font-bold">{item.label}</span>
+              </button>
+            );
+          })}
           <button onClick={() => setShowHelpModal(true)} className="flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 py-2 text-on-surface-variant hover:bg-surface-variant/50">
-            <span className="material-symbols-outlined shrink-0 font-sans">help</span>
+            <HelpCircle size={20} strokeWidth={1.9} aria-hidden="true" />
             <span className="w-full truncate text-center text-[9px] font-bold">Help</span>
           </button>
         </div>

@@ -1,4 +1,5 @@
 import { PublicUser, Creation, Album, LocationParams, Avatar, PhotoRequest, RequestType, AvatarNeeds, BehaviorAction, PlacedObject, VoiceCloneAsset } from "./types";
+import type { VisemeTrack } from "./animator/viseme/visemeRules";
 
 /**
  * Lightweight API client that manages the session token and auth flow.
@@ -567,6 +568,30 @@ export async function createTalkingVideo(creationId: number, script: string, voi
   });
   if (!res.ok) throw new Error(await parseError(res, "Failed to start talking video generation."));
   return await res.json();
+}
+
+export interface VoicePreviewResult {
+  audioBase64: string;
+  mimeType: string;
+  track: VisemeTrack | null;
+  tier: "B" | "A";
+  degradedReason?: string;
+  creditsCharged: number;
+}
+
+/** Generate real configured TTS audio and its server-produced lip-sync track. */
+export async function createVoicePreview(text: string): Promise<VoicePreviewResult> {
+  const res = await authedFetch("/api/animator/speech-preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, language: "en" }),
+  });
+  if (!res.ok) throw new Error(await parseError(res, "Voice and lip-sync preview could not be generated."));
+  const data = await res.json() as Partial<VoicePreviewResult>;
+  if (typeof data.audioBase64 !== "string" || !data.audioBase64 || typeof data.mimeType !== "string" || !data.mimeType.startsWith("audio/") || (data.tier !== "A" && data.tier !== "B")) {
+    throw new Error("The voice service returned an invalid preview.");
+  }
+  return data as VoicePreviewResult;
 }
 
 export async function create3DModel(creationId: number): Promise<{ jobId: number }> {

@@ -69,6 +69,7 @@ describe('loadConfig', () => {
     expect(config.MEDIA_BUCKET_SECRET).toBe('test-secret');
     expect(config.DM_DAILY_SEND_CAP).toBe(400);
     expect(config.HARVEST_MAX_POSTS_PER_RUN).toBe(300);
+    expect(config.X_DM_POLLING_ENABLED).toBe(false);
     expect(config.PORT).toBe(3001);
   });
 
@@ -103,6 +104,16 @@ describe('loadConfig', () => {
     expect(config.X_WEBHOOK_URL).toBe('');
     expect(config.LLM_BASE_URL).toBe('https://openrouter.ai/api/v1');
     expect(config.DB_PORT).toBe(3306);
+  });
+
+  it('should enable DM polling only when explicitly configured', async () => {
+    vi.resetModules();
+    process.env.X_DM_POLLING_ENABLED = 'true';
+
+    const { loadConfig } = await import('../src/config.js');
+    const config = loadConfig();
+
+    expect(config.X_DM_POLLING_ENABLED).toBe(true);
   });
 
   it('should exit on missing required env vars', async () => {

@@ -12,7 +12,7 @@ const MYSQL_CONFIG = {
 };
 const TEST_DB = "paws_phase45_migration_test_db";
 
-test("Phase 4-9 managed migrations through durable BIM migration 29", async (t) => {
+test("Phase 4-9 migrations plus rig recovery migration 30", async (t) => {
   let pool;
   try {
     const admin = await mysql.createConnection(MYSQL_CONFIG);
@@ -32,13 +32,13 @@ test("Phase 4-9 managed migrations through durable BIM migration 29", async (t) 
     await admin.end();
   });
 
-  await t.test("should execute all managed migrations through 29 cleanly", async () => {
+  await t.test("should execute all managed migrations through 30 cleanly", async () => {
     const result = await runMigrations(pool);
     assert.ok(result.durationMs >= 0);
 
     const [rows] = await pool.query("SELECT MAX(version) as max_v FROM schema_migrations");
     assert.equal(rows[0].max_v, CURRENT_SCHEMA_VERSION);
-    assert.equal(CURRENT_SCHEMA_VERSION, 29);
+    assert.equal(CURRENT_SCHEMA_VERSION, 30);
   });
 
   await t.test("should verify Phase 4 and 5 tables exist in schema", async () => {
