@@ -59,9 +59,10 @@ function configuration(): PrintfulConfig {
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
-      // Store scoping is optional: a store-scoped token implies its store. Only
-      // send the header when an ID is configured (mirrors server/printful.ts).
-      ...(process.env.PRINTFUL_STORE_ID ? { "X-PF-Store-Id": process.env.PRINTFUL_STORE_ID } : {}),
+      // The blank-product catalogue and print-file specifications are global
+      // resources. Supplying store context here makes an otherwise valid token
+      // fail with 404 when a deployment still contains a placeholder store ID.
+      // Order endpoints keep their store-scoped header in server/printful.ts.
     },
   };
 }

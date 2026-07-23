@@ -182,3 +182,20 @@ test("catalog requests discard an accidental v2 path from the configured Printfu
   await cat.listProducts();
   assert.equal(requestedUrl, "https://api.printful.com/products");
 });
+
+test("global catalog reads do not send store context", async () => {
+  const cat = await import("../server/printfulCatalog.ts");
+  cat.clearCatalogueCache();
+  process.env.PRINTFUL_STORE_ID = "12345678";
+  let requestedHeaders;
+  globalThis.fetch = async (_url, options) => {
+    requestedHeaders = options?.headers;
+    return new Response(JSON.stringify({ code: 200, result: [] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  await cat.listProducts();
+  assert.equal(requestedHeaders["X-PF-Store-Id"], undefined);
+  delete process.env.PRINTFUL_STORE_ID;
+});
