@@ -48,3 +48,10 @@ test("Printful diagnostics return safe provider state and never expose the token
   );
   assert.doesNotMatch(diagnosticBlock, /PRINTFUL_API_KEY|Authorization/);
 });
+
+test("creation-backed models have the same remove and restore lifecycle as legacy avatars", () => {
+  assert.match(server, /\/api\/models\/:sourceType\/:id/);
+  assert.match(server, /sourceType === "creation"/);
+  assert.match(furbin, /removeModelFromLibrary\(model\.source_type, model\.id\)/);
+  assert.doesNotMatch(furbin, /model\.source_type === "avatar" && <button[^>]*handleRemoveModel/);
+});

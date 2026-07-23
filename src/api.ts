@@ -402,6 +402,28 @@ export async function fetchModelLibrary(): Promise<ModelLibraryItem[]> {
   return (await res.json()).models || [];
 }
 
+export async function removeModelFromLibrary(
+  sourceType: ModelLibraryItem["source_type"],
+  id: number,
+): Promise<void> {
+  const res = await authedFetch(`/api/models/${sourceType}/${id}`, { method: "DELETE" });
+  if (!res.ok) await throwApiError(res, "Failed to remove model.");
+}
+
+export async function fetchHiddenModels(): Promise<(ModelLibraryItem & { hidden_at?: string | null })[]> {
+  const res = await authedFetch("/api/models/hidden");
+  if (!res.ok) return [];
+  return (await res.json()).models || [];
+}
+
+export async function restoreModelToLibrary(
+  sourceType: ModelLibraryItem["source_type"],
+  id: number,
+): Promise<void> {
+  const res = await authedFetch(`/api/models/${sourceType}/${id}/restore`, { method: "POST" });
+  if (!res.ok) await throwApiError(res, "Failed to restore model.");
+}
+
 export interface FulfillmentReadiness {
   modelPrinting: { provider: "slant3d"; available: boolean };
   pawprintPrinting: { provider: "printful"; available: boolean; productCount: number };

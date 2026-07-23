@@ -201,6 +201,35 @@ describe("Viseme normalization (ANIM-LIP-02)", () => {
     const seq = track.cues.map((c) => c.v).join("");
     assert.ok(seq.includes("CEF"), `expected C→E→F bridge, got ${seq}`);
   });
+
+  test("keeps transition bridges when source cues are only one frame apart", () => {
+    const track = viseme.postProcessVisemeTrack(
+      [
+        { t: 0.0, v: "A" },
+        { t: 0.04, v: "D" },
+        { t: 0.08, v: "C" },
+        { t: 0.12, v: "F" },
+      ],
+      { fps: 30, anticipationSec: 0 },
+    );
+    assert.equal(viseme.lintVisemeTrack(track).pass, true);
+    assert.ok(track.cues.some((cue) => cue.v === "E"), "C→F keeps its E bridge");
+  });
+
+  test("normalizes a standalone Rhubarb E cue into a lint-safe transition", () => {
+    const track = viseme.postProcessVisemeTrack(
+      [
+        { t: 0.0, v: "X" },
+        { t: 0.12, v: "E" },
+        { t: 0.24, v: "X" },
+      ],
+      { fps: 30, anticipationSec: 0 },
+    );
+    assert.equal(viseme.lintVisemeTrack(track).pass, true);
+    const eIndex = track.cues.findIndex((cue) => cue.v === "E");
+    assert.ok(eIndex >= 0);
+    assert.equal(track.cues[eIndex - 1]?.v === "C" || track.cues[eIndex + 1]?.v === "C", true);
+  });
 });
 
 // ────────────────────────────────────────────────────────────

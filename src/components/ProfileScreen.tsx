@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { UserProfile, PublicUser } from "../types";
 import { User, Zap, Flame, LogOut, Sun, Moon, Trophy, MapPin, History, Camera, ImagePlus, Trash2, Loader2, Gift, Shield, FileText, Mail, Phone, Download, AlertTriangle, Share2, ExternalLink } from "lucide-react";
-import { getCreditHistory, CreditTxn, getUserPhotos, addUserPhoto, deleteUserPhoto, uploadProfilePhoto, UserPhoto, authedFetch, fetchStorageUsage, purchaseStorageGb, fetchHiddenAvatars, restoreAvatar, type StorageUsage } from "../api";
+import { getCreditHistory, CreditTxn, getUserPhotos, addUserPhoto, deleteUserPhoto, uploadProfilePhoto, UserPhoto, authedFetch, fetchStorageUsage, purchaseStorageGb, fetchHiddenModels, restoreModelToLibrary, type StorageUsage } from "../api";
 import StorageMeter from "./StorageMeter";
 
 interface ProfileScreenProps {
@@ -64,7 +64,7 @@ export default function ProfileScreen({
   useEffect(() => {
     getCreditHistory().then(setHistory).catch(() => {});
     getUserPhotos().then(setPhotos).catch(() => {});
-    fetchHiddenAvatars().then(setHiddenAvatars).catch(() => {});
+    fetchHiddenModels().then(setHiddenAvatars).catch(() => {});
     loadProfile();
   }, []);
 
@@ -128,11 +128,11 @@ export default function ProfileScreen({
     if (ok) setPhotos((prev) => prev.filter((p) => p.id !== id));
   };
 
-  const handleRestoreAvatar = async (id: number) => {
-    setRestoringAvatarId(id);
+  const handleRestoreAvatar = async (model: any) => {
+    setRestoringAvatarId(model.id);
     try {
-      await restoreAvatar(id);
-      setHiddenAvatars((prev) => prev.filter((a) => a.id !== id));
+      await restoreModelToLibrary(model.source_type, model.id);
+      setHiddenAvatars((prev) => prev.filter((a) => a.id !== model.id || a.source_type !== model.source_type));
     } catch (err: any) {
       alert(err?.message || "Could not restore that model.");
     } finally {
@@ -442,7 +442,7 @@ export default function ProfileScreen({
         ) : (
           <div className="space-y-2">
             {hiddenAvatars.map((avatar) => (
-              <div key={avatar.id} className="flex items-center gap-3 rounded-xl bg-surface-container p-3">
+              <div key={`${avatar.source_type}-${avatar.id}`} className="flex items-center gap-3 rounded-xl bg-surface-container p-3">
                 {avatar.image_url && (
                   <img
                     src={avatar.image_url}
@@ -458,7 +458,7 @@ export default function ProfileScreen({
                 </div>
                 <button
                   type="button"
-                  onClick={() => handleRestoreAvatar(avatar.id)}
+                  onClick={() => handleRestoreAvatar(avatar)}
                   disabled={restoringAvatarId === avatar.id}
                   className="shrink-0 rounded-full border border-primary/30 px-3 py-1.5 text-[11px] font-black text-primary transition hover:bg-primary/10 disabled:opacity-40"
                 >

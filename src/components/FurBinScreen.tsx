@@ -3,7 +3,7 @@ import type { Creation, UserProfile, VoiceCloneAsset } from "../types";
 import { Download, Eye, FileImage, Film, HardDrive, PackageOpen, PawPrint, Printer, RefreshCw, ShieldAlert, ShieldCheck, Volume2, X, Loader2, Trash2, RotateCcw } from "lucide-react";
 import StorageMeter from "./StorageMeter";
 import PetModelViewer from "./PetModelViewer";
-import { createSlant3dCheckout, createMarketplacePrintCheckout, fetchFulfillmentReadiness, fetchModelLibrary, fetchModelPrintOrders, fetchPawprintPrintOrders, listVoiceCloneAssets, fetchUserEntitlements, fetchDigitalOrderStatus, downloadDigitalListing, retryAvatarGeneration, deleteAvatar, fetchHiddenAvatars, restoreAvatar, type ModelLibraryItem, type ModelPrintOrder, type PawprintPrintOrder } from "../api";
+import { createSlant3dCheckout, createMarketplacePrintCheckout, fetchFulfillmentReadiness, fetchModelLibrary, fetchModelPrintOrders, fetchPawprintPrintOrders, listVoiceCloneAssets, fetchUserEntitlements, fetchDigitalOrderStatus, downloadDigitalListing, retryAvatarGeneration, removeModelFromLibrary, fetchHiddenModels, restoreModelToLibrary, type ModelLibraryItem, type ModelPrintOrder, type PawprintPrintOrder } from "../api";
 
 const FurBinV5Experience = React.lazy(() => import("./fur-bin-v5"));
 
@@ -91,7 +91,7 @@ function LegacyFurBinScreen({ creations, userProfile, onOpenCreditStore }: FurBi
 
     const refresh = () => {
       fetchModelLibrary().then((items) => active && setModels(items)).catch(() => {});
-      fetchHiddenAvatars().then((items) => active && setHiddenModels(items)).catch(() => {});
+      fetchHiddenModels().then((items) => active && setHiddenModels(items)).catch(() => {});
       fetchModelPrintOrders().then((items) => active && setPrintOrders(items)).catch(() => {});
       fetchPawprintPrintOrders().then((items) => active && setPawprintPrintOrders(items)).catch(() => {});
       fetchUserEntitlements().then((items) => active && setMarketplaceModels(items)).catch(() => {});
@@ -108,7 +108,7 @@ function LegacyFurBinScreen({ creations, userProfile, onOpenCreditStore }: FurBi
   }, []);
 
   const refreshModelLifecycle = async () => {
-    const [active, hidden] = await Promise.all([fetchModelLibrary(), fetchHiddenAvatars()]);
+    const [active, hidden] = await Promise.all([fetchModelLibrary(), fetchHiddenModels()]);
     setModels(active);
     setHiddenModels(hidden);
   };
@@ -128,12 +128,11 @@ function LegacyFurBinScreen({ creations, userProfile, onOpenCreditStore }: FurBi
   };
 
   const handleRemoveModel = async (model: ModelLibraryItem) => {
-    if (model.source_type !== "avatar") return;
     setModelActionBusy(`remove-${model.id}`);
     setModelActionError("");
     try {
-      await deleteAvatar(model.id);
-      if (selectedModel?.id === model.id && selectedModel.source_type === "avatar") setSelectedModel(null);
+      await removeModelFromLibrary(model.source_type, model.id);
+      if (selectedModel?.id === model.id && selectedModel.source_type === model.source_type) setSelectedModel(null);
       await refreshModelLifecycle();
     } catch (error: any) {
       setModelActionError(error?.message || "Could not remove this model.");
@@ -142,11 +141,11 @@ function LegacyFurBinScreen({ creations, userProfile, onOpenCreditStore }: FurBi
     }
   };
 
-  const handleRestoreModel = async (id: number) => {
-    setModelActionBusy(`restore-${id}`);
+  const handleRestoreModel = async (model: ModelLibraryItem) => {
+    setModelActionBusy(`restore-${model.source_type}-${model.id}`);
     setModelActionError("");
     try {
-      await restoreAvatar(id);
+      await restoreModelToLibrary(model.source_type, model.id);
       await refreshModelLifecycle();
     } catch (error: any) {
       setModelActionError(error?.message || "Could not restore this model.");
@@ -307,13 +306,13 @@ function LegacyFurBinScreen({ creations, userProfile, onOpenCreditStore }: FurBi
                   {modelUrl && <button type="button" onClick={() => setSelectedModel(model)} className="inline-flex min-h-10 items-center justify-center gap-1 rounded-xl bg-primary text-xs font-black text-on-primary"><Eye size={14} /> Open</button>}
                   {modelUrl && <a href={modelUrl} download className="inline-flex min-h-10 items-center justify-center gap-1 rounded-xl border border-primary/30 text-xs font-black text-primary"><Download size={14} /> GLB</a>}
                   {failed && model.source_type === "avatar" && <button type="button" onClick={() => handleRetryModel(model)} disabled={busy} className="inline-flex min-h-10 items-center justify-center gap-1 rounded-xl bg-primary text-xs font-black text-on-primary disabled:opacity-50"><RotateCcw size={14} /> Retry build</button>}
-                  {model.source_type === "avatar" && <button type="button" onClick={() => handleRemoveModel(model)} disabled={busy} className="inline-flex min-h-10 items-center justify-center gap-1 rounded-xl border border-error/30 text-xs font-black text-error disabled:opacity-50"><Trash2 size={14} /> Remove</button>}
+                  {model.source_type !== "marketplace_listing" && <button type="button" onClick={() => handleRemoveModel(model)} disabled={busy} className="inline-flex min-h-10 items-center justify-center gap-1 rounded-xl border border-error/30 text-xs font-black text-error disabled:opacity-50"><Trash2 size={14} /> Remove</button>}
                 </div>
               </div>
             </article>;
           })}
         </div>}
-        {hiddenModels.length > 0 && <details className="mt-5 rounded-2xl border border-outline-variant/35 bg-surface/75 p-4"><summary className="cursor-pointer text-sm font-black text-on-surface">Removed models ({hiddenModels.length})</summary><div className="mt-3 grid gap-2 sm:grid-cols-2">{hiddenModels.map((model) => <div key={model.id} className="flex items-center justify-between gap-3 rounded-xl bg-surface-container p-3"><div className="min-w-0"><p className="truncate text-sm font-bold">{model.name || "Removed model"}</p><p className="text-xs text-on-surface-variant">{model.breed || "Custom model"}</p></div><button type="button" onClick={() => handleRestoreModel(model.id)} disabled={modelActionBusy === `restore-${model.id}`} className="inline-flex min-h-9 items-center gap-1 rounded-lg bg-primary px-3 text-xs font-black text-on-primary disabled:opacity-50"><RotateCcw size={13} /> Restore</button></div>)}</div></details>}
+        {hiddenModels.length > 0 && <details className="mt-5 rounded-2xl border border-outline-variant/35 bg-surface/75 p-4"><summary className="cursor-pointer text-sm font-black text-on-surface">Removed models ({hiddenModels.length})</summary><div className="mt-3 grid gap-2 sm:grid-cols-2">{hiddenModels.map((model) => <div key={`${model.source_type}-${model.id}`} className="flex items-center justify-between gap-3 rounded-xl bg-surface-container p-3"><div className="min-w-0"><p className="truncate text-sm font-bold">{model.name || "Removed model"}</p><p className="text-xs text-on-surface-variant">{model.breed || "Custom model"}</p></div><button type="button" onClick={() => handleRestoreModel(model)} disabled={modelActionBusy === `restore-${model.source_type}-${model.id}`} className="inline-flex min-h-9 items-center gap-1 rounded-lg bg-primary px-3 text-xs font-black text-on-primary disabled:opacity-50"><RotateCcw size={13} /> Restore</button></div>)}</div></details>}
       </section>}
 
       <div className="mt-7 flex flex-wrap gap-2" role="tablist" aria-label="FurBin output type">

@@ -201,19 +201,12 @@ export function postProcessVisemeTrack(
   // 5. Merge sub-frame cues into neighbors.
   cues = mergeSubFrameCues(cues, frameDur);
 
-  // 6. Transition bridges.
+  // 6. Transition bridges. Do not run the sub-frame merger after this step:
+  // bridges intentionally live between two source cues and can therefore be
+  // less than one frame wide. Re-merging here used to delete the C/E bridge
+  // that the linter requires, degrading valid Rhubarb output to audio-only.
   cues = insertTransitionBridges(cues);
-
-  // 7. Final sort (bridges may have altered order) + re-merge + re-bridge until stable.
-  let prev = "";
-  let guard = 0;
-  do {
-    prev = JSON.stringify(cues);
-    cues = cues.slice().sort((a, b) => a.t - b.t);
-    cues = mergeSubFrameCues(cues, frameDur);
-    cues = insertTransitionBridges(cues);
-    guard++;
-  } while (JSON.stringify(cues) !== prev && guard < 8);
+  cues = ensureStandaloneEHasCNeighbor(cues, frameDur);
 
   const durationSec =
     opts.durationSec !== undefined
@@ -287,6 +280,31 @@ function insertTransitionBridges(cues: VisemeCue[]): VisemeCue[] {
       out.push({ t: midT, v: "E" });
     }
     out.push(cur);
+  }
+  return out;
+}
+
+/**
+ * Rhubarb can emit E as a source shape rather than only as our synthetic C→F
+ * bridge. The player supports E, but the transition contract requires every E
+ * to touch a C. Insert a short C lead-in without deleting or moving the source
+ * cue. Equal timestamps are safe: sampling chooses the latest cue at a time.
+ */
+function ensureStandaloneEHasCNeighbor(
+  cues: VisemeCue[],
+  frameDur: number,
+): VisemeCue[] {
+  const out: VisemeCue[] = [];
+  for (let i = 0; i < cues.length; i++) {
+    const cue = cues[i];
+    const previous = cues[i - 1];
+    const next = cues[i + 1];
+    if (cue.v === "E" && previous?.v !== "C" && next?.v !== "C") {
+      const previousTime = out[out.length - 1]?.t ?? 0;
+      const leadIn = Math.min(frameDur / 2, Math.max(0, cue.t - previousTime) / 2);
+      out.push({ t: Math.max(previousTime, cue.t - leadIn), v: "C" });
+    }
+    out.push(cue);
   }
   return out;
 }

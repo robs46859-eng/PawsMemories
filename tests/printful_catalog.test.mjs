@@ -20,6 +20,7 @@ function stubFetch(routes) {
 
 test.afterEach(() => {
   globalThis.fetch = ORIGINAL_FETCH;
+  delete process.env.PRINTFUL_API_BASE_URL;
 });
 
 test("listProducts maps the catalogue shape", async () => {
@@ -164,4 +165,20 @@ test("connection diagnostics confirm a reachable catalog", async () => {
   const result = await cat.verifyPrintfulCatalogConnection();
   assert.equal(result.reachable, true);
   assert.equal(result.providerStatus, 200);
+});
+
+test("catalog requests discard an accidental v2 path from the configured Printful origin", async () => {
+  const cat = await import("../server/printfulCatalog.ts");
+  cat.clearCatalogueCache();
+  process.env.PRINTFUL_API_BASE_URL = "https://api.printful.com/v2";
+  let requestedUrl = "";
+  globalThis.fetch = async (url) => {
+    requestedUrl = String(url);
+    return new Response(JSON.stringify({ code: 200, result: [] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  await cat.listProducts();
+  assert.equal(requestedUrl, "https://api.printful.com/products");
 });

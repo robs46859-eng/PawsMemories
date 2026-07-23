@@ -21,6 +21,24 @@ interface PrintfulConfig {
   headers: Record<string, string>;
 }
 
+/**
+ * Catalogue calls use Printful's stable v1 origin. A previously documented
+ * deployment value included `/v2`, producing `/v2/products` and a provider
+ * 404. Preserve custom proxy paths, but strip paths from Printful's own host.
+ */
+export function normalizePrintfulCatalogBaseUrl(raw: string | undefined): string {
+  const configured = (raw || "https://api.printful.com").trim();
+  try {
+    const parsed = new URL(configured);
+    if (parsed.hostname.toLowerCase() === "api.printful.com") {
+      return `${parsed.protocol}//${parsed.host}`;
+    }
+  } catch {
+    // The request below will surface a typed network error for malformed URLs.
+  }
+  return configured.replace(/\/+$/, "");
+}
+
 export class PrintfulCatalogError extends Error {
   constructor(
     message: string,
@@ -34,7 +52,7 @@ export class PrintfulCatalogError extends Error {
 
 function configuration(): PrintfulConfig {
   const token = process.env.PRINTFUL_API_KEY || "";
-  const base = (process.env.PRINTFUL_API_BASE_URL || "https://api.printful.com").replace(/\/$/, "");
+  const base = normalizePrintfulCatalogBaseUrl(process.env.PRINTFUL_API_BASE_URL);
   if (!token) throw new PrintfulCatalogError("Printful is not configured: set PRINTFUL_API_KEY.", null, "not_configured");
   return {
     base,

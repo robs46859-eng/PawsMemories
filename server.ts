@@ -5819,7 +5819,8 @@ async function startServer() {
         `SELECT id, 'creation' AS source_type, pet_name AS name, pet_breed AS breed,
                 image_url, model_url, NULL AS rigged_model_url, created_at,
                 CASE WHEN model_url IS NULL THEN 'building' ELSE 'done' END AS status
-         FROM creations WHERE user_phone = ? AND media_type = 'model'`,
+         FROM creations
+         WHERE user_phone = ? AND media_type = 'model' AND hidden_at IS NULL`,
         [phone]
       ) as any;
       const [avatarRows] = await getPool().query(
@@ -5843,6 +5844,85 @@ async function startServer() {
     } catch (err: any) {
       console.error("Model library error:", err);
       res.status(500).json({ success: false, error: "Failed to load your model library." });
+    }
+  });
+
+  app.get("/api/models/hidden", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const phone = req.user!.phone;
+      const [creationRows] = await getPool().query(
+        `SELECT id, 'creation' AS source_type, pet_name AS name, pet_breed AS breed,
+                image_url, model_url, NULL AS rigged_model_url, created_at,
+                hidden_at, 'done' AS status
+         FROM creations
+         WHERE user_phone = ? AND media_type = 'model' AND hidden_at IS NOT NULL`,
+        [phone],
+      ) as any;
+      const [avatarRows] = await getPool().query(
+        `SELECT id, 'avatar' AS source_type, name, breed, image_url, model_url,
+                rigged_model_url, created_at, hidden_at, generation_status AS status
+         FROM avatars
+         WHERE user_phone = ? AND hidden_at IS NOT NULL`,
+        [phone],
+      ) as any;
+      const models = [...creationRows, ...avatarRows]
+        .sort((a: any, b: any) => new Date(b.hidden_at).getTime() - new Date(a.hidden_at).getTime());
+      res.json({ success: true, models });
+    } catch (err: any) {
+      console.error("[GET /api/models/hidden] Error:", err?.message || err);
+      res.status(500).json({ success: false, error: "Failed to load removed models." });
+    }
+  });
+
+  app.delete("/api/models/:sourceType/:id", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const sourceType = req.params.sourceType;
+      const id = Number(req.params.id);
+      if (!["creation", "avatar"].includes(sourceType) || !Number.isInteger(id) || id <= 0) {
+        return res.status(400).json({ success: false, error: "Invalid model reference." });
+      }
+      let success = false;
+      if (sourceType === "creation") {
+        const [result] = await getPool().query(
+          `UPDATE creations SET hidden_at = CURRENT_TIMESTAMP
+           WHERE id = ? AND user_phone = ? AND media_type = 'model' AND hidden_at IS NULL`,
+          [id, req.user!.phone],
+        ) as any;
+        success = result.affectedRows === 1;
+      } else {
+        success = await hideAvatar(id, req.user!.phone);
+      }
+      if (!success) return res.status(404).json({ success: false, error: "Model not found." });
+      res.json({ success: true, hidden: true });
+    } catch (err: any) {
+      console.error("[DELETE /api/models/:sourceType/:id] Error:", err?.message || err);
+      res.status(500).json({ success: false, error: "Failed to remove model." });
+    }
+  });
+
+  app.post("/api/models/:sourceType/:id/restore", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const sourceType = req.params.sourceType;
+      const id = Number(req.params.id);
+      if (!["creation", "avatar"].includes(sourceType) || !Number.isInteger(id) || id <= 0) {
+        return res.status(400).json({ success: false, error: "Invalid model reference." });
+      }
+      let success = false;
+      if (sourceType === "creation") {
+        const [result] = await getPool().query(
+          `UPDATE creations SET hidden_at = NULL
+           WHERE id = ? AND user_phone = ? AND media_type = 'model' AND hidden_at IS NOT NULL`,
+          [id, req.user!.phone],
+        ) as any;
+        success = result.affectedRows === 1;
+      } else {
+        success = await unhideAvatar(id, req.user!.phone);
+      }
+      if (!success) return res.status(404).json({ success: false, error: "Removed model not found." });
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("[POST /api/models/:sourceType/:id/restore] Error:", err?.message || err);
+      res.status(500).json({ success: false, error: "Failed to restore model." });
     }
   });
 

@@ -1003,6 +1003,9 @@ export async function initDb(): Promise<void> {
     const requiredCreationsColumns: { name: string; ddl: string }[] = [
       { name: "pet_name",  ddl: "ADD COLUMN pet_name VARCHAR(120) NULL" },
       { name: "pet_breed", ddl: "ADD COLUMN pet_breed VARCHAR(120) NULL" },
+      // Create-pipeline models need the same reversible roster lifecycle as
+      // legacy avatar models. The underlying Backblaze object is not deleted.
+      { name: "hidden_at", ddl: "ADD COLUMN hidden_at TIMESTAMP NULL DEFAULT NULL" },
     ];
     for (const col of requiredCreationsColumns) {
       if (!creationsColumnNames.includes(col.name)) {
