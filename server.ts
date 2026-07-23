@@ -2958,6 +2958,15 @@ async function startServer() {
   // Admin-only. Surfaces products/variants and the authoritative print-file
   // geometry the admin needs to author a placement template. See
   // MARKETPLACE_CUSTOMIZER_SPEC.md and server/printfulCatalog.ts.
+  app.get("/api/admin/customizer/status", requireAuth, async (req: AuthedRequest, res) => {
+    if (!await requireMarketplaceAdmin(req, res)) return;
+    res.json({
+      configured: printfulCatalogConfigured(),
+      storeIdConfigured: Boolean(process.env.PRINTFUL_STORE_ID),
+      baseUrlConfigured: Boolean(process.env.PRINTFUL_API_BASE_URL),
+    });
+  });
+
   app.get("/api/admin/customizer/products", requireAuth, async (req: AuthedRequest, res) => {
     if (!await requireMarketplaceAdmin(req, res)) return;
     if (!printfulCatalogConfigured()) {

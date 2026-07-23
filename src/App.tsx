@@ -28,7 +28,7 @@ const RandyChat = lazy(() => import("./components/RandyChat"));
 import AlbumView from "./components/AlbumView";
 import AlbumsPage from "./components/AlbumsPage";
 import { fetchMe, fetchCreations, fetchAlbums, createAlbum, clearToken, claimAchievement, claimDailyStreak, claimShareReward, confirmCreditsSession, acceptCurrentTerms } from "./api";
-import { Sun, Moon, LogOut, RefreshCw, Zap, Bell, ShoppingCart, Users, HelpCircle, PackageCheck, Activity, PlusCircle, Mic2, PawPrint, User as UserIcon, MoreHorizontal, House, Archive, Building2, Gift } from "lucide-react";
+import { Sun, Moon, LogOut, RefreshCw, Zap, Bell, ShoppingCart, Users, HelpCircle, PackageCheck, Activity, PlusCircle, Mic2, PawPrint, User as UserIcon, MoreHorizontal, House, Archive, Building2, Gift, Printer } from "lucide-react";
 import CreditStore from "./components/CreditStore";
 const AvatarDashboard = lazy(() => import("./components/AvatarDashboard"));
 import Store from "./components/Store";
@@ -41,6 +41,7 @@ const PawprintsScreen = lazy(() => import("./components/PawprintsScreen"));
 const FidosStylesScreen = lazy(() => import("./components/FidosStylesScreen"));
 const FurBinScreen = lazy(() => import("./components/FurBinScreen"));
 const WagsAdminPanel = lazy(() => import("./components/WagsAdminPanel"));
+const PrintfulSetupScreen = lazy(() => import("./components/admin/PrintfulSetupScreen"));
 const PetHealthScreen = lazy(() => import("./components/PetHealthScreen"));
 const WagsInboxScreen = lazy(() => import("./components/WagsInboxScreen"));
 const AnimatorScreen = lazy(() => import("./animator/components/AnimatorScreen"));
@@ -76,6 +77,7 @@ const SCREEN_PATHS: Partial<Record<Screen, string>> = {
   [Screen.HOW_IT_WORKS]: "/how-it-works",
   [Screen.PRICING]: "/pricing",
   [Screen.ADMIN_WAGS]: "/admin/wags",
+  [Screen.ADMIN_PRINTFUL]: "/admin/printful",
   [Screen.PET_HEALTH]: "/pet-health",
   [Screen.WAGS_INBOX]: "/wags",
 };
@@ -440,6 +442,7 @@ export default function App() {
     { id: "theme", label: isDarkMode ? "Light mode" : "Dark mode", icon: isDarkMode ? Sun : Moon, run: toggleDarkMode },
     { id: "help", label: "Help & Support", icon: HelpCircle, run: () => setShowHelpModal(true) },
     { id: "admin-wags", label: "Wags admin", icon: PackageCheck, run: () => setCurrentScreen(Screen.ADMIN_WAGS), adminOnly: true },
+    { id: "admin-printful", label: "Printful product sync", icon: Printer, run: () => setCurrentScreen(Screen.ADMIN_PRINTFUL), adminOnly: true },
     { id: "logout", label: "Log out", icon: LogOut, run: handleLogout, danger: true },
   ];
 
@@ -699,7 +702,7 @@ export default function App() {
 
       <div className="flex-grow flex w-full relative">
         {/* Desktop Sidebar */}
-        {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.VOICE_TEST, Screen.BIM, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN, Screen.CREATE, Screen.CREATE_REFERENCE, Screen.CREATE_CUSTOMIZE, Screen.CREATE_VALIDATE, Screen.CREATE_CHECKOUT, Screen.ADMIN_WAGS, Screen.WAGS_INBOX, Screen.PET_HEALTH].includes(currentScreen) && (
+        {isAuthed && [Screen.DASHBOARD, Screen.ALBUMS, Screen.EDIT_MEMORY, Screen.REQUEST_MEMORY, Screen.SHARE_MEMORY, Screen.ALBUM_VIEW, Screen.MODELS, Screen.STORE, Screen.VOICE_TEST, Screen.BIM, Screen.PROFILE, Screen.COMMUNITY, Screen.ANIMATOR, Screen.PAWPRINTS, Screen.PAWLISHER, Screen.FURBIN, Screen.CREATE, Screen.CREATE_REFERENCE, Screen.CREATE_CUSTOMIZE, Screen.CREATE_VALIDATE, Screen.CREATE_CHECKOUT, Screen.ADMIN_WAGS, Screen.ADMIN_PRINTFUL, Screen.WAGS_INBOX, Screen.PET_HEALTH].includes(currentScreen) && (
           <aside className="fixed bottom-0 left-0 top-16 z-40 hidden w-64 shrink-0 flex-col overflow-x-hidden overflow-y-auto border-r border-outline-variant/20 bg-surface/85 py-5 shadow-xl backdrop-blur-xl dark:bg-surface-dim/85 md:flex">
             <nav className="mt-4 flex-1 space-y-2 px-4">
               {SIDEBAR_NAV.map((item) => {
@@ -936,6 +939,16 @@ export default function App() {
                   onOpenFurball={() => setCurrentScreen(Screen.CREATE)}
                   onOpenFidos={() => setCurrentScreen(Screen.PAWLISHER)}
                 />
+              )
+            )}
+
+            {currentScreen === Screen.ADMIN_PRINTFUL && (
+              userProfile.isAdmin ? (
+                <Suspense fallback={<RefreshCw className="animate-spin text-primary" />}>
+                  <PrintfulSetupScreen onClose={() => setCurrentScreen(Screen.DASHBOARD)} />
+                </Suspense>
+              ) : (
+                <HomePage userProfile={userProfile} onOpenCreate={() => setCurrentScreen(Screen.CREATE)} onOpenShop={() => setCurrentScreen(Screen.STORE)} onOpenPawprints={() => setCurrentScreen(Screen.PAWPRINTS)} onOpenFurball={() => setCurrentScreen(Screen.CREATE)} onOpenFidos={() => setCurrentScreen(Screen.PAWLISHER)} />
               )
             )}
 
