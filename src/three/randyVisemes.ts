@@ -7,6 +7,11 @@
  * Tier B (future): Will accept viseme timing data from a TTS provider
  * (Azure/ElevenLabs) and blend full viseme morph targets.
  */
+import {
+  chooseBrowserVoice,
+  DEFAULT_BROWSER_VOICE_PREFERENCE,
+  type BrowserVoicePreference,
+} from "./browserVoicePreferences";
 
 // ---------------------------------------------------------------------------
 // Tier A — SpeechSynthesis amplitude lip-sync
@@ -27,6 +32,7 @@ export interface LipSyncCallbacks {
 export function speakText(
   text: string,
   callbacks: LipSyncCallbacks,
+  preference: BrowserVoicePreference = DEFAULT_BROWSER_VOICE_PREFERENCE,
 ): { cancel: () => void } {
   const synth = window.speechSynthesis;
 
@@ -34,19 +40,13 @@ export function speakText(
   synth.cancel();
 
   const utterance = new SpeechSynthesisUtterance(text);
-  utterance.rate = 0.95;
-  utterance.pitch = 1.1;
+  utterance.rate = preference.rate;
+  utterance.pitch = preference.pitch;
 
   // Try to pick a warm English voice
   const voices = synth.getVoices();
-  const preferred = voices.find(
-    (v) => v.lang.startsWith("en") && /samantha|karen|daniel|google/i.test(v.name),
-  );
+  const preferred = chooseBrowserVoice(voices, preference);
   if (preferred) utterance.voice = preferred;
-  else {
-    const fallback = voices.find((v) => v.lang.startsWith("en"));
-    if (fallback) utterance.voice = fallback;
-  }
 
   let speaking = false;
   let animFrame = 0;

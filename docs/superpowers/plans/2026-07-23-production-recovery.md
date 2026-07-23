@@ -33,15 +33,15 @@
 
 ### Checklist
 
-- [ ] Add a failing test proving speech preview succeeds when `ANIMATOR_DATA_DIR/tmp` does not exist.
-- [ ] Add a failing test proving concurrent previews use distinct files and always clean them up.
-- [ ] Add an `ensureWorkspaceDirectory("tmp")` helper that resolves below the animator root and creates the directory recursively.
-- [ ] Ensure the directory immediately before writing the WAV; use asynchronous file I/O where practical.
-- [ ] Keep cleanup in `finally`, treating an already-absent temporary file as success.
-- [ ] Add a pure browser-voice preference module that loads voices after `voiceschanged`, chooses by stable voice URI/name, and falls back to the first English voice.
-- [ ] Persist only `voiceURI`, rate, and pitch in local browser storage; never store speech content.
-- [ ] Add a compact Randy voice selector with Preview and Reset controls.
-- [ ] Run:
+- [x] Add a failing test proving speech preview succeeds when `ANIMATOR_DATA_DIR/tmp` does not exist.
+- [x] Add a failing test proving concurrent previews use distinct files and always clean them up.
+- [x] Add an `ensureWorkspaceDirectory("tmp")` helper that resolves below the animator root and creates the directory recursively.
+- [x] Ensure the directory immediately before writing the WAV; use asynchronous file I/O where practical.
+- [x] Keep cleanup in `finally`, treating an already-absent temporary file as success.
+- [x] Add a pure browser-voice preference module that loads voices after `voiceschanged`, chooses by stable voice URI/name, and falls back to the first English voice.
+- [x] Persist only `voiceURI`, rate, and pitch in local browser storage; never store speech content.
+- [x] Add a compact Randy voice selector with Preview and Reset controls.
+- [x] Run:
   `npm test -- tests/animator_speech_preview.test.mjs tests/randy_browser_voice.test.mjs`
 
 **Acceptance**

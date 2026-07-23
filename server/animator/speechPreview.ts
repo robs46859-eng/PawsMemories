@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import fs from "fs";
 import { z } from "zod";
-import { resolveWithinWorkspace } from "./paths.ts";
+import { ensureWorkspaceDirectory, resolveWithinWorkspace } from "./paths.ts";
 import { RhubarbError, runRhubarb } from "./lipsync.ts";
 import type { VisemeTrack } from "../../src/animator/viseme/visemeRules.ts";
 
@@ -23,6 +23,11 @@ export interface SpeechPreviewResult {
   track: VisemeTrack | null;
   tier: "B" | "A";
   degradedReason?: string;
+}
+
+interface SpeechPreviewDependencies {
+  workspaceRoot?: string;
+  runRhubarbImpl?: typeof runRhubarb;
 }
 
 function pcm16MonoToWav(pcm: Buffer, sampleRate = SAMPLE_RATE): Buffer {
@@ -84,18 +89,23 @@ export async function synthesizeElevenLabsWav(
 export async function createSpeechPreview(
   rawInput: unknown,
   fetchImpl: typeof fetch = fetch,
+  dependencies: SpeechPreviewDependencies = {},
 ): Promise<SpeechPreviewResult> {
   const input = SpeechPreviewSchema.parse(rawInput);
   const wav = await synthesizeElevenLabsWav(input, fetchImpl);
   const digest = crypto.createHash("sha256").update(wav).digest("hex").slice(0, 16);
   const nonce = crypto.randomBytes(6).toString("hex");
-  const audioPath = resolveWithinWorkspace(`tmp/speech-preview-${digest}-${nonce}.wav`);
-  fs.writeFileSync(audioPath, wav);
+  await ensureWorkspaceDirectory("tmp", dependencies.workspaceRoot);
+  const audioPath = resolveWithinWorkspace(
+    `tmp/speech-preview-${digest}-${nonce}.wav`,
+    dependencies.workspaceRoot,
+  );
+  await fs.promises.writeFile(audioPath, wav, { flag: "wx" });
 
   try {
     const durationSec = (wav.length - 44) / (SAMPLE_RATE * 2);
     try {
-      const result = await runRhubarb({
+      const result = await (dependencies.runRhubarbImpl ?? runRhubarb)({
         audioPath,
         transcript: input.text,
         language: input.language,
@@ -114,6 +124,8 @@ export async function createSpeechPreview(
       };
     }
   } finally {
-    if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
+    await fs.promises.unlink(audioPath).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error;
+    });
   }
 }

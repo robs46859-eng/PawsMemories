@@ -31,6 +31,19 @@ export function resolveWithinWorkspace(candidate: string, workspaceRoot: string 
   return normalized;
 }
 
+export async function ensureWorkspaceDirectory(
+  candidate: string,
+  workspaceRoot: string = ANIMATOR_DATA_DIR,
+): Promise<string> {
+  const resolved = resolveWithinWorkspace(candidate, workspaceRoot);
+  await fs.promises.mkdir(resolved, { recursive: true });
+  const stats = await fs.promises.lstat(resolved);
+  if (!stats.isDirectory() || stats.isSymbolicLink()) {
+    throw new Error("Workspace path is not a safe directory");
+  }
+  return resolved;
+}
+
 export function buildOutputName(originalFilename: string, op: string, params: Record<string, unknown>, inputBytes: Buffer): string {
   const stem = originalFilename.replace(/\.[^.]+$/, "").replace(/[^a-zA-Z0-9_-]/g, "");
   

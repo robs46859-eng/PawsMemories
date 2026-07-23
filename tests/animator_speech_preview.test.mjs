@@ -1,10 +1,63 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import * as THREE from "three";
 
-import { synthesizeElevenLabsWav } from "../server/animator/speechPreview.ts";
+import { createSpeechPreview, synthesizeElevenLabsWav } from "../server/animator/speechPreview.ts";
+import { ensureWorkspaceDirectory } from "../server/animator/paths.ts";
 import { playLiveActorSpeech } from "../src/animator/speech/liveSpeech.ts";
+
+test("speech preview creates a missing workspace tmp directory before writing", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "pawsome3d-speech-"));
+  const tmpDirectory = path.join(workspace, "tmp");
+
+  try {
+    assert.equal(fs.existsSync(tmpDirectory), false);
+    const resolved = await ensureWorkspaceDirectory("tmp", workspace);
+    assert.equal(resolved, tmpDirectory);
+    assert.equal(fs.statSync(tmpDirectory).isDirectory(), true);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("concurrent speech previews use unique temporary files and clean both", async () => {
+  const previousKey = process.env.ELEVENLABS_API_KEY;
+  process.env.ELEVENLABS_API_KEY = "test-key";
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "pawsome3d-speech-concurrent-"));
+  const observedPaths = [];
+  const fakeFetch = async () => new Response(new Uint8Array([0, 0, 1, 0, 2, 0, 3, 0]), { status: 200 });
+
+  try {
+    await Promise.all([
+      createSpeechPreview({ text: "First", language: "en" }, fakeFetch, {
+        workspaceRoot: workspace,
+        runRhubarbImpl: async ({ audioPath }) => {
+          observedPaths.push(audioPath);
+          assert.equal(fs.existsSync(audioPath), true);
+          return { track: null };
+        },
+      }),
+      createSpeechPreview({ text: "Second", language: "en" }, fakeFetch, {
+        workspaceRoot: workspace,
+        runRhubarbImpl: async ({ audioPath }) => {
+          observedPaths.push(audioPath);
+          assert.equal(fs.existsSync(audioPath), true);
+          return { track: null };
+        },
+      }),
+    ]);
+
+    assert.equal(new Set(observedPaths).size, 2);
+    for (const audioPath of observedPaths) assert.equal(fs.existsSync(audioPath), false);
+  } finally {
+    if (previousKey === undefined) delete process.env.ELEVENLABS_API_KEY;
+    else process.env.ELEVENLABS_API_KEY = previousKey;
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
 
 test("speech preview converts ElevenLabs PCM into a valid mono WAV", async () => {
   const previousKey = process.env.ELEVENLABS_API_KEY;

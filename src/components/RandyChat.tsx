@@ -4,6 +4,12 @@ import { authedFetch } from "../api";
 import { Screen, RandyAction, RandyHeadState } from "../types";
 import RandyHead, { RandyHeadRef } from "./RandyHead";
 import { speakText } from "../three/randyVisemes";
+import {
+  BROWSER_VOICE_PREFERENCE_KEY,
+  DEFAULT_BROWSER_VOICE_PREFERENCE,
+  parseBrowserVoicePreference,
+  type BrowserVoicePreference,
+} from "../three/browserVoicePreferences";
 import RandyWalkthrough from "./RandyWalkthrough";
 import { tours, type TourId } from "../randy/tours";
 import { useDraggable } from "../randy/useDraggable";
@@ -67,6 +73,11 @@ export default function RandyChat({
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isMuted, setIsMuted] = useState(true); // Default muted (autoplay policy)
+  const [browserVoices, setBrowserVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [voicePreference, setVoicePreference] = useState<BrowserVoicePreference>(() => {
+    if (typeof window === "undefined") return DEFAULT_BROWSER_VOICE_PREFERENCE;
+    return parseBrowserVoicePreference(window.localStorage.getItem(BROWSER_VOICE_PREFERENCE_KEY));
+  });
   const [headState, setHeadState] = useState<RandyHeadState>("idle");
   const [activeTourId, setActiveTourId] = useState<TourId | null>(null);
   const [highlightTour, setHighlightTour] = useState<any | null>(null);
@@ -88,6 +99,19 @@ export default function RandyChat({
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, isOpen]);
+
+  useEffect(() => {
+    if (!("speechSynthesis" in window)) return;
+    const loadVoices = () => setBrowserVoices(window.speechSynthesis.getVoices());
+    loadVoices();
+    window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
+    return () => window.speechSynthesis.removeEventListener("voiceschanged", loadVoices);
+  }, []);
+
+  const updateVoicePreference = useCallback((next: BrowserVoicePreference) => {
+    setVoicePreference(next);
+    window.localStorage.setItem(BROWSER_VOICE_PREFERENCE_KEY, JSON.stringify(next));
+  }, []);
 
   // Cleanup speech on unmount or close
   useEffect(() => {
@@ -143,8 +167,8 @@ export default function RandyChat({
         setHeadState("idle");
         speechCancelRef.current = null;
       },
-    });
-  }, [isMuted]);
+    }, voicePreference);
+  }, [isMuted, voicePreference]);
 
   /** Execute a Randy action (navigation, AR launch, etc.) */
   const executeAction = useCallback((action: RandyAction) => {
@@ -437,6 +461,46 @@ export default function RandyChat({
               </button>
             </div>
           </div>
+
+          {!isMuted && (
+            <div className="px-3 py-2 border-b border-outline-variant/20 bg-surface-container">
+              <label className="flex items-center gap-2 text-[10px] font-bold text-on-surface-variant">
+                Randy voice
+                <select
+                  aria-label="Randy browser voice"
+                  value={voicePreference.voiceURI ?? ""}
+                  onChange={(event) => updateVoicePreference({
+                    ...voicePreference,
+                    voiceURI: event.target.value || null,
+                  })}
+                  className="min-w-0 flex-1 rounded-lg border border-outline-variant/40 bg-white px-2 py-1 text-[10px] text-on-surface"
+                >
+                  <option value="">Automatic English voice</option>
+                  {browserVoices
+                    .filter((voice) => voice.lang.toLowerCase().startsWith("en"))
+                    .map((voice) => (
+                      <option key={voice.voiceURI} value={voice.voiceURI}>
+                        {voice.name} ({voice.lang})
+                      </option>
+                    ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => speakReply("Hi! I'm Randy, your Pawsome3D guide.")}
+                  className="rounded-lg px-2 py-1 text-[10px] text-primary hover:bg-primary/10"
+                >
+                  Preview
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateVoicePreference(DEFAULT_BROWSER_VOICE_PREFERENCE)}
+                  className="rounded-lg px-2 py-1 text-[10px] text-primary hover:bg-primary/10"
+                >
+                  Reset
+                </button>
+              </label>
+            </div>
+          )}
 
           {/* Messages Area */}
           <div ref={scrollRef} className="flex-grow p-4 overflow-y-auto space-y-3.5 hide-scrollbar">
