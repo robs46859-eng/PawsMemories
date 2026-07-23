@@ -74,3 +74,17 @@ The following flows are designed, implemented, and verified via unit stubs / inj
 
 - Configure `PRINTFUL_API_KEY` in production environment.
 - Configure `STRIPE_WEBHOOK_SECRET` and `APP_URL` in production environment.
+
+---
+
+## 5. Close-Out Correction Pass (2026-07-23, validation review)
+
+Fixes applied after the independent BO-1 validation review, verified under Node 24.18.0:
+
+- `CURRENT_SCHEMA_VERSION` corrected from 32 to 33 (the runner contains migrations 32 and 33; the constant must be the maximum).
+- Migration-31 reservation guard message corrected: 31 is reserved for the in-house spatial generator, not BO-0.
+- Schema-version assertions in phase3/phase4/pipeline-rig tests updated 32 -> 33; the fresh-database applied-count assertion now uses `MIGRATIONS.length` (17 entries — version 31 is absent by reservation; skipWhenTableMissing migrations are ledgered even when skipped).
+- `server/legacy-asset-registration.ts` and `server/model-persistence-events.ts` committed: the previously committed server.ts dynamically imports them, so the branch did not compile from a fresh checkout without them. They are BO-0 foundation modules carried on this branch by necessity; BO-0 remains their owner.
+- Known deferred nit for BO-0: `model_persistence_events.job_id` is NOT NULL while `recordPersistenceEvent` permits a null jobId (insert fails non-fatally for model-build-uuid-only events).
+
+Final gates on this branch (Node 24.18.0): TypeScript clean; full suite 1071 tests — 1068 pass, 0 fail, 3 intentional opt-in skips; production build + 58-file release manifest pass. The Node engine gate (`>=24.15 <25`) is intact; the earlier local failures were caused by running the suite under Node 25.8.1, which the release gate correctly rejects.
