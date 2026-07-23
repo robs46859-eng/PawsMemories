@@ -18,6 +18,8 @@ const PUBLISHED_MIGRATION_CHECKSUMS = {
   28: "6f904adcb0adc55ba55992b002ad3fd220c2a58783764ab09118efbabee12f8d",
   29: "101a432bb6bf477503ab1da9dc71c848361baeea0f3786191dfe2be353577168",
   30: "afd5a72969c4f03fb77bc776aba1f8e327aa15cb8b0a59ca78d43009e504deb6",
+  32: "db0c65c6267fc6451efc8282e2bcf5301dccb3e6157c81bfca481d7ae6659e39",
+  33: "30af84708ca8b3ec0cfe8c0984615d70210d257f489b741fe5a16806cf212657",
 };
 
 test("sha256 produces deterministic checksums", () => {

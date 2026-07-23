@@ -1459,3 +1459,119 @@ export async function retryRigJob(
   }
   return res.json();
 }
+
+// ── Customizer API Surface ──────────────────────────────────────────────────
+
+export interface CustomizableProduct {
+  id: number;
+  listing_id: number;
+  printful_product_id: number;
+  printful_variant_id: number;
+  placement: string;
+  printfile_width_px: number;
+  printfile_height_px: number;
+  printfile_dpi: number;
+  box_x: number;
+  box_y: number;
+  box_w: number;
+  box_h: number;
+  box_shape: "rect" | "circle" | "arch";
+  overlay_asset_uuid: string | null;
+  retail_price_cents: number;
+  status: "draft" | "published" | "archived";
+  listing_name?: string;
+  listing_slug?: string;
+  listing_description?: string;
+}
+
+export interface CustomizeOrder {
+  id: number;
+  user_phone: string;
+  customizable_id: number;
+  source_photo_url: string;
+  source_kind: "upload" | "furbin";
+  print_file_url: string | null;
+  recipient_json: any;
+  retail_price_cents: number;
+  checkout_url: string | null;
+  stripe_session_id: string | null;
+  provider_order_id: string | null;
+  provider_payload_json: any;
+  status: string;
+  created_at: string;
+}
+
+export async function fetchPublishedCustomizableProducts(): Promise<CustomizableProduct[]> {
+  const res = await fetch("/api/customize/products");
+  if (!res.ok) throw new Error("Failed to fetch customizable products");
+  const data = await res.json();
+  return data.products || [];
+}
+
+export async function fetchCustomizerProductsAdmin(status?: string): Promise<CustomizableProduct[]> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  const res = await authedFetch(`/api/admin/customizer/customizable-products${query}`);
+  if (!res.ok) throw new Error("Failed to fetch admin customizable products");
+  return await res.json();
+}
+
+export async function searchPrintfulCatalogue(q: string = ""): Promise<any[]> {
+  const res = await authedFetch(`/api/admin/customizer/products?q=${encodeURIComponent(q)}`);
+  if (!res.ok) throw new Error("Failed to search Printful catalogue");
+  const data = await res.json();
+  return data.products || [];
+}
+
+export async function fetchPrintfulVariants(productId: number): Promise<any[]> {
+  const res = await authedFetch(`/api/admin/customizer/products/${productId}/variants`);
+  if (!res.ok) throw new Error("Failed to load Printful variants");
+  const data = await res.json();
+  return data.variants || [];
+}
+
+export async function fetchPrintfulTemplateContext(productId: number, variantId: number): Promise<{ variant: any; placements: any[] }> {
+  const res = await authedFetch(`/api/admin/customizer/products/${productId}/variants/${variantId}/template`);
+  if (!res.ok) throw new Error("Failed to load printfile template context");
+  return await res.json();
+}
+
+export async function createCustomizableProduct(payload: any): Promise<{ success: boolean; id: number }> {
+  const res = await authedFetch("/api/admin/customizer/customizable-products", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseError(res, "Failed to create customizable product"));
+  return await res.json();
+}
+
+export async function updateCustomizableProduct(id: number, payload: any): Promise<{ success: boolean }> {
+  const res = await authedFetch(`/api/admin/customizer/customizable-products/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseError(res, "Failed to update customizable product"));
+  return await res.json();
+}
+
+export async function checkoutCustomizeOrder(payload: any, idempotencyKey: string): Promise<{ success: boolean; checkoutUrl: string }> {
+  const res = await authedFetch("/api/customize/checkout", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Idempotency-Key": idempotencyKey,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseError(res, "Failed to start customizer checkout"));
+  return await res.json();
+}
+
+export async function fetchCustomizeOrders(): Promise<CustomizeOrder[]> {
+  const res = await authedFetch("/api/customize/orders");
+  if (!res.ok) throw new Error("Failed to fetch customizer orders");
+  const data = await res.json();
+  return data.orders || [];
+}
+

@@ -1512,7 +1512,12 @@ async function startServer() {
       if (!fileBase64 || typeof fileBase64 !== "string") {
         return res.status(400).json({ success: false, error: "No file provided." });
       }
-      const url = await uploadBase64Binary(fileBase64, mime || "model/gltf-binary");
+      let resolvedMime = typeof mime === "string" && mime.trim() ? mime.trim() : "";
+      if (!resolvedMime && fileBase64.startsWith("data:")) {
+        const match = fileBase64.match(/^data:([A-Za-z0-9-+\/.]+);base64,/);
+        if (match) resolvedMime = match[1];
+      }
+      const url = await uploadBase64Binary(fileBase64, resolvedMime || "image/png");
       res.json({ success: true, url });
     } catch (err: any) {
       console.error("[POST /api/print-uploads] Error:", err?.message || err);
@@ -2854,51 +2859,8 @@ async function startServer() {
     if (!idempotencyKey) return res.status(400).json({ error: "An idempotency key is required." });
     
     try {
-      const result = await checkoutDigital(getPool() as any, req.user!.phone, String(req.params.uuid), idempotencyKey);
-      if (result.checkoutUrl) {
-        return res.json({ checkoutUrl: result.checkoutUrl });
-      }
-      
-      const session = await stripe.checkout.sessions.create({
-        // Card only. us_bank_account (ACH) and cashapp can settle asynchronously
-        // — the buyer would pay, wait days, and only then receive a download that
-        // the product presents as instant. Entitlements are granted on
-        // checkout.session.completed, so a delayed method also leaves the order
-        // sitting in awaiting_payment with no user-visible explanation. Revisit
-        // when there is a pending-payment state in the UI to match.
-        payment_method_types: ["card"],
-        line_items: [{
-          price_data: {
-            currency: "usd",
-            product_data: {
-              // Name the actual listing. This string is what the buyer sees on
-              // the Stripe page and, in truncated form, on their statement — a
-              // generic name is a known driver of "unrecognised charge" disputes.
-              name: result.title || "Pawsome3D Digital Model",
-              description: "Digital 3D model download — instant access after payment.",
-            },
-            unit_amount: result.priceCents,
-          },
-          quantity: 1,
-        }],
-        mode: "payment",
-        // The success URL doesn't grant, it only redirects and polls
-        success_url: `${process.env.APP_URL || "http://localhost:5173"}/fur-bin?digital_success=true&order_id=${result.orderId}`,
-        cancel_url: `${process.env.APP_URL || "http://localhost:5173"}/marketplace`,
-        metadata: {
-          type: "marketplace_digital",
-          digitalOrderId: String(result.orderId),
-          userPhone: req.user!.phone,
-          listingId: String(result.listingId)
-        },
-      });
-      
-      await getPool().query(
-        `UPDATE marketplace_digital_orders SET stripe_session_id = ?, checkout_url = ? WHERE id = ?`,
-        [session.id, session.url, result.orderId]
-      );
-      
-      res.json({ checkoutUrl: session.url });
+      const result = await checkoutDigital(getPool() as any, req.user!.phone, String(req.params.uuid), idempotencyKey, stripe, process.env.APP_URL);
+      res.json({ checkoutUrl: result.checkoutUrl });
     } catch (err: any) {
       if (err.status) res.status(err.status);
       else res.status(500);
@@ -4314,6 +4276,8 @@ async function startServer() {
   // and restarts the pipeline from Tripo (same path as /retry). The 45-minute
   // reaper above remains the terminal backstop if resumes keep failing.
   async function resumeStalledBuilds() {
+    // PHASE BO-0: retired when MODEL_BUILD_V3_ENABLED is true
+    if (isModelBuildV3Enabled()) return;
     let rows: any[] = [];
     try {
       const [result]: any = await getPool().query(
@@ -4355,8 +4319,10 @@ async function startServer() {
       }
     }
   }
-  resumeStalledBuilds();
-  setInterval(resumeStalledBuilds, 3 * 60 * 1000);
+  if (!isModelBuildV3Enabled()) {
+    resumeStalledBuilds();
+    setInterval(resumeStalledBuilds, 3 * 60 * 1000);
+  }
 
   app.get("/api/avatars/:id/status", requireAuth, async (req: AuthedRequest, res) => {
     try {
@@ -4364,7 +4330,7 @@ async function startServer() {
       const avatar = await getAvatarById(avatarId, req.user!.phone);
       if (!avatar) return res.status(404).json({ error: "Avatar not found" });
 
-      if (avatar.generation_status === "done" || avatar.generation_status === "failed") {
+      if (["done", "done_static_fallback", "failed"].includes(avatar.generation_status)) {
         return res.json({ 
           status: avatar.generation_status,
           model_url: avatar.model_url,
@@ -4432,6 +4398,11 @@ async function startServer() {
 
           await updateAvatarGenerationStatus(avatarId, "rigging");
 
+          if (isModelBuildV3Enabled()) {
+            console.log(`[Avatar ${avatarId}] MODEL_BUILD_V3_ENABLED=true, skipping in-process build pipeline`);
+            await updateAvatarGenerationStatus(avatarId, "failed", "Model build routed to durable V3 pipeline");
+            return;
+          }
           // Spawn background agent pipeline
           (async () => {
              try {
@@ -7047,6 +7018,31 @@ async function startServer() {
               await setCreationModelUrl(job.creation_id!, req.user!.phone, durableUrl).catch(() => {
                 // creation_id may be null for arbitrary images — that's fine
               });
+              // PHASE BO-0: Register as canonical asset + record persistence event
+              const { registerLegacyModelAsset } = await import("./server/legacy-asset-registration");
+              const { recordPersistenceEvent } = await import("./server/model-persistence-events");
+
+              void registerLegacyModelAsset({
+                ownerId: req.user!.phone,
+                glbUrl: durableUrl,
+                sha256: "unknown",
+                sizeBytes: 0,
+                sourceImageUrl: "",
+                jobId,
+                creationId: job.creation_id ?? undefined,
+              }).then((assetUuid) => {
+                if (assetUuid) {
+                  getPool().query(
+                    "UPDATE generation_jobs SET canonical_asset_uuid = ? WHERE id = ?",
+                    [assetUuid, jobId],
+                  ).catch(() => {});
+                }
+              });
+
+              void recordPersistenceEvent("static_glb_stored", {
+                jobId,
+                detail: "Model stored and registered from /api/image-to-3d/:jobId/status",
+              });
               return res.json({ status: "done", model_url: durableUrl, progress: 100 });
             }
             return res.json({ status: "done", model_url: null, progress: 100 });
@@ -7062,6 +7058,9 @@ async function startServer() {
       }
 
       // Terminal states
+      if (job.status === "done_static_fallback") {
+        return res.json({ success: true, status: "done_static_fallback", model_url: (job as any).model_url || null, error: null });
+      }
       res.json({ status: job.status, model_url: (job as any).model_url || null });
     } catch (err: any) {
       res.status(500).json({ success: false, error: "Failed to check job status." });
@@ -7126,6 +7125,31 @@ async function startServer() {
                   const status = await finishStoredPipelineModel(jobId, providerGate.claim, modelUrl);
                   if (status === "done") {
                     await sendSms(req.user!.phone, `🐾 Paws & Memories: Your 3D pet model is ready! View it at ${process.env.APP_URL || "your app"}.`);
+                    // PHASE BO-0: Register as canonical asset + record persistence event
+                    const { registerLegacyModelAsset } = await import("./server/legacy-asset-registration");
+                    const { recordPersistenceEvent } = await import("./server/model-persistence-events");
+
+                    void registerLegacyModelAsset({
+                      ownerId: req.user!.phone,
+                      glbUrl: modelUrl,
+                      sha256: "unknown",
+                      sizeBytes: 0,
+                      sourceImageUrl: "",
+                      jobId,
+                      creationId: job.creation_id ?? undefined,
+                    }).then((assetUuid) => {
+                      if (assetUuid) {
+                        getPool().query(
+                          "UPDATE generation_jobs SET canonical_asset_uuid = ? WHERE id = ?",
+                          [assetUuid, jobId],
+                        ).catch(() => {});
+                      }
+                    });
+
+                    void recordPersistenceEvent("static_glb_stored", {
+                      jobId,
+                      detail: "Model stored and registered from /api/jobs/:id poll",
+                    });
                   }
                   return res.json({ success: true, status, model_url: modelUrl });
                 }
@@ -7205,6 +7229,15 @@ async function startServer() {
         }
       }
 
+      if (job.status === "done_static_fallback") {
+        // PHASE BO-0: Record persistence event
+        const { recordPersistenceEvent } = await import("./server/model-persistence-events");
+        void recordPersistenceEvent("done_static_fallback", {
+          jobId,
+          detail: "Job completed via static fallback (rig skipped)",
+        });
+        return res.json({ success: true, status: "done_static_fallback", model_url: (job as any).model_url || null, error: null });
+      }
       res.json({ success: true, status: job.status, video_url: null, error: job.error });
     } catch (err: any) {
       console.error("Error polling job:", err);
@@ -7318,6 +7351,33 @@ async function startServer() {
                   const status = await finishStoredPipelineModel(job.id, providerGate.claim, modelUrl);
                   if (status === "done") {
                     await sendSms(job.user_phone, `🐾 Paws & Memories: Your 3D pet model is ready! View it at ${process.env.APP_URL || "your app"}.`);
+                    // PHASE BO-0: Register as canonical asset + record persistence event
+                    const { registerLegacyModelAsset } = await import("./server/legacy-asset-registration");
+                    const { recordPersistenceEvent } = await import("./server/model-persistence-events");
+
+                    // Register as canonical asset (non-blocking, non-fatal)
+                    void registerLegacyModelAsset({
+                      ownerId: job.user_phone,
+                      glbUrl: modelUrl,
+                      sha256: "unknown",
+                      sizeBytes: 0,
+                      sourceImageUrl: "",
+                      jobId: job.id,
+                      creationId: job.creation_id ?? undefined,
+                    }).then((assetUuid) => {
+                      if (assetUuid) {
+                        getPool().query(
+                          "UPDATE generation_jobs SET canonical_asset_uuid = ? WHERE id = ?",
+                          [assetUuid, job.id],
+                        ).catch(() => {});
+                      }
+                    });
+
+                    // Record persistence event
+                    void recordPersistenceEvent("static_glb_stored", {
+                      jobId: job.id,
+                      detail: "Model stored and registered from background sweep",
+                    });
                   }
                   continue;
                 }
