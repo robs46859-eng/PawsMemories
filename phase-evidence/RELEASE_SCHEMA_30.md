@@ -1,6 +1,6 @@
 # Schema 30 Release Closeout Evidence
 
-Status: local automated gate passed; coordinated deployment and live acceptance pending
+Status: local automated and Hostinger packaging gates passed; coordinated deployment and live acceptance pending
 
 Date: 2026-07-23
 
@@ -58,9 +58,16 @@ deploying service `PawsMemories` from the exact release commit.
 
 ## Packaging
 
-- Hostinger archive: pending clean closeout commit
-- Archive SHA-256: pending
-- Manifest commit/branch verification: pending
+- The production packager passed from an isolated clean worktree under Node 24.18.
+- Both the staged build and extracted ZIP matched the complete release manifest.
+- The archive contained the root Hostinger launcher, locked package metadata, and
+  prebuilt `dist/`, without environment files, Git metadata, `node_modules`, or
+  coverage output.
+- The definitive archive is rebuilt after this evidence commit so its embedded
+  provenance identifies the final commit. Its filename and SHA-256 are reported
+  in the release handoff rather than embedded here, because changing this source
+  document would necessarily create a different commit and invalidate that
+  provenance.
 
 ## Coordinated Deployment Gate
 
@@ -92,4 +99,3 @@ deploying service `PawsMemories` from the exact release commit.
 - B2 object storage and signed delivery require production credentials and cannot be inferred from local tests.
 - Stripe/provider sandbox behavior and physical slicer review remain external acceptance work.
 - Phase 2-9 dark-launch features remain disabled and are not approved by this release.
-
