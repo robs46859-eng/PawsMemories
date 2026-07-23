@@ -12,6 +12,7 @@ import type {
   NormalizedStripeEvent,
   PublishedPackPage,
   WagsCheckoutPlanRecord,
+  WagsCheckoutPlanSummary,
   WagsSubscriptionRecord,
 } from "./apiContracts.ts";
 import type { WagsDeliveryRepositoryPort } from "./ports.ts";
@@ -47,6 +48,8 @@ export interface WagsSubscriptionTransactionPort {
 }
 
 export interface WagsApiRepositoryPort extends WagsDeliveryRepositoryPort {
+  listActiveCheckoutPlans(): Promise<WagsCheckoutPlanSummary[]>;
+  listSubscriptionsForOwner(ownerUuid: string): Promise<WagsSubscriptionRecord[]>;
   listPublishedPackVersions(query: ListPublishedPacksQuery): Promise<PublishedPackPage>;
   getPublishedPackVersion(packUuid: string, versionNumber: number): Promise<SealedWagsPackVersion | null>;
   getSubscriptionForOwner(ownerUuid: string, subscriptionUuid: string): Promise<WagsSubscriptionRecord | null>;

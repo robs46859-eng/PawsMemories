@@ -158,6 +158,12 @@ export const WagsCheckoutPlanRecordSchema = z.object({
   providerPriceRef: z.string().trim().min(1).max(255),
 }).strict();
 
+export const WagsCheckoutPlanSummarySchema = WagsCheckoutPlanRecordSchema.omit({
+  providerPriceRef: true,
+}).extend({
+  tier: z.enum(["basic", "plus"]),
+}).strict();
+
 export const WagsSubscriptionRecordSchema = WagsSubscriptionSchema.extend({
   providerSubscriptionRef: z.string().trim().min(1).max(255),
 }).strict();
@@ -187,6 +193,7 @@ export type DeliverAnnualIncentiveRequest = z.infer<typeof DeliverAnnualIncentiv
 export type AnnualIncentiveResult = z.infer<typeof AnnualIncentiveResultSchema>;
 export type CreateCheckoutRequest = z.infer<typeof CreateCheckoutRequestSchema>;
 export type CheckoutSessionResponse = z.infer<typeof CheckoutSessionResponseSchema>;
+export type WagsCheckoutPlanSummary = z.infer<typeof WagsCheckoutPlanSummarySchema>;
 export type NormalizedStripeEvent = z.infer<typeof NormalizedStripeEventSchema>;
 export type LifecycleProcessingResult = z.infer<typeof LifecycleProcessingResultSchema>;
 export type WagsCheckoutPlanRecord = z.infer<typeof WagsCheckoutPlanRecordSchema>;

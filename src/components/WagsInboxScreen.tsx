@@ -33,6 +33,20 @@ interface WagsBox {
   items: WagsBoxItem[];
 }
 
+interface WagsPlan {
+  planUuid: string;
+  versionNumber: number;
+  tier: "basic" | "plus";
+  cadence: "monthly" | "annual_prepaid";
+}
+
+interface WagsSubscription {
+  subscriptionUuid: string;
+  status: string;
+  cadence: "monthly" | "annual_prepaid";
+  serviceEndsAt: string;
+}
+
 const SLOT_ICONS: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
   accessory: Shirt, accessory_2: Shirt, accessory_3: Shirt,
   seasonal: Star, minimodel: Package, pawprint: PawPrint,
@@ -162,6 +176,10 @@ function BoxCard({ box, onOpen }: { box: WagsBox; onOpen: (id: number) => void }
 
 export default function WagsInboxScreen({ onGoToFidos }: { onGoToFidos?: () => void }) {
   const [boxes, setBoxes] = useState<WagsBox[]>([]);
+  const [plans, setPlans] = useState<WagsPlan[]>([]);
+  const [subscriptions, setSubscriptions] = useState<WagsSubscription[]>([]);
+  const [v2Available, setV2Available] = useState(true);
+  const [checkoutBusy, setCheckoutBusy] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -180,6 +198,64 @@ export default function WagsInboxScreen({ onGoToFidos }: { onGoToFidos?: () => v
       }
     })();
     return () => { cancelled = true; };
+  }, []);
+
+  const loadWagsV2 = useCallback(async () => {
+    try {
+      const [planResponse, subscriptionResponse] = await Promise.all([
+        authedFetch("/api/wags-v2/plans"),
+        authedFetch("/api/wags-v2/subscriptions"),
+      ]);
+      if (planResponse.status === 503 || subscriptionResponse.status === 503) {
+        setV2Available(false);
+        return;
+      }
+      const planBody = await planResponse.json();
+      const subscriptionBody = await subscriptionResponse.json();
+      if (!planResponse.ok) throw new Error(planBody.error || "Could not load Wags plans.");
+      if (!subscriptionResponse.ok) throw new Error(subscriptionBody.error || "Could not load Wags membership.");
+      setPlans(planBody.plans || []);
+      setSubscriptions(subscriptionBody.subscriptions || []);
+      setV2Available(true);
+    } catch (cause: any) {
+      setError(cause?.message || "Could not load Wardrobe Wags.");
+    }
+  }, []);
+
+  useEffect(() => { void loadWagsV2(); }, [loadWagsV2]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("wags") === "success" || params.get("wags") === "cancel") {
+      void loadWagsV2();
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, [loadWagsV2]);
+
+  const subscribe = useCallback(async (plan: WagsPlan) => {
+    setCheckoutBusy(plan.planUuid);
+    setError("");
+    try {
+      const root = window.location.origin;
+      const response = await authedFetch("/api/wags-v2/checkout/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          planUuid: plan.planUuid,
+          planVersionNumber: plan.versionNumber,
+          cadence: plan.cadence,
+          idempotencyKey: `wags-ui-${crypto.randomUUID()}`,
+          successUrl: `${root}/wags?wags=success`,
+          cancelUrl: `${root}/wags?wags=cancel`,
+        }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Could not start secure checkout.");
+      window.location.assign(body.checkoutUrl);
+    } catch (cause: any) {
+      setError(cause?.message || "Could not start secure checkout.");
+      setCheckoutBusy("");
+    }
   }, []);
 
   const openBox = useCallback((id: number) => {
@@ -217,6 +293,38 @@ export default function WagsInboxScreen({ onGoToFidos }: { onGoToFidos?: () => v
       </div>
 
       <div className="mt-6 space-y-4">
+        {v2Available && subscriptions.length === 0 && (
+          <section className="rounded-[1.6rem] border border-primary/25 bg-surface/80 p-5">
+            <h2 className="text-base font-black text-on-surface">Subscribe to Wardrobe Wags</h2>
+            <p className="mt-1 text-xs text-on-surface-variant">Choose a plan, then finish payment securely with Stripe.</p>
+            {plans.length > 0 ? (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {plans.map((plan) => (
+                  <button
+                    key={`${plan.planUuid}-${plan.versionNumber}-${plan.cadence}`}
+                    type="button"
+                    disabled={Boolean(checkoutBusy)}
+                    onClick={() => void subscribe(plan)}
+                    className="rounded-2xl border border-outline-variant/40 bg-surface-container p-4 text-left transition hover:border-primary/50 disabled:opacity-50"
+                  >
+                    <span className="text-sm font-black capitalize text-on-surface">{plan.tier} · {plan.cadence === "annual_prepaid" ? "Annual" : "Monthly"}</span>
+                    <span className="mt-1 block text-[11px] text-on-surface-variant">{checkoutBusy === plan.planUuid ? "Opening checkout…" : "Subscribe with Stripe"}</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-4 rounded-xl bg-surface-container p-3 text-xs text-on-surface-variant">Plans are being prepared. Please check back shortly.</p>
+            )}
+          </section>
+        )}
+        {subscriptions.length > 0 && (
+          <section className="rounded-[1.6rem] border border-primary/25 bg-primary/5 p-5">
+            <h2 className="text-sm font-black text-on-surface">Wags membership</h2>
+            <p className="mt-1 text-xs text-on-surface-variant">
+              {subscriptions[0].status.replace(/_/g, " ")} · {subscriptions[0].cadence === "annual_prepaid" ? "Annual" : "Monthly"} · through {new Date(subscriptions[0].serviceEndsAt).toLocaleDateString()}
+            </p>
+          </section>
+        )}
         {loading && (
           <div className="py-16 text-center text-sm text-on-surface-variant">Fetching your boxes…</div>
         )}

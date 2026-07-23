@@ -61,6 +61,14 @@ export function createWagsV2Router(options: CreateWagsV2RouterOptions): Router {
     res.json(await options.service.listPublishedPacks(query));
   }));
 
+  router.get("/plans", authenticated, withOwner(options, async (_ownerUuid, _req, res) => {
+    res.json({ plans: await options.service.listActivePlans() });
+  }));
+
+  router.get("/subscriptions", authenticated, withOwner(options, async (ownerUuid, _req, res) => {
+    res.json({ subscriptions: await options.service.listSubscriptions(ownerUuid) });
+  }));
+
   router.get("/packs/:packUuid/versions/:versionNumber", authenticated, withOwner(options, async (_ownerUuid, req, res) => {
     const params = PackIdentityParamsSchema.parse(req.params);
     res.json(await options.service.getPublishedPack(params.packUuid, params.versionNumber));

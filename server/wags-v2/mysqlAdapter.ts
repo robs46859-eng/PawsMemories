@@ -16,6 +16,7 @@ import {
   PublicUuidSchema,
   PublishedPackPageSchema,
   WagsCheckoutPlanRecordSchema,
+  WagsCheckoutPlanSummarySchema,
   WagsSubscriptionRecordSchema,
   type CheckoutReservation,
   type CreateCheckoutRequest,
@@ -197,6 +198,37 @@ export class MysqlWagsApiRepository implements WagsApiRepositoryPort {
     } finally {
       connection.release();
     }
+  }
+
+  async listActiveCheckoutPlans() {
+    const [rows]: any = await this.pool.query(
+      `SELECT plan_uuid, version_number, tier, cadence, active
+         FROM wags_plan_versions_v2
+        WHERE active = TRUE AND published_at <= UTC_TIMESTAMP(3)
+        ORDER BY tier, cadence, version_number DESC`,
+    );
+    return rows.map((row: any) => WagsCheckoutPlanSummarySchema.parse({
+      planUuid: row.plan_uuid,
+      versionNumber: Number(row.version_number),
+      tier: row.tier,
+      cadence: row.cadence,
+      active: Boolean(row.active),
+    }));
+  }
+
+  async listSubscriptionsForOwner(ownerUuid: string) {
+    const owner = PublicUuidSchema.parse(ownerUuid);
+    const [rows]: any = await this.pool.query(
+      `SELECT s.*, oi.owner_uuid, p.plan_uuid, p.version_number AS plan_version_number
+         FROM wags_subscriptions_v2 s
+         JOIN wags_owner_identities_v2 oi ON oi.id = s.owner_identity_id
+         JOIN wags_plan_versions_v2 p ON p.id = s.plan_version_id
+        WHERE oi.owner_uuid = ?
+        ORDER BY s.created_at DESC
+        LIMIT 20`,
+      [owner],
+    );
+    return Promise.all(rows.map((row: any) => mapSubscription(this.pool, row)));
   }
 
   async getStripeCheckoutMetadata(checkoutUuid: string, ownerUuid: string): Promise<{

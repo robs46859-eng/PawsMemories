@@ -104,6 +104,16 @@ export class WagsApiService {
     return PublishedPackPageSchema.parse(await this.dependencies.repository.listPublishedPackVersions(query));
   }
 
+  async listActivePlans() {
+    return this.dependencies.repository.listActiveCheckoutPlans();
+  }
+
+  async listSubscriptions(ownerUuid: string) {
+    const owner = PublicUuidSchema.parse(ownerUuid);
+    const subscriptions = await this.dependencies.repository.listSubscriptionsForOwner(owner);
+    return subscriptions.map(publicSubscription);
+  }
+
   async getPublishedPack(packUuid: string, versionNumber: number): Promise<SealedWagsPackVersion> {
     const uuid = PublicUuidSchema.parse(packUuid);
     const version = z.number().int().positive().parse(versionNumber);
