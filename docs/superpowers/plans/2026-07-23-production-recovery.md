@@ -95,14 +95,14 @@
 
 ### Checklist
 
-- [ ] Add a failing pure-function test for canonical front orientation and legacy 90-degree correction.
-- [ ] Add a failing test proving `idle`, `breath`, and `stand` embedded clips are not auto-played in static FurBin/model views.
+- [x] Add a failing pure-function test for canonical front orientation and legacy 90-degree correction.
+- [x] Add a failing test proving `idle`, `breath`, and `stand` embedded clips are not auto-played in static FurBin/model views.
 - [ ] Introduce explicit presentation metadata: `forwardAxis`, `yawCorrectionDegrees`, and `motionPolicy`.
-- [ ] Default new models to camera-facing canonical orientation.
-- [ ] Apply the legacy correction only through the presentation layer; do not destructively rewrite GLBs.
-- [ ] Keep all mixers stopped in static views. Animation may run only after an explicit action in an enabled animation-capable surface.
+- [x] Default new models to camera-facing canonical orientation.
+- [x] Apply the legacy correction only through the presentation layer; do not destructively rewrite GLBs.
+- [x] Keep all mixers stopped in static views. Animation may run only after an explicit action in an enabled animation-capable surface.
 - [ ] Verify with a known asymmetric model fixture so front/back mistakes are visible.
-- [ ] Run:
+- [x] Run:
   `npm test -- tests/model_presentation.test.mjs tests/avatar_static_idle.test.mjs`
 
 **Acceptance**

@@ -1,4 +1,8 @@
 import React, { useEffect, useState } from "react";
+import {
+  DEFAULT_MODEL_YAW_CORRECTION_DEGREES,
+  modelViewerOrientation,
+} from "../three/modelPresentation";
 
 const MODEL_VIEWER_CDN =
   "https://ajax.googleapis.com/ajax/libs/model-viewer/3.5.0/model-viewer.min.js";
@@ -77,6 +81,8 @@ interface PetModelViewerProps {
    * on mobile when a poster is available; pass explicitly to force either way.
    */
   thumbnail?: boolean;
+  /** Non-destructive presentation correction for provider GLBs authored on +X. */
+  yawCorrectionDegrees?: number;
 }
 
 /**
@@ -91,6 +97,7 @@ const PetModelViewer: React.FC<PetModelViewerProps> = ({
   animationCrossfade,
   autoRotate = false,
   thumbnail,
+  yawCorrectionDegrees = DEFAULT_MODEL_YAW_CORRECTION_DEGREES,
 }) => {
   const [ready, setReady] = useState(
     typeof window !== "undefined" && !!(window as any).customElements?.get("model-viewer")
@@ -150,6 +157,7 @@ const PetModelViewer: React.FC<PetModelViewerProps> = ({
       camera-controls={true}
       auto-rotate={autoRotate ? true : undefined}
       camera-orbit={FRONT_ORBIT}
+      orientation={modelViewerOrientation(yawCorrectionDegrees)}
       animation-name={animationName}
       animation-crossfade-duration={animationCrossfade !== undefined ? animationCrossfade : 300}
       autoplay={false}

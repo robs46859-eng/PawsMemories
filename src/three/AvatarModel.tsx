@@ -6,7 +6,12 @@ import { clone as skeletonClone } from "three/examples/jsm/utils/SkeletonUtils.j
 import * as THREE from "three";
 import { BehaviorAction } from "../types";
 import { useAvatarScene } from "./store";
-import { resolveClipName, LOOPING } from "./clipMap";
+import { LOOPING } from "./clipMap";
+import {
+  DEFAULT_MODEL_YAW_CORRECTION_DEGREES,
+  radiansForModelYaw,
+  resolvePresentationClipName,
+} from "./modelPresentation";
 import { uncannyPresets } from "../avatar/uncannyPresets";
 
 /**
@@ -142,7 +147,17 @@ export function applyHumanProcedural(g: THREE.Group, action: BehaviorAction, t: 
  * `action`/`target`. Plays skeletal clips when the model has them, otherwise
  * animates procedurally. Used by both the in-app scene and the AR scene.
  */
-export default function AvatarModel({ url, avatarType = "dog", stylePreset }: { url: string; avatarType?: "dog" | "human"; stylePreset?: string }) {
+export default function AvatarModel({
+  url,
+  avatarType = "dog",
+  stylePreset,
+  yawCorrectionDegrees = DEFAULT_MODEL_YAW_CORRECTION_DEGREES,
+}: {
+  url: string;
+  avatarType?: "dog" | "human";
+  stylePreset?: string;
+  yawCorrectionDegrees?: number;
+}) {
   const group = useRef<THREE.Group>(null);
   const { scene, animations } = useGLTF(url);
 
@@ -215,7 +230,7 @@ export default function AvatarModel({ url, avatarType = "dog", stylePreset }: { 
   const procPhase = useRef(0);
 
   React.useEffect(() => {
-    const clip = resolveClipName(action, names, avatarType);
+    const clip = resolvePresentationClipName(action, names, avatarType);
     if (!clip || !actions[clip]) {
       currentClipRef.current = null;
       return;
@@ -262,7 +277,7 @@ export default function AvatarModel({ url, avatarType = "dog", stylePreset }: { 
 
   return (
     <group ref={group} dispose={null}>
-      <group scale={fitScale}>
+      <group scale={fitScale} rotation-y={radiansForModelYaw(yawCorrectionDegrees)}>
         <primitive object={model} />
       </group>
     </group>
