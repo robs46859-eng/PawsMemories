@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Loader2, Mic2, Play, ShieldCheck, Square } from "lucide-react";
 import { createVoicePreview, fetchMe, type VoicePreviewResult } from "../api";
+import { fetchModelLibrary, type ModelLibraryItem } from "../api";
 import { CREDIT_PRICES } from "../pricing";
 import type { PublicUser, UserProfile } from "../types";
 import { VISEME_OPENNESS, type VisemeShape } from "../animator/viseme/visemeRules";
+import LipSyncModelPreview from "./LipSyncModelPreview";
 
 interface VoiceFlowTestProps {
   userProfile: UserProfile;
@@ -28,11 +30,24 @@ export default function VoiceFlowTest({ userProfile, onUserUpdate }: VoiceFlowTe
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "playing" | "error">("idle");
   const [message, setMessage] = useState("Enter a short line, then generate a real voice and lip-sync test.");
   const [shape, setShape] = useState<VisemeShape>("X");
+  const [models, setModels] = useState<ModelLibraryItem[]>([]);
+  const [selectedModelKey, setSelectedModelKey] = useState("");
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => () => {
     audioRef.current?.pause();
   }, []);
+
+  useEffect(() => {
+    fetchModelLibrary().then((items) => {
+      const ready = items.filter((item) => Boolean(item.rigged_model_url || item.model_url));
+      setModels(ready);
+      if (ready[0]) setSelectedModelKey(`${ready[0].source_type}:${ready[0].id}`);
+    }).catch(() => setModels([]));
+  }, []);
+
+  const selectedModel = models.find((item) => `${item.source_type}:${item.id}` === selectedModelKey) || null;
+  const selectedModelUrl = selectedModel?.rigged_model_url || selectedModel?.model_url || "";
 
   const generate = async () => {
     const text = script.trim();
@@ -109,6 +124,17 @@ export default function VoiceFlowTest({ userProfile, onUserUpdate }: VoiceFlowTe
               disabled={status === "loading"}
               className="mt-2 min-h-32 w-full rounded-2xl border border-outline-variant/40 bg-surface px-4 py-3 text-base text-on-surface outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/10 disabled:opacity-60"
             />
+            <label htmlFor="voice-test-model" className="mt-5 block text-sm font-black text-on-surface">Select a 3D model</label>
+            <select
+              id="voice-test-model"
+              value={selectedModelKey}
+              onChange={(event) => setSelectedModelKey(event.target.value)}
+              className="mt-2 min-h-12 w-full rounded-xl border border-outline-variant/40 bg-surface px-4 text-sm text-on-surface"
+            >
+              <option value="">Cue monitor only</option>
+              {models.map((model) => <option key={`${model.source_type}:${model.id}`} value={`${model.source_type}:${model.id}`}>{model.name || "3D model"}</option>)}
+            </select>
+            {models.length === 0 && <p className="mt-2 text-xs text-on-surface-variant">No completed FurBin models are available. Finish a 3D build first.</p>}
             <div className="mt-2 flex items-center justify-between gap-3 text-xs text-on-surface-variant">
               <span>Up to 30 seconds</span><span>{script.length}/500</span>
             </div>
@@ -165,6 +191,13 @@ export default function VoiceFlowTest({ userProfile, onUserUpdate }: VoiceFlowTe
           </section>
 
           <aside className="flex min-h-72 flex-col items-center justify-center rounded-3xl border border-outline-variant/25 bg-gradient-to-b from-secondary-container/35 to-surface p-5 text-center" aria-label="Lip-sync cue monitor">
+            {selectedModelUrl && result?.track ? (
+              <>
+                <p className="mb-3 text-[10px] font-black uppercase tracking-[.18em] text-on-surface-variant">Selected model preview</p>
+                <LipSyncModelPreview url={selectedModelUrl} track={result.track} audioRef={audioRef} playing={status === "playing"} />
+                <p className="mt-3 text-xs leading-relaxed text-on-surface-variant">The returned Rhubarb cues drive this model's viseme blendshapes, with its jaw bone used as fallback.</p>
+              </>
+            ) : <>
             <p className="text-[10px] font-black uppercase tracking-[.18em] text-on-surface-variant">Mouth-cue monitor</p>
             <div className="relative mt-5 h-44 w-44 rounded-full border-4 border-primary/20 bg-primary/10 shadow-inner" aria-hidden="true">
               <div className="absolute left-10 top-14 h-3 w-3 rounded-full bg-on-surface" />
@@ -181,6 +214,7 @@ export default function VoiceFlowTest({ userProfile, onUserUpdate }: VoiceFlowTe
             <p className="mt-3 border-t border-outline-variant/20 pt-3 text-[11px] leading-relaxed text-on-surface-variant">
               This checks the voice service and cue timing. It does not certify an individual model's facial rig.
             </p>
+            </>}
           </aside>
         </div>
       </div>

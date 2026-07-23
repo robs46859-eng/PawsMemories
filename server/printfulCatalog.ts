@@ -21,10 +21,21 @@ interface PrintfulConfig {
   headers: Record<string, string>;
 }
 
+export class PrintfulCatalogError extends Error {
+  constructor(
+    message: string,
+    public readonly providerStatus: number | null,
+    public readonly code: "not_configured" | "unauthorized" | "forbidden" | "rate_limited" | "provider_error" | "network_error",
+  ) {
+    super(message);
+    this.name = "PrintfulCatalogError";
+  }
+}
+
 function configuration(): PrintfulConfig {
   const token = process.env.PRINTFUL_API_KEY || "";
   const base = (process.env.PRINTFUL_API_BASE_URL || "https://api.printful.com").replace(/\/$/, "");
-  if (!token) throw new Error("Printful is not configured: set PRINTFUL_API_KEY.");
+  if (!token) throw new PrintfulCatalogError("Printful is not configured: set PRINTFUL_API_KEY.", null, "not_configured");
   return {
     base,
     headers: {
@@ -45,7 +56,15 @@ export function printfulCatalogConfigured(): boolean {
 async function parse(response: Response): Promise<any> {
   const payload = (await response.json().catch(() => ({}))) as any;
   if (!response.ok) {
-    throw new Error(payload?.error?.message || payload?.error || `Printful returned ${response.status}.`);
+    const code = response.status === 401 ? "unauthorized"
+      : response.status === 403 ? "forbidden"
+      : response.status === 429 ? "rate_limited"
+      : "provider_error";
+    throw new PrintfulCatalogError(
+      payload?.error?.message || payload?.error || `Printful returned ${response.status}.`,
+      response.status,
+      code,
+    );
   }
   // v1 wraps successful bodies in { code, result, ... }.
   return payload?.result ?? payload;
@@ -53,7 +72,47 @@ async function parse(response: Response): Promise<any> {
 
 async function get(path: string, timeoutMs = 30_000): Promise<any> {
   const { base, headers } = configuration();
-  return parse(await fetch(`${base}${path}`, { headers, signal: AbortSignal.timeout(timeoutMs) }));
+  try {
+    return parse(await fetch(`${base}${path}`, { headers, signal: AbortSignal.timeout(timeoutMs) }));
+  } catch (error) {
+    if (error instanceof PrintfulCatalogError) throw error;
+    throw new PrintfulCatalogError(
+      error instanceof Error ? error.message : "Could not reach Printful.",
+      null,
+      "network_error",
+    );
+  }
+}
+
+export async function verifyPrintfulCatalogConnection(): Promise<{
+  configured: boolean;
+  reachable: boolean;
+  providerStatus: number | null;
+  code: string;
+  message: string;
+}> {
+  if (!printfulCatalogConfigured()) {
+    return { configured: false, reachable: false, providerStatus: null, code: "not_configured", message: "PRINTFUL_API_KEY is not configured." };
+  }
+  try {
+    await get("/products", 10_000);
+    return { configured: true, reachable: true, providerStatus: 200, code: "ok", message: "Printful catalog connection is working." };
+  } catch (error) {
+    if (error instanceof PrintfulCatalogError) {
+      return {
+        configured: true,
+        reachable: false,
+        providerStatus: error.providerStatus,
+        code: error.code,
+        message: error.code === "unauthorized" ? "Printful rejected the token."
+          : error.code === "forbidden" ? "The Printful token does not have access to this resource or store."
+          : error.code === "rate_limited" ? "Printful rate-limited the catalog request."
+          : error.code === "network_error" ? "The server could not reach Printful."
+          : "Printful returned an error.",
+      };
+    }
+    return { configured: true, reachable: false, providerStatus: null, code: "provider_error", message: "Printful catalog verification failed." };
+  }
 }
 
 // ── In-process cache ─────────────────────────────────────────────────────────

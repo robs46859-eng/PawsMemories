@@ -1,16 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { ArrowLeft, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
 import { authedFetch } from "../../api";
+import { readJsonResponse } from "../../apiResponse";
 
 interface Product { id: number; title: string; image: string | null; type: string | null; variantCount: number }
 interface Variant { id: number; name: string; priceCents: number | null }
 interface Placement { placement: string; widthPx: number; heightPx: number; dpi: number }
-
-async function json<T>(response: Response, fallback: string): Promise<T> {
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || fallback);
-  return body as T;
-}
 
 export default function PrintfulSetupScreen({ onClose }: { onClose: () => void }) {
   const [status, setStatus] = useState<{ configured: boolean; storeIdConfigured: boolean } | null>(null);
@@ -30,13 +25,18 @@ export default function PrintfulSetupScreen({ onClose }: { onClose: () => void }
   const checkConnection = async () => {
     setBusy("connection"); setError(""); setMessage("");
     try {
-      const result = await json<{ configured: boolean; storeIdConfigured: boolean }>(
+      const result = await readJsonResponse<{ configured: boolean; storeIdConfigured: boolean }>(
         await authedFetch("/api/admin/customizer/status"),
         "Could not check Printful.",
       );
       setStatus(result);
       if (!result.configured) throw new Error("Add the Printful token in Hostinger before syncing.");
-      const catalog = await json<{ products: Product[] }>(
+      const diagnostics = await readJsonResponse<{ reachable: boolean; message: string; code: string; providerStatus: number | null }>(
+        await authedFetch("/api/admin/customizer/diagnostics"),
+        "Could not verify Printful.",
+      );
+      if (!diagnostics.reachable) throw new Error(diagnostics.message);
+      const catalog = await readJsonResponse<{ products: Product[] }>(
         await authedFetch("/api/admin/customizer/products"),
         "Printful did not accept this connection.",
       );
@@ -49,7 +49,7 @@ export default function PrintfulSetupScreen({ onClose }: { onClose: () => void }
   const syncCatalog = async () => {
     setBusy("sync"); setError(""); setMessage("");
     try {
-      await json(await authedFetch("/api/admin/customizer/refresh", { method: "POST" }), "Could not refresh catalog.");
+      await readJsonResponse(await authedFetch("/api/admin/customizer/refresh", { method: "POST" }), "Could not refresh catalog.");
       await checkConnection();
       setMessage("Catalog synchronized with Printful.");
     } catch (cause: any) { setError(cause.message); setBusy(""); }
@@ -61,7 +61,7 @@ export default function PrintfulSetupScreen({ onClose }: { onClose: () => void }
     setVariants([]); setVariantId(0); setPlacements([]); setPlacement("");
     if (!productId) return;
     setBusy("variants");
-    authedFetch(`/api/admin/customizer/products/${productId}/variants`).then((response) => json<{ variants: Variant[] }>(
+    authedFetch(`/api/admin/customizer/products/${productId}/variants`).then((response) => readJsonResponse<{ variants: Variant[] }>(
       response,
       "Could not load variants.",
     )).then((result) => setVariants(result.variants || []))
@@ -73,7 +73,7 @@ export default function PrintfulSetupScreen({ onClose }: { onClose: () => void }
     setPlacements([]); setPlacement("");
     if (!productId || !variantId) return;
     setBusy("template");
-    authedFetch(`/api/admin/customizer/products/${productId}/variants/${variantId}/template`).then((response) => json<{ placements: Placement[] }>(
+    authedFetch(`/api/admin/customizer/products/${productId}/variants/${variantId}/template`).then((response) => readJsonResponse<{ placements: Placement[] }>(
       response,
       "Could not load print template.",
     )).then((result) => {
@@ -92,7 +92,7 @@ export default function PrintfulSetupScreen({ onClose }: { onClose: () => void }
     }
     setBusy("publish"); setError(""); setMessage("");
     try {
-      await json(await authedFetch("/api/admin/customizer/customizable-products", {
+      await readJsonResponse(await authedFetch("/api/admin/customizer/customizable-products", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

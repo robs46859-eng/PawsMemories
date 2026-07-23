@@ -140,3 +140,28 @@ test("configured-flag reflects PRINTFUL_API_KEY", async () => {
   const cat = await import("../server/printfulCatalog.ts");
   assert.equal(cat.printfulCatalogConfigured(), true);
 });
+
+test("connection diagnostics distinguish a rejected token without exposing it", async () => {
+  const cat = await import("../server/printfulCatalog.ts");
+  globalThis.fetch = async () => new Response(
+    JSON.stringify({ error: { message: "Invalid token" } }),
+    { status: 401, headers: { "content-type": "application/json" } },
+  );
+  const result = await cat.verifyPrintfulCatalogConnection();
+  assert.deepEqual(
+    { reachable: result.reachable, providerStatus: result.providerStatus, code: result.code },
+    { reachable: false, providerStatus: 401, code: "unauthorized" },
+  );
+  assert.equal(JSON.stringify(result).includes(process.env.PRINTFUL_API_KEY), false);
+});
+
+test("connection diagnostics confirm a reachable catalog", async () => {
+  const cat = await import("../server/printfulCatalog.ts");
+  globalThis.fetch = async () => new Response(
+    JSON.stringify({ code: 200, result: [] }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+  const result = await cat.verifyPrintfulCatalogConnection();
+  assert.equal(result.reachable, true);
+  assert.equal(result.providerStatus, 200);
+});

@@ -110,7 +110,7 @@ import { BIM_PROPOSAL_SYSTEM_INSTRUCTION, BimProposalRequestSchema, buildBimProp
 import { WARDROBE_CATALOG, WARDROBE_ITEM_IDS } from "./src/wardrobe/catalog";
 import { buildReferencePrompt, turnaroundViewsForType, paletteLockClause, extractPaletteInstruction, buildTextPrompt, geometryToTripo, type TextPromptFields, type ExtendedSubjectClass, getSubjectClassForSpecies, getBuildProfileForSpecies } from "./avatarPrompts";
 import { confirmPrintfulOrderIfDraft, createPrintfulOrder, getPrintfulOrder, verifyPrintfulConfiguration } from "./server/printful";
-import { printfulCatalogConfigured, searchProducts, listVariants, getTemplateContext, clearCatalogueCache } from "./server/printfulCatalog";
+import { printfulCatalogConfigured, searchProducts, listVariants, getTemplateContext, clearCatalogueCache, verifyPrintfulCatalogConnection } from "./server/printfulCatalog";
 import { handleCustomizeOrderPayment, registerCustomizerBuyerRoutes } from "./server/customizerCheckout";
 import { publicPawprintPrintProducts, requirePawprintPrintProduct } from "./server/pawprintProducts";
 import { buildFulfillmentReadiness } from "./server/fulfillmentReadiness";
@@ -722,6 +722,9 @@ async function startServer() {
   // parser. Production factories are constructed only when their dark-launch
   // flags are explicitly enabled, so missing rollout secrets cannot break the
   // legacy application.
+  app.get("/api/wags-v2/status", (_req, res) => {
+    res.json({ enabled: isWagsV2Enabled() });
+  });
   if (isWagsV2Enabled()) {
     const wagsV2 = createWagsV2Production();
     app.use("/api/wags-v2", createWagsV2Router({
@@ -2674,6 +2677,46 @@ async function startServer() {
   });
 
   // ── Wags admin endpoints (admin only) ─────────────────────────────────────
+  const planLegacyWagsBox = async (subscriptionId: number, boxMonth: string) => {
+    const [subRows]: any = await getPool().query(
+      `SELECT id, user_phone, pet_id, species, tier FROM wardrobe_wags_subscriptions WHERE id = ? LIMIT 1`,
+      [subscriptionId],
+    );
+    if (!subRows?.length) return null;
+    const sub = subRows[0];
+    const [petRows]: any = await getPool().query(
+      `SELECT name FROM pets WHERE id = ? AND user_phone = ? LIMIT 1`,
+      [sub.pet_id, sub.user_phone],
+    );
+    const { previous_themes, previous_item_titles } = await getPriorBoxHistory(subscriptionId, getPool());
+    const plan = await planWagsBox({
+      box_month: boxMonth,
+      tier: sub.tier,
+      pet_species: sub.species,
+      pet_breed: null,
+      pet_name: petRows?.[0]?.name ?? null,
+      previous_themes,
+      previous_item_titles,
+    });
+    const [existing]: any = await getPool().query(
+      `SELECT id FROM wardrobe_wags_boxes WHERE subscription_id = ? AND box_month = ? LIMIT 1`,
+      [subscriptionId, boxMonth],
+    );
+    if (existing?.length) {
+      await getPool().query(
+        `UPDATE wardrobe_wags_boxes SET plan_json = ?, status = 'pending_review', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        [JSON.stringify(plan), existing[0].id],
+      );
+      return { box_id: existing[0].id, plan };
+    }
+    const [result]: any = await getPool().query(
+      `INSERT INTO wardrobe_wags_boxes (subscription_id, user_phone, box_month, status, plan_json)
+       VALUES (?, ?, ?, 'pending_review', ?)`,
+      [subscriptionId, sub.user_phone, boxMonth, JSON.stringify(plan)],
+    );
+    return { box_id: result.insertId, plan };
+  };
+
   // GET /api/admin/wags/boxes — list all boxes with subscription + user details
   app.get("/api/admin/wags/boxes", requireAuth, async (req: AuthedRequest, res) => {
     if (!req.user || !await isUserAdmin(req.user.phone)) return res.status(403).json({ error: "Admin only." });
@@ -2715,52 +2758,34 @@ async function startServer() {
     const boxMonth: string = req.body?.box_month ?? new Date().toISOString().slice(0, 7);
     if (!subscriptionId) return res.status(400).json({ error: "subscriptionId required." });
     try {
-      const [subRows]: any = await getPool().query(
-        `SELECT id, user_phone, pet_id, species, tier FROM wardrobe_wags_subscriptions WHERE id = ? LIMIT 1`,
-        [subscriptionId],
-      );
-      if (!subRows?.length) return res.status(404).json({ error: "Subscription not found." });
-      const sub = subRows[0];
-
-      const [petRows]: any = await getPool().query(
-        `SELECT name FROM pets WHERE id = ? AND user_phone = ? LIMIT 1`,
-        [sub.pet_id, sub.user_phone],
-      );
-      const petName = petRows?.[0]?.name ?? null;
-
-      const { previous_themes, previous_item_titles } = await getPriorBoxHistory(subscriptionId, getPool());
-      const plan = await planWagsBox({
-        box_month: boxMonth,
-        tier: sub.tier,
-        pet_species: sub.species,
-        pet_breed: null,
-        pet_name: petName,
-        previous_themes,
-        previous_item_titles,
-      });
-
-      // Upsert the box row
-      const [existing]: any = await getPool().query(
-        `SELECT id FROM wardrobe_wags_boxes WHERE subscription_id = ? AND box_month = ? LIMIT 1`,
-        [subscriptionId, boxMonth],
-      );
-      if (existing?.length) {
-        await getPool().query(
-          `UPDATE wardrobe_wags_boxes SET plan_json = ?, status = 'pending_review', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-          [JSON.stringify(plan), existing[0].id],
-        );
-        res.json({ box_id: existing[0].id, plan });
-      } else {
-        const [result]: any = await getPool().query(
-          `INSERT INTO wardrobe_wags_boxes (subscription_id, user_phone, box_month, status, plan_json)
-           VALUES (?, ?, ?, 'pending_review', ?)`,
-          [subscriptionId, sub.user_phone, boxMonth, JSON.stringify(plan)],
-        );
-        res.json({ box_id: result.insertId, plan });
-      }
+      const result = await planLegacyWagsBox(subscriptionId, boxMonth);
+      if (!result) return res.status(404).json({ error: "Subscription not found." });
+      res.json(result);
     } catch (err: any) {
       console.error("[admin/wags/plan]", err?.message || err);
       res.status(500).json({ error: err.message || "Planning failed." });
+    }
+  });
+
+  app.post("/api/admin/wags/boxes/:boxId/replan", requireAuth, async (req: AuthedRequest, res) => {
+    if (!req.user || !await isUserAdmin(req.user.phone)) return res.status(403).json({ error: "Admin only." });
+    const boxId = Number(req.params.boxId);
+    if (!boxId) return res.status(400).json({ error: "Valid boxId required." });
+    try {
+      const [rows]: any = await getPool().query(
+        `SELECT subscription_id, box_month FROM wardrobe_wags_boxes WHERE id = ? LIMIT 1`,
+        [boxId],
+      );
+      if (!rows?.length) return res.status(404).json({ error: "Box not found." });
+      const result = await planLegacyWagsBox(
+        Number(rows[0].subscription_id),
+        String(req.body?.box_month || rows[0].box_month),
+      );
+      if (!result) return res.status(409).json({ error: "This box no longer has a valid subscription." });
+      res.json(result);
+    } catch (err: any) {
+      console.error("[admin/wags/replan]", err?.message || err);
+      res.status(500).json({ error: err.message || "Re-planning failed." });
     }
   });
 
@@ -2965,6 +2990,12 @@ async function startServer() {
       storeIdConfigured: Boolean(process.env.PRINTFUL_STORE_ID),
       baseUrlConfigured: Boolean(process.env.PRINTFUL_API_BASE_URL),
     });
+  });
+
+  app.get("/api/admin/customizer/diagnostics", requireAuth, async (req: AuthedRequest, res) => {
+    if (!await requireMarketplaceAdmin(req, res)) return;
+    const result = await verifyPrintfulCatalogConnection();
+    res.status(result.reachable ? 200 : 503).json(result);
   });
 
   app.get("/api/admin/customizer/products", requireAuth, async (req: AuthedRequest, res) => {

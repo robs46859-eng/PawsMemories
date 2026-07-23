@@ -350,7 +350,7 @@ export default function AvatarDashboard({ userProfile, onUpdateUser, isDarkMode,
                 <div className="relative aspect-square bg-slate-900/5 dark:bg-slate-100/5">
                   <button
                     onClick={() => handleDeleteAvatar(avatar.id, avatar.name)}
-                    className="absolute top-2 right-2 z-20 w-8 h-8 flex items-center justify-center rounded-full bg-black/40 hover:bg-error/80 text-white/80 hover:text-white backdrop-blur-sm transition-colors"
+                    className="absolute bottom-2 right-2 z-40 w-9 h-9 flex items-center justify-center rounded-full bg-black/65 hover:bg-error text-white backdrop-blur-sm transition-colors shadow-lg"
                     title="Remove from my models"
                     aria-label={`Remove ${avatar.name} from my models`}
                   >

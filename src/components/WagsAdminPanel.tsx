@@ -14,6 +14,7 @@ import {
   Shirt, Star, Gift, Zap, Video, Palette, Calendar as CalendarIcon
 } from "lucide-react";
 import { authedFetch } from "../api";
+import { readJsonResponse } from "../apiResponse";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -122,8 +123,7 @@ export default function WagsAdminPanel({ onClose }: Props) {
     try {
       const qs = filter === "all" ? "" : `?status=${filter}`;
       const r = await authedFetch(`/api/admin/wags/boxes${qs}`);
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || "Failed to load boxes.");
+      const data = await readJsonResponse<{ boxes: WagsBox[] }>(r, "Failed to load boxes.");
       setBoxes(data.boxes ?? []);
     } catch (err: any) {
       setError(err.message || "Could not load boxes.");
@@ -143,8 +143,7 @@ export default function WagsAdminPanel({ onClose }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, admin_notes: reviewNotes[box.id] ?? "" }),
       });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || "Update failed.");
+      const data = await readJsonResponse<{ status: WagsBox["status"] }>(r, "Update failed.");
       setReviewMsg((prev) => ({ ...prev, [box.id]: action === "approve" ? "✓ Approved" : "✗ Rejected" }));
       setBoxes((prev) => prev.map((b) => b.id === box.id ? { ...b, status: data.status } : b));
     } catch (err: any) {
@@ -158,13 +157,12 @@ export default function WagsAdminPanel({ onClose }: Props) {
     setPlanBusy((prev) => ({ ...prev, [box.id]: true }));
     setReviewMsg((prev) => ({ ...prev, [box.id]: "Re-planning…" }));
     try {
-      const r = await authedFetch(`/api/admin/wags/boxes/${box.subscription_id}/plan`, {
+      const r = await authedFetch(`/api/admin/wags/boxes/${box.id}/replan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ box_month: box.box_month }),
       });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || "Planning failed.");
+      const data = await readJsonResponse<{ plan: WagsPlan }>(r, "Planning failed.");
       setBoxes((prev) => prev.map((b) =>
         b.id === box.id ? { ...b, plan_json: data.plan, status: "pending_review" } : b
       ));
@@ -185,8 +183,7 @@ export default function WagsAdminPanel({ onClose }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ box_month: planMonth }),
       });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || "Planning failed.");
+      const data = await readJsonResponse<{ box_id: number; plan: WagsPlan }>(r, "Planning failed.");
       setPlanMsg(`✓ Box planned (id ${data.box_id}). Refresh to see it.`);
       fetchBoxes(statusFilter);
     } catch (err: any) {

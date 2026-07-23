@@ -256,7 +256,7 @@ function LegacyFurBinScreen({ creations, userProfile, onOpenCreditStore }: FurBi
         <div className="mb-3 flex items-center gap-2"><h2 className="text-sm font-black uppercase tracking-[.16em] text-on-surface">Marketplace models</h2><span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-black text-primary">{marketplaceModels.length}</span></div>
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
           {marketplaceModels.map((m) => (
-             <article key={m.entitlement_id} className="overflow-hidden rounded-[1.6rem] border border-white/30 bg-surface/75 shadow-xl backdrop-blur-2xl">
+             <article key={m.entitlement_id} className="relative isolate overflow-hidden rounded-[1.6rem] border border-white/30 bg-surface/75 shadow-xl backdrop-blur-2xl">
                 <div className="aspect-square bg-surface-container-highest relative">
                   <img src={m.preview_url || "https://placehold.co/400"} alt={m.name} className="h-full w-full object-cover" />
                 </div>
@@ -296,8 +296,8 @@ function LegacyFurBinScreen({ creations, userProfile, onOpenCreditStore }: FurBi
             const modelUrl = model.rigged_model_url || model.model_url || "";
             const failed = model.status === "failed";
             const busy = modelActionBusy?.endsWith(`-${model.id}`);
-            return <article key={`${model.source_type}-${model.id}`} className="overflow-hidden rounded-[1.6rem] border border-white/30 bg-surface/75 shadow-xl backdrop-blur-2xl">
-              <div className="h-64 bg-gradient-to-br from-primary/10 via-surface to-secondary/10">
+            return <article key={`${model.source_type}-${model.id}`} className="relative isolate overflow-hidden rounded-[1.6rem] border border-white/30 bg-surface/75 shadow-xl backdrop-blur-2xl">
+              <div className="relative isolate h-64 overflow-hidden bg-gradient-to-br from-primary/10 via-surface to-secondary/10">
                 {modelUrl
                   ? <PetModelViewer src={modelUrl} poster={model.image_url || undefined} alt={model.name || "Your 3D model"} className="h-full w-full" />
                   : <div className="flex h-full flex-col items-center justify-center gap-3 p-5 text-center text-on-surface-variant">{failed ? <ShieldAlert size={34} className="text-error" /> : <RefreshCw size={34} className="animate-spin text-primary" />}<strong>{failed ? "Build failed" : "Building model"}</strong>{model.image_url && <img src={model.image_url} alt="" className="absolute h-64 w-full object-cover opacity-15" />}</div>}

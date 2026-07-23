@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Gift, Sparkles, Shirt, Zap, Star, PawPrint, Package, Clock, ChevronDown } from "lucide-react";
 import { authedFetch } from "../api";
+import { readJsonResponse } from "../apiResponse";
 import { FULL_WARDROBE_CATALOG } from "../wardrobe/catalog";
 
 /**
@@ -202,6 +203,14 @@ export default function WagsInboxScreen({ onGoToFidos }: { onGoToFidos?: () => v
 
   const loadWagsV2 = useCallback(async () => {
     try {
+      const status = await readJsonResponse<{ enabled: boolean }>(
+        await authedFetch("/api/wags-v2/status"),
+        "Wardrobe Wags status is unavailable.",
+      );
+      if (!status.enabled) {
+        setV2Available(false);
+        return;
+      }
       const [planResponse, subscriptionResponse] = await Promise.all([
         authedFetch("/api/wags-v2/plans"),
         authedFetch("/api/wags-v2/subscriptions"),
@@ -210,10 +219,8 @@ export default function WagsInboxScreen({ onGoToFidos }: { onGoToFidos?: () => v
         setV2Available(false);
         return;
       }
-      const planBody = await planResponse.json();
-      const subscriptionBody = await subscriptionResponse.json();
-      if (!planResponse.ok) throw new Error(planBody.error || "Could not load Wags plans.");
-      if (!subscriptionResponse.ok) throw new Error(subscriptionBody.error || "Could not load Wags membership.");
+      const planBody = await readJsonResponse<{ plans: WagsPlan[] }>(planResponse, "Could not load Wags plans.");
+      const subscriptionBody = await readJsonResponse<{ subscriptions: WagsSubscription[] }>(subscriptionResponse, "Could not load Wags membership.");
       setPlans(planBody.plans || []);
       setSubscriptions(subscriptionBody.subscriptions || []);
       setV2Available(true);
@@ -249,8 +256,7 @@ export default function WagsInboxScreen({ onGoToFidos }: { onGoToFidos?: () => v
           cancelUrl: `${root}/wags?wags=cancel`,
         }),
       });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "Could not start secure checkout.");
+      const body = await readJsonResponse<{ checkoutUrl: string }>(response, "Could not start secure checkout.");
       window.location.assign(body.checkoutUrl);
     } catch (cause: any) {
       setError(cause?.message || "Could not start secure checkout.");

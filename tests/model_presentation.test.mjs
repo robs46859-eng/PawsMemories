@@ -4,18 +4,19 @@ import fs from "node:fs";
 
 import {
   DEFAULT_MODEL_YAW_CORRECTION_DEGREES,
-  modelViewerOrientation,
+  modelViewerCameraOrbit,
   radiansForModelYaw,
 } from "../src/three/modelPresentation.ts";
 
-test("legacy provider models receive the canonical 90-degree presentation correction", () => {
-  assert.equal(DEFAULT_MODEL_YAW_CORRECTION_DEGREES, 90);
-  assert.equal(radiansForModelYaw(), Math.PI / 2);
-  assert.equal(modelViewerOrientation(), "0deg 90deg 0deg");
+test("model geometry stays unrotated while the viewer camera moves horizontally", () => {
+  assert.equal(DEFAULT_MODEL_YAW_CORRECTION_DEGREES, 0);
+  assert.equal(radiansForModelYaw(), 0);
+  assert.equal(modelViewerCameraOrbit(), "90deg 80deg 105%");
 });
 
 test("model-viewer remains static and applies presentation orientation", () => {
   const source = fs.readFileSync("src/components/PetModelViewer.tsx", "utf8");
-  assert.match(source, /orientation=\{modelViewerOrientation\(yawCorrectionDegrees\)\}/);
+  assert.match(source, /camera-orbit=\{modelViewerCameraOrbit\(cameraAzimuthDegrees\)\}/);
+  assert.doesNotMatch(source, /orientation=\{/);
   assert.match(source, /autoplay=\{false\}/);
 });

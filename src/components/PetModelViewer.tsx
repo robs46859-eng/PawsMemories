@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
-  DEFAULT_MODEL_YAW_CORRECTION_DEGREES,
-  modelViewerOrientation,
+  DEFAULT_MODEL_CAMERA_AZIMUTH_DEGREES,
+  modelViewerCameraOrbit,
 } from "../three/modelPresentation";
 
 const MODEL_VIEWER_CDN =
@@ -40,8 +40,6 @@ function ensureModelViewer(): Promise<void> {
  * grid all faced different directions. Pinning the orbit means every card
  * presents the model head-on.
  */
-const FRONT_ORBIT = "0deg 80deg 105%";
-
 /**
  * A phone can hold only a handful of live WebGL contexts (typically 8, fewer
  * under memory pressure). A grid of model cards mounts one <model-viewer> —
@@ -81,8 +79,8 @@ interface PetModelViewerProps {
    * on mobile when a poster is available; pass explicitly to force either way.
    */
   thumbnail?: boolean;
-  /** Non-destructive presentation correction for provider GLBs authored on +X. */
-  yawCorrectionDegrees?: number;
+  /** Horizontal camera position used to present the model's face. */
+  cameraAzimuthDegrees?: number;
 }
 
 /**
@@ -97,7 +95,7 @@ const PetModelViewer: React.FC<PetModelViewerProps> = ({
   animationCrossfade,
   autoRotate = false,
   thumbnail,
-  yawCorrectionDegrees = DEFAULT_MODEL_YAW_CORRECTION_DEGREES,
+  cameraAzimuthDegrees = DEFAULT_MODEL_CAMERA_AZIMUTH_DEGREES,
 }) => {
   const [ready, setReady] = useState(
     typeof window !== "undefined" && !!(window as any).customElements?.get("model-viewer")
@@ -156,8 +154,7 @@ const PetModelViewer: React.FC<PetModelViewerProps> = ({
       alt={alt}
       camera-controls={true}
       auto-rotate={autoRotate ? true : undefined}
-      camera-orbit={FRONT_ORBIT}
-      orientation={modelViewerOrientation(yawCorrectionDegrees)}
+      camera-orbit={modelViewerCameraOrbit(cameraAzimuthDegrees)}
       animation-name={animationName}
       animation-crossfade-duration={animationCrossfade !== undefined ? animationCrossfade : 300}
       autoplay={false}
