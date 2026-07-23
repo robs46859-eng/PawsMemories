@@ -131,10 +131,10 @@
 - [ ] Add unique keys that prevent the same creation being imported twice.
 - [ ] Build one normalized FurBin item contract for avatars, creations, Pawprints, and videos.
 - [ ] Add source-aware actions: View, Download, Retry/Remake, Move, Tag, Trash, Restore, and Delete Permanently.
-- [ ] Retry only failed/retryable jobs and preserve idempotency.
+- [x] Retry only failed/retryable jobs and preserve idempotency.
 - [ ] Use soft delete first. Permanent deletion must verify ownership and block deletion when the asset is referenced by an order, active job, published listing, or shared item.
 - [ ] Delete underlying Backblaze media only after reference checks pass.
-- [ ] Organize All by output type and creation date using tall opaque glass cards.
+- [x] Organize All by output type and creation date using tall opaque glass cards.
 - [ ] Make “Your creations” aliases route to and display “Your FurBin.”
 - [ ] Run:
   `npm test -- tests/furbin_lifecycle.test.mjs tests/furbin_ui_contract.test.mjs`
@@ -157,12 +157,12 @@
 
 ### Checklist
 
-- [ ] Add tests for confirmation, stable request ID across rerenders, success, insufficient PupCoins, and exact retry.
-- [ ] Open a confirmation panel showing added capacity, PupCoin price, current balance, and resulting capacity.
-- [ ] Generate the idempotency key only when the user begins a purchase attempt; reuse it for retries of that attempt.
-- [ ] Disable duplicate submissions and refresh both storage and PupCoin balances after success.
-- [ ] Surface server error text in the panel and keep it retryable.
-- [ ] Run:
+- [x] Add tests for confirmation, stable request ID across rerenders, success, insufficient PupCoins, and exact retry.
+- [x] Open a confirmation panel showing added capacity, PupCoin price, current balance, and resulting capacity.
+- [x] Generate the idempotency key only when the user begins a purchase attempt; reuse it for retries of that attempt.
+- [x] Disable duplicate submissions and refresh both storage and PupCoin balances after success.
+- [x] Surface server error text in the panel and keep it retryable.
+- [x] Run:
   `npm test -- tests/storage_purchase.test.mjs tests/storage_meter_ui.test.mjs`
 
 **Acceptance**

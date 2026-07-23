@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import type { Creation, UserProfile, VoiceCloneAsset } from "../types";
-import { Download, Eye, FileImage, Film, HardDrive, PackageOpen, PawPrint, Printer, RefreshCw, ShieldAlert, ShieldCheck, Volume2, X, Loader2 } from "lucide-react";
+import { Download, Eye, FileImage, Film, HardDrive, PackageOpen, PawPrint, Printer, RefreshCw, ShieldAlert, ShieldCheck, Volume2, X, Loader2, Trash2, RotateCcw } from "lucide-react";
 import StorageMeter from "./StorageMeter";
 import PetModelViewer from "./PetModelViewer";
-import { createSlant3dCheckout, createMarketplacePrintCheckout, fetchFulfillmentReadiness, fetchModelLibrary, fetchModelPrintOrders, fetchPawprintPrintOrders, listVoiceCloneAssets, fetchUserEntitlements, fetchDigitalOrderStatus, downloadDigitalListing, type ModelLibraryItem, type ModelPrintOrder, type PawprintPrintOrder } from "../api";
+import { createSlant3dCheckout, createMarketplacePrintCheckout, fetchFulfillmentReadiness, fetchModelLibrary, fetchModelPrintOrders, fetchPawprintPrintOrders, listVoiceCloneAssets, fetchUserEntitlements, fetchDigitalOrderStatus, downloadDigitalListing, retryAvatarGeneration, deleteAvatar, fetchHiddenAvatars, restoreAvatar, type ModelLibraryItem, type ModelPrintOrder, type PawprintPrintOrder } from "../api";
 
 const FurBinV5Experience = React.lazy(() => import("./fur-bin-v5"));
 
@@ -39,6 +39,9 @@ function LegacyFurBinScreen({ creations, userProfile, onOpenCreditStore }: FurBi
   const [voiceAssets, setVoiceAssets] = useState<VoiceCloneAsset[]>([]);
   const [filter, setFilter] = useState<BinFilter>("all");
   const [models, setModels] = useState<ModelLibraryItem[]>([]);
+  const [hiddenModels, setHiddenModels] = useState<any[]>([]);
+  const [modelActionBusy, setModelActionBusy] = useState<string | null>(null);
+  const [modelActionError, setModelActionError] = useState("");
   const [printOrders, setPrintOrders] = useState<ModelPrintOrder[]>([]);
   const [pawprintPrintOrders, setPawprintPrintOrders] = useState<PawprintPrintOrder[]>([]);
   const [marketplaceModels, setMarketplaceModels] = useState<any[]>([]);
@@ -88,6 +91,7 @@ function LegacyFurBinScreen({ creations, userProfile, onOpenCreditStore }: FurBi
 
     const refresh = () => {
       fetchModelLibrary().then((items) => active && setModels(items)).catch(() => {});
+      fetchHiddenAvatars().then((items) => active && setHiddenModels(items)).catch(() => {});
       fetchModelPrintOrders().then((items) => active && setPrintOrders(items)).catch(() => {});
       fetchPawprintPrintOrders().then((items) => active && setPawprintPrintOrders(items)).catch(() => {});
       fetchUserEntitlements().then((items) => active && setMarketplaceModels(items)).catch(() => {});
@@ -102,6 +106,54 @@ function LegacyFurBinScreen({ creations, userProfile, onOpenCreditStore }: FurBi
       if (pollTimer) window.clearInterval(pollTimer);
     };
   }, []);
+
+  const refreshModelLifecycle = async () => {
+    const [active, hidden] = await Promise.all([fetchModelLibrary(), fetchHiddenAvatars()]);
+    setModels(active);
+    setHiddenModels(hidden);
+  };
+
+  const handleRetryModel = async (model: ModelLibraryItem) => {
+    if (model.source_type !== "avatar") return;
+    setModelActionBusy(`retry-${model.id}`);
+    setModelActionError("");
+    try {
+      await retryAvatarGeneration(model.id);
+      await refreshModelLifecycle();
+    } catch (error: any) {
+      setModelActionError(error?.message || "Could not retry this model.");
+    } finally {
+      setModelActionBusy(null);
+    }
+  };
+
+  const handleRemoveModel = async (model: ModelLibraryItem) => {
+    if (model.source_type !== "avatar") return;
+    setModelActionBusy(`remove-${model.id}`);
+    setModelActionError("");
+    try {
+      await deleteAvatar(model.id);
+      if (selectedModel?.id === model.id && selectedModel.source_type === "avatar") setSelectedModel(null);
+      await refreshModelLifecycle();
+    } catch (error: any) {
+      setModelActionError(error?.message || "Could not remove this model.");
+    } finally {
+      setModelActionBusy(null);
+    }
+  };
+
+  const handleRestoreModel = async (id: number) => {
+    setModelActionBusy(`restore-${id}`);
+    setModelActionError("");
+    try {
+      await restoreAvatar(id);
+      await refreshModelLifecycle();
+    } catch (error: any) {
+      setModelActionError(error?.message || "Could not restore this model.");
+    } finally {
+      setModelActionBusy(null);
+    }
+  };
 
   const visible = useMemo(() => [...creations]
     .filter((creation) => models.length === 0 || outputType(creation) !== "models")
@@ -238,9 +290,30 @@ function LegacyFurBinScreen({ creations, userProfile, onOpenCreditStore }: FurBi
 
       {(filter === "all" || filter === "models") && <section className="mt-7">
         <div className="mb-3 flex items-center gap-2"><h2 className="text-sm font-black uppercase tracking-[.16em] text-on-surface">Custom 3D models</h2><span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-black text-primary">{models.length}</span></div>
+        {modelActionError && <p className="mb-3 rounded-xl bg-error/10 p-3 text-sm font-bold text-error" role="alert">{modelActionError}</p>}
         {models.length === 0 ? <div className="rounded-[2rem] border border-dashed border-outline-variant/50 bg-surface/80 p-10 text-center text-sm text-on-surface-variant">No completed 3D models yet. Building models will appear here automatically.</div> : <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {models.map((model) => { const modelUrl = model.rigged_model_url || model.model_url || ""; return <article key={`${model.source_type}-${model.id}`} className="overflow-hidden rounded-[1.6rem] border border-white/30 bg-surface/75 shadow-xl backdrop-blur-2xl"><div className="h-64 bg-gradient-to-br from-primary/10 via-surface to-secondary/10"><PetModelViewer src={modelUrl} poster={model.image_url || undefined} alt={model.name || "Your 3D model"} className="h-full w-full" /></div><div className="p-4"><h3 className="truncate text-sm font-black text-on-surface">{model.name || "3D model"}</h3><p className="mt-1 text-xs text-on-surface-variant">{model.breed || "Custom model"} · {new Date(model.created_at).toLocaleDateString()}</p><div className="mt-4 grid grid-cols-3 gap-2"><button type="button" onClick={() => setSelectedModel(model)} className="inline-flex min-h-10 items-center justify-center gap-1 rounded-xl bg-primary text-xs font-black text-on-primary"><Eye size={14} /> Open</button><a href={modelUrl} download className="inline-flex min-h-10 items-center justify-center gap-1 rounded-xl border border-primary/30 text-xs font-black text-primary"><Download size={14} /> GLB</a><button type="button" onClick={() => setSelectedModel(model)} className="inline-flex min-h-10 items-center justify-center gap-1 rounded-xl border border-primary/30 text-xs font-black text-primary"><Printer size={14} /> Print</button></div></div></article>; })}
+          {models.map((model) => {
+            const modelUrl = model.rigged_model_url || model.model_url || "";
+            const failed = model.status === "failed";
+            const busy = modelActionBusy?.endsWith(`-${model.id}`);
+            return <article key={`${model.source_type}-${model.id}`} className="overflow-hidden rounded-[1.6rem] border border-white/30 bg-surface/75 shadow-xl backdrop-blur-2xl">
+              <div className="h-64 bg-gradient-to-br from-primary/10 via-surface to-secondary/10">
+                {modelUrl
+                  ? <PetModelViewer src={modelUrl} poster={model.image_url || undefined} alt={model.name || "Your 3D model"} className="h-full w-full" />
+                  : <div className="flex h-full flex-col items-center justify-center gap-3 p-5 text-center text-on-surface-variant">{failed ? <ShieldAlert size={34} className="text-error" /> : <RefreshCw size={34} className="animate-spin text-primary" />}<strong>{failed ? "Build failed" : "Building model"}</strong>{model.image_url && <img src={model.image_url} alt="" className="absolute h-64 w-full object-cover opacity-15" />}</div>}
+              </div>
+              <div className="p-4"><h3 className="truncate text-sm font-black text-on-surface">{model.name || "3D model"}</h3><p className="mt-1 text-xs text-on-surface-variant">{model.breed || "Custom model"} · {new Date(model.created_at).toLocaleDateString()}</p>
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  {modelUrl && <button type="button" onClick={() => setSelectedModel(model)} className="inline-flex min-h-10 items-center justify-center gap-1 rounded-xl bg-primary text-xs font-black text-on-primary"><Eye size={14} /> Open</button>}
+                  {modelUrl && <a href={modelUrl} download className="inline-flex min-h-10 items-center justify-center gap-1 rounded-xl border border-primary/30 text-xs font-black text-primary"><Download size={14} /> GLB</a>}
+                  {failed && model.source_type === "avatar" && <button type="button" onClick={() => handleRetryModel(model)} disabled={busy} className="inline-flex min-h-10 items-center justify-center gap-1 rounded-xl bg-primary text-xs font-black text-on-primary disabled:opacity-50"><RotateCcw size={14} /> Retry build</button>}
+                  {model.source_type === "avatar" && <button type="button" onClick={() => handleRemoveModel(model)} disabled={busy} className="inline-flex min-h-10 items-center justify-center gap-1 rounded-xl border border-error/30 text-xs font-black text-error disabled:opacity-50"><Trash2 size={14} /> Remove</button>}
+                </div>
+              </div>
+            </article>;
+          })}
         </div>}
+        {hiddenModels.length > 0 && <details className="mt-5 rounded-2xl border border-outline-variant/35 bg-surface/75 p-4"><summary className="cursor-pointer text-sm font-black text-on-surface">Removed models ({hiddenModels.length})</summary><div className="mt-3 grid gap-2 sm:grid-cols-2">{hiddenModels.map((model) => <div key={model.id} className="flex items-center justify-between gap-3 rounded-xl bg-surface-container p-3"><div className="min-w-0"><p className="truncate text-sm font-bold">{model.name || "Removed model"}</p><p className="text-xs text-on-surface-variant">{model.breed || "Custom model"}</p></div><button type="button" onClick={() => handleRestoreModel(model.id)} disabled={modelActionBusy === `restore-${model.id}`} className="inline-flex min-h-9 items-center gap-1 rounded-lg bg-primary px-3 text-xs font-black text-on-primary disabled:opacity-50"><RotateCcw size={13} /> Restore</button></div>)}</div></details>}
       </section>}
 
       <div className="mt-7 flex flex-wrap gap-2" role="tablist" aria-label="FurBin output type">

@@ -3421,23 +3421,52 @@ export async function recordStorageMoveToCold(phone: string, bytes: number): Pro
 
 /** Deduct 4 credits and grant 1 GB of cold storage. Idempotent per requestId. */
 export async function purchaseColdStorage(phone: string, requestId: string): Promise<{ success: boolean; error?: string }> {
-  const [existing] = await getPool().query(
-    `SELECT 1 FROM credit_transactions WHERE reason = ? LIMIT 1`,
-    [`storage_purchase:${requestId}`]
-  ) as any;
-  if (Array.isArray(existing) && existing.length > 0) {
+  const reason = `storage_purchase:${requestId}`;
+  const conn = await getPool().getConnection();
+  try {
+    await conn.beginTransaction();
+    const [userRows] = await conn.query(
+      `SELECT credits FROM users WHERE phone = ? FOR UPDATE`,
+      [phone],
+    ) as any;
+    const user = userRows?.[0];
+    if (!user) {
+      await conn.rollback();
+      return { success: false, error: "User account not found." };
+    }
+    const [existing] = await conn.query(
+      `SELECT 1 FROM credit_transactions WHERE user_phone = ? AND reason = ? LIMIT 1`,
+      [phone, reason],
+    ) as any;
+    if (existing?.length) {
+      await conn.commit();
+      return { success: true };
+    }
+    const balance = Number(user.credits) || 0;
+    if (balance < COLD_GB_COST_CR) {
+      await conn.rollback();
+      return { success: false, error: `Insufficient PupCoins. You need ${COLD_GB_COST_CR} PupCoins for 1 GB of cold storage.` };
+    }
+    const balanceAfter = balance - COLD_GB_COST_CR;
+    await conn.query(`UPDATE users SET credits = ? WHERE phone = ?`, [balanceAfter, phone]);
+    await conn.query(
+      `INSERT INTO credit_transactions (user_phone, delta, reason, balance_after)
+       VALUES (?, ?, ?, ?)`,
+      [phone, -COLD_GB_COST_CR, reason, balanceAfter],
+    );
+    await conn.query(
+      `INSERT INTO user_storage (user_phone, cold_gb_purchased) VALUES (?, 1)
+       ON DUPLICATE KEY UPDATE cold_gb_purchased = cold_gb_purchased + 1`,
+      [phone],
+    );
+    await conn.commit();
     return { success: true };
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  } finally {
+    conn.release();
   }
-  const ok = await deductCredits(phone, COLD_GB_COST_CR, `storage_purchase:${requestId}`);
-  if (!ok) {
-    return { success: false, error: `Insufficient PupCoins. You need ${COLD_GB_COST_CR} PupCoins for 1 GB of cold storage.` };
-  }
-  await getPool().query(
-    `INSERT INTO user_storage (user_phone, cold_gb_purchased) VALUES (?, 1)
-     ON DUPLICATE KEY UPDATE cold_gb_purchased = cold_gb_purchased + 1`,
-    [phone]
-  );
-  return { success: true };
 }
 
 // ============================================================================

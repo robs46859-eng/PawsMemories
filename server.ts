@@ -5786,14 +5786,15 @@ async function startServer() {
         `SELECT id, 'avatar' AS source_type, name, breed, image_url, model_url,
                 rigged_model_url, created_at, generation_status AS status
          FROM avatars
-         WHERE user_phone = ? AND (model_url IS NOT NULL OR rigged_model_url IS NOT NULL)`,
+         WHERE user_phone = ? AND hidden_at IS NULL`,
         [phone]
       ) as any;
       const seen = new Set<string>();
       const models = [...creationRows, ...avatarRows]
         .filter((item: any) => {
           const url = item.rigged_model_url || item.model_url;
-          if (!url || seen.has(url)) return false;
+          if (!url) return item.source_type === "avatar";
+          if (seen.has(url)) return false;
           seen.add(url);
           return true;
         })
