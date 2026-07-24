@@ -96,7 +96,14 @@ export async function publicListing(pool: Pool, uuid: string) {
   return listing;
 }
 
-export async function checkoutDigital(pool: Pool, userPhone: string, listingUuid: string, idempotencyKey: string) {
+export async function checkoutDigital(
+  pool: Pool,
+  userPhone: string,
+  listingUuid: string,
+  idempotencyKey: string,
+  stripe?: any,
+  appUrl?: string
+) {
   // 1. Resolve listing and active source_glb
   const [lRows] = await pool.query(
     `SELECT id, name, digital_price_cents FROM marketplace_listings WHERE uuid = ? AND status = 'published' LIMIT 1`,
@@ -153,17 +160,52 @@ export async function checkoutDigital(pool: Pool, userPhone: string, listingUuid
   ) as any;
   const orderId = insert.insertId;
 
-  // `title` is the route contract consumed by Stripe; the database column is `name`.
-  // The route previously hardcoded "Pawsome3D Digital Model" for every purchase,
-  // which is what the buyer sees on the payment screen and on their card
-  // statement descriptor — a generic name there is a recognised driver of
-  // "I don't recognise this charge" disputes.
+  let checkoutUrl: string | undefined;
+  let stripeSessionId: string | undefined;
+
+  if (stripe) {
+    const baseUrl = appUrl || process.env.APP_URL || "http://localhost:5173";
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      line_items: [{
+        price_data: {
+          currency: "usd",
+          product_data: {
+            name: String(listing.name || "Digital 3D Model"),
+            description: "Digital 3D model download — instant access after payment.",
+          },
+          unit_amount: listing.digital_price_cents,
+        },
+        quantity: 1,
+      }],
+      mode: "payment",
+      success_url: `${baseUrl}/fur-bin?digital_success=true&order_id=${orderId}`,
+      cancel_url: `${baseUrl}/marketplace`,
+      metadata: {
+        type: "marketplace_digital",
+        digitalOrderId: String(orderId),
+        userPhone,
+        listingId: String(listing.id),
+      },
+    });
+
+    stripeSessionId = session.id;
+    checkoutUrl = session.url;
+
+    await pool.query(
+      `UPDATE marketplace_digital_orders SET stripe_session_id = ?, checkout_url = ? WHERE id = ?`,
+      [session.id, session.url, orderId]
+    );
+  }
+
   return {
     orderId,
     priceCents: listing.digital_price_cents,
     listingId: listing.id,
     assetId,
     title: String(listing.name || "Digital 3D Model"),
+    checkoutUrl,
+    stripeSessionId,
   };
 }
 

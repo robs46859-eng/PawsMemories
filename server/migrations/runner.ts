@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type mysql from "mysql2/promise";
 
-export const CURRENT_SCHEMA_VERSION = 30;
+export const CURRENT_SCHEMA_VERSION = 33;
 
 export interface Migration {
   version: number;
@@ -1527,6 +1527,82 @@ export const MIGRATIONS: Migration[] = [
       `SELECT COUNT(*) INTO @idx_exists FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'generation_jobs' AND INDEX_NAME = 'idx_generation_jobs_recovery_lease'`,
       `SET @stmt = IF(@idx_exists = 0, 'ALTER TABLE generation_jobs ADD INDEX idx_generation_jobs_recovery_lease (status, recovery_lease_expires_at, updated_at)', 'SELECT 1')`,
       `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+    ],
+  },
+  {
+    version: 32,
+    name: "durable_model_persistence",
+    skipWhenTableMissing: "generation_jobs",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS model_persistence_events (
+        id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
+        job_id              BIGINT NULL,
+        model_build_job_uuid VARCHAR(36) NULL,
+        event_type          VARCHAR(64) NOT NULL,
+        detail              VARCHAR(512) NULL,
+        asset_uuid          CHAR(36) NULL,
+        created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_persist_events_job (job_id),
+        INDEX idx_persist_events_type (event_type, created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `SELECT COUNT(*) INTO @col_exists FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'generation_jobs' AND COLUMN_NAME = 'canonical_asset_uuid'`,
+      `SET @stmt = IF(@col_exists = 0, 'ALTER TABLE generation_jobs ADD COLUMN canonical_asset_uuid CHAR(36) NULL', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+
+      `SELECT COUNT(*) INTO @col_exists FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'generation_jobs' AND COLUMN_NAME = 'done_static_fallback_at'`,
+      `SET @stmt = IF(@col_exists = 0, 'ALTER TABLE generation_jobs ADD COLUMN done_static_fallback_at DATETIME(3) NULL', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+    ],
+  },
+  {
+    version: 33,
+    name: "customizer_tables_adoption",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS customizable_products (
+        id                  BIGINT PRIMARY KEY AUTO_INCREMENT,
+        listing_id          BIGINT NOT NULL,
+        printful_product_id INT    NOT NULL,
+        printful_variant_id INT    NOT NULL,
+        placement           VARCHAR(32) NOT NULL DEFAULT 'default',
+        printfile_width_px  INT    NOT NULL,
+        printfile_height_px INT    NOT NULL,
+        printfile_dpi       INT    NOT NULL DEFAULT 150,
+        box_x               DECIMAL(6,5) NOT NULL,
+        box_y               DECIMAL(6,5) NOT NULL,
+        box_w               DECIMAL(6,5) NOT NULL,
+        box_h               DECIMAL(6,5) NOT NULL,
+        box_shape           ENUM('rect','circle','arch') NOT NULL DEFAULT 'rect',
+        overlay_asset_uuid  CHAR(36) NULL,
+        retail_price_cents  INT    NOT NULL,
+        status              ENUM('draft','published','archived') NOT NULL DEFAULT 'draft',
+        created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_custprod_listing (listing_id, status)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS customize_orders (
+        id                    BIGINT PRIMARY KEY AUTO_INCREMENT,
+        user_phone            VARCHAR(32) NOT NULL,
+        customizable_id       BIGINT NOT NULL,
+        source_photo_url      TEXT   NOT NULL,
+        source_kind           ENUM('upload','furbin') NOT NULL,
+        print_file_url        TEXT   NULL,
+        recipient_json        JSON   NOT NULL,
+        retail_price_cents    INT    NOT NULL,
+        checkout_url          TEXT   NULL,
+        stripe_session_id     VARCHAR(255) NULL,
+        provider_order_id     VARCHAR(64)  NULL,
+        provider_payload_json JSON   NULL,
+        status ENUM('draft','awaiting_payment','payment_received','submitting',
+                    'submitted','failed','refunded') NOT NULL DEFAULT 'draft',
+        idempotency_key       VARCHAR(128) NOT NULL,
+        created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_custorder_idem (user_phone, idempotency_key),
+        INDEX idx_custorder_status (status),
+        INDEX idx_custorder_user (user_phone)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
     ],
   },
 ];

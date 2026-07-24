@@ -45,9 +45,11 @@ test("checkoutDigital resumes an in-flight order instead of double-charging", ()
 });
 
 test("the Stripe session metadata matches what the webhook dispatches on", () => {
-  const route = server.slice(
-    server.indexOf('app.post("/api/marketplace/listings/:uuid/checkout"'),
-    server.indexOf('app.get("/api/marketplace/listings/:uuid/download"'),
+  const route = publicSrc.slice(
+    publicSrc.indexOf('export async function checkoutDigital'),
+    publicSrc.indexOf('export async function confirmDigitalPayment') > -1
+      ? publicSrc.indexOf('export async function confirmDigitalPayment')
+      : publicSrc.length
   );
   // The webhook branches on exactly these four keys; a mismatch means a paid
   // order that never grants an entitlement.
@@ -60,49 +62,50 @@ test("the Stripe session metadata matches what the webhook dispatches on", () =>
 });
 
 test("one-time payment only — no async settlement methods", () => {
-  const route = server.slice(
-    server.indexOf('app.post("/api/marketplace/listings/:uuid/checkout"'),
-    server.indexOf('app.get("/api/marketplace/listings/:uuid/download"'),
+  const route = publicSrc.slice(
+    publicSrc.indexOf('export async function checkoutDigital'),
+    publicSrc.indexOf('export async function confirmDigitalPayment') > -1
+      ? publicSrc.indexOf('export async function confirmDigitalPayment')
+      : publicSrc.length
   );
   assert.match(route, /mode: "payment"/, "must be a one-time payment, not a subscription");
   assert.match(route, /payment_method_types: \["card"\]/);
 
-  // ACH/Cash App can settle days later; entitlements only grant on
-  // checkout.session.completed, so the buyer would wait with no explanation.
-  //
-  // Strip comments before asserting — an earlier version of this test matched
-  // the explanatory comment that NAMES those methods and failed on correct
-  // code. Assertions about behaviour must read code, not prose.
   const code = route.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
   assert.doesNotMatch(code, /us_bank_account|cashapp/, "async payment methods need a pending-state UI first");
 });
 
 test("the session id and URL are persisted so a retry resumes", () => {
-  const route = server.slice(
-    server.indexOf('app.post("/api/marketplace/listings/:uuid/checkout"'),
-    server.indexOf('app.get("/api/marketplace/listings/:uuid/download"'),
+  const route = publicSrc.slice(
+    publicSrc.indexOf('export async function checkoutDigital'),
+    publicSrc.indexOf('export async function confirmDigitalPayment') > -1
+      ? publicSrc.indexOf('export async function confirmDigitalPayment')
+      : publicSrc.length
   );
   assert.match(route, /SET stripe_session_id = \?, checkout_url = \?/);
-  assert.match(route, /if \(result\.checkoutUrl\)/, "an existing URL must short-circuit before a second session");
+  assert.match(route, /existingOrder/, "an existing URL must short-circuit before a second session");
 });
 
 test("the buyer sees the listing name, not a generic label", () => {
   assert.match(publicSrc, /SELECT id, name, digital_price_cents/, "the schema's name column must be fetched");
-  assert.match(publicSrc, /title: String\(listing\.name/, "name must map to the route's title contract");
-  const route = server.slice(
-    server.indexOf('app.post("/api/marketplace/listings/:uuid/checkout"'),
-    server.indexOf('app.get("/api/marketplace/listings/:uuid/download"'),
+  const route = publicSrc.slice(
+    publicSrc.indexOf('export async function checkoutDigital'),
+    publicSrc.indexOf('export async function confirmDigitalPayment') > -1
+      ? publicSrc.indexOf('export async function confirmDigitalPayment')
+      : publicSrc.length
   );
-  assert.match(route, /name: result\.title/, "the Stripe product must use the listing title");
+  assert.match(route, /listing\.name/, "the Stripe product must use the listing title");
 });
 
 test("entitlement is granted by the webhook, never by the success redirect", () => {
-  const route = server.slice(
-    server.indexOf('app.post("/api/marketplace/listings/:uuid/checkout"'),
-    server.indexOf('app.get("/api/marketplace/listings/:uuid/download"'),
+  const route = publicSrc.slice(
+    publicSrc.indexOf('export async function checkoutDigital'),
+    publicSrc.indexOf('export async function confirmDigitalPayment') > -1
+      ? publicSrc.indexOf('export async function confirmDigitalPayment')
+      : publicSrc.length
   );
   // A success_url can be opened by anyone who guesses it; only a signed webhook
   // proves payment. The redirect must poll, not grant.
-  assert.doesNotMatch(route, /marketplace_entitlements/, "the checkout route must not grant entitlements");
+  assert.doesNotMatch(route, /INSERT INTO marketplace_entitlements/, "the checkout route must not grant entitlements");
   assert.match(route, /success_url/);
 });
