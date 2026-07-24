@@ -1536,7 +1536,7 @@ export const MIGRATIONS: Migration[] = [
     statements: [
       `CREATE TABLE IF NOT EXISTS model_persistence_events (
         id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
-        job_id              BIGINT NOT NULL,
+        job_id              BIGINT NULL,
         model_build_job_uuid VARCHAR(36) NULL,
         event_type          VARCHAR(64) NOT NULL,
         detail              VARCHAR(512) NULL,

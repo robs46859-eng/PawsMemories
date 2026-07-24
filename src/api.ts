@@ -394,6 +394,9 @@ export interface ModelLibraryItem {
   rigged_model_url: string | null;
   status: string;
   created_at: string;
+  canonical_asset_uuid?: string;
+  billing_disposition?: "charged" | "refunded" | "not_charged" | "refund_pending";
+  failure_code?: string | null;
 }
 
 export async function fetchModelLibrary(): Promise<ModelLibraryItem[]> {

@@ -4233,6 +4233,18 @@ async function startServer() {
           };
 
       // Layer 2: start Tripo3D generation (multiview when turnaround views exist).
+      // BO-0: When V3 is live, refuse new legacy avatar builds — route through Create flow.
+      if (isModelBuildV3Enabled()) {
+        // Already charged — refund before rejecting
+        if (!isAdmin && payableAvatarCost > 0) {
+          try { await restoreReservedGenerationCredits(req.user!.phone, payableAvatarCost); } catch {}
+          avatarCreditsDebited = 0;
+        }
+        return res.status(503).json({
+          error: "Legacy avatar creation is disabled during migration. Use the Create flow instead.",
+          code: "LEGACY_AVATAR_DISABLED",
+        });
+      }
       const handle = await startImageTo3D({ imageUrl: finalImageUrl, views: viewSet, geometry: geo });
       const avatarId = await createAvatar(req.user!.phone, name, finalImageUrl, handle, {
         avatar_type: avatarType,
@@ -4399,9 +4411,23 @@ async function startServer() {
           await updateAvatarGenerationStatus(avatarId, "rigging");
 
           if (isModelBuildV3Enabled()) {
-            console.log(`[Avatar ${avatarId}] MODEL_BUILD_V3_ENABLED=true, skipping in-process build pipeline`);
-            await updateAvatarGenerationStatus(avatarId, "failed", "Model build routed to durable V3 pipeline");
-            return;
+            // BO-0: V3 is live — persist the paid Tripo GLB as a static model
+            // and mark done. The user paid for Tripo generation; we must not
+            // refund or fail them. The legacy rig pipeline is skipped.
+            console.log(`[Avatar ${avatarId}] MODEL_BUILD_V3_ENABLED=true, persisting static GLB, skipping rig pipeline`);
+            let modelUrl: string;
+            try {
+              modelUrl = await uploadBinaryFromUrl(glbUrl, "model/gltf-binary");
+            } catch (e: any) {
+              console.error(`[Avatar ${avatarId}] Failed to mirror GLB to durable storage:`, e?.message || e);
+              await updateAvatarGenerationStatus(avatarId, "failed", "Failed to store model");
+              avatarBuildLocks.delete(avatarId);
+              return res.json({ status: "failed", error: "Failed to store model" });
+            }
+            await updateAvatarModel(avatarId, avatarPhone, modelUrl, "", {});
+            await updateAvatarGenerationStatus(avatarId, "done");
+            avatarBuildLocks.delete(avatarId);
+            return res.json({ status: "done", model_url: modelUrl });
           }
           // Spawn background agent pipeline
           (async () => {
@@ -5747,17 +5773,36 @@ async function startServer() {
     try {
       const phone = req.user!.phone;
       const [creationRows] = await getPool().query(
-        `SELECT id, 'creation' AS source_type, pet_name AS name, pet_breed AS breed,
-                image_url, model_url, NULL AS rigged_model_url, created_at,
-                CASE WHEN model_url IS NULL THEN 'building' ELSE 'done' END AS status
-         FROM creations WHERE user_phone = ? AND media_type = 'model'`,
+        `SELECT c.id, 'creation' AS source_type, c.pet_name AS name, c.pet_breed AS breed,
+                c.image_url, c.model_url, NULL AS rigged_model_url, c.created_at,
+                CASE WHEN c.model_url IS NULL THEN 'building' ELSE 'done' END AS status,
+                COALESCE(gj.canonical_asset_uuid, '') AS canonical_asset_uuid,
+                CASE
+                  WHEN gj.generation_refunded_at IS NOT NULL THEN 'refunded'
+                  WHEN gj.rig_refunded_at IS NOT NULL THEN 'refunded'
+                  WHEN gj.credits_reserved > 0 AND c.model_url IS NOT NULL THEN 'charged'
+                  WHEN c.model_url IS NULL THEN 'not_charged'
+                  ELSE 'not_charged'
+                END AS billing_disposition,
+                gj.recovery_reason AS failure_code
+         FROM creations c
+         LEFT JOIN generation_jobs gj ON gj.creation_id = c.id
+         WHERE c.user_phone = ? AND c.media_type = 'model'`,
         [phone]
       ) as any;
       const [avatarRows] = await getPool().query(
-        `SELECT id, 'avatar' AS source_type, name, breed, image_url, model_url,
-                rigged_model_url, created_at, generation_status AS status
-         FROM avatars
-         WHERE user_phone = ? AND (model_url IS NOT NULL OR rigged_model_url IS NOT NULL)`,
+        `SELECT a.id, 'avatar' AS source_type, a.name, a.breed, a.image_url, a.model_url,
+                a.rigged_model_url, a.created_at, a.generation_status AS status,
+                '' AS canonical_asset_uuid,
+                CASE
+                  WHEN a.generation_status = 'done' THEN 'charged'
+                  WHEN a.generation_status = 'done_static_fallback' THEN 'charged'
+                  WHEN a.generation_status = 'failed' THEN 'refunded'
+                  ELSE 'not_charged'
+                END AS billing_disposition,
+                a.generation_error AS failure_code
+         FROM avatars a
+         WHERE a.user_phone = ? AND (a.model_url IS NOT NULL OR a.rigged_model_url IS NOT NULL)`,
         [phone]
       ) as any;
       const seen = new Set<string>();
