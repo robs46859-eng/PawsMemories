@@ -75,7 +75,7 @@ describe("Phase 3 Migration 22 MySQL Integration", {
     // including skipWhenTableMissing entries, which are ledgered even when their
     // optional legacy table is absent. Note MIGRATIONS has no version 31 (reserved).
     assert.equal(result.applied, MIGRATIONS.length);
-    assert.equal(CURRENT_SCHEMA_VERSION, 33);
+    assert.equal(CURRENT_SCHEMA_VERSION, 34);
 
     const [rows] = await pool.query(
       `SELECT TABLE_NAME FROM information_schema.TABLES

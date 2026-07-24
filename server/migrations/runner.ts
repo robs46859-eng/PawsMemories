@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type mysql from "mysql2/promise";
 
-export const CURRENT_SCHEMA_VERSION = 33;
+export const CURRENT_SCHEMA_VERSION = 34;
 
 export interface Migration {
   version: number;
@@ -1603,6 +1603,28 @@ export const MIGRATIONS: Migration[] = [
         INDEX idx_custorder_status (status),
         INDEX idx_custorder_user (user_phone)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    ],
+  },
+  {
+    version: 34,
+    name: "wags_box_item_assets",
+    skipWhenTableMissing: "wardrobe_wags_box_items",
+    statements: [
+      `SELECT COUNT(*) INTO @col_exists FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wardrobe_wags_box_items' AND COLUMN_NAME = 'asset_url'`,
+      `SET @stmt = IF(@col_exists = 0, 'ALTER TABLE wardrobe_wags_box_items ADD COLUMN asset_url TEXT NULL', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+
+      `SELECT COUNT(*) INTO @col_exists FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wardrobe_wags_box_items' AND COLUMN_NAME = 'asset_status'`,
+      `SET @stmt = IF(@col_exists = 0, 'ALTER TABLE wardrobe_wags_box_items ADD COLUMN asset_status ENUM(''none'',''pending'',''generated'',''failed'') NOT NULL DEFAULT ''none''', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+
+      `SELECT COUNT(*) INTO @col_exists FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wardrobe_wags_box_items' AND COLUMN_NAME = 'asset_error'`,
+      `SET @stmt = IF(@col_exists = 0, 'ALTER TABLE wardrobe_wags_box_items ADD COLUMN asset_error VARCHAR(255) NULL', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
+
+      `SELECT COUNT(*) INTO @col_exists FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wardrobe_wags_box_items' AND COLUMN_NAME = 'asset_generated_at'`,
+      `SET @stmt = IF(@col_exists = 0, 'ALTER TABLE wardrobe_wags_box_items ADD COLUMN asset_generated_at DATETIME NULL', 'SELECT 1')`,
+      `PREPARE stmt FROM @stmt`, `EXECUTE stmt`, `DEALLOCATE PREPARE stmt`,
     ],
   },
 ];

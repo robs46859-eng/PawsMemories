@@ -1,5 +1,6 @@
 import type { Pool } from "mysql2/promise";
 import { WAGS_EXCLUSIVE_CATALOG } from "../../src/wardrobe/catalog";
+import { isGenerativeSlot } from "./materializer";
 import type { WagsPlan, WagsPlanItem } from "./planner";
 
 /**
@@ -123,6 +124,15 @@ export async function getOwnedWardrobeItems(pool: Pool, userPhone: string): Prom
 export async function deliverBox(
   pool: Pool,
   box: { id: number; user_phone: string; plan_json: WagsPlan | null },
+  options?: {
+    /**
+     * BO-3: when false, box_items are created and entitlements granted but the
+     * box stays 'approved' — the materializer flips it to 'delivered' only
+     * after every generative slot has a stored asset. Defaults to true for
+     * backward compatibility with pre-materializer callers/tests.
+     */
+    finalizeStatus?: boolean;
+  },
 ): Promise<DeliveryResult> {
   // Idempotency gate: any existing items mean a delivery already ran.
   const [existing] = await pool.query(
@@ -158,8 +168,8 @@ export async function deliverBox(
 
     await pool.query(
       `INSERT INTO wardrobe_wags_box_items
-         (box_id, slot, wardrobe_item_id, entitlement_type, credit_amount, title, description, personalization_note)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         (box_id, slot, wardrobe_item_id, entitlement_type, credit_amount, title, description, personalization_note, asset_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         box.id,
         item.slot,
@@ -169,6 +179,9 @@ export async function deliverBox(
         item.title.slice(0, 160),
         item.description.slice(0, 600),
         item.size_note ? item.size_note.slice(0, 200) : null,
+        // BO-3: 2D-generative slots owe the subscriber a real asset before the
+        // box may reach 'delivered'; everything else has no asset obligation.
+        isGenerativeSlot(item.slot) ? "pending" : "none",
       ],
     );
     itemsCreated += 1;
@@ -185,12 +198,14 @@ export async function deliverBox(
     }
   }
 
-  await pool.query(
-    `UPDATE wardrobe_wags_boxes
-     SET status = 'delivered', delivered_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-     WHERE id = ?`,
-    [box.id],
-  );
+  if (options?.finalizeStatus !== false) {
+    await pool.query(
+      `UPDATE wardrobe_wags_boxes
+       SET status = 'delivered', delivered_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [box.id],
+    );
+  }
 
   return { boxId: box.id, itemsCreated, wardrobeGranted: grantedThisBox, creditsGranted, alreadyDelivered: false };
 }

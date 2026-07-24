@@ -29,6 +29,7 @@ import { isModelBuildV3Enabled } from "./server/model-builds/featureFlag";
 import { requireCanonicalAssetsEnabled } from "./server/assets/featureFlag";
 import { planWagsBox, getPriorBoxHistory } from "./server/wags/planner";
 import { deliverBox, getOwnedWardrobeItems } from "./server/wags/delivery";
+import { materializeBoxAssets } from "./server/wags/materializer";
 import { RebakeRequestSchema, StylizeRequestSchema, viewsFromAvatarRow } from "./server/textureSchemas";
 import type { RebakeLikenessReport } from "./server/textureLikeness";
 import {
@@ -2321,7 +2322,7 @@ async function startServer() {
       if (deliveredIds.length) {
         const [items]: any = await getPool().query(
           `SELECT box_id, slot, wardrobe_item_id, entitlement_type, credit_amount,
-                  title, description, personalization_note
+                  title, description, personalization_note, asset_url, asset_status
            FROM wardrobe_wags_box_items WHERE box_id IN (?) ORDER BY id`,
           [deliveredIds],
         );
@@ -2769,6 +2770,30 @@ async function startServer() {
     }
   });
 
+  // BO-3: provider wiring for the Wags slot materializer. Image generation
+  // reuses the shared Gemini chain (hoisted async function declaration) and
+  // storage reuses the standard B2 uploader.
+  const wagsMaterializerDeps = {
+    generateImage: (prompt: string, label: string) =>
+      generateImageWithFallback([{ text: prompt }], label),
+    uploadImage: (dataUrl: string) => uploadBase64Image(dataUrl),
+  };
+
+  // POST /api/admin/wags/boxes/:id/materialize — regenerate failed/pending
+  // slot assets for an approved box (idempotent: generated slots are skipped).
+  app.post("/api/admin/wags/boxes/:id/materialize", requireAuth, async (req: AuthedRequest, res) => {
+    if (!req.user || !await isUserAdmin(req.user.phone)) return res.status(403).json({ error: "Admin only." });
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ error: "Invalid box id." });
+    try {
+      const result = await materializeBoxAssets(getPool(), wagsMaterializerDeps, id);
+      res.json(result);
+    } catch (err: any) {
+      console.error("[admin/wags materialize]", err?.message || err);
+      res.status(400).json({ error: String(err?.message || "Could not materialize box assets.").slice(0, 200) });
+    }
+  });
+
   // PATCH /api/admin/wags/boxes/:id — approve or reject a box
   app.patch("/api/admin/wags/boxes/:id", requireAuth, async (req: AuthedRequest, res) => {
     if (!req.user || !await isUserAdmin(req.user.phone)) return res.status(403).json({ error: "Admin only." });
@@ -2787,9 +2812,10 @@ async function startServer() {
       );
       if (!result.affectedRows) return res.status(404).json({ error: "Box not found or already delivered." });
 
-      // W3: approval delivers. Materializes plan_json into box_items, grants
-      // wardrobe unlocks + credits (idempotent — see server/wags/delivery.ts),
-      // and flips status to 'delivered'. Rejection stops here.
+      // W3 + BO-3: approval delivers item rows and grants entitlements, then
+      // kicks the asset materializer in the background. The box flips to
+      // 'delivered' only when every generative slot has a stored asset — the
+      // subscriber never opens a box with missing paid content.
       if (action === "approve") {
         const [boxRows]: any = await getPool().query(
           `SELECT id, user_phone, plan_json FROM wardrobe_wags_boxes WHERE id = ? LIMIT 1`,
@@ -2799,8 +2825,11 @@ async function startServer() {
         const plan = boxRow?.plan_json
           ? (typeof boxRow.plan_json === "string" ? JSON.parse(boxRow.plan_json) : boxRow.plan_json)
           : null;
-        const delivery = await deliverBox(getPool(), { id, user_phone: boxRow.user_phone, plan_json: plan });
-        return res.json({ id, status: "delivered", delivery });
+        const delivery = await deliverBox(getPool(), { id, user_phone: boxRow.user_phone, plan_json: plan }, { finalizeStatus: false });
+        void materializeBoxAssets(getPool(), wagsMaterializerDeps, id)
+          .then((result) => console.log(`[wags materializer] box ${id}: generated=${result.generated} failed=${result.failed} skipped=${result.skipped} delivered=${result.delivered}`))
+          .catch((err) => console.error(`[wags materializer] box ${id} failed:`, err?.message || err));
+        return res.json({ id, status: "materializing", delivery });
       }
       res.json({ id, status: newStatus });
     } catch (err: any) {
