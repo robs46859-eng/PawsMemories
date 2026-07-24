@@ -9,7 +9,7 @@
 
 import type { BuildState, StepResult } from "./types";
 import { executeBlenderTool } from "../../tools/blender_mcp";
-import { facialVisemeBpyScript } from "./facialVisemes";
+import { facialVisemeBpyScript, parseVisemeResult } from "./facialVisemes";
 import { retrieveBlenderContext, formatContextForPrompt } from "../../knowledge/retriever";
 import { generateGeminiText } from "../../gemini";
 import { lookupBreedAnatomy, generateVertexGroupCode, getBoneProportions } from "../../knowledge/breed-anatomy";
@@ -789,13 +789,16 @@ export async function actNode(state: BuildState): Promise<Partial<BuildState>> {
 
   // Special case: export step
   if (action.type === "finalize" || action.stepDescription.toLowerCase().includes("export")) {
-    // L2 face targets are part of the exported model contract. This is safe to
-    // repeat: existing provider shape keys are retained and missing names are
-    // filled before the GLB leaves Blender.
+    // Provider-morph PASSTHROUGH (not a facial rig): existing provider shape
+    // keys are retained and canonicalized before the GLB leaves Blender. The
+    // measured VISEME_RESULT is captured so exported metadata reflects what
+    // actually exists rather than a hardcoded contract claim.
     // P4: skipped when the facial rig was not purchased (facialVisemes=false).
+    let facialPassthrough = state.facialPassthrough ?? null;
     if (state.facialVisemes !== false) {
       const visemeResult = await executeBlenderTool("execute_bpy", { code: facialVisemeBpyScript() });
-      if (!visemeResult.success) console.warn("[Act] Facial viseme synthesis skipped:", visemeResult.error || visemeResult.data?.error);
+      if (!visemeResult.success) console.warn("[Act] Facial morph passthrough skipped:", visemeResult.error || visemeResult.data?.error);
+      facialPassthrough = parseVisemeResult(visemeResult.data?.stdout) ?? facialPassthrough;
     }
     const exportResult = await executeBlenderTool("export_glb", {});
     
@@ -821,6 +824,7 @@ export async function actNode(state: BuildState): Promise<Partial<BuildState>> {
     return {
       executionHistory: [...state.executionHistory, stepResult],
       riggedGlbBase64: exportResult.data?.glb_base64 || null,
+      facialPassthrough,
       buildPlan: updatedPlan,
       statusMessage: "Exported GLB",
     };

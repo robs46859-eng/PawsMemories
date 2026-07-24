@@ -1,9 +1,88 @@
 /**
+ * Provider-morph PASSTHROUGH (BO-2 demotion).
+ *
  * Deterministic Blender payload run immediately before a generated organic
- * avatar is exported. It preserves provider morphs and canonicalizes their
- * names without ever moving generated avatar geometry.
+ * avatar is exported. It preserves provider-authored morph targets and
+ * canonicalizes their names into the viseme_A..viseme_X contract. It never
+ * fabricates a mouth shape and never moves avatar geometry.
+ *
+ * This step is a passthrough, not a facial rig: real facial synthesis with
+ * measured deformation/locality evidence is the Phase-4 rig pipeline
+ * (server/rig-pipeline/, Blender worker /rig-pipeline/process). The
+ * passthrough runs IN ADDITION TO worker-synthesized targets, never instead
+ * of them, and any capability metadata derived from it must reflect the
+ * measured VISEME_RESULT — see facialPassthroughMetadata().
  */
 export const FACIAL_VISEME_NAMES = ["A", "B", "C", "D", "E", "F", "G", "H", "X"] as const;
+
+export interface FacialPassthroughResult {
+  available: boolean;
+  shapes: string[];
+  detail: string;
+}
+
+/**
+ * Parse the VISEME_RESULT line the passthrough script prints. Returns null
+ * when the script produced no parseable result (worker error, older worker).
+ */
+export function parseVisemeResult(stdout: unknown): FacialPassthroughResult | null {
+  if (typeof stdout !== "string") return null;
+  const line = stdout
+    .split("\n")
+    .reverse()
+    .find((candidate) => candidate.trim().startsWith("VISEME_RESULT:"));
+  if (!line) return null;
+  try {
+    const parsed = JSON.parse(line.trim().slice("VISEME_RESULT:".length));
+    const shapes = Array.isArray(parsed.shapes)
+      ? parsed.shapes.filter((shape: unknown): shape is string => typeof shape === "string" && shape.length > 0)
+      : [];
+    return {
+      available: parsed.available === true && shapes.length > 0,
+      shapes,
+      detail: typeof parsed.detail === "string" ? parsed.detail : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Truthful facial metadata for the exported model. The viseme contract is
+ * claimed only when the passthrough measured actual provider shapes; a model
+ * with no usable face reports the jaw-bone fallback, and an unpurchased
+ * facial add-on reports nothing at all.
+ */
+export function facialPassthroughMetadata(
+  passthrough: FacialPassthroughResult | null,
+  purchased: boolean,
+): { facial: Record<string, unknown> } {
+  if (!purchased) {
+    return { facial: { source: "none", purchased: false, fallback: "jaw_bone" } };
+  }
+  if (!passthrough || !passthrough.available) {
+    return {
+      facial: {
+        source: "provider_morph_passthrough",
+        purchased: true,
+        available: false,
+        shapes: [],
+        fallback: "jaw_bone",
+        detail: passthrough?.detail || "No provider morph targets found; jaw fallback remains active.",
+      },
+    };
+  }
+  return {
+    facial: {
+      source: "provider_morph_passthrough",
+      purchased: true,
+      available: true,
+      shapes: [...passthrough.shapes].sort(),
+      fallback: "jaw_bone",
+      detail: passthrough.detail,
+    },
+  };
+}
 
 export function facialVisemeBpyScript(): string {
   return `
