@@ -162,6 +162,9 @@ export interface BuildState {
    *  (legacy avatar behavior); the create-pipeline rig stage sets it from the
    *  paid facial-rig checkbox. */
   facialVisemes?: boolean;
+  /** BO-2: measured result of the provider-morph passthrough (VISEME_RESULT).
+   *  Null until the passthrough runs; drives truthful facial metadata. */
+  facialPassthrough?: import("./facialVisemes").FacialPassthroughResult | null;
 
   // Output
   riggedGlbBase64: string | null;
@@ -183,6 +186,7 @@ export function createInitialState(petAnalysis: PetAnalysis, glbBase64: string, 
     glbBase64,
     originalImageBase64: originalImageBase64 ?? null,
     facialVisemes: options?.facialVisemes !== false,
+    facialPassthrough: null,
     buildPlan: [],
     currentStep: 0,
     sceneState: null,
