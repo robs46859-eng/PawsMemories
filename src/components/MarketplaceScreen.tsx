@@ -1,11 +1,19 @@
 import React, { useEffect, useState } from "react";
-import { ArrowRight, Search, ShoppingBag, Sparkles, X, Loader2, Check } from "lucide-react";
-import { fetchMarketplaceListings, checkoutDigitalListing, fetchUserEntitlements } from "../api";
+import { ArrowRight, Search, ShoppingBag, Sparkles, X, Loader2, Check, Palette } from "lucide-react";
+import {
+  fetchMarketplaceListings,
+  checkoutDigitalListing,
+  fetchUserEntitlements,
+  fetchPublishedCustomizableProducts,
+  type CustomizableProduct,
+} from "../api";
+import CustomizeScreen from "./CustomizeScreen";
 
-type MarketplaceCategory = "all" | "breed" | "memorial" | "accessories" | "seasonal";
+type MarketplaceCategory = "all" | "custom_gear" | "breed" | "memorial" | "accessories" | "seasonal";
 
 const CATEGORIES: { id: MarketplaceCategory; label: string; icon: string }[] = [
   { id: "all", label: "All", icon: "🐾" },
+  { id: "custom_gear", label: "Custom Prints & Gear", icon: "🎨" },
   { id: "breed", label: "Breed Models", icon: "🐕" },
   { id: "memorial", label: "Memorial Pieces", icon: "🕊️" },
   { id: "accessories", label: "Accessories", icon: "🎀" },
@@ -21,6 +29,8 @@ export default function MarketplaceScreen({ onOpenCreate }: MarketplaceScreenPro
   const [searchQuery, setSearchQuery] = useState("");
   
   const [listings, setListings] = useState<any[]>([]);
+  const [customProducts, setCustomProducts] = useState<CustomizableProduct[]>([]);
+  const [customizingProduct, setCustomizingProduct] = useState<CustomizableProduct | null>(null);
   const [loading, setLoading] = useState(true);
   const [ownedIds, setOwnedIds] = useState<Set<number>>(new Set());
 
@@ -32,18 +42,21 @@ export default function MarketplaceScreen({ onOpenCreate }: MarketplaceScreenPro
     setLoading(true);
     try {
       const params: any = {};
-      if (category !== "all") params.category = category;
+      if (category !== "all" && category !== "custom_gear") params.category = category;
       if (searchQuery) params.q = searchQuery;
-      const res = await fetchMarketplaceListings(params);
-      setListings(res.listings || []);
       
-      const entitlements = await fetchUserEntitlements();
-      // user entitlements returns listing_uuid or listing_id? Wait, in server we exposed listing_uuid.
-      // But we can check via UUID.
+      const [res, customList, entitlements] = await Promise.all([
+        fetchMarketplaceListings(params),
+        fetchPublishedCustomizableProducts(),
+        fetchUserEntitlements().catch(() => []),
+      ]);
+
+      setListings(res.listings || []);
+      setCustomProducts(customList || []);
+      
       const owned = new Set<number>();
       for (const e of entitlements) {
-        // Find the listing and mark it owned.
-        const match = res.listings.find((l: any) => l.uuid === e.listing_uuid);
+        const match = (res.listings || []).find((l: any) => l.uuid === e.listing_uuid);
         if (match) owned.add(match.id);
       }
       setOwnedIds(owned);
@@ -72,6 +85,19 @@ export default function MarketplaceScreen({ onOpenCreate }: MarketplaceScreenPro
       setCheckoutBusy(false);
     }
   };
+
+  if (customizingProduct) {
+    return (
+      <CustomizeScreen
+        product={customizingProduct}
+        onBack={() => setCustomizingProduct(null)}
+        onSuccess={() => {
+          setCustomizingProduct(null);
+          refreshListings();
+        }}
+      />
+    );
+  }
 
   return (
     <main className="mx-auto w-full max-w-7xl px-4 pb-28 pt-7 sm:px-6">
@@ -120,6 +146,48 @@ export default function MarketplaceScreen({ onOpenCreate }: MarketplaceScreenPro
           </button>
         ))}
       </div>
+
+      {/* Custom Prints & Gear Section */}
+      {(category === "all" || category === "custom_gear") && customProducts.length > 0 && (
+        <div className="mt-8">
+          <div className="flex items-center gap-2 mb-4">
+            <Palette size={18} className="text-primary" />
+            <h2 className="text-lg font-black text-on-surface">Custom Prints & Gear</h2>
+          </div>
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
+            {customProducts.map((p) => (
+              <article
+                key={`custom-${p.id}`}
+                className="glass-showcase group flex flex-col justify-between overflow-hidden rounded-[1.6rem] border border-primary/30 p-4 transition hover:border-primary"
+              >
+                <div>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-black text-primary uppercase">
+                    Customizable
+                  </span>
+                  <h3 className="mt-2 text-sm font-black text-on-surface line-clamp-1">
+                    {p.listing_name || `Custom Product #${p.id}`}
+                  </h3>
+                  <p className="mt-1 text-xs text-on-surface-variant line-clamp-2">
+                    {p.listing_description || "Add your pet photo to create custom apparel, mugs, or posters."}
+                  </p>
+                </div>
+                <div className="mt-4 flex items-center justify-between border-t border-outline-variant/20 pt-3">
+                  <span className="text-xs font-black text-primary">
+                    ${(p.retail_price_cents / 100).toFixed(2)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setCustomizingProduct(p)}
+                    className="rounded-xl bg-primary px-3 py-1.5 text-xs font-black text-on-primary hover:bg-primary/90"
+                  >
+                    Customize
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Items grid */}
       {loading ? (

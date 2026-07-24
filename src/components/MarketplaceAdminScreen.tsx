@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { authedFetch } from "../api";
 import { uploadMarketplaceAsset, type UploadStage } from "../lib/adminUpload";
+import CustomizerAdminScreen from "./CustomizerAdminScreen";
 
 /**
  * Phase 3 — admin catalog manager screen.
@@ -205,7 +206,7 @@ const emptyForm: ListingFormData = {
 /* Component                                                           */
 /* ------------------------------------------------------------------ */
 
-type View = "table" | "editor";
+type View = "table" | "editor" | "customizer";
 
 export default function MarketplaceAdminScreen({ onClose }: { onClose: () => void }) {
   // -- Global state --
@@ -487,6 +488,10 @@ export default function MarketplaceAdminScreen({ onClose }: { onClose: () => voi
   /* Render: Table view                                                */
   /* ---------------------------------------------------------------- */
 
+  if (view === "customizer") {
+    return <CustomizerAdminScreen onBack={() => setView("table")} />;
+  }
+
   if (view === "table") {
     return (
       <main className="mx-auto w-full max-w-6xl px-4 pb-28 pt-7 sm:px-6">
@@ -501,6 +506,10 @@ export default function MarketplaceAdminScreen({ onClose }: { onClose: () => voi
               <h1 className="mt-2 text-2xl font-black tracking-tight text-on-surface sm:text-3xl">Catalog manager</h1>
             </div>
             <div className="flex items-center gap-2">
+              <button type="button" onClick={() => setView("customizer")}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-primary/40 bg-primary/10 px-4 py-2.5 text-xs font-black text-primary hover:bg-primary/20 transition-colors">
+                <Store size={14} /> Printful Customizer
+              </button>
               <button type="button" onClick={() => openEditor(null)}
                 className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2.5 text-xs font-black text-on-primary hover:opacity-90 transition-opacity">
                 <Plus size={14} /> New listing

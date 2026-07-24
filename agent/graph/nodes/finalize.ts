@@ -6,23 +6,26 @@
 
 import type { BuildState } from "./types";
 import { executeBlenderTool } from "../../tools/blender_mcp";
-import { facialVisemeBpyScript } from "./facialVisemes";
+import { facialVisemeBpyScript, facialPassthroughMetadata, parseVisemeResult } from "./facialVisemes";
 
 export async function finalizeNode(state: BuildState): Promise<Partial<BuildState>> {
   console.log("[Finalize] Exporting final assets...");
 
   // Export GLB if not already done
   let riggedGlb = state.riggedGlbBase64;
+  let facialPassthrough = state.facialPassthrough ?? null;
   if (!riggedGlb) {
-    // This is an optional, deterministic production step. It never blocks a
-    // valid model export: models with no usable face keep the jaw-bone fallback.
+    // Provider-morph passthrough (not a facial rig): optional, deterministic,
+    // and never blocks a valid model export — models with no usable face keep
+    // the jaw-bone fallback. The measured VISEME_RESULT drives the metadata.
     // P4: skipped when the facial rig was not purchased (facialVisemes=false).
     if (state.facialVisemes !== false) {
       try {
         const viseme = await executeBlenderTool("execute_bpy", { code: facialVisemeBpyScript() });
-        if (!viseme.success) console.warn("[Finalize] Facial viseme synthesis skipped:", viseme.error || viseme.data?.error);
+        if (!viseme.success) console.warn("[Finalize] Facial morph passthrough skipped:", viseme.error || viseme.data?.error);
+        facialPassthrough = parseVisemeResult(viseme.data?.stdout) ?? facialPassthrough;
       } catch (err: any) {
-        console.warn("[Finalize] Facial viseme synthesis skipped:", err?.message || err);
+        console.warn("[Finalize] Facial morph passthrough skipped:", err?.message || err);
       }
     }
     try {
@@ -60,7 +63,14 @@ export async function finalizeNode(state: BuildState): Promise<Partial<BuildStat
   return {
     riggedGlbBase64: riggedGlb,
     spriteSheetBase64: null,
-    animationMetadata: { animations: {}, static: true, facialVisemeContract: "viseme_A..viseme_X" },
+    facialPassthrough,
+    // Truthful facial metadata: the viseme contract is reported only when the
+    // passthrough measured real provider shapes (BO-2). No hardcoded claims.
+    animationMetadata: {
+      animations: {},
+      static: true,
+      ...facialPassthroughMetadata(facialPassthrough, state.facialVisemes !== false),
+    },
     status: riggedGlb ? "completed" : "failed",
     statusMessage: riggedGlb
       ? `Build complete: ${completedSteps}/${totalSteps} steps, ${successRate}% success rate`

@@ -219,6 +219,60 @@ export function registerCustomizerBuyerRoutes(
     }
   });
 
+  /** Public: list published customizable products for Shop display. */
+  app.get("/api/customize/products", async (_req, res) => {
+    try {
+      const [rows] = await getPool().query(
+        `SELECT
+           cp.id,
+           cp.listing_id,
+           cp.placement,
+           cp.printfile_width_px,
+           cp.printfile_height_px,
+           cp.printfile_dpi,
+           cp.box_x,
+           cp.box_y,
+           cp.box_w,
+           cp.box_h,
+           cp.box_shape,
+           cp.overlay_asset_uuid,
+           cp.retail_price_cents,
+           cp.status,
+           cp.created_at,
+           cp.updated_at,
+           l.name AS listing_name,
+           l.slug AS listing_slug,
+           l.description AS listing_description
+         FROM customizable_products cp
+         LEFT JOIN marketplace_listings l ON cp.listing_id = l.id
+         WHERE cp.status = 'published'
+         ORDER BY cp.id DESC LIMIT 100`,
+      ) as any;
+      res.json({ products: rows || [] });
+    } catch (error: any) {
+      console.error("[GET /api/customize/products]", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /** Buyer: list user's customizer orders for FurBin display with tracking. */
+  app.get("/api/customize/orders", requireAuth, async (req: any, res) => {
+    try {
+      const [rows] = await getPool().query(
+        `SELECT o.*, cp.printful_product_id, cp.printful_variant_id, cp.placement
+         FROM customize_orders o
+         LEFT JOIN customizable_products cp ON o.customizable_id = cp.id
+         WHERE o.user_phone = ?
+         ORDER BY o.id DESC LIMIT 50`,
+        [req.user.phone],
+      ) as any;
+      res.json({ orders: rows || [] });
+    } catch (error: any) {
+      console.error("[GET /api/customize/orders]", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   /** Update a customizable product (admin only). */
   app.patch("/api/admin/customizer/customizable-products/:id", requireAuth, async (req: any, res) => {
     if (!await requireMarketplaceAdmin(req, res)) return;

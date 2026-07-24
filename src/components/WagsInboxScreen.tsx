@@ -20,6 +20,8 @@ interface WagsBoxItem {
   title: string | null;
   description: string | null;
   personalization_note: string | null;
+  asset_url?: string | null;
+  asset_status?: string | null;
 }
 
 interface WagsBox {
@@ -79,6 +81,15 @@ function ItemCard({ item, index, revealed }: { item: WagsBoxItem; index: number;
           <span className="ml-auto rounded-full bg-primary/10 px-2 py-0.5 text-[9px] font-black uppercase text-primary">+{item.credit_amount} credits</span>
         ) : null}
       </div>
+      {/* BO-3: generated slot assets render as the real deliverable —
+          stickers/seasonal/pawprint art with a download affordance. */}
+      {item.asset_url && item.asset_status === "generated" && (
+        <a href={item.asset_url} target="_blank" rel="noreferrer" download
+          className="mb-2 block overflow-hidden rounded-xl border border-outline-variant/40 bg-[repeating-conic-gradient(#e8e8e8_0%_25%,#f7f7f7_0%_50%)] bg-[length:16px_16px]">
+          <img src={item.asset_url} alt={item.title || item.slot} loading="lazy"
+            className="h-36 w-full object-contain" referrerPolicy="no-referrer" />
+        </a>
+      )}
       <p className="text-sm font-black text-on-surface leading-snug">{item.title}</p>
       {item.description && (
         <p className="mt-1 text-[11px] leading-snug text-on-surface-variant">{item.description}</p>

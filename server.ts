@@ -29,6 +29,7 @@ import { isModelBuildV3Enabled } from "./server/model-builds/featureFlag";
 import { requireCanonicalAssetsEnabled } from "./server/assets/featureFlag";
 import { planWagsBox, getPriorBoxHistory } from "./server/wags/planner";
 import { deliverBox, getOwnedWardrobeItems } from "./server/wags/delivery";
+import { materializeBoxAssets } from "./server/wags/materializer";
 import { RebakeRequestSchema, StylizeRequestSchema, viewsFromAvatarRow } from "./server/textureSchemas";
 import type { RebakeLikenessReport } from "./server/textureLikeness";
 import {
@@ -1512,7 +1513,12 @@ async function startServer() {
       if (!fileBase64 || typeof fileBase64 !== "string") {
         return res.status(400).json({ success: false, error: "No file provided." });
       }
-      const url = await uploadBase64Binary(fileBase64, mime || "model/gltf-binary");
+      let resolvedMime = typeof mime === "string" && mime.trim() ? mime.trim() : "";
+      if (!resolvedMime && fileBase64.startsWith("data:")) {
+        const match = fileBase64.match(/^data:([A-Za-z0-9-+\/.]+);base64,/);
+        if (match) resolvedMime = match[1];
+      }
+      const url = await uploadBase64Binary(fileBase64, resolvedMime || "image/png");
       res.json({ success: true, url });
     } catch (err: any) {
       console.error("[POST /api/print-uploads] Error:", err?.message || err);
@@ -2316,7 +2322,7 @@ async function startServer() {
       if (deliveredIds.length) {
         const [items]: any = await getPool().query(
           `SELECT box_id, slot, wardrobe_item_id, entitlement_type, credit_amount,
-                  title, description, personalization_note
+                  title, description, personalization_note, asset_url, asset_status
            FROM wardrobe_wags_box_items WHERE box_id IN (?) ORDER BY id`,
           [deliveredIds],
         );
@@ -2764,6 +2770,30 @@ async function startServer() {
     }
   });
 
+  // BO-3: provider wiring for the Wags slot materializer. Image generation
+  // reuses the shared Gemini chain (hoisted async function declaration) and
+  // storage reuses the standard B2 uploader.
+  const wagsMaterializerDeps = {
+    generateImage: (prompt: string, label: string) =>
+      generateImageWithFallback([{ text: prompt }], label),
+    uploadImage: (dataUrl: string) => uploadBase64Image(dataUrl),
+  };
+
+  // POST /api/admin/wags/boxes/:id/materialize — regenerate failed/pending
+  // slot assets for an approved box (idempotent: generated slots are skipped).
+  app.post("/api/admin/wags/boxes/:id/materialize", requireAuth, async (req: AuthedRequest, res) => {
+    if (!req.user || !await isUserAdmin(req.user.phone)) return res.status(403).json({ error: "Admin only." });
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ error: "Invalid box id." });
+    try {
+      const result = await materializeBoxAssets(getPool(), wagsMaterializerDeps, id);
+      res.json(result);
+    } catch (err: any) {
+      console.error("[admin/wags materialize]", err?.message || err);
+      res.status(400).json({ error: String(err?.message || "Could not materialize box assets.").slice(0, 200) });
+    }
+  });
+
   // PATCH /api/admin/wags/boxes/:id — approve or reject a box
   app.patch("/api/admin/wags/boxes/:id", requireAuth, async (req: AuthedRequest, res) => {
     if (!req.user || !await isUserAdmin(req.user.phone)) return res.status(403).json({ error: "Admin only." });
@@ -2782,9 +2812,10 @@ async function startServer() {
       );
       if (!result.affectedRows) return res.status(404).json({ error: "Box not found or already delivered." });
 
-      // W3: approval delivers. Materializes plan_json into box_items, grants
-      // wardrobe unlocks + credits (idempotent — see server/wags/delivery.ts),
-      // and flips status to 'delivered'. Rejection stops here.
+      // W3 + BO-3: approval delivers item rows and grants entitlements, then
+      // kicks the asset materializer in the background. The box flips to
+      // 'delivered' only when every generative slot has a stored asset — the
+      // subscriber never opens a box with missing paid content.
       if (action === "approve") {
         const [boxRows]: any = await getPool().query(
           `SELECT id, user_phone, plan_json FROM wardrobe_wags_boxes WHERE id = ? LIMIT 1`,
@@ -2794,8 +2825,11 @@ async function startServer() {
         const plan = boxRow?.plan_json
           ? (typeof boxRow.plan_json === "string" ? JSON.parse(boxRow.plan_json) : boxRow.plan_json)
           : null;
-        const delivery = await deliverBox(getPool(), { id, user_phone: boxRow.user_phone, plan_json: plan });
-        return res.json({ id, status: "delivered", delivery });
+        const delivery = await deliverBox(getPool(), { id, user_phone: boxRow.user_phone, plan_json: plan }, { finalizeStatus: false });
+        void materializeBoxAssets(getPool(), wagsMaterializerDeps, id)
+          .then((result) => console.log(`[wags materializer] box ${id}: generated=${result.generated} failed=${result.failed} skipped=${result.skipped} delivered=${result.delivered}`))
+          .catch((err) => console.error(`[wags materializer] box ${id} failed:`, err?.message || err));
+        return res.json({ id, status: "materializing", delivery });
       }
       res.json({ id, status: newStatus });
     } catch (err: any) {
@@ -2854,51 +2888,8 @@ async function startServer() {
     if (!idempotencyKey) return res.status(400).json({ error: "An idempotency key is required." });
     
     try {
-      const result = await checkoutDigital(getPool() as any, req.user!.phone, String(req.params.uuid), idempotencyKey);
-      if (result.checkoutUrl) {
-        return res.json({ checkoutUrl: result.checkoutUrl });
-      }
-      
-      const session = await stripe.checkout.sessions.create({
-        // Card only. us_bank_account (ACH) and cashapp can settle asynchronously
-        // — the buyer would pay, wait days, and only then receive a download that
-        // the product presents as instant. Entitlements are granted on
-        // checkout.session.completed, so a delayed method also leaves the order
-        // sitting in awaiting_payment with no user-visible explanation. Revisit
-        // when there is a pending-payment state in the UI to match.
-        payment_method_types: ["card"],
-        line_items: [{
-          price_data: {
-            currency: "usd",
-            product_data: {
-              // Name the actual listing. This string is what the buyer sees on
-              // the Stripe page and, in truncated form, on their statement — a
-              // generic name is a known driver of "unrecognised charge" disputes.
-              name: result.title || "Pawsome3D Digital Model",
-              description: "Digital 3D model download — instant access after payment.",
-            },
-            unit_amount: result.priceCents,
-          },
-          quantity: 1,
-        }],
-        mode: "payment",
-        // The success URL doesn't grant, it only redirects and polls
-        success_url: `${process.env.APP_URL || "http://localhost:5173"}/fur-bin?digital_success=true&order_id=${result.orderId}`,
-        cancel_url: `${process.env.APP_URL || "http://localhost:5173"}/marketplace`,
-        metadata: {
-          type: "marketplace_digital",
-          digitalOrderId: String(result.orderId),
-          userPhone: req.user!.phone,
-          listingId: String(result.listingId)
-        },
-      });
-      
-      await getPool().query(
-        `UPDATE marketplace_digital_orders SET stripe_session_id = ?, checkout_url = ? WHERE id = ?`,
-        [session.id, session.url, result.orderId]
-      );
-      
-      res.json({ checkoutUrl: session.url });
+      const result = await checkoutDigital(getPool() as any, req.user!.phone, String(req.params.uuid), idempotencyKey, stripe, process.env.APP_URL);
+      res.json({ checkoutUrl: result.checkoutUrl });
     } catch (err: any) {
       if (err.status) res.status(err.status);
       else res.status(500);
@@ -4271,6 +4262,18 @@ async function startServer() {
           };
 
       // Layer 2: start Tripo3D generation (multiview when turnaround views exist).
+      // BO-0: When V3 is live, refuse new legacy avatar builds — route through Create flow.
+      if (isModelBuildV3Enabled()) {
+        // Already charged — refund before rejecting
+        if (!isAdmin && payableAvatarCost > 0) {
+          try { await restoreReservedGenerationCredits(req.user!.phone, payableAvatarCost); } catch {}
+          avatarCreditsDebited = 0;
+        }
+        return res.status(503).json({
+          error: "Legacy avatar creation is disabled during migration. Use the Create flow instead.",
+          code: "LEGACY_AVATAR_DISABLED",
+        });
+      }
       const handle = await startImageTo3D({ imageUrl: finalImageUrl, views: viewSet, geometry: geo });
       const avatarId = await createAvatar(req.user!.phone, name, finalImageUrl, handle, {
         avatar_type: avatarType,
@@ -4314,6 +4317,8 @@ async function startServer() {
   // and restarts the pipeline from Tripo (same path as /retry). The 45-minute
   // reaper above remains the terminal backstop if resumes keep failing.
   async function resumeStalledBuilds() {
+    // PHASE BO-0: retired when MODEL_BUILD_V3_ENABLED is true
+    if (isModelBuildV3Enabled()) return;
     let rows: any[] = [];
     try {
       const [result]: any = await getPool().query(
@@ -4355,8 +4360,10 @@ async function startServer() {
       }
     }
   }
-  resumeStalledBuilds();
-  setInterval(resumeStalledBuilds, 3 * 60 * 1000);
+  if (!isModelBuildV3Enabled()) {
+    resumeStalledBuilds();
+    setInterval(resumeStalledBuilds, 3 * 60 * 1000);
+  }
 
   app.get("/api/avatars/:id/status", requireAuth, async (req: AuthedRequest, res) => {
     try {
@@ -4364,7 +4371,7 @@ async function startServer() {
       const avatar = await getAvatarById(avatarId, req.user!.phone);
       if (!avatar) return res.status(404).json({ error: "Avatar not found" });
 
-      if (avatar.generation_status === "done" || avatar.generation_status === "failed") {
+      if (["done", "done_static_fallback", "failed"].includes(avatar.generation_status)) {
         return res.json({ 
           status: avatar.generation_status,
           model_url: avatar.model_url,
@@ -4432,6 +4439,25 @@ async function startServer() {
 
           await updateAvatarGenerationStatus(avatarId, "rigging");
 
+          if (isModelBuildV3Enabled()) {
+            // BO-0: V3 is live — persist the paid Tripo GLB as a static model
+            // and mark done. The user paid for Tripo generation; we must not
+            // refund or fail them. The legacy rig pipeline is skipped.
+            console.log(`[Avatar ${avatarId}] MODEL_BUILD_V3_ENABLED=true, persisting static GLB, skipping rig pipeline`);
+            let modelUrl: string;
+            try {
+              modelUrl = await uploadBinaryFromUrl(glbUrl, "model/gltf-binary");
+            } catch (e: any) {
+              console.error(`[Avatar ${avatarId}] Failed to mirror GLB to durable storage:`, e?.message || e);
+              await updateAvatarGenerationStatus(avatarId, "failed", "Failed to store model");
+              avatarBuildLocks.delete(avatarId);
+              return res.json({ status: "failed", error: "Failed to store model" });
+            }
+            await updateAvatarModel(avatarId, avatarPhone, modelUrl, "", {});
+            await updateAvatarGenerationStatus(avatarId, "done");
+            avatarBuildLocks.delete(avatarId);
+            return res.json({ status: "done", model_url: modelUrl });
+          }
           // Spawn background agent pipeline
           (async () => {
              try {
@@ -5776,17 +5802,36 @@ async function startServer() {
     try {
       const phone = req.user!.phone;
       const [creationRows] = await getPool().query(
-        `SELECT id, 'creation' AS source_type, pet_name AS name, pet_breed AS breed,
-                image_url, model_url, NULL AS rigged_model_url, created_at,
-                CASE WHEN model_url IS NULL THEN 'building' ELSE 'done' END AS status
-         FROM creations WHERE user_phone = ? AND media_type = 'model'`,
+        `SELECT c.id, 'creation' AS source_type, c.pet_name AS name, c.pet_breed AS breed,
+                c.image_url, c.model_url, NULL AS rigged_model_url, c.created_at,
+                CASE WHEN c.model_url IS NULL THEN 'building' ELSE 'done' END AS status,
+                COALESCE(gj.canonical_asset_uuid, '') AS canonical_asset_uuid,
+                CASE
+                  WHEN gj.generation_refunded_at IS NOT NULL THEN 'refunded'
+                  WHEN gj.rig_refunded_at IS NOT NULL THEN 'refunded'
+                  WHEN gj.credits_reserved > 0 AND c.model_url IS NOT NULL THEN 'charged'
+                  WHEN c.model_url IS NULL THEN 'not_charged'
+                  ELSE 'not_charged'
+                END AS billing_disposition,
+                gj.recovery_reason AS failure_code
+         FROM creations c
+         LEFT JOIN generation_jobs gj ON gj.creation_id = c.id
+         WHERE c.user_phone = ? AND c.media_type = 'model'`,
         [phone]
       ) as any;
       const [avatarRows] = await getPool().query(
-        `SELECT id, 'avatar' AS source_type, name, breed, image_url, model_url,
-                rigged_model_url, created_at, generation_status AS status
-         FROM avatars
-         WHERE user_phone = ? AND (model_url IS NOT NULL OR rigged_model_url IS NOT NULL)`,
+        `SELECT a.id, 'avatar' AS source_type, a.name, a.breed, a.image_url, a.model_url,
+                a.rigged_model_url, a.created_at, a.generation_status AS status,
+                '' AS canonical_asset_uuid,
+                CASE
+                  WHEN a.generation_status = 'done' THEN 'charged'
+                  WHEN a.generation_status = 'done_static_fallback' THEN 'charged'
+                  WHEN a.generation_status = 'failed' THEN 'refunded'
+                  ELSE 'not_charged'
+                END AS billing_disposition,
+                a.generation_error AS failure_code
+         FROM avatars a
+         WHERE a.user_phone = ? AND (a.model_url IS NOT NULL OR a.rigged_model_url IS NOT NULL)`,
         [phone]
       ) as any;
       const seen = new Set<string>();
@@ -7047,6 +7092,31 @@ async function startServer() {
               await setCreationModelUrl(job.creation_id!, req.user!.phone, durableUrl).catch(() => {
                 // creation_id may be null for arbitrary images — that's fine
               });
+              // PHASE BO-0: Register as canonical asset + record persistence event
+              const { registerLegacyModelAsset } = await import("./server/legacy-asset-registration");
+              const { recordPersistenceEvent } = await import("./server/model-persistence-events");
+
+              void registerLegacyModelAsset({
+                ownerId: req.user!.phone,
+                glbUrl: durableUrl,
+                sha256: "unknown",
+                sizeBytes: 0,
+                sourceImageUrl: "",
+                jobId,
+                creationId: job.creation_id ?? undefined,
+              }).then((assetUuid) => {
+                if (assetUuid) {
+                  getPool().query(
+                    "UPDATE generation_jobs SET canonical_asset_uuid = ? WHERE id = ?",
+                    [assetUuid, jobId],
+                  ).catch(() => {});
+                }
+              });
+
+              void recordPersistenceEvent("static_glb_stored", {
+                jobId,
+                detail: "Model stored and registered from /api/image-to-3d/:jobId/status",
+              });
               return res.json({ status: "done", model_url: durableUrl, progress: 100 });
             }
             return res.json({ status: "done", model_url: null, progress: 100 });
@@ -7062,6 +7132,9 @@ async function startServer() {
       }
 
       // Terminal states
+      if (job.status === "done_static_fallback") {
+        return res.json({ success: true, status: "done_static_fallback", model_url: (job as any).model_url || null, error: null });
+      }
       res.json({ status: job.status, model_url: (job as any).model_url || null });
     } catch (err: any) {
       res.status(500).json({ success: false, error: "Failed to check job status." });
@@ -7126,6 +7199,31 @@ async function startServer() {
                   const status = await finishStoredPipelineModel(jobId, providerGate.claim, modelUrl);
                   if (status === "done") {
                     await sendSms(req.user!.phone, `🐾 Paws & Memories: Your 3D pet model is ready! View it at ${process.env.APP_URL || "your app"}.`);
+                    // PHASE BO-0: Register as canonical asset + record persistence event
+                    const { registerLegacyModelAsset } = await import("./server/legacy-asset-registration");
+                    const { recordPersistenceEvent } = await import("./server/model-persistence-events");
+
+                    void registerLegacyModelAsset({
+                      ownerId: req.user!.phone,
+                      glbUrl: modelUrl,
+                      sha256: "unknown",
+                      sizeBytes: 0,
+                      sourceImageUrl: "",
+                      jobId,
+                      creationId: job.creation_id ?? undefined,
+                    }).then((assetUuid) => {
+                      if (assetUuid) {
+                        getPool().query(
+                          "UPDATE generation_jobs SET canonical_asset_uuid = ? WHERE id = ?",
+                          [assetUuid, jobId],
+                        ).catch(() => {});
+                      }
+                    });
+
+                    void recordPersistenceEvent("static_glb_stored", {
+                      jobId,
+                      detail: "Model stored and registered from /api/jobs/:id poll",
+                    });
                   }
                   return res.json({ success: true, status, model_url: modelUrl });
                 }
@@ -7205,6 +7303,15 @@ async function startServer() {
         }
       }
 
+      if (job.status === "done_static_fallback") {
+        // PHASE BO-0: Record persistence event
+        const { recordPersistenceEvent } = await import("./server/model-persistence-events");
+        void recordPersistenceEvent("done_static_fallback", {
+          jobId,
+          detail: "Job completed via static fallback (rig skipped)",
+        });
+        return res.json({ success: true, status: "done_static_fallback", model_url: (job as any).model_url || null, error: null });
+      }
       res.json({ success: true, status: job.status, video_url: null, error: job.error });
     } catch (err: any) {
       console.error("Error polling job:", err);
@@ -7318,6 +7425,33 @@ async function startServer() {
                   const status = await finishStoredPipelineModel(job.id, providerGate.claim, modelUrl);
                   if (status === "done") {
                     await sendSms(job.user_phone, `🐾 Paws & Memories: Your 3D pet model is ready! View it at ${process.env.APP_URL || "your app"}.`);
+                    // PHASE BO-0: Register as canonical asset + record persistence event
+                    const { registerLegacyModelAsset } = await import("./server/legacy-asset-registration");
+                    const { recordPersistenceEvent } = await import("./server/model-persistence-events");
+
+                    // Register as canonical asset (non-blocking, non-fatal)
+                    void registerLegacyModelAsset({
+                      ownerId: job.user_phone,
+                      glbUrl: modelUrl,
+                      sha256: "unknown",
+                      sizeBytes: 0,
+                      sourceImageUrl: "",
+                      jobId: job.id,
+                      creationId: job.creation_id ?? undefined,
+                    }).then((assetUuid) => {
+                      if (assetUuid) {
+                        getPool().query(
+                          "UPDATE generation_jobs SET canonical_asset_uuid = ? WHERE id = ?",
+                          [assetUuid, job.id],
+                        ).catch(() => {});
+                      }
+                    });
+
+                    // Record persistence event
+                    void recordPersistenceEvent("static_glb_stored", {
+                      jobId: job.id,
+                      detail: "Model stored and registered from background sweep",
+                    });
                   }
                   continue;
                 }
