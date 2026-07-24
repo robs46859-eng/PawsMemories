@@ -145,8 +145,40 @@ export default function WagsAdminPanel({ onClose }: Props) {
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || "Update failed.");
-      setReviewMsg((prev) => ({ ...prev, [box.id]: action === "approve" ? "✓ Approved" : "✗ Rejected" }));
-      setBoxes((prev) => prev.map((b) => b.id === box.id ? { ...b, status: data.status } : b));
+      setReviewMsg((prev) => ({
+        ...prev,
+        [box.id]: action === "approve"
+          ? (data.status === "materializing" ? "✓ Approved — generating slot assets…" : "✓ Approved")
+          : "✗ Rejected",
+      }));
+      // "materializing" is transient server work; the box row remains approved
+      // until every generative slot has a stored asset, then flips delivered.
+      setBoxes((prev) => prev.map((b) => b.id === box.id
+        ? { ...b, status: data.status === "materializing" ? "approved" : data.status }
+        : b));
+    } catch (err: any) {
+      setReviewMsg((prev) => ({ ...prev, [box.id]: err.message }));
+    } finally {
+      setReviewBusy((prev) => ({ ...prev, [box.id]: false }));
+    }
+  };
+
+  // BO-3: regenerate failed/pending slot assets for an approved box. Idempotent
+  // server-side — slots already generated are skipped; success flips delivered.
+  const handleMaterialize = async (box: WagsBox) => {
+    setReviewBusy((prev) => ({ ...prev, [box.id]: true }));
+    setReviewMsg((prev) => ({ ...prev, [box.id]: "Generating slot assets…" }));
+    try {
+      const r = await authedFetch(`/api/admin/wags/boxes/${box.id}/materialize`, { method: "POST" });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || "Materialization failed.");
+      setReviewMsg((prev) => ({
+        ...prev,
+        [box.id]: `Assets: ${data.generated} generated, ${data.failed} failed, ${data.skipped} skipped${data.delivered ? " — box delivered" : ""}`,
+      }));
+      if (data.delivered) {
+        setBoxes((prev) => prev.map((b) => b.id === box.id ? { ...b, status: "delivered" } : b));
+      }
     } catch (err: any) {
       setReviewMsg((prev) => ({ ...prev, [box.id]: err.message }));
     } finally {
@@ -450,6 +482,17 @@ export default function WagsAdminPanel({ onClose }: Props) {
                           {reviewBusy[box.id] ? <RefreshCw size={14} className="animate-spin" /> : <XCircle size={14} />}
                           Reject
                         </button>
+                        {box.status === "approved" && (
+                          <button
+                            type="button"
+                            disabled={reviewBusy[box.id]}
+                            onClick={() => handleMaterialize(box)}
+                            className="flex items-center gap-2 rounded-xl border border-emerald-600/40 px-4 py-2 text-sm font-black text-emerald-700 disabled:opacity-50 hover:bg-emerald-50"
+                          >
+                            {reviewBusy[box.id] ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                            Generate assets
+                          </button>
+                        )}
                         <button
                           type="button"
                           disabled={planBusy[box.id]}
